@@ -58,7 +58,7 @@ jq '{receipt: .}' receipt.json \
 | `bands`, `functions`, `sources` | the registry as JSON |
 | `errors` | the error code catalog as JSON (24 codes; see the note below) |
 | `keygen` | a new Ed25519 key pair in lower-case base32. The output includes the secret key. |
-| `cell <cell64>` | the 64-bit cell id, in decimal and hex, with its resolution and base cell |
+| `cell <cell64>` | the 64-bit cell id in decimal and hex. The `resolution` and `base_cell` fields use the emem-core bit layout, so they are wrong for a geo `cell64`. |
 | `cell-encode <u64>` | the `cell64` text for a 64-bit cell id |
 | `verify <path or ->` | the signature check of one receipt. Use `-` to read the receipt from standard input. |
 
@@ -100,7 +100,7 @@ verify. We did not run these commands for this page (no Rust toolchain).
 | `EMEM_TILE_STORE_GB` | `40` | disk budget for local copies of forest rasters. `0` turns it off. |
 | `EMEM_OVERTURE_SKIP_WARMUP` | off | `1` skips the Overture cache warm-up at start. Use it on a node without internet. |
 | `EMEM_SHUTDOWN_GRACE_S` | `3` (30 at most) | seconds that open requests get after a stop signal |
-| `EMEM_STOP_GRACE_S` | `60` | the container stop timeout. The server uses it to limit the database close. |
+| `EMEM_STOP_GRACE_S` | `60` (5 to 3600) | the container stop timeout. The server uses it to limit the database close. |
 
 Other modules read more variables, for example `EMEM_FACT_PLANE_OPEN` and
 `EMEM_EARTHDATA_TOKEN`. For deployment and more variables, read
@@ -113,8 +113,12 @@ container image from the root `Dockerfile`. That image holds only
 
 ## Demo clients and admin tools
 
-All demo clients use `http://localhost:5051` (or `127.0.0.1:5051`) by
-default. Give another URL as the first argument or in `EMEM_BASE_URL`.
+Four demo clients use `http://localhost:5051` by default: `emem-demo`,
+`emem-livedemo`, `emem-realdemo` and `emem-connect-demo`. Give another URL
+as the first argument or in `EMEM_BASE_URL`. `emem-ask-eval` uses
+`http://127.0.0.1:5051` by default; give another URL with `--base` or in
+`EMEM_BASE_URL`. `emem-demo-device` uses `https://emem.dev` by default; give
+another URL with `--base` or in `EMEM_BASE`.
 
 | Binary | What it does | Writes to the server |
 |---|---|---|
@@ -123,7 +127,7 @@ default. Give another URL as the first argument or in `EMEM_BASE_URL`.
 | `emem-realdemo` | reads Copernicus DEM tile headers from public S3 and attests two bands per place | yes, `/v1/attest_cbor` |
 | `emem-connect-demo` | runs the steps of [examples/connect-and-evolve.md](../../examples/connect-and-evolve.md) | yes, `/v1/attest_cbor` and `/v1/edges` |
 | `emem-ask-eval` | sends a fixed set of questions to `/v1/ask`. It exits 1 if one routes to the wrong topic or has no receipt. | no |
-| `emem-demo-device` | enrolls this host as a demo device and publishes an ftrace window. Default URL `https://emem.dev`. Needs the operator endorser key. | yes |
+| `emem-demo-device` | enrolls this host as a demo device and publishes an ftrace window. Default URL `https://emem.dev`. Needs the operator endorser key and `--trace-dir` with a capture from `scripts/manual/capture_ftrace.sh` (root). | yes |
 | `emem-sled-slim` | copies the live sled trees to a new store. Dry run by default; `--apply` writes. | local store only |
 | `emem-purge-fnkey` | removes cached facts with a given `fn_key` from the sled store. Dry run by default. | local store only |
 

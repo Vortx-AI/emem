@@ -104,8 +104,9 @@ Each record is a 4-byte little-endian length, the CBOR of the
 attestation, and the BLAKE3 hash of that CBOR. The crate names each segment file
 `merkle.log.<n>`. When a segment reaches 1 GiB, the crate closes it and
 writes a 32-byte BLAKE3 hash of the full segment at its end.
-`AttestationLog::verify` checks those hashes for the closed segments. It
-does not check the open segment.
+`AttestationLog::verify` checks the trailing hash of every segment file.
+It does not skip the open segment. The open segment has no trailing hash, so
+it shows in `bad` as a mismatch when it holds 32 bytes or more.
 
 `emem-api-rest` builds the RFC 6962 transparency log at `/v1/log/*` from
 the record hashes of this log. The tree rules are in `emem-attest`.

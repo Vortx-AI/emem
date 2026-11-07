@@ -30,8 +30,8 @@ curl -s https://emem.dev/v1/verify -H 'Content-Type: application/json' \
 ```
 
 It needs `curl` and `jq`, and no key. `cell` takes a cell64, or a place name
-that the responder geocodes. `evidence` lists the fact ids that the verdict
-used. The full response also holds a signed receipt. With `"op":"lt"` the
+that the responder geocodes. `evidence` lists every fact id at the cell for that
+band and time scope. The claim was tested against these facts. The full response also holds a signed receipt. With `"op":"lt"` the
 verdict is `false`. The command ran on 7 November 2026.
 
 ## The claim shape
@@ -88,7 +88,8 @@ emem.dev on 7 November 2026:
 | A type mismatch returns `ClaimError::TypeMismatch` in `verify` | `verify` returns `verdict: false`. A string `value` against a numeric band gave `false`. |
 | The crate has an evaluator | No type in the workspace has an `impl Evaluator`. No code outside this file uses `ClaimError`. |
 
-`src/lib.rs` also does not use the `emem-fact` dependency in `Cargo.toml`.
+`src/lib.rs` also does not use the `emem-core` or `emem-fact` dependencies in
+`Cargo.toml`.
 
 ## Rules for changing this crate
 

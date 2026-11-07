@@ -77,7 +77,9 @@ next to it, at `<dir>/facts.redb`.
 Older nodes kept the first four tables in sled. When the redb file is new,
 the node copies those sled rows into it in the background. A read that
 misses in redb also looks in sled until the node finishes the copy of the fact index.
-After that, the node reads facts only from redb.
+After that, the node reads the fact index only from redb. When redb has
+no body for a fact id, the node reads it once from sled and copies it into
+redb.
 
 A derivative fact has no `(cell, band, tslot)` address. The node stores its
 bytes under its fact id, but it adds no row to the index.
@@ -94,8 +96,9 @@ bytes under its fact id, but it adds no row to the index.
   reading.
 - Every sled call runs on the blocking thread pool, under a semaphore. The
   comments in `sled_hot.rs` record the outages that caused this rule.
-- A write to redb is durable when the commit returns
-  (`Durability::Immediate`).
+- A fact write through `put_many` is durable when the commit returns
+  (`Durability::Immediate`). The background copy and the read repair use
+  `Durability::None`.
 - Call `RedbFacts::close` before the process exits. Without it, redb marks
   the file for repair, and the next start walks the whole file.
 

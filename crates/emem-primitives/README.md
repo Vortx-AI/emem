@@ -12,7 +12,7 @@ serves each primitive at a `POST /v1/...` route and as an MCP tool.
 | | |
 |---|---|
 | Version | 2.4.4 (workspace version in the root `Cargo.toml`) |
-| Used by | `emem-api-rest` (all routes below). `emem-mcp` uses one request type. `emem-cli` lists the crate in `Cargo.toml` but does not use it. |
+| Used by | `emem-api-rest` (all routes below). `emem-mcp` uses one request type in its tests. `emem-cli` lists the crate in `Cargo.toml` but does not use it. |
 | Uses | `emem-core`, `emem-fact`, `emem-claim`, `emem-cache`, `emem-storage`, `emem-codec`, `emem-fetch` |
 | Tests | 134 unit tests inline in `src/` (92 `#[test]`, 42 `#[tokio::test]`, 1 of them `#[ignore]`), 21 integration tests in `tests/` |
 | Specification | [docs/protocol.md](../../docs/protocol.md) |
@@ -66,8 +66,8 @@ receipt.
 | `edges_recall` | `POST /v1/edges/recall` | the signed temporal edges that start at a fact |
 
 The primitives read only facts that storage already holds. They do not
-fetch from upstream, with one exception: `verify` in `Resolve` mode asks
-storage to make a missing fact. The fetch on a `recall` miss happens in
+fetch from upstream. `verify` in `Resolve` mode calls `materialize_many`,
+which also does not fetch. A miss gives `MaterializeMiss`. The fetch on a `recall` miss happens in
 `emem-api-rest` (`recall_with_auto_materialize`), before it calls
 `recall`.
 
@@ -99,7 +99,7 @@ loads on the first call. Without the model on disk, search returns a typed
 
 ## Settings
 
-The crate reads these environment variables. The defaults come from the
+The main environment variables are below. The defaults come from the
 code.
 
 | Variable | Default | Effect |
@@ -122,6 +122,11 @@ code.
 | `EMEM_REFINEMENT_MAX_PAIRS` | 1 | pairs of facts that the worker uses for each contradiction |
 | `EMEM_REFINEMENT_CELL_PREFIX` | not set | limits the refinement worker to cells with this prefix |
 | `EMEM_SSE_MAX_SUBS` | 256 | most memory-event stream subscribers |
+| `EMEM_RECALL_EDGES_PER_FACT` | 32 | most temporal edges that `recall` adds for one fact |
+| `EMEM_RECALL_EDGES_TOTAL_CAP` | 256 | most temporal edges that one `recall` adds |
+| `EMEM_EDGES_DEFAULT_LIMIT` | 100 | edges that `edges_recall` returns when the call gives no `limit` |
+| `EMEM_EDGES_MAX_LIMIT` | 1,000 | most edges that `edges_recall` returns |
+| `EMEM_MEMORY_TTL_<KIND>_DAYS` | 30 for `EPISODIC`, 90 for `RESOURCE`, 0 for the others | days before a note of that kind expires; 0 means no expiry. `<KIND>` is `CORE`, `RESOURCE`, `EPISODIC`, `SEMANTIC`, `PROCEDURAL` or `VAULT` |
 
 ## Examples and benchmarks
 

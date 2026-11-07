@@ -87,7 +87,8 @@ with that server in an `Arc`. The `router` function does these steps:
    distinct paths. 188 of the paths start with `/v1/`.
 3. It adds the shared layers to all routes.
 4. It merges three sub-routers that need a longer timeout: `/splats`,
-   `/v1/perception/*path` and `/v1/eudr_dds`.
+   `/v1/perception/*path`, and the EUDR router with `/v1/eudr_dds`,
+   `/v1/field_burn_scar` and `/v1/field_actual_et`.
 
 The live OpenAPI document lists 194 paths. The router has more paths,
 because web pages, `.well-known` files and aliases are not in the
@@ -97,19 +98,19 @@ OpenAPI document.
 
 | Layer | Default | Variable |
 |---|---|---|
-| Requests in flight, process-wide. Request number 129 gets a fast 503. | 128 | `EMEM_MAX_INFLIGHT` (8 to 4096) |
+| Requests in flight on the main router. Request number 129 gets a fast 503. The three sub-routers do not get this limit. | 128 | `EMEM_MAX_INFLIGHT` (8 to 4096) |
 | Gateway timeout. A slow request gets a typed 504. | 40 s | `EMEM_TIMEOUT_SECS` (1 to 600) |
 | Rate limit per client IP (token bucket) | 10 requests per second, burst 120 | `EMEM_RATE_LIMIT_RPS`, `EMEM_RATE_LIMIT_BURST` |
 | Request body limit | 16 MB | `EMEM_BODY_LIMIT_MB` (1 to 256) |
-| Timeout of `/v1/eudr_dds` | 610 s | `EMEM_EUDR_TIMEOUT_SECS` plus 10 s |
-| Requests in flight on `/v1/eudr_dds` | 3 | `EMEM_EUDR_MAX_INFLIGHT` (1 to 64) |
+| Timeout of the EUDR and field-signal routes | 610 s | `EMEM_EUDR_TIMEOUT_SECS` plus 10 s |
+| Requests in flight on the EUDR and field-signal routes | 3 | `EMEM_EUDR_MAX_INFLIGHT` (1 to 64) |
 | Timeout of `/splats` | 180 s | `EMEM_SPLATS_TIMEOUT_S` (40 to 600) |
 | Timeout of `/v1/perception/*path` | 120 s | `EMEM_PERCEPTION_TIMEOUT_S` (40 to 600) |
 
 The other shared layers add security headers and CORS, catch a panic as a
 typed 500, write the access log and compress responses with gzip. The
-concurrency limit does not apply to `/health`, `/v1/health`, `/live`,
-`/ping` and `/metrics`, so a probe always gets an answer.
+concurrency limit does not apply to `/health`, `/v1/health`,
+`/a2a/tasks/health`, `/live`, `/ping` and `/metrics`, so a probe always gets an answer.
 
 The source reads 167 distinct `EMEM_*` variables. The operator guide
 describes the ones an operator sets. See
@@ -151,9 +152,13 @@ in the developer guide. That guide calls the OpenAPI builder
 
 | Value | What it does |
 |---|---|
-| `ort` (default) | Runs a BERT-type ONNX model with `ort`. The model directory comes from `EMEM_TOPIC_MODEL_DIR`. The default is `<EMEM_DATA>/models/bge-base-en-v1.5`. |
+| `ort` (default) | Runs a BERT-type ONNX model with `ort`. The model directory comes from `EMEM_TOPIC_MODEL_DIR`. When only `EMEM_DATA` is set, the directory is `<EMEM_DATA>/models/bge-base-en-v1.5`. If neither variable is set, `ort` cannot load a model. |
 | `model2vec` | Uses the static `minishlab/potion-base-8M` embedder. Pure Rust, no ONNX Runtime. |
 | `keyword` | Uses keyword tables only. Loads no model. |
+
+When `ort` fails to load, the router tries `model2vec`. When `model2vec`
+also fails, the router uses `keyword`. Each fallback writes a warning to
+the log.
 
 On 7 November 2026, `GET /v1/agent_card` on emem.dev gave
 `manifests.topic_router_backend` = `ort`. To put the model in place

@@ -142,7 +142,7 @@ does not guess.
 | `EMEM_OVERTURE_RELEASE` | `overture` | Pins one Overture release | the latest release |
 | `EMEM_OVERTURE_PARALLEL` | `overture` | Parallel parquet file reads, from 1 to 256 | 32 |
 | `EMEM_EARTHDATA_TOKEN`, `EMEM_EARTHDATA_TOKEN_FILE` | `opera_dist` | NASA Earthdata token, or a file that holds it | none |
-| `EMEM_DATA` | `jrc_tmf`, `koppen`, `dmsp_ols` | Root of the local cache for downloaded files | see each module |
+| `EMEM_DATA` | `jrc_tmf`, `koppen`, `dmsp_ols` | Root of the local cache for downloaded files | `./var/emem` (through `emem_core::data_dir`) |
 | `EMEM_TILE_STORE_GB` | `tile_store`, read by `emem-server` | Disk budget for the local raster copies under `<EMEM_DATA>/tile_store`. `0` turns the store off | 40 |
 | `EMEM_WRI_GDM_CACHE` | `wri_gdm_drivers` | Local copy of the drivers raster | none |
 | `EMEM_WIKIDATA_API` | `wikidata` | Wikidata API URL | `https://www.wikidata.org/w/api.php` |

@@ -2,8 +2,8 @@
 
 `emem-core` holds the base types and the registries of the emem protocol.
 It defines the cell and time slot types, the error codes and the key types.
-It also loads the ten registry files in `data/` and computes the content id
-of each.
+It holds ten files in `data/`. It loads nine of them as registries and
+computes the content id of each.
 
 You need this crate when you add a band, a source, an algorithm or an error
 code. You also need it when you write Rust code that reads a registry. To
@@ -50,7 +50,7 @@ toolchain. The count of 147 tests comes from the `#[test]` lines in `src/`.
 
 ## The registry files
 
-The build puts each file in `data/` into the binary with `include_str!`.
+The build puts the nine registry files into the binary with `include_str!`.
 The loader parses the file at first use and checks it. If an embedded file is
 not valid, the process stops with a panic.
 

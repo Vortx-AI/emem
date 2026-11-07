@@ -13,7 +13,7 @@ check a trace from any language, you do not need it: send the trace to
 | | |
 |---|---|
 | Version | 2.4.4 (workspace version in the root `Cargo.toml`) |
-| Used by | `emem-airgap`, `emem-api-rest`, `emem-cli`, `emem-storage`; `emem-primitives` in one example only |
+| Used by | `emem-airgap`, `emem-api-rest`, `emem-cli`, `emem-storage`; `emem-primitives` in two examples only (`satellite_downlink.rs`, `orin_stream.rs`) |
 | Uses | `emem-core` (substrate profiles, platform registry), `emem-attest` (preimage, Merkle root) |
 | Tests | 13 unit tests in `src/`, 10 integration tests in `tests/` |
 | Test vectors | 4 files in [spec/test_vectors/os_trace/](../../spec/test_vectors/os_trace/) |
@@ -113,7 +113,7 @@ has no store, so it cannot check that the previous trace exists.
 | Caller | What it does |
 |---|---|
 | `emem-storage` (`trace_gate.rs`) | The write gate. A key enrolled as a device can write only through it. It stores admitted traces and links each fact to its trace. |
-| `emem-api-rest` | `POST /v1/trace_verify` (stateless check), `POST /v1/trace_resolve` (token to stored trace), `POST /v1/enroll_verify`, `POST /v1/attest_traced` (write), `GET /v1/devices`, `GET /v1/device_platforms`, `GET /v1/trace_encodings`. |
+| `emem-api-rest` | `POST /v1/trace_verify` (stateless check), `POST /v1/trace_resolve` (token to stored trace), `POST /v1/enroll_verify`, `POST /v1/enroll_attested`, `POST /v1/attest_traced` (write), `GET /v1/devices`, `GET /v1/device_platforms`, `GET /v1/trace_encodings`. |
 | `emem-airgap` | Encodes traces on a device with no network and checks them. |
 | `emem-cli` | `emem-demo-device` builds and sends a real ftrace window from one host. |
 
@@ -135,7 +135,7 @@ has no store, so it cannot check that the previous trace exists.
 
 | Ships | Does not ship |
 |---|---|
-| The trace record, the verifier, the tokens and the 4 vectors | A public enrolment route. The node operator enrols each device. |
+| The trace record, the verifier, the tokens and the 4 vectors | Self-service enrolment for vendor hardware. `POST /v1/enroll_attested` ships, but it admits a key only when an effective anchor endorses it. Today only the operator anchor is effective. |
 | Platform attestation v0: one Ed25519 endorser signature over a BLAKE3 preimage | X.509 or DICE chain checks, and checks of boot measurements against reference values. The code calls these the v1 step. |
 | An operator anchor, set with `EMEM_OPERATOR_ENDORSEMENTS` on a node | An effective vendor anchor. All 16 anchors in `device-platforms-v0.json` are provisional, so no vendor attestation is admitted. |
 | The drift score and its three verdicts: `consistent` below 3 sigma, `tension` to 9 sigma, `contradicted` above | Code that calls the drift score on the write path. Only the example `crates/emem-primitives/examples/satellite_downlink.rs` calls it. |

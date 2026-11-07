@@ -19,7 +19,7 @@ it. Connect an MCP client to `https://emem.dev/mcp`.
 |---|---|
 | Version | 2.4.4 (workspace version in the root `Cargo.toml`) |
 | Used by | `emem-api-rest`. `emem-cli` lists it as a dependency but does not use it. |
-| Uses | `serde`, `serde_json`. The tests also use `emem-primitives`, `emem-claim` and `regex`. |
+| Uses | `serde`, `serde_json`. The tests also use `emem-primitives` and `regex`. |
 | Tests | 39 unit tests inline in `src/lib.rs` (all `#[test]`) |
 | Source | one file, `src/lib.rs`, 4,994 lines |
 
@@ -69,7 +69,7 @@ gave the same tool counts on that day.
 |---|---|---|
 | `TOOLS` | 116 | One `ToolDescriptor` per tool |
 | Tier `core` | 18 | Tools that `/mcp` shows in `tools/list` |
-| Tier `extended` | 98 | Tools that only `/mcp/full` shows. All tools stay callable by name through `tools/call`. |
+| Tier `extended` | 98 | Tools that `/mcp` leaves out of `tools/list` unless the request sets `tier`. `/mcp/full` lists them by default. All tools stay callable by name through `tools/call`. |
 | `CORE_LOOP` | 8 | The core loop, in order, with one line on why each step exists |
 | `TOOL_GROUPS` | 10 | Groups for the tools outside the loop, by the question they answer |
 | `TOOL_SHAPES` | 13 | The shape of each answer, for example `scalar`, `raster` or `token`. Each tool has one shape. |
@@ -129,8 +129,8 @@ level. 51 tools set `readOnlyHint` to false, and most of them are not in
   `emem-api-rest`.
 - It does not use the `rmcp` crate. The dependency is commented out in
   `Cargo.toml`.
-- `emem-core`, `emem-fact`, `emem-intent`, `ciborium`, `tokio` and
-  `thiserror` are in `Cargo.toml`, but no code in `src/lib.rs` uses
+- `emem-core`, `emem-fact`, `emem-intent`, `emem-claim`, `ciborium`,
+  `tokio` and `thiserror` are in `Cargo.toml`, but no code in `src/lib.rs` uses
   them.
 
 ## Read more
