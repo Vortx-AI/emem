@@ -791,7 +791,7 @@ default. Set `EMEM_BIND` to change it. Reads need no key.
 |---|---|
 | VS Code and GitHub Copilot | `.vscode/mcp.json`: `{ "servers": { "emem": { "type": "http", "url": "https://emem.dev/mcp" } } }`. Use `servers`, not `mcpServers`. The wrong key parses and loads nothing. You can also search `@mcp emem` in the Extensions view, because emem is in the GitHub MCP Registry. The tools show only in the **Agent** mode of Copilot Chat. |
 | Claude Code | `.mcp.json`: `{ "mcpServers": { "emem": { "type": "http", "url": "https://emem.dev/mcp" } } }` |
-| Cursor 0.42 or later | `.cursor/mcp.json`: `{ "mcpServers": { "emem": { "url": "https://emem.dev/mcp" } } }` |
+| Cursor | `.cursor/mcp.json`: `{ "mcpServers": { "emem": { "url": "https://emem.dev/mcp" } } }`. Use a release that supports Streamable HTTP. |
 | Claude Desktop | The same JSON in `claude_desktop_config.json` |
 | Cline (VS Code) | The same JSON in MCP Settings. Add `"autoApprove": [...]` for read-only tools. |
 | Gemini CLI | `gemini extensions install https://github.com/Vortx-AI/emem` |
