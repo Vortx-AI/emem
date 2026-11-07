@@ -128,8 +128,11 @@ surface-texture embedding from Sentinel-1 and Sentinel-2. emem.dev no
 longer makes new vectors for it, so the index holds only the vectors that it
 already stored. You can get fewer neighbours than `k`, as here.
 
-Read `interpretation` before you say that two places are alike. It says that
-a high score does not mean a similar climate, biome or latitude.
+Read `interpretation` before you say that two places are alike. Its
+`does_not_mean` field says that a high score does not mean a similar
+climate, biome or latitude. For climate, its `for_climate_proximity_use`
+field names the call to make: `recall` with the `koppen` band, or
+`compare_bands`.
 
 ## 6. Show how an area changed over time
 
