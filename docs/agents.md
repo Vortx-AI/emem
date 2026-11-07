@@ -2887,8 +2887,8 @@ These responses carry steps:
 - `details.next` in a signed-write refusal. It sends the same tool again
   with an `attester` block. `details.how_to_sign` is next to it.
 - `next` in `/v1/locate` and `emem_locate`, for the resolved cell.
-- `next` in `/v1/recall_polygon` is plain text, not steps. It has four
-  sentences of advice.
+- `next` in `/v1/recall_polygon` is a list of four plain strings of
+  advice. These strings are not steps.
 - `next` in `/v1/ask`, when it has no trusted place or the question asks
   what a term means. Its cold-cell `next_steps` entry also has a step.
 
