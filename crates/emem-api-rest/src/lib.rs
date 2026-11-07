@@ -38440,6 +38440,20 @@ async fn post_state_diff(
     }
 }
 
+/// A retired band never materialises, so telling the caller to recall it
+/// first sends them round a loop that cannot end.
+fn state_diff_no_facts_message(band: &str, which: &str, requested_tslot: u64) -> String {
+    if is_retired(band) {
+        format!(
+            "/v1/state_diff: no fact at tslot_{which}={requested_tslot} for ({band}) at this cell. This band is retired at this responder: it keeps the facts it already signed but materialises no new ones, so a recall will not fill this gap. Diff a band that GET /v1/bands lists, or two tslots that this cell already holds for {band}."
+        )
+    } else {
+        format!(
+            "/v1/state_diff: no fact at tslot_{which}={requested_tslot} for (this cell,{band}). The responder holds no facts on this band at this cell. Try /v1/recall with `bands:[{band}]` (no tslot) to materialise the latest vintage first, then ask state_diff against two tslots that show up under /v1/recall_polygon or /v1/coverage_matrix."
+        )
+    }
+}
+
 async fn post_state_diff_inner(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<StateDiffReq>,
@@ -38544,10 +38558,7 @@ async fn post_state_diff_inner(
                         "/v1/state_diff: {encoder} is a confirmed absence at this cell (signed \"no data\" at tslot_{which}={requested_tslot}), so there is nothing to diff on this side. For Tessera this means the vintage was never published upstream here, annual coverage before 2024 is regional, not global. Diff two vintages that both exist (check with /v1/recall on each `geotessera.YYYY`), or use the fused `geotessera.multi_year` which NaN-masks absent years."
                     )
                 } else if available.is_empty() {
-                    format!(
-                        "/v1/state_diff: no fact at tslot_{which}={requested_tslot} for ({cell},{encoder}). The responder holds no facts on this band at this cell. Try /v1/recall with `bands:[{encoder}]` (no tslot) to materialise the latest vintage first, then ask state_diff against two tslots that show up under /v1/recall_polygon or /v1/coverage_matrix.",
-                        cell = "this cell"
-                    )
+                    state_diff_no_facts_message(encoder, which, requested_tslot)
                 } else {
                     let preview: Vec<String> =
                         available.iter().rev().take(6).map(|t| t.to_string()).collect();
@@ -104366,6 +104377,27 @@ mod tests {
         assert!(is_retired(&format!("{r}.2024")));
         assert!(!is_retired(&format!("{r}x")));
         assert!(!is_retired("indices.ndvi"));
+    }
+
+    #[test]
+    fn state_diff_does_not_tell_a_retired_band_to_materialise() {
+        let r = retired_bands()
+            .iter()
+            .next()
+            .expect("one retired band")
+            .clone();
+        for band in [r.clone(), format!("{r}.2023")] {
+            let msg = state_diff_no_facts_message(&band, "a", 53);
+            assert!(msg.contains("retired"), "{msg}");
+            assert!(!msg.contains("materialise the latest"), "{msg}");
+            assert!(msg.contains("GET /v1/bands"), "{msg}");
+        }
+        let live = state_diff_no_facts_message("indices.ndvi", "b", 53);
+        assert!(!live.contains("retired"), "{live}");
+        assert!(
+            live.contains("`bands:[indices.ndvi]`") && live.contains("tslot_b=53"),
+            "{live}"
+        );
     }
 
     #[test]
