@@ -269,7 +269,7 @@ SCENES = {
     receipt="TITLE RECEIPT",
     consumers=[("registrar", "the entry"), ("surveyor", "the boundary"),
                ("bank", "the collateral")],
-    insight="Two offices resolve the same parcel handle to the same bytes."),
+    insight="Two offices resolve the same parcel token to the same bytes."),
 
 "19-esg-investing": dict(industry="ESG investing", seed=19,
     tagline="ESG scores with the receipts attached",
@@ -299,7 +299,7 @@ SCENES = {
     receipt="DUE-DILIGENCE RECEIPT",
     consumers=[("buyer", "the offer"), ("lender", "the LTV"),
                ("insurer", "the premium")],
-    insight="Every claim about the parcel resolves to one signed handle."),
+    insight="Every claim about the parcel resolves to one signed token."),
 
 "23-mining-exploration": dict(industry="mining exploration", seed=23,
     tagline="the terrain and surface-change context layer for exploration",
@@ -343,14 +343,14 @@ SCENES = {
 
 "29-eudr-supply-chain": dict(industry="EUDR supply chain", seed=29,
     cell="plot defi.zb3bb.zbb96.jUko",
-    tagline="a plot checked against 2020 forest maps, in one handle for customs",
+    tagline="a plot checked against 2020 forest maps, in one token for customs",
     bands=[("jrc_gfc2020.forest_2020", "forest"), ("forest_change.lossyear", "none"),
            ("forest_change.treecover2000", "82 %"), ("sentinel1_raw", "VV -7 dB"),
            ("indices.ndvi", "0.80")],
     receipt="EUDR DDS",
     consumers=[("operator", "the statement"), ("customs", "TRACES NT"),
-               ("importer", "hands over one handle")],
-    insight="Forest evidence for one plot, in one signed handle the border can re-check. Legality is not covered."),
+               ("importer", "hands over one token")],
+    insight="Forest evidence for one plot, in one signed token the border can re-check. Legality is not covered."),
 }
 
 

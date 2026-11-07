@@ -97,11 +97,11 @@
 <text x="600" y="514" class="h" font-size="12.5">One 64-bit address per patch of ground (~9.55 m); one</text>
 <text x="600" y="532" class="h" font-size="12.5">signed fact per observation, blake3 over canonical bytes,</text>
 <text x="600" y="550" class="h" font-size="12.5">ed25519 receipts, an append-only log with inclusion proofs.</text>
-<text x="600" y="576" class="h" font-size="12.5">Machines pass a handle, not a payload:</text>
+<text x="600" y="576" class="h" font-size="12.5">Machines pass a token, not a payload:</text>
 <g class="m" font-size="12">
 <text x="600" y="600">emem:fact:&lt;cell64&gt;:&lt;fact_cid&gt;  one observation</text>
 <text x="600" y="622">emem:trace:&lt;trace_cid&gt;       execution evidence</text>
-<text x="600" y="644">emem:bundle:&lt;bundle_cid&gt;     one pass, one handle</text>
+<text x="600" y="644">emem:bundle:&lt;bundle_cid&gt;     one pass, one token</text>
 <text x="600" y="666">emem:entity:&lt;entity_cid&gt;     one name per object</text>
 </g>
 <text x="600" y="692" class="h dim" font-size="12.5">Entity ids hash an anchor; the other three hash the bytes.</text>

@@ -448,8 +448,8 @@ def memory_vs_stac():
     s.bird(W - 170, H - 220, 36, col=LAC, angle=-0.06)
 
     # top row: raw STAC (long chain, uncited)
-    s.text(150, ty - 16, "raw STAC", 13, INK, font=MONO, weight="bold")
-    s.text(150, ty + 6, "you carry it", 11, INK_SOFT, font=MONO)
+    s.text(80, ty - 16, "raw STAC", 13, INK, font=MONO, weight="bold")
+    s.text(80, ty + 6, "you carry it", 11, INK_SOFT, font=MONO)
     for i, lab in enumerate(stac):
         if i:
             s.flow((xs[i - 1] + 28, ty), (xs[i] - 28, ty), INK_SOFT, 1.2, op=0.6)
@@ -457,11 +457,11 @@ def memory_vs_stac():
                   inner="hatch" if i < len(stac) - 1 else "ring")
         s.text(xs[i], ty + 46, lab, 11, INK, font=MONO, anchor="middle", weight="bold")
     s.text(1322, ty - 6, "uncited", 13, VERMIL, font=MONO, anchor="middle", weight="bold")
-    s.text(1322, ty + 14, "no handle", 11, INK_SOFT, font=MONO, anchor="middle")
+    s.text(1322, ty + 14, "no token", 11, INK_SOFT, font=MONO, anchor="middle")
 
     # bottom row: emem (one recall -> signed)
-    s.text(150, by - 16, "emem", 13, INK, font=MONO, weight="bold")
-    s.text(150, by + 6, "it carries it", 11, INK_SOFT, font=MONO)
+    s.text(80, by - 16, "emem", 13, INK, font=MONO, weight="bold")
+    s.text(80, by + 6, "it carries it", 11, INK_SOFT, font=MONO)
     s.roundel(360, by, 31, INDIGO, petal=True, inner="fish")
     s.text(360, by + 52, "one recall", 12, INK, font=MONO, anchor="middle", weight="bold")
     s.flow((400, by), (1322 - 100, by), LEAF, 1.7, op=0.85, glow=True)
