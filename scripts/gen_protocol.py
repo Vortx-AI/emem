@@ -303,12 +303,12 @@ def data_flow():
 
 def anatomy():
     return _pipeline("03-anatomy-of-a-request", 3, "Anatomy of a recall",
-        "a place name in, a signed fact out, in about 180 ms",
+        "a place name in, a signed fact out",
         [("place name", "\"Denver\"", INDIGO), ("locate", "cell64", TEAL),
          ("cache miss", "cold", VERMIL), ("fetch tile", "upstream COG", TURMERIC),
          ("sign", "ed25519", LAC)],
         "RECEIPT", "fact_cid + proof",
-        "A cold read costs about 180 ms; a warm one is under ten, and cite-able forever after.")
+        "On 7 Nov 2026 a cold read took about 1.2 to 1.5 s. A warm read took under 0.1 s.")
 
 
 def _cycle(name, seed, title, sub, stages, centre, signed_lab, bead, footer,
