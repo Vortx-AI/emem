@@ -291,7 +291,7 @@ which is an Ed25519 signature over the write. emem.dev refuses an unsigned write
 `memory_attestation_required`. Your namespace is `/memories/by_attester/<first 8 characters of your pubkey>/`.
 Only your key can write there. There is no account. The signature is the only credential.
 
-The CLI of the Python SDK keeps a key and signs for you. The second command below is a **write**. It needs your
+The CLI of the Python SDK keeps a key and signs for you. The last command below is a **write**. It needs your
 key, and the log keeps the note permanently.
 
 ```bash
@@ -299,10 +299,23 @@ pip install "ememdev[signing]"
 ememdev whoami      # makes ~/.emem/agent_ed25519.pem on first use; keep this file
 # {"pubkey_b32": "...", "pubkey_short": "<pubkey8>", "namespace_root": "/memories/by_attester/<pubkey8>"}
 
-# WRITE: signs a note with your key and stores it on emem.dev
-ememdev write --path /memories/by_attester/<pubkey8>/runbook.md \
-    --body "Mount Fuji: Copernicus DEM elevation 3539 m at the cell locate picked."
+NOTE="Mount Fuji: Copernicus DEM elevation 3539 m at the cell locate picked."
+P="/memories/by_attester/<pubkey8>/runbook.md"
+# Sign the v2 digest. --base absent says that nothing is at the path yet.
+ememdev sign --verb create --base absent --path "$P" --body "$NOTE" > attester.json
+
+# WRITE: stores the signed note on emem.dev
+jq -n --arg p "$P" --arg t "$NOTE" --slurpfile a attester.json \
+    '{jsonrpc: "2.0", id: 1, method: "tools/call", params: {name: "emem_memory_create",
+      arguments: ({path: $p, file_text: $t, kind: "resource"} + $a[0])}}' \
+  | curl -sX POST https://emem.dev/mcp -H 'content-type: application/json' -d @- \
+  | jq '.result.content[0].text | fromjson | {path, file_cid}'
 ```
+
+Do not use `ememdev write` from 2.4.4. It signs the retired v1 digest.
+Since 5 November 2026 the responder refuses that digest with `reason: "v1_retired"`.
+On 7 November 2026 we ran these commands against a local node built from this branch, not against emem.dev.
+The `sign` pair stored the note. `ememdev write` got the `v1_retired` refusal.
 
 Only the key that wrote a note can supersede it or delete it. Thus, test with a key that you keep.
 [Memory substrate](./memory.md) gives the wire format, the verbs and the signing preimage.

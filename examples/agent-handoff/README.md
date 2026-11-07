@@ -9,7 +9,7 @@ It reads the checkpoint and checks it.
 ## What you need
 
 - The `ememdev` CLI with the signing extra. Install it from this clone with `pip install -e "sdks/emem-py[signing]"`.
-  The PyPI package `ememdev[signing]` 2.4.4 has the same `whoami` and `write` commands.
+  The PyPI package `ememdev[signing]` 2.4.4 has the same `whoami` and `sign` commands.
 - An `emem-server` release binary at `target/release/emem-server`. Build it once with `cargo build --release --bin emem-server`.
 - `curl` and `python3`. Port 5099 must be free, or set `PORT`.
 
@@ -26,15 +26,32 @@ Run 1 gets a new temporary `HOME`, so the script does not use your agent key.
 That responder has its own temporary data directory and its own key.
 The script does not touch emem.dev or a real identity, and it deletes everything on exit.
 
-We did not run `run.sh` end to end for this page, because the docs host has no Rust toolchain to build `emem-server`.
-On 7 November 2026 we checked its parts separately:
+On 7 November 2026 we ran `run.sh` end to end with `ememdev` 2.4.4 and an `emem-server` built from this branch.
+It took 1.5 seconds and printed this (the `<pubkey8>` changes on each run):
 
-| Part | Check on 7 November 2026 |
-|---|---|
-| `ememdev whoami` | Returns `pubkey_b32`, `pubkey_short` and `namespace_root`. A different `HOME` gives a different key. |
-| `ememdev write --path --kind --base-url --body-file` | All four flags exist in `ememdev write --help` (2.4.4). |
-| `emem_memory_view` on a note on emem.dev | Returns `file_cid`, `content` and `receipt`, as the script expects. |
-| `POST /v1/verify_receipt` with that receipt | Returns `signature_valid: true`. |
+```text
+==> boot a throwaway responder (own data dir, own key)
+==> run 1: do some work, then park the state as ONE signed file
+    parked at /memories/by_attester/<pubkey8>/checkpoint-survey-task.md
+    file_cid  nmfkkvepfsgvrs4oinqzqkhcny
+    the ONE LINE run 1 leaves behind (in a report, an issue, anywhere):
+    /memories/by_attester/<pubkey8>/checkpoint-survey-task.md  cid nmfkkvepfsgvrs4oinqzqkhcny
+==> run 2: a different process with no key resumes and checks the bytes
+    content round-tripped; file_cid matches what run 1 parked
+    signature_valid: True
+==> done: the state outlived its session, and the successor verified it
+```
+
+The `file_cid` is the same on each run, because it is a hash of the checkpoint bytes only.
+
+### Why the script does not use `ememdev write`
+
+`ememdev write` in 2.4.4 signs the v1 write digest.
+The responder refuses the v1 digest for every write since 5 November 2026 (commit `23fa7fd6`).
+The refusal has `reason: "v1_retired"`. We saw this refusal from the local node on 7 November 2026.
+So the script signs the v2 digest with `ememdev sign --verb create --base absent`.
+Then it sends `emem_memory_create` itself.
+`--base absent` tells the responder that nothing is at the path yet.
 
 ## What you get
 
@@ -42,7 +59,7 @@ The script prints each step and stops with an error if a check fails.
 
 1. Run 1 writes the state.
    The checkpoint holds the completed step, the next action, the findings and a resume hint.
-   `ememdev write` signs the create with the local Ed25519 key of the agent.
+   `ememdev sign` signs the create with the local Ed25519 key of the agent.
    The file goes under the namespace of that agent, `/memories/by_attester/<pubkey8>/`.
    The responder returns a `file_cid` and a signed receipt.
    Run 1 leaves one line behind: the path and the `file_cid`.
@@ -62,7 +79,7 @@ The script prints each step and stops with an error if a check fails.
 - For an independent check, hash `content` on the client and compare it with `file_cid`.
   Then verify the receipt on the client with `em.verify_receipt` from the Python SDK
   (see [docs/quickstart.md](../../docs/quickstart.md)) or on the [`/verify`](https://emem.dev/verify) page.
-  On 7 November 2026 this Python matched `file_cid` for a note on emem.dev:
+  On 7 November 2026 this Python matched `file_cid` for a note on emem.dev, and for the checkpoint above:
 
   ```python
   import base64, blake3
