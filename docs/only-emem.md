@@ -28,12 +28,13 @@ The severity depends on the kind of band
 | `kind` | Severity |
 |---|---|
 | `scalar` | (largest value minus smallest value) divided by the range of the band. When the band registry gives no range, the divisor is the larger of that spread and 1. |
-| `vector` | 1 minus the mean cosine similarity of the vectors |
-| `categorical` | 1 minus the share of the most common class |
+| `vector` | 1 minus the mean cosine similarity over each pair of vectors |
+| `categorical` | 1 minus the share of the most common class. Text values use this rule. Integer values of four class bands use it too: `esa_worldcover.lc_2021`, `landcover`, `surface_water.transition_class` and `s2.scl`. |
 | `mixed` | 1 |
 
-The default `min_severity` is 0.1. Send `min_severity: 0.0` to see every
-disagreement.
+emem clamps each severity to the range 0 to 1. The default `min_severity`
+is 0.1. Send `min_severity: 0.0` to see every disagreement. A key with
+severity 0 is never a result, also at `min_severity: 0.0`.
 
 ```json
 {"name": "emem_memory_contradictions", "arguments": {"band": "indices.ndvi", "include_same_attester_sources": true}}
@@ -123,19 +124,30 @@ read answers that question directly.
 ## Lock a note path to one signer
 
 Only one key can write under `/memories/by_attester/<pubkey8>/`. `<pubkey8>`
-is the first 8 characters of the base32 public key. A write from any other
-key gets HTTP 403. The answer has `code` `invalid_argument` and
-`details.code` `memory_namespace_violation`. Outside `by_attester/`, the first
-key that makes a path owns it. No key can change an old note that has no
-recorded attester, and this includes the operator's key. Since 2.4.4, a
-file under `by_attester/` answers to the full key that wrote it, not only
-to the 8-character prefix.
+is the first 8 characters of the base32 public key. Outside `by_attester/`,
+the first key that makes a path owns it. Since 2.4.4, a file under
+`by_attester/` answers to the full key that wrote it, not only to the
+8-character prefix.
 
 The prefix `/memories/.well-known/` refuses API writes from every key,
 also the responder's key. The operator puts files there out of band. Thus
-nobody can take a well-known name first. A write there gets the same 403
-with `details.reason` `reserved_namespace`
-(`enforce_open_namespace_owner` in `crates/emem-api-rest/src/lib.rs`).
+nobody can take a well-known name first.
+
+A refused write gets HTTP 403 with `code` `invalid_argument` and
+`details.code` `memory_namespace_violation`. `details.reason` tells you
+why (`enforce_open_namespace_owner` and `validate_attester_binding` in
+`crates/emem-api-rest/src/lib.rs`):
+
+| `details.reason` | Cause |
+|---|---|
+| `namespace_mismatch` | The path is under the `by_attester/` prefix of another key. `details.expected_short` gives your prefix. |
+| `owner_key_mismatch` | Another key with the same 8-character prefix wrote this file first. |
+| `open_namespace_owner_mismatch` | Another key made this path outside `by_attester/`. |
+| `open_namespace_unowned_record` | The old note has no recorded attester. No key can change it, also the operator's key. |
+| `reserved_namespace` | The path is under `/memories/.well-known/`. |
+
+The remedy for each is the same: write under your own
+`/memories/by_attester/<pubkey8>/`.
 
 The signature covers the `emem.memory_write.v2` preimage
 (`crates/emem-primitives/src/memory_acl.rs`):
@@ -146,12 +158,16 @@ blake3("emem.memory_write.v2|" || verb || "|" || path || "|" || body_hash || "|"
 
 `base` is the `file_cid` that the write replaces, or the literal `absent`
 for a new path (`BASE_ABSENT`). Thus a signature copied from the public
-log cannot write again after the file changes. Since 5 November 2026 the
-responder refuses the old v1 preimage, which has no `base`, for every
-write (`reason` `v1_retired`). Old v1 notes still verify when you read
-them. The
-`file_cid` changes when one byte of the note changes. A reader can check
-who wrote a note and that nobody changed it after.
+log cannot write again after the file changes.
+
+Since 5 November 2026 the responder refuses the old v1 preimage, which
+has no `base`, for every write. The answer is HTTP 401 with `code`
+`bad_signature` and `details.reason` `v1_retired`.
+`details.how_to_sign` gives the v2 digest to sign. Old v1 notes still
+verify when you read them.
+
+The `file_cid` changes when one byte of the note changes. A reader can
+check who wrote a note and that nobody changed it after.
 
 Facts and notes use the same signature scheme: Ed25519 over a BLAKE3
 hash. Notes are public. Anyone can read them, so do not write secrets.
