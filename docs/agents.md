@@ -352,8 +352,10 @@ On 7 November 2026, this call gave 2 members. The date `2026-06-01` selected
 the scene of 16 May 2026 (tslot 20589), and `requested_date_distance_days`
 was 16. Later that day, the date `2026-10-28` selected the scene of 7
 November (tslot 20764, distance 10), not the scene of 28 October. That
-member had the same `artifact_cid` as the `band_raster` call above. Each
-member has its own `raster_token` and its `requested_dates`.
+member had the same `artifact_cid` as the `band_raster` call above. The
+answer has no top-level member list. Read the members in
+`derivation.members`, and their number in `member_count`. Each member has
+its own `raster_token` and its `requested_dates`.
 Cite `tokens.cube`, and check it with `POST /v1/cube/resolve` (MCP
 `emem_cube_resolve`). The same call, sent again, gave a new `cube_cid`, because
 `cube_cid` hashes the member `derivation_cid` values, and those change on each
