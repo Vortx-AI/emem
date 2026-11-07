@@ -2,11 +2,11 @@
 
 <img src="web/logo-300w.png" alt="emem logo" width="72">
 
-<h1>Encode where the data lives. Decode with any AI.</h1>
+<h1>The epistemic settlement layer for AI.</h1>
 
-<p><b>emem is shared, verifiable memory for machines and AI. The proof travels; the files stay where they are.</b></p>
+<p><b>When agents, people and machines disagree about the world, emem settles what was observed, by whom, when and how. Every record is signed, has a content id, and anyone can check it offline.</b></p>
 
-<p><a href="https://emem.dev">Try it, no key</a> · <a href="#quickstart">Quickstart</a> · <a href="#memory-that-changes-without-losing-its-history">A worked example</a> · <a href="https://emem.dev/verify">Verify a token</a> · <a href="https://emem.dev/agents.md">Agent guide</a> · <a href="https://emem.dev/docs/">Docs</a></p>
+<p><a href="https://emem.dev">Try it, no key</a> · <a href="docs/start-here.md">Start here</a> · <a href="#quickstart">Quickstart</a> · <a href="#memory-that-changes-without-losing-its-history">A worked example</a> · <a href="https://emem.dev/verify">Verify a token</a> · <a href="https://emem.dev/agents.md">Agent guide</a> · <a href="https://emem.dev/docs/">Docs</a></p>
 
 [![ci](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml/badge.svg)](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/ememdev?label=pypi%20ememdev)](https://pypi.org/project/ememdev/)
@@ -24,16 +24,54 @@
 
 <p align="center"><img src="docs/media/readme/20-encode-decode.webp" alt="Three panels. Your data: files, machines and archives, with source files kept local. Each sends a signed record into shared memory, where records link by identity, history and derivations. Any AI, whether Claude, ChatGPT or your own agent, resolves the same record and verifies it. Caption: one reference, the same record, checked independently." width="880"></p>
 
-## Trust without moving the file
+## What "settlement" means here
 
-Today, to trust a piece of data you usually have to hold it. A satellite downlinks the whole capture, a lab emails the spreadsheet, a company uploads its documents to whichever AI is reading them, and every copy is one more place the data can leak or quietly change.
+In finance, a settlement layer is where a trade becomes final. Both sides then agree on what moved, from whom and when,
+and nobody can change the record later.
 
-emem splits the job in two.
+AI needs the same for knowledge. One agent says a field's greenness was 0.89 on 12 March. A second agent has 0.85, a
+summary says "about 0.9", and a bank asks where the number came from. Without a settlement layer, each copy drifts and
+nobody can say which value is the original.
 
-- **Encoding happens at the source, and stays private.** A file server, a lab, a camera or a payload computer hashes what it holds into units and signs a small record under its own key. The bytes do not have to leave. What leaves is a commitment to them: a content id, a Merkle root, a signature.
-- **emem is the decoding half.** Any model, in Claude, in ChatGPT or in your own code, resolves a short token back to that exact record, checks who signed it, and proves that one unit belongs to the whole, without trusting the sender, and without trusting emem.
+emem settles such claims. It does not settle what is true. It settles what was claimed, and the evidence behind it:
 
-A token lets a reader resolve the published record and check content they are given against it. It does not reveal what you kept: a tree token over a private file exposes the units you chose to publish and nothing else.
+| Question in a dispute | How emem settles it |
+|---|---|
+| Which exact value? | A content id: the BLAKE3 hash of the record's canonical bytes. Change one byte and the id changes. |
+| Who said it? | An Ed25519 signature, by the responder for a measured fact, or by the agent's own key for a note. |
+| When was it known? | An append-only RFC 6962 log, with signed tree heads and independent witnesses. |
+| Measured from what? | Each fact names its source bytes, its method and its registry version. |
+| Derived how? | A derivation cites its input facts. For pure operations, emem computes the value again before it records it. |
+| Nothing there? | A signed absence that says where emem looked and why nothing qualified. |
+| Corrected later? | The new record supersedes the old one. The old bytes stay readable. |
+| Two sources disagree? | Both records stay, with a signed `disagrees_with` edge. emem never averages them away. |
+
+After settlement, two parties that do not trust each other can point at one token. Both get the same bytes, the
+same signature and the same history. Neither has to trust the other, and neither has to trust emem.
+
+## What settlement does not do
+
+- It does not make a value true. A signature says who signed. It does not say that the sensor or the model was right.
+- It is not consensus. One responder signs each fact. Witnesses co-sign the log head, so a split history is
+  detectable, but they do not vote on values.
+- It does not move your data. A source can keep its files and publish only a commitment to them (see below).
+
+## Settle without moving the file
+
+Today, to trust a piece of data, you usually have to hold it. A lab emails the spreadsheet, a satellite downlinks the
+whole capture, and every copy is one more place where the data can leak or change.
+
+emem splits the job in two:
+
+- **The source encodes, and its data stays private.** A file server, a lab, a camera or a payload computer hashes
+  what it holds into units. It signs a small record under its own key. The bytes do not leave. A commitment to them
+  leaves: a content id, a Merkle root, a signature.
+- **emem is the decoding half.** Any model, in Claude, in ChatGPT or in your own code, resolves a short token back to
+  that exact record. It checks who signed it, and it proves that one unit belongs to the whole. It does not have to
+  trust the sender or emem.
+
+A token lets a reader resolve the published record and check content against it. A tree token over a private file
+shows only the units that you choose to publish.
 
 ## What crosses, and what stays
 
