@@ -1506,8 +1506,11 @@ What the substrate gives you:
 - Each note and each fact has a content address.
 - An `emem:fact:` token names the full 32-byte hash of the signed body.
   It resolves to the same bytes on each responder that holds the fact.
-- `emem:entity:` and `emem:bundle:` tokens are 16-byte anchors. They
-  are a shared reference, not a hash of the whole record.
+- An `emem:bundle:` token is 16 bytes of a hash over the purpose and
+  the cell, band, tslot and fact cid of each citation. The member fact
+  cids carry the full strength.
+- An `emem:entity:` token is 16 bytes of a hash over the identity
+  anchor. It is a shared reference, not a hash of the whole record.
 - The responder keeps disagreements between attesters as evidence.
 - Receipts verify offline with ed25519.
 
