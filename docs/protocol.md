@@ -27,7 +27,7 @@ read the sections it names.
 |---|---|
 | Check one receipt now, with no code to write | [Check your first receipt](#check-your-first-receipt) |
 | Check a receipt that a responder gave you | [§7 Receipt](#7-receipt), then the Python verifier in [§7.4](#74-offline-verification-python) |
-| Check that a fact is in a signed batch | [§8 Merkle inclusion proof](#8-merkle-inclusion-proof) |
+| Check that a fact is in a signed batch | [§8 Merkle inclusion proof](#8-merkle-inclusion-proof), then the script in [§8.5](#85-fold-a-live-proof-by-hand) |
 | Check that a fact or a memory note is in the transparency log | [§9.6 Transparency log](#transparency-log), then the steps in [§9.6.1](#961-check-an-inclusion-proof-by-hand) |
 | Check that the log only grew since a head you kept | The steps in [§9.6.1.1](#9611-check-a-consistency-proof-by-hand) |
 | Check a witness co-signature on a tree head | The steps in [§9.6.2.1](#9621-check-a-witness-co-signature-by-hand) |
@@ -37,7 +37,7 @@ read the sections it names.
 | Sign a memory write | [§7.5 Signed memory writes](#75-capability-binding-for-memory-writes) |
 | Check who wrote a memory note | The steps in [§7.5.1](#751-check-a-notes-authorship-by-hand) |
 | Check what the responder read from a url or a file range | [§9.7](#97-signed-readings-of-things-emem-did-not-measure), then the steps in [§9.7.1](#971-check-a-range_hash-receipt-by-hand) |
-| Prove that one chunk or file is in a pointer or directory note | [§9.8](#98-merkle-trees-inside-notes-ememtree) |
+| Prove that one chunk or file is in a pointer or directory note | [§9.8](#98-merkle-trees-inside-notes-ememtree), then the steps in [§9.8.1](#981-check-one-row-of-a-live-note) |
 | Choose which token to cite, and know what it binds | [The tokenverse](#the-tokenverse) |
 | Test your own encoder or verifier | [§12 Conformance gates](#12-conformance-gates-the-four-cids), [§13 Test vectors](#13-test-vectors) |
 
@@ -48,9 +48,11 @@ Python standard library. Each section in the table shows how to run it.
 | Check | Script in `plugins/emem/skills/` | Section |
 |---|---|---|
 | Receipt signature | `emem-verify-receipt/scripts/verify.py` | [§7.4](#74-offline-verification-python) |
+| Merkle proof on a receipt | None. Use the script in the section. It needs no package. | [§8.5](#85-fold-a-live-proof-by-hand) |
 | Note authorship | `emem-multi-agent-handoff/scripts/verify_note.py` | [§7.5.1](#751-check-a-notes-authorship-by-hand) |
 | Signed tree head, inclusion or consistency proof | `emem-transparency-log/scripts/verify_log.py` | [§9.6.1](#961-check-an-inclusion-proof-by-hand), [§9.6.1.1](#9611-check-a-consistency-proof-by-hand) |
 | Witness co-signature | None. Use the script in the section. It needs `blake3` and `pynacl`. | [§9.6.2.1](#9621-check-a-witness-co-signature-by-hand) |
+| One row of a tree in a note | `emem-tokenise-files/scripts/tree_proof.py` | [§9.8.1](#981-check-one-row-of-a-live-note) |
 
 The words cell64, tslot, fact, receipt and responder have one meaning
 each. The [glossary](glossary.md) gives it.
