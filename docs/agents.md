@@ -547,8 +547,10 @@ curl -s -X POST https://emem.dev/v1/memory_token \
 Give this string to the other agent, not a new description of the fact.
 This call only builds the string. It does not read storage, so it does not
 check that the fact exists. On 7 November 2026, `"fact_cid":"aaaa"` gave
-HTTP 200 and a token. That token gave HTTP 400 on resolve. Resolve each
-token once before you send it. Other token kinds bind less. See
+HTTP 200 and a token. That token gave HTTP 400 `invalid_argument` on
+resolve, because `aaaa` does not have the shape of a CID. A CID with the
+correct shape that emem does not hold gives HTTP 404 `cid_not_found`.
+Resolve each token once before you send it. Other token kinds bind less. See
 [How strong each token is](emem-in-depth.md#how-strong-each-token-is-and-who-can-write).
 
 ### Job: read a fact that another agent cited
