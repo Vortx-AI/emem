@@ -116,10 +116,32 @@ The block has the schema id `emem.visual_evidence.v2`. It contains these parts:
 
 - Sentinel-2 `indices.ndvi` at a July-1 anchor for each year from 2020 through the current
   calendar year.
-  The `s2_search_with_fallback` cloud ladder finds the clearest scene for each cell.
-  The ladder tries 40, then 60, then 80 % cloud, with a window of ±30, then 60, then 90 days.
-  Per-pixel SCL masking then removes the remaining cloud pixels.
+  The scene picker `s2_pick_clear_scene` chooses one scene for each cell and year.
+  It tries three steps, and each step widens the scene cloud cap and the date window:
+
+  | Step | Scene cloud cover below | Window around the anchor |
+  |---|---|---|
+  | 1 | 40 % | ±30 days |
+  | 2 | 60 % | ±60 days |
+  | 3 | 80 % | ±90 days |
+
+  In each step it takes up to 4 scenes, newest first, and reads the SCL class at the pixel.
+  It uses the newest scene whose pixel is not no-data, defective, cloud or thin cirrus
+  (SCL classes 0, 1, 8, 9 and 10). Cloud shadow (class 3) does not reject a scene.
+  If the SCL read fails, the scene cloud cap alone decides.
+  Thus the picker does not choose the clearest scene. It chooses the newest usable scene.
+  If scenes exist but no pixel is usable, the signed fact records an absence.
+  If no step finds a scene, that cell and year get an error and no fact.
+  The window never goes past the current date.
+  Operators can change the base values with `EMEM_S2_MAX_CLOUD` (default 40),
+  `EMEM_S2_LOOKBACK_DAYS` (default 30, range 1 to 365) and `EMEM_S2_MAX_SCENES`
+  (default 4, range 1 to 12). Step 2 uses 1.5 times the base cloud value (at most 60 %)
+  and 2 times the base window. Step 3 uses 2 times the base cloud value (at most 80 %)
+  and 3 times the base window.
 - Sentinel-1 RTC VV backscatter at the same anchors, from `materialize_sentinel1_vv`.
+  Radar has no cloud filter. Its window widens from ±15 to ±30 to ±60 days
+  (`EMEM_S1_LOOKBACK_DAYS`, default 15).
+  It uses the newest scene in the first window that has a scene.
   Radar sees through cloud, so this signal confirms the NDVI in monsoon regions where
   Sentinel-2 has gaps.
 - Per-year `scene.png` URLs for up to 6 cells of the plot, in `scene_png_urls` and
