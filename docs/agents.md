@@ -188,14 +188,19 @@ curl -s -X POST https://emem.dev/v1/ask \
 ```
 
 Read `routed_to`, `answer`, `fact_cids` and `receipt`. Ask gives the current
-value. For a change, use [See how a value changed](#job-see-how-a-value-changed).
+value. Check `place_resolved` before you use the answer. It gives the
+`cell64`, `label`, `lat` and `lng` that ask found for your words. On 7
+November 2026, "Mount Fuji" resolved to `defi.zb592.nUkO.zEzE`, and the
+answer cited 19 fact CIDs. For a change, use [See how a value changed](#job-see-how-a-value-changed).
 
 Do not copy the MCP `accept` header to this REST call. If the `accept` header
 contains `text/event-stream`, `/v1/ask` sends a stream of server-sent events,
 not one JSON object. On 7 November 2026, this question gave 6 events. Their
 `stage` values were `located`, `routed`, `recalled`, `splat`, `scored` and
 `answer`. The `detail` of the `answer` event is the same JSON that a plain
-call returns. A failed ask ends with a `failed` stage. The JSON answer lists
+call returns. A failed ask ends with a `failed` stage. The four main
+events also have `new_fact_cids`, the CIDs that stage added. Join these
+lists, in stage order, to get the `fact_cids` of the answer. The JSON answer lists
 the four main stages, `located` to `scored`, in `reasoning.steps`.
 Details: [Questions about the corpus, not about a place](#questions-about-the-corpus-not-about-a-place).
 
