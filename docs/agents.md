@@ -2521,9 +2521,12 @@ route reads five shapes:
 
 Send the body that matches the shape. If the body has no text in the fields
 that the shape reads, the route checks nothing and answers `allow` with
-`checked: 0` (`guard_texts_for`, `lib.rs`; `interop.rs` in emem-guard). On
-7 November 2026, a `{"texts":[...]}` body with `?shape=openai` gave
-`flagged: false` and `checked: 0`. The same body with `?shape=policy` gave
+`checked: 0` (`guard_texts_for`, `lib.rs`; `interop.rs` in emem-guard). If
+a field has the wrong type, the body does not parse, and the result is the
+same, even when another field has text. On 7 November 2026, a
+`{"texts":[...]}` body with `?shape=openai` gave `flagged: false` and
+`checked: 0`. A body with `"messages":"oops"` and the 2000 m text in
+`input` also gave `checked: 0`. The same body with `?shape=policy` gave
 `allow: true` and `checked: 0`. The 2000 m text above, sent in the correct
 body for `mcp`, `cloudevent` and `policy`, gave a deny with `PROV_VALUE`
 in all three.
