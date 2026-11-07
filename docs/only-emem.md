@@ -33,8 +33,8 @@ The severity depends on the kind of band
 | `mixed` | 1 |
 
 emem clamps each severity to the range 0 to 1. The default `min_severity`
-is 0.1. Send `min_severity: 0.0` to see every disagreement. A key with
-severity 0 is never a result, also at `min_severity: 0.0`.
+is 0.1. Send `min_severity: 0.0` to see every disagreement. Even then, a
+key with severity 0 is not a result.
 
 ```json
 {"name": "emem_memory_contradictions", "arguments": {"band": "indices.ndvi", "include_same_attester_sources": true}}
@@ -130,7 +130,7 @@ the first key that makes a path owns it. Since 2.4.4, a file under
 8-character prefix.
 
 The prefix `/memories/.well-known/` refuses API writes from every key,
-also the responder's key. The operator puts files there out of band. Thus
+including the responder's key. The operator puts files there out of band. Thus
 nobody can take a well-known name first.
 
 A refused write gets HTTP 403 with `code` `invalid_argument` and
@@ -144,7 +144,7 @@ why (`enforce_open_namespace_owner` and `validate_attester_binding` in
 | `namespace_mismatch` | The path is under the `by_attester/` prefix of another key. `details.expected_short` gives your prefix. |
 | `owner_key_mismatch` | Another key with the same 8-character prefix wrote this file first. |
 | `open_namespace_owner_mismatch` | Another key made this path outside `by_attester/`. |
-| `open_namespace_unowned_record` | The old note has no recorded attester. No key can change it, also the operator's key. |
+| `open_namespace_unowned_record` | The old note has no recorded attester. No key can change it, not even the operator's key. |
 | `reserved_namespace` | The path is under `/memories/.well-known/`. |
 
 The remedy for each is the same: write under your own
