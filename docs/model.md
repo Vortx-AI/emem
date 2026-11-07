@@ -7,15 +7,19 @@ the formal work that is still open.
 The aim is a memory protocol for physical observations with a
 mathematical definition. This page is the current state of that
 definition. Each claim in the formal model points to the code or the
-endpoint that does it. Open work stays in its own section.
+endpoint that does it. Open work stays in its own section. The
+[glossary](glossary.md) defines each term that this page uses.
 
 ## In short
 
-- emem stores observations. One observation is one value for one place,
-  one band and one time, signed by the responder.
-- The id of an observation is the hash of its bytes. The same bytes have
+- emem stores observations, called facts. One fact is one value for one
+  cell, one band and one time. A cell is a square of about 10 m. A band
+  is a kind of measurement, for example `indices.ndvi`.
+- The responder signs each fact. The responder is the server that
+  answers: emem.dev or your own node.
+- The id of a fact is the hash of its bytes. The same bytes have
   the same id on every responder.
-- You never change an observation. A correction is a new observation
+- You never change a fact. A correction is a new fact
   with a `supersedes` edge to the old one. The old bytes stay readable.
 - Time is part of the key. `as_of_tslot` asks what was true on the
   ground on a date. `as_of_signed_at` asks what emem knew on a date.
@@ -49,7 +53,7 @@ The common operations and their endpoints:
 | name a set of facts with one token | `POST /v1/memory_bundle` |
 | find where sources disagree | `POST /v1/memory_contradictions` |
 | check a receipt | `POST /v1/verify_receipt`, or offline |
-| score how current each band is at a place, at a query time | `POST /v1/temporal_route` |
+| score how current each band key is at a place, at a query time | `POST /v1/temporal_route` |
 
 Two rows need more care than the others:
 
