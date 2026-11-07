@@ -1096,7 +1096,7 @@ parameters are optional filters:
 |---|---|
 | `path_prefix` | its path starts with this text. For `renamed`, the new path counts. For `consolidated`, the first path counts. |
 | `kind` | its `kind` is equal to this value |
-| `attester` | its `attester_pubkey_b32` is equal to this key. `expired` and `consolidated` events have no attester, so this filter removes them. |
+| `attester` | its `attester_pubkey_b32` is equal to this key. `expired` and `consolidated` events have no attester, so this filter removes them. It also removes events where `attester_pubkey_b32` is `null`. |
 
 This read ran on 7 November 2026 and stopped after 4 seconds:
 
@@ -1128,7 +1128,14 @@ object. The `type` field selects the other fields:
 
 A supersede changes no bytes and sends no event. A write of the same
 bytes to the same path sends `modified`, with `prev_file_cid` equal to
-`file_cid`.
+`file_cid`. A `vault` write sends no event.
+
+The pass that combines notes sends two events. First, a `created` event for
+the new summary note at `<directory>/.consolidated/<time>.md`. Then,
+the `consolidated` event. Both have `kind` equal to `semantic`. The
+responder writes the summary note, so the `created` event has
+`attester_pubkey_b32` equal to `null`. The pass also supersedes the
+source notes, but it sends no event for this.
 
 Know these limits before you depend on the stream:
 
