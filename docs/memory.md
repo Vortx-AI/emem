@@ -224,7 +224,9 @@ commands inside Claude Code:
 ```
 
 Claude Code asks for the signing key: your seed as 64 hex characters.
-Then the agent does these steps:
+To keep the namespace from Step 1, give the text in `seed.hex`. To change
+the key later, run `/plugin configure emem-signer@emem`, then restart
+Claude Code. Then the agent does these steps:
 
 1. Call `signer_whoami`. It returns your public key and your namespace.
 2. Call `emem_memory_create` with `path` and `file_text`, and no
