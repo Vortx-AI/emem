@@ -1587,6 +1587,7 @@ To read a derivation, ask for it explicitly:
 | Want | Call |
 |---|---|
 | The bytes behind a token you hold | `POST /v1/memory_token/resolve` |
+| One derived fact by its CID | `GET /v1/facts/<fact_cid>` |
 | Everything one key has registered | `POST /v1/derived` with `attester_pubkey_b32`, and optional `cell`, `band` and `limit` (MCP `emem_derive_list`) |
 | What keys concluded near one place | `POST /v1/inferences` with `cell`, or `lat` and `lng`, and optional `radius_m`, `fn_key_prefix`, `attesters`, `min_tier` and `limit` (MCP `emem_inferences`). `GET /v1/inferences` takes the same fields as query parameters. |
 
@@ -1641,7 +1642,9 @@ These reads refuse a bad request with 400 and a `details.code`. On
 
 The response gives these items:
 
-- the newest derivation per `(cell, fn_key, attester)`
+- `inferences`, the newest derivation per `(cell, fn_key, attester)`,
+  and `count`, the number of items in that list
+- a signed `receipt`
 - `excluded_by_policy`, the count that the policy left out, and
   `excluded_attesters`, the key and tier of each one (at most 20)
 - `truncated: true` when more items match than `limit`
