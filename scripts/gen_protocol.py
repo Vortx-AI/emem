@@ -258,7 +258,7 @@ def _pipeline(name, seed, title, sub, stages, endlabel, endsub, footer):
     rx = 1392
     n = len(stages)
     xs = [x0 + (x1 - x0) * i / (n - 1) for i in range(n)]
-    avoid = [(W / 2, 150, 600), (W / 2, H - 80, 640), (rx, ys, 170)]
+    avoid = [(W / 2, 150, 600), (W / 2, H - 104, 640), (rx, ys, 170)]
     for x in xs:
         avoid.append((x, ys, 90))
     _ground(s, avoid=avoid)
@@ -276,11 +276,12 @@ def _pipeline(name, seed, title, sub, stages, endlabel, endsub, footer):
     s.flow((xs[-1] + 36, ys), (rx - 112, ys), LEAF, 1.6, op=0.85, glow=True)
     s.lotus(rx, ys, 92); s.seal(rx + 76, ys - 76, 12, fill=LEAF)
     s.text(rx, ys + 122, endlabel, 13, INK, font=MONO, anchor="middle", weight="bold")
-    s.text(rx, ys + 142, endsub, 11, INK_SOFT, font=MONO, anchor="middle")
-    s.line(220, H - 116, W - 220, H - 116, INK_SOFT, 0.8, op=0.45)
-    s.dot(220, H - 116, 2.4, VERMIL); s.dot(W - 220, H - 116, 2.4, VERMIL)
-    s.text(W / 2, H - 80, footer, 16, INK, font=SERIF, anchor="middle", italic=True)
-    s.text(W / 2, H - 50, "anyone re-checks the receipt at /verify · no trust in the server",
+    for k, line in enumerate(endsub.split("\n")):
+        s.text(rx, ys + 142 + 20 * k, line, 11, INK_SOFT, font=MONO, anchor="middle")
+    s.line(220, H - 140, W - 220, H - 140, INK_SOFT, 0.8, op=0.45)
+    s.dot(220, H - 140, 2.4, VERMIL); s.dot(W - 220, H - 140, 2.4, VERMIL)
+    s.text(W / 2, H - 104, footer, 16, INK, font=SERIF, anchor="middle", italic=True)
+    s.text(W / 2, H - 78, "anyone re-checks the receipt at /verify · no trust in the server",
            11.5, INK_SOFT, font=MONO, anchor="middle")
     s.save(f"{OUT}/{name}.svg"); return name
 
@@ -594,7 +595,7 @@ def agent_to_token():
         [("your agent", "any model", INDIGO), ("MCP · REST", "same handlers", TEAL),
          ("recall", "hit, or fetch once", LEAF), ("open sources", "on the first miss", TURMERIC),
          ("signed fact", "blake3 · ed25519", LAC)],
-        "MEMORY TOKEN", "84 chars · resolves anywhere",
+        "MEMORY TOKEN", "about 84 chars\nresolves anywhere",
         "The agent keeps one line; any agent, on any model, resolves the same bytes.")
 
 
