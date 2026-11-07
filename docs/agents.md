@@ -661,7 +661,8 @@ Thus `cosine` was absent, and `note` told why. emem.dev no longer makes new
 hold one.
 
 On emem.dev, the MCP answer of this call keeps only the receipt in full.
-The receipt lists every fact CID of both cells: 5,093 on 7 November 2026.
+The receipt lists every fact CID of both cells: 5,098 at 11:20 UTC on
+7 November 2026. This count grows when more facts are signed at the cells.
 Each other field keeps its name, but its value is `null`. The stub for
 each one, with `_omitted: true`, is in `_emem_truncation.omitted_fields`.
 This is also true with `family`. The `_emem_truncation.fetch` field is
