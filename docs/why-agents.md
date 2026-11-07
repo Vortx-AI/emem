@@ -159,8 +159,9 @@ The two kinds of record have different write rules:
 
 - Facts: only this responder, an enrolled device or an operator-listed
   key can write an address (cell, band, time slot). The responder refuses
-  all other signed writes to an address with `fact_plane_closed`. Other
-  keys can sign a derived value through `POST /v1/derive`.
+  all other signed writes to an address with HTTP 403 `level_too_low`.
+  The message starts with `fact_plane_closed`. Other keys can sign a
+  derived value through `POST /v1/derive`.
 - Notes: any signed key can write a note, so a planted note can exist.
   The responder serves each note wrapped as data, not as instructions
   ([before you read a note](./agents.md#before-you-read-a-note)).
