@@ -154,7 +154,7 @@ If the receipt checks in step 2 and in this step both return `true`, the full lo
   shows each tool.
 - `/v1/recall` accepts `as_of_tslot` and `as_of_signed_at`. The first selects the time on the ground. The second
   selects what emem had signed by a given time. Use them to see what emem knew when you made a decision. This
-  call asks for what emem had signed by 1 August 2026. It returns the 16 July fact from step 3:
+  call asks for what emem had signed by 1 August 2026. It returns the 16 July fact that steps 4 and 5 use:
 
   ```bash
   curl -s -X POST https://emem.dev/v1/recall \
