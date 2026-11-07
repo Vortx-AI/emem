@@ -83,7 +83,7 @@ png             = "0.17"
 #      inference, pure Rust. Used in air-gapped / no-ORT deployments
 #      and as the unit-test backend. `fancy-regex` keeps the build
 #      pure Rust (avoids the libonig C dep).
-ort             = { version = "=2.0.0-rc.12", default-features = false, features = ["ndarray", "std", "api-24", "download-binaries", "tls-rustls"] }
+ort             = { version = "=2.0.0-rc.15", default-features = false, features = ["ndarray", "std", "api-24", "download-binaries", "tls-rustls"] }
 ort-ndarray     = { package = "ndarray", version = "0.17" }
 tokenizers      = { version = "0.22", default-features = false, features = ["onig"] }
 model2vec-rs    = { version = "0.1", default-features = false, features = ["fancy-regex"] }

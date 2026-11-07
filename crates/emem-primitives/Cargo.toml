@@ -47,7 +47,7 @@ arrow-schema = "58"
 # first call so a build without the model still compiles + serves
 # everything else; missing-model is surfaced via the search endpoint
 # as a typed "model not present" error, never as random vectors.
-ort             = { version = "=2.0.0-rc.12", default-features = false, features = ["ndarray", "std", "api-24", "download-binaries", "tls-rustls"] }
+ort             = { version = "=2.0.0-rc.15", default-features = false, features = ["ndarray", "std", "api-24", "download-binaries", "tls-rustls"] }
 ort-ndarray     = { package = "ndarray", version = "0.17" }
 tokenizers      = { version = "0.22", default-features = false, features = ["onig"] }
 
