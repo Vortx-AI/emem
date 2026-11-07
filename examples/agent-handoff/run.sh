@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # A session checkpoint outlives its agent: run 1 parks state as one
-# signed memory file, run 2 (a different identity, a different
-# process, later) resumes from it and verifies it trusted nobody.
+# signed memory file, run 2 (a different process, later, with no key)
+# resumes from it and checks the file_cid and the receipt signature.
 #
 # Everything runs against a THROWAWAY local responder with its own
 # temp data dir, so this script touches no shared node and no real
@@ -54,7 +54,7 @@ echo "    file_cid  $FILE_CID"
 echo "    the ONE LINE run 1 leaves behind (in a report, an issue, anywhere):"
 echo "    $CHECKPOINT_PATH  cid $FILE_CID"
 
-echo "==> run 2: a DIFFERENT identity resumes, trusting nobody"
+echo "==> run 2: a different process with no key resumes and checks the bytes"
 curl -s -X POST "$BASE/mcp" -H 'content-type: application/json' -d "{
   \"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",
   \"params\":{\"name\":\"emem_memory_view\",\"arguments\":{\"path\":\"$CHECKPOINT_PATH\"}}}" \

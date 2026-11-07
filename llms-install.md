@@ -153,7 +153,8 @@ Each receipt has a `preimage_version` field. Read that field and use the rule fo
 
 The byte layout of each version is at [`/v1/verifier_spec`](https://emem.dev/v1/verifier_spec).
 The responder makes that document from the same code that signs receipts, so the two cannot differ.
-The spec lists two rules outside that code separately: the legacy v0 receipt and caller-signed memory writes.
+The spec also lists two constructions that do not use the segment rule: the legacy v0 receipt (verify only) and
+caller-signed memory writes.
 
 ## Links
 

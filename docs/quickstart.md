@@ -49,7 +49,8 @@ curl -sX POST https://emem.dev/v1/recall \
 # 3539.042236328125
 ```
 
-The value is in metres. It is the Copernicus GLO-30 pixel (30 m) that contains the centre of the cell. The band
+The value is in metres. It is the value of the Copernicus GLO-30 pixel (30 m) that contains the centre
+of the cell. The band
 name ends in `_mean`, but the responder reads one pixel.
 
 ### Python

@@ -51,9 +51,11 @@ The reviewer checked these items itself:
 
 - The receipts of the paper and of the scorecard verify.
 - The precision claim is true on a live fact. `indices.ndvi` at cell
-  `defi.zb440.zbd5e.zcf13` reads `0.8137089991589571`. Its six-decimal display
-  `0.813709` is not byte-identical to the signed value. This confirms a
-  weakness in our own arm. On 7 November 2026 that fact still had this value.
+  `defi.zb440.zbd5e.zcf13` reads `0.8137089991589571` in fact
+  `76na2kwtfl2kkaffijq5dhr4yhz7t2yntflx7scqx5kjd3bvs53a`. Its six-decimal
+  display `0.813709` is not byte-identical to the signed value. This confirms a
+  weakness in our own arm. On 7 November 2026 the cell held 21 `indices.ndvi`
+  facts. The newest, at tslot 20754, reads `0.7744630071599046`.
 
 The reviewer set two conditions. They must stay next to the headline, not in a
 limitations section. We agree with both.
@@ -82,8 +84,8 @@ table like that would have no evidence behind it.
 
 The study measured four ways to get a fact from storage into a model's answer.
 All four used the same questions, the same two models and the same corpus. A
-stranger can decide correctness without judgement. The source must be the
-signed fact. The scorer compares the answer to six decimals. Six decimals is
+stranger can decide correctness without judgement. The answer must match the
+signed value. The scorer compares the two to six decimals. Six decimals is
 our tolerance, not the precision of the source.
 
 Limits that apply to every number below:
@@ -264,9 +266,9 @@ Two results follow:
 - The gaps are one or two representable steps. That is about 1e-16 relative.
   The tightest threshold of any decision in this study is 1e-6.
 - The failure does not grow steadily with N. Accumulation error cancels as often as it
-  adds. So under strict equality, a caller cannot predict if a sum will verify.
-  That looks like a guarantee but behaves like chance, which is worse than a
-  stated bound.
+  adds. So under strict equality, a caller cannot predict if a sum will
+  verify. That looks like a guarantee but behaves like chance, which is worse
+  than a stated bound.
 
 So the tolerance is back, with a limit, and the response always shows it:
 
@@ -309,9 +311,9 @@ the byte. Only operations with no accumulation verify exactly.
 The most useful thing you can do with this page is to prove it wrong. The arm
 we stand behind runs on your models
 ([`examples/benchmark-arm/`](../examples/benchmark-arm/)). The raw data
-carries signatures, and you can replay it. The same directory holds the scorer
-that disagreed with its own authors. During this study, people found six scoring bugs in two
-separately written instruments. A seventh bug is more likely than not.
+carries signatures, and you can replay it. The same directory holds the
+scorer that disagreed with its own authors. During this study, people found
+six scoring bugs in two separately written instruments. A seventh bug is more likely than not.
 
 ## Scorecard
 
