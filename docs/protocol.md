@@ -2966,18 +2966,31 @@ key. `/v1/verifier_spec` lists every segment.
 | `emem.doc_parse.v1` | `POST /v1/lab_report_parse`, `POST /v1/land_record_parse` | kind (`lab_report_parse@1` or `land_record_parse@1`), text_blake3, result_blake3, parser (`doc_parse@1`), parsed_at, responder_pubkey. result_blake3 is blake3 over the `result` object serialised as compact JSON with keys in sorted order (serde_json's default map). The response carries it in that form |
 | `emem.decide.v1` | `POST /v1/decide` | blake3(request body), model id, blake3(answers json), decided_at, responder_pubkey |
 
-The fetching routes share one set of egress bounds:
+The routes that fetch a URL (`range_hash`, `read`, and `ocr` with
+`url`) share one set of egress bounds:
 
 - https on port 443 only
 - no IP literals or local names
 - the name resolved once, and the connection pinned to publicly
   routable addresses
 - at most three redirects, each checked and pinned the same way
-- a size cap
-- a per-IP daily quota
 
 `range_hash` also requires a 206 whose Content-Range is exactly the
 bytes asked.
+
+Each route also has a size cap and a per-IP daily quota. These are the
+defaults in the code (`range_hash.rs`, `reader.rs`, `decide.rs`):
+
+| route | size cap | daily quota per IP | quota variable |
+|---|---|---|---|
+| `range_hash` | 16 MiB per call (`EMEM_RANGE_HASH_MAX_BYTES`, at most 256 MiB) | 500 | `EMEM_RANGE_HASH_DAILY_QUOTA` |
+| `read` | 4 MiB of body, 200,000 characters of text | 500 | `EMEM_READ_DAILY_QUOTA` |
+| `ocr`, and a parse route with `url` or `image_b64` | 8 MiB of image | 200 | `EMEM_OCR_DAILY_QUOTA` |
+| a parse route with `text` | 800,000 bytes of text | 2000 | `EMEM_DOC_PARSE_DAILY_QUOTA` |
+| `decide` | 32 KiB of request body | 2000 | `EMEM_DECIDE_DAILY_QUOTA` |
+
+Over a quota, the route returns `429` with `Retry-After: 86400` and a
+`<route>_quota` code ([errors.md](errors.md)).
 
 `/v1/ocr` runs Tesseract. `/v1/decide` reads the first-token
 probabilities of the node's local open-weights model over the option
@@ -3065,7 +3078,7 @@ Ed25519PublicKey.from_public_bytes(pub).verify(b32(rc["signature_b32"]), digest)
 print("signature: VALID")
 ```
 
-On 7 November 2026 at 00:50 UTC, `python3 check_range.py range.json`
+On 7 November 2026 at 07:07 UTC, `python3 check_range.py range.json`
 printed `bytes match: True` and `signature: VALID`. A bad signature
 raises `InvalidSignature`. Each IP has a daily quota on this route.
 Over it, the route returns `429` with `code: range_hash_quota` (see
@@ -3098,7 +3111,13 @@ or the row label (a pointer's chunk label, a directory's path). Without
 
 Unlike §9.6, this tree has no leaf and node domain separation.
 `POST /v1/tree/path` computes the same path over leaves or chunks that
-the caller holds.
+the caller holds. To check a path offline, use
+[`tree_proof.py`](../plugins/emem/skills/emem-tokenise-files/scripts/tree_proof.py)
+from the `emem-tokenise-files` plugin skill. Its `build` command makes a
+`pointer.v1` note from a file. Its `check` command folds the path from
+`GET /v1/tree`. The result must equal the served root and the `root:`
+line of the note. The script makes no network calls. On 7 November
+2026, its `--self-test` printed `SELF-TEST PASS`.
 
 The route never gives a path to a root that it cannot rebuild from the
 note's rows. It refuses with these codes in `details.code`
