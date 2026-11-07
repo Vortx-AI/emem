@@ -126,6 +126,11 @@ An MCP answer has a size limit of 24,000 bytes by default
 If `fetch` is `null`, send the same arguments to the REST route. REST has no
 size limit.
 
+Sometimes the full text fits, but the text and `structuredContent` together do
+not. Then a tool without an output schema sends the full text and no
+`structuredContent`. That answer has no `_emem_truncation` block. Read the
+fields from `result.content[0].text`.
+
 On 7 November 2026, emem.dev used the 24,000-byte default. It cut two of the
 job answers below, both with `fetch` `null`. The locate answer for Mount Fuji
 had 7,570 bytes of text and 7,592 bytes of `structuredContent`. It omitted
@@ -215,10 +220,13 @@ curl -s -X POST https://emem.dev/v1/recall_polygon \
 
 The call sampled 4 cells in an area of 13.4 km². Read `cells_sampled`,
 `coverage_fraction` and `is_exhaustive` before you state an area total. You can
-also send `bbox` or `polygon_geojson` instead of `place`. Over MCP, the
-4-cell answer was 18,936 bytes on the wire. With `"max_cells": 16`, the MCP answer
-omitted `by_cell`, which holds the facts and the receipt of each cell. For more than a few cells, use
-the REST call.
+also send `bbox` or `polygon_geojson` instead of `place`.
+
+Over MCP on 7 November 2026, the 4-cell answer was 18,949 bytes on the wire.
+It had no `structuredContent`, so read it from the text. With
+`"max_cells": 16`, the MCP answer omitted `by_cell`, which holds the facts and
+the receipt of each cell. Its `fetch` body kept only `place`. For more than a
+few cells, use the REST call with all your arguments.
 
 ### Job: see how a value changed
 
