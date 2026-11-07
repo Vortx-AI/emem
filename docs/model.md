@@ -413,14 +413,18 @@ gaussian"), not only "does it exist".
 
 ### Comparison with other systems
 
-| System | Graph | Trust |
+| System | Graph | What a reader trusts |
 |---|---|---|
-| Earth Engine | a computation graph | inside the trust domain of one organisation; it does not sign results |
-| Bazel, Nix | content-addressed builds | inside the trust domain of one organisation |
-| emem | content-addressed facts and rules | receipts let any robot check the artifact of any organisation offline |
+| Earth Engine | a computation graph that one organisation runs | the organisation that runs it |
+| Bazel | content-addressed build actions | the remote cache and executors that the user configures |
+| Nix | content-addressed store paths | the binary-cache keys that the user configures |
+| emem | content-addressed facts, notes and derivations | the published Ed25519 key of the responder, or the key of the author of a note or derivation |
 
-The receipts make this graph verifiable across trust domains. The memory
-is the product. The build graph is the thesis about the substrate.
+A reader checks an emem receipt offline with the published key of the
+responder. A note or a derivation also carries the key of its author.
+The signed object is a measurement at an address and a time, with the
+hash of its upstream source. The memory is the product. The build graph
+is a way to describe it, not a separate feature.
 
 ## Open formal work
 
@@ -445,12 +449,20 @@ The gap list, in order of priority:
    as one graph.
 5. A written conformance profile. A second codebase could then claim
    compatibility when it satisfies the algebra and the property table.
-   It would not need to match this codebase.
+   It would not need to match this codebase. One gate ships:
+   [protocol section 12](./protocol.md#12-conformance-gates-the-four-cids)
+   asks a second codebase to compute the same four manifest CIDs. The
+   fixtures in `spec/test_vectors/` are not there yet. On 7 November
+   2026 that directory held only `os_trace/` fixtures.
 6. Artifact-typed observations. Let `v` hold more than band-typed
    values. Then gaussians, meshes and route graphs become first-class
    signed observations with canonical encodings. This extends the fact
    model. It does not add a parallel object system. It must come before
-   signed derivation over more than one step.
+   signed derivation over more than one step. One artifact type ships
+   outside the fact model. `POST /v1/band_raster` and `POST /v1/band_cube`
+   sign a derivation record for a grid of pixels. They return an
+   `emem:raster:` or `emem:cube:` token. The pixels stay in a store that
+   can evict them. The record keeps what a reader needs to rebuild them.
 7. Derivation discovery and the `prove(goal)` contract. For each cell
    and goal, learn which declared rules apply and which chain costs
    least. Every edge stays a declared, signed rule. The output of the
