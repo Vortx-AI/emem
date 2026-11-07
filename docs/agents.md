@@ -1557,7 +1557,8 @@ returns 20 per page by default. Send `?page=N&page_size=100` and follow `paginat
 On the same day, 8 entries had a `parameters` block of named numbers. Each
 of these entries also has a `learned_from` object with one key for each
 parameter. Each key gives `value`, `rationale` and `basis`
-(`literature` or `operational_default`).
+(`literature` or `operational_default`). All 8 entries also give
+`source` for some keys.
 
 To replay an algorithm yourself:
 
