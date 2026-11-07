@@ -1323,8 +1323,8 @@ A core loop tool that is also in a group counts two times, and
 `emem_tools` does not list itself (lib.rs:33032, 33043). Thus `matched`
 can differ from the shape table above. On 7 November 2026,
 `{"shape": "proof"}` gave `matched` 13 for 12 tools, because
-`emem_guard_verdict` is in the loop and in a group. `{"shape": "plan"}`
-gave 1, because only `emem_intent` is listed. To count tools, count
+`emem_guard_verdict` is a core loop step and also in a group.
+`{"shape": "plan"}` gave 1, because the answer lists only `emem_intent`. To count tools, count
 the names.
 
 ### Tool hints
