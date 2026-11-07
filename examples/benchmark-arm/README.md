@@ -130,17 +130,43 @@ Output on 7 November 2026:
 
 ## Use the arm in your benchmark
 
-Put `examples/benchmark-arm` on your import path, then:
+This script runs from the repository root. It uses the token of the
+self-check and a stub model that copies the signed value. Replace `my_model`
+with a call to your model.
 
 ```python
+import sys
+
+sys.path.insert(0, "examples/benchmark-arm")
+
 from emem_arm import EmemArm
 
-arm = EmemArm(answer_fn=my_model)          # answer_fn(prompt) -> str
-out = arm.answer(token, "What is the NDVI here?",
-                 exclude=("32.57272", "77.03276"))   # the question's own coordinates
+
+def my_model(prompt: str) -> str:
+    # Replace this stub with a call to your model.
+    return prompt.split("The signed value is exactly: ")[1].split()[0]
+
+
+token = (
+    "emem:fact:defi.zb572.xoso.zb1ec:"
+    "4qj3l4mgh7ch5kvxmkqspjdl6y42oqhm42khh3gostccpixkbz5q"
+)
+
+arm = EmemArm(answer_fn=my_model)  # answer_fn(prompt) -> str
+out = arm.answer(token, "What is the NDVI delta near 32.57272, 77.03276?",
+                 exclude=("32.57272", "77.03276"))  # the question's own coordinates
 print(out["value"], out["verified"], out["first_pass_ok"], out["drift"])
 print(arm.report())
 ```
+
+Output on 7 November 2026:
+
+```
+-0.052199413489736016 True True None
+{'n': 1, 'resolved': 1, 'degraded': 0, 'verified_first_pass': 1, 'verified_after_retry': 0, 'corrected': 0, 'failed': 0, 'published_byte_identical': 1.0, 'model_byte_identical_first_pass': 1.0}
+```
+
+The stub copies the value, so the first pass verifies and `drift` is `None`.
 
 `token` is an `emem:fact:` token, or a bare fact cid. The `exclude` argument
 fixes a real scoring bug. At a London site the longitude of the question
@@ -191,8 +217,9 @@ integrity counts first and then scores all rows. Read the integrity counts
 before you use the scores.
 
 When the authors ran the script, they found two bugs in it. They fixed both
-and put a comment at each fix. First, citation grading compared the answer with the first token in a
-prompt that offered several, so it marked correct citations as misses. Second,
+and put a comment at each fix. First, citation grading compared the answer
+with the first token in a prompt that offered several, so it marked correct
+citations as misses. Second,
 retrieval-hit detection counted handoff prompts, which have a different shape,
 as hits. That made the hit rate about three times too high (0.086 against
 0.026).
