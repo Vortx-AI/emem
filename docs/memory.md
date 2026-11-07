@@ -425,15 +425,38 @@ Who may write where:
 
 - `/memories/by_attester/<pubkey8>/...` belongs to the key whose base32
   form starts with `<pubkey8>`. Only that key may write there, under
-  every policy.
+  every policy. Eight base32 characters are only 40 bits, so an attacker
+  can search for a second key with the same prefix. For this reason a file that
+  stores its full author key answers to that key alone. The prefix
+  decides only who may write a new path.
 - Everywhere else under `/memories/`, the first attester to create a
   path owns it. Only that key may change it. Nobody reserves these
   names. Whoever writes `/memories/standard.md` first holds it for good.
   Do not make your protocol depend on a name outside your namespace.
   Some files outside `by_attester` have no stored author, because they
-  came before the responder stored authorship. No key can change them.
+  came before the responder stored authorship. Under a policy that
+  refuses unsigned writes, no key can change them. Copy the text into
+  your own namespace and work there.
+- A `vault` entry answers to the key that wrote it, at every path.
 - `/memories/.well-known/` belongs to the operator. It refuses every
-  key, the key of the responder too (`reason: reserved_namespace`).
+  key, the key of the responder too.
+
+Each refusal of this kind has `details.code`
+`memory_namespace_violation` and a `details.reason`:
+
+| `reason` | Cause |
+|---|---|
+| `namespace_mismatch` | The signature verifies, but the path is under the `by_attester` prefix of a different key. `details.expected_short` gives your prefix. |
+| `owner_key_mismatch` | The `by_attester` file stores a full author key, and your key shares only its prefix. |
+| `open_namespace_owner_mismatch` | A different key owns this path outside `by_attester`. |
+| `open_namespace_unowned_record` | The file has no stored author, and the policy refuses unsigned writes. |
+| `vault_owner_mismatch` | A different key wrote this `vault` entry. |
+| `reserved_namespace` | The path is under `/memories/.well-known/`. |
+| `source_namespace` | A `rename` source is under the `by_attester` prefix of a different key. |
+| `root_directory_delete` | A directory `delete` names the root `/memories`. |
+
+The responder sets HTTP 403 for each reason. Over MCP each one arrives
+as `invalid_argument` (-25).
 
 Memory writes use `POST /mcp`. So each refusal is a tool result
 with `isError: true`, not an HTTP status. The text starts with
