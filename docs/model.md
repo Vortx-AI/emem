@@ -401,7 +401,7 @@ ingest.
 A review asked: what is the smallest immutable object, as the blob is in
 git and the block is in IPFS? The answer is not the band. The atom is
 the observation `O` at the top of the formal model. The band is its
-semantic TYPE field.
+semantic type field.
 
 The review proposed an "Earth Value" with nine parts. Each part maps to
 an element of `O` that ships:
@@ -444,9 +444,9 @@ system next to it.
 A build system expects a person to write the graph. For the Earth, nobody
 knows the graph. The position here is deliberate:
 
-- The RULES stay declared, versioned and signed, because nobody can
+- The rules stay declared, versioned and signed, because nobody can
   check a discovered rule again.
-- A planner, not fixed code, is to pick WHICH declared derivations exist,
+- A planner, not fixed code, is to pick which declared derivations exist,
   apply and are worth a run at a cell for a goal.
 
 Only the seed of that planner ships. `/v1/ask` sends a question to the
@@ -514,7 +514,8 @@ The gap list, in order of priority:
    [protocol section 12](./protocol.md#12-conformance-gates-the-four-cids)
    asks a second codebase to compute the same four manifest CIDs. The
    fixtures in `spec/test_vectors/` are not there yet. On 7 November
-   2026 that directory held only `os_trace/` fixtures.
+   2026 that directory held only a `README.md` and the `os_trace/`
+   fixtures.
 6. Artifact-typed observations. Let `v` hold more than band-typed
    values. Then gaussians, meshes and route graphs become first-class
    signed observations with canonical encodings. This extends the fact
@@ -523,8 +524,8 @@ The gap list, in order of priority:
    outside the fact model. `POST /v1/band_raster` and `POST /v1/band_cube`
    sign a derivation record for a grid of pixels. They return an
    `emem:raster:` or `emem:cube:` token. `POST /v1/raster_bundle` signs a
-   set of raster tokens and returns an `emem:rasterset:` token. The pixels stay in a store that
-   can evict them. The record keeps what a reader needs to rebuild them.
+   set of raster tokens and returns an `emem:rasterset:` token. The
+   pixels stay in a store that can evict them. The record keeps what a reader needs to rebuild them.
 7. Derivation discovery and the `prove(goal)` contract. For each cell
    and goal, learn which declared rules apply and which chain costs
    least. Every edge stays a declared, signed rule. The output of the
