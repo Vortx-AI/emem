@@ -50,7 +50,7 @@ Above the facts, each agent has notes that it owns. A note is a Markdown file. S
 - `memory_contradictions` finds places where signed sources disagree, and scores the disagreement.
 - `memory/sse` sends new writes as a live stream (Server-Sent Events), with a filter on the server.
 
-![A signed note write in five steps. Make an Ed25519 key on your machine. Send emem_memory_create with no signature. The responder refuses with an MCP isError result: details.code is memory_attestation_required, and details.how_to_sign gives the 32-byte digest. Sign the digest and send the same body with pubkey_b32 and sig_b32. The responder stores the note and logs it. A write from another key into /memories/by_attester/ plus your 8-character key prefix is refused with memory_namespace_violation.](media/diagrams/signed-note-write.svg)
+![A signed note write in steps 0 to 5. Step 0: make an Ed25519 key on your machine. Step 1: send emem_memory_create with no signature. Step 2: the responder refuses with an MCP isError result. Its details.code is memory_attestation_required, and details.how_to_sign gives the 32-byte digest. Step 3: sign the digest. Step 4: send the same body with pubkey_b32 and sig_b32. Step 5: the responder stores the note and logs it. A write from another key into /memories/by_attester/ plus your 8-character key prefix is refused with memory_namespace_violation.](media/diagrams/signed-note-write.svg)
 
 ## Two time filters
 
