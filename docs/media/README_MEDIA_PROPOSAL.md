@@ -60,18 +60,21 @@ These add an image where README.md has none today. They remove nothing.
 | 90, after step 3 of the quick start ("Read a signed measurement") | `docs/media/stills/recall-one-cell.webp` (255,266 bytes) | Step 3 reads one band at one place. The still shows what one `recall` holds at one cell: 8 facts from 6 sources, each with its own date and class, under one receipt. |
 | 266, after the paragraph about two Claude sessions, the signed channel and A2A | `docs/media/stills/a2a-exchange.webp` (242,500 bytes) | The paragraph says that A2A reaches every tool as a skill. The still shows one live A2A exchange with no key: the signed agent card, one `message/send` answered by `emem_ask`, and the receipt in the task checked offline. |
 | 291, after the first paragraph of "Earth is the first corpus, not the limit" | `docs/media/stills/ndvi-two-seasons.webp` (236,182 bytes) | The paragraph says that public archives fill the memory. The still shows one signed `field_series` answer: 17 clear Sentinel-2 scenes over two seasons, and the 8 cloudy scenes it left out. |
-| 36, after the paragraph that starts "A token lets a reader resolve", before "## What crosses, and what stays" | `docs/media/stills/one-token-hero.webp` (232,564 bytes) | The section says that the source file stays and a token crosses. The still shows this for one live fact. "Mount Fuji" becomes one cell. emem signs the elevation there (3,539.04 m) from a file that stays in its archive. The token resolves to the same fact id. The receipt and a 22-hash log path check valid offline. One changed character fails. |
+| 36, after the paragraph that starts "A token lets a reader resolve", before "## What crosses, and what stays" | `docs/media/stills/one-token-hero.webp` (232,556 bytes), with `docs/media/stills/one-token-hero-phone.webp` (243,430 bytes) for narrow screens | The section says that the source file stays and a token crosses. The still shows this for one live fact. "Mount Fuji" becomes one cell. emem signs the elevation there (3,539.04 m) from a file that stays in its archive. The token resolves to the same fact id. The receipt and a 22-hash log path check valid offline. One changed character fails. |
 | 331, after the list in "What the checks do not prove", before "Version 2.4.4" | `docs/media/stills/one-place-many-names.webp` (290,194 bytes) | The list says that a place name resolves to one 10 m cell. The still shows what that means for five names of one mountain: four cells, one 13.3 km away with `disambiguation_required` true. It ends with the advice to hand on the cell64 or the token, not the name. |
 
 Markup for line 36:
 
 ```html
-<p align="center"><img src="docs/media/stills/one-token-hero.webp" alt="Live reads of emem.dev on 7 November 2026, in three steps. 1: the name Mount Fuji resolves to the cell defi.zb592.nUkO.zEzE, ringed on a Sentinel-2 image of the summit crater from 12 December 2025. 2: emem signs one fact there: copdem30m.elevation_mean 3,539.04 m, read from a Copernicus GLO-30 DEM tile, fact id qejpz7cg...bplq, signed 28 September 2026. 3: another agent gets the 83-character emem:fact token. Resolve gives the same fact id and value. The receipt signature is valid offline. Log entry 2,463,431 of 3,248,898 proves with 22 hashes. One changed character of the fact id fails." width="880"></p>
+<p align="center"><picture>
+<source media="(max-width: 700px)" srcset="docs/media/stills/one-token-hero-phone.webp">
+<img src="docs/media/stills/one-token-hero.webp" alt="Live reads of emem.dev on 7 November 2026, in three steps. 1: the name Mount Fuji resolves to the cell defi.zb592.nUkO.zEzE, ringed on a Sentinel-2 image of the summit crater from 12 December 2025. 2: emem signs one fact there: copdem30m.elevation_mean 3,539.04 m, read from a Copernicus GLO-30 DEM tile, fact id qejpz7cg...bplq, signed 28 September 2026. 3: another agent gets the 83-character emem:fact token. Resolve gives the same fact id and value. The receipt signature is valid offline. Log entry 2,463,431 of 3,248,898 proves with 22 hashes. One changed character of the fact id fails." width="880">
+</picture></p>
 ```
 
 This still does not replace the hero image at line 25. The hero names files and machines as sources too, and
-this still shows one Earth fact only. At 360 pixels wide, the title, the value and the four verdicts are easy to
-read; the small labels need a zoom.
+this still shows one Earth fact only. On a screen 700 pixels wide or less, the browser shows the phone copy. It
+has the same content in one column, and all of its text is easy to read at 360 pixels wide.
 
 The numbers in these stills are from 7 November 2026. Item 6 in README.md gives a log size from 10 October 2026.
 The still and the text show different sizes, and each is true for its date.

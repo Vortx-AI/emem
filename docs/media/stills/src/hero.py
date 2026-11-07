@@ -9,7 +9,7 @@ Every value comes from live responses from emem.dev saved on 7 November 2026:
                                                                           -> data/hero/scene.png (+ .headers)
 The receipts and the log path are checked offline with the plugin's verify.py and verify_log.py before anything
 is drawn. A copy of the recall receipt with one changed character in its fact id must fail.
-usage: python hero.py OUT.webp    (needs Playwright for Python with Chromium, Pillow and pyproj)
+usage: python hero.py OUT.webp [--phone]    (--phone: one column, 1080 px wide; needs Playwright for Python with Chromium, Pillow and pyproj)
 """
 import base64
 import copy
@@ -86,15 +86,16 @@ def day(iso):
 
 key = fact["signer_pubkey_b32"]
 read_at = rec["receipt"]["served_at"]
-W = 1200
+PHONE = "--phone" in sys.argv[2:]
+W, DSF = (540, 2) if PHONE else (1200, 1.5)
 page = f"""<!doctype html><meta charset="utf-8"><style>
 body{{margin:0;background:#0d1117;color:#e6edf3;font:26px/1.3 "DejaVu Sans",system-ui,sans-serif;width:{W}px}}
-.wrap{{padding:34px 36px 28px}}
-h1{{font-size:42px;line-height:1.15;margin:0 0 6px}}
+.wrap{{padding:{"24px 18px 20px" if PHONE else "34px 36px 28px"}}}
+h1{{font-size:{34 if PHONE else 42}px;line-height:1.15;margin:0 0 6px}}
 .q{{color:#8b949e;font-size:23px}}
 .mono{{font-family:"DejaVu Sans Mono",ui-monospace,monospace}}
-.cols{{display:grid;grid-template-columns:1fr 34px 1fr 34px 1fr;align-items:stretch;margin-top:24px}}
-.arrow{{display:flex;align-items:center;justify-content:center;color:#8b949e;font-size:34px}}
+.cols{{display:grid;grid-template-columns:{"1fr" if PHONE else "1fr 34px 1fr 34px 1fr"};align-items:stretch;margin-top:24px}}
+.arrow{{display:flex;align-items:center;justify-content:center;color:#8b949e;font-size:34px;{"transform:rotate(90deg);height:40px" if PHONE else ""}}}
 .col{{background:#161b22;border:1px solid #30363d;border-top:6px solid;border-radius:10px;padding:16px 18px}}
 .step{{font-size:30px;margin-bottom:10px}}
 .lab{{color:#8b949e;font-size:20px;margin-top:10px}}
@@ -115,10 +116,10 @@ h1{{font-size:42px;line-height:1.15;margin:0 0 6px}}
 <div class="col" style="border-top-color:#79c0ff">
 <div class="step">1. Name a place</div>
 <div class="mono v">&ldquo;Mount Fuji&rdquo;</div>
-<div class="lab">POST /v1/locate gives one 10 m cell</div>
+<div class="lab">POST /v1/locate gives one 10&nbsp;m cell</div>
 <div class="mono v" style="color:#79c0ff">{fact['cell']}</div>
 <div class="pic"><img src="{scene_uri}"><div class="ring" style="left:{mx:.1f}%;top:{my:.1f}%"></div></div>
-<div class="lab">Ring: the cell. Sentinel-2, {day(scene_day)}, {km:.1f} km across.</div>
+<div class="lab">Ring: the cell. Sentinel-2, {day(scene_day)}, {km:.1f}&nbsp;km across.</div>
 </div>
 <div class="arrow">&#9654;</div>
 
@@ -152,10 +153,10 @@ html_path = out.with_suffix(".html")
 html_path.write_text(page)
 with sync_playwright() as p:
     b = p.chromium.launch()
-    pg = b.new_page(viewport={"width": W, "height": 700}, device_scale_factor=1.5)
+    pg = b.new_page(viewport={"width": W, "height": 700}, device_scale_factor=DSF)
     pg.goto(html_path.as_uri(), wait_until="load")
     png = pg.screenshot(full_page=True)
     b.close()
 html_path.unlink()
-Image.open(io.BytesIO(png)).convert("RGB").save(out, "WEBP", quality=86, method=6)
+Image.open(io.BytesIO(png)).convert("RGB").save(out, "WEBP", quality=74 if PHONE else 86, method=6)
 print(out, out.stat().st_size, "bytes", Image.open(out).size)

@@ -42,6 +42,9 @@ Do not use colour as the only signal. Write the word too, for example `valid` or
   layout, is about 10 px on a phone. The heading is about 20 px.
 - Diagrams in SVG keep the smallest text at 16 px in a 640 px view box, which is about 8.5 px on a phone.
   Body text is 18 px. Break a long line into two lines rather than make the text smaller.
+- A wide still with columns (the hero is 1800 px) is too small on a phone. Give it a one-column phone copy,
+  1080 px wide, and embed both in a `<picture>` element. The `<source>` has
+  `media="(max-width: 700px)"` and names the phone copy. `hero.py --phone` makes one.
 - Before you commit a diagram, run `docs/media/diagrams/src/check_text.py` on it. It lists text that
   leaves the card or overlaps other text.
 
@@ -111,7 +114,7 @@ pages, so the PRs can merge without a conflict. The description of PR #34 gives 
 | `stills/field-outlines.webp` | Which fields in one farm box turned green first, and can I check it? | `agents.md` | `stills/src/field_outlines.py`, live reads from `fetch_fields.py` |
 | `stills/contradictions.webp` | Two signed facts at one address disagree: which one does a read return, and why? | `intro.md` | `stills/src/contradictions.py`, live reads from `fetch_contradictions.py` |
 | `stills/trajectory.webp` | What does a trajectory return, and what does an empty one mean? | `robots.md`: embed asked of the memory stream (PR #31 rewrites the page) | `stills/src/trajectory.py`, live reads from `fetch_trajectory.py` |
-| `stills/one-token-hero.webp` | What is emem, shown with one live fact? | `intro.md`; README line 36 in the proposal | `stills/src/hero.py`, saved reads in `stills/src/data/log/` and `stills/src/data/hero/` |
+| `stills/one-token-hero.webp`, `stills/one-token-hero-phone.webp` | What is emem, shown with one live fact? | `intro.md` (a `<picture>` element); README line 36 in the proposal | `stills/src/hero.py`, saved reads in `stills/src/data/log/` and `stills/src/data/hero/` |
 | `stills/one-place-many-names.webp` | Do two names for one place give the same cell? | `start-here.md` | `stills/src/one_place.py`, live reads from `fetch_one_place.py` |
 
 Each film also has a WebM copy and a `-poster.webp` file with the same name. The `fetch_*.py` scripts in
