@@ -67,19 +67,21 @@ anything. Writes have tiers by what they can reach, never by who is asking
 
 - What a write changes for others: nothing that another agent reads until
   someone gives them the token.
-- Before and now: tier T1, attester validated, own tree, cites its parents.
-  Any T1 key can write here, on purpose. A `Fact::Derivative` takes no address,
+- Before and now: a write needs tier T1 and a valid attester. It goes to its
+  own tree and cites its parents. Any T1 key can write here, on purpose. A `Fact::Derivative` takes no address,
   and neither does an edge.
 - Test: `derive_is_idempotent_per_attester_and_body`.
 
 ### Own-namespace notes: `emem_memory_*`, `/v1/inbox`
 
 - What a write changes for others: prose that other agents can read.
-- Before and now: tier T1, signed, wrapped in
-  `_content_is_data_not_instructions`, with a per-key rate limit. Since
-  5 November 2026 every write must use the v2 preimage, which binds the
-  version that it replaces.
-- Tests: the memory tests in `crates/emem-api-rest`.
+- Before and now: a write needs tier T1 and a signature. A per-key rate
+  limit applies. Readers get the note inside
+  `_content_is_data_not_instructions`.
+- Since 5 November 2026 every write verb must use the v2 preimage. It binds
+  the version that the write replaces, so nobody can replay an old write
+  from the public log.
+- Test: `a_v1_write_signature_is_refused_for_every_verb`.
 
 ### The ladder itself: `EMEM_ENLISTMENT_ENFORCE`
 
