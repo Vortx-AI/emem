@@ -124,6 +124,7 @@ pages, so the PRs can merge without a conflict. The description of PR #34 gives 
 | `stills/time-filters-live.webp` | What do the two time filters return on real data? | `intro.md` under `time-filters.svg` | `stills/src/time_filters.py`, live reads from `fetch_asof.py` |
 | `stills/wire-forms.webp` | What does each id in one real fact decode to? | `protocol.md` section 1, under `09-address-algebra.svg` | `stills/src/wire_forms.py`, decoder and checks in `wire_data.py`, reads in `data/wire/` (7 November 2026 15:40 UTC) |
 | `stills/receipt-preimage.webp` | What bytes does a receipt signature cover, and what breaks it? | `protocol.md` section 7.2, after the worked example | `stills/src/receipt_preimage.py`, rebuild and checks in `receipt_data.py`, reads from `fetch_receipt.py` in `data/receipt/` (7 November 2026 15:44 UTC) |
+| `stills/area-receipts.webp` | What does an area read sign, and what does it leave to me? | `agents.md`, section on polygon receipts | `stills/src/area_receipts.py` (asserts inside), reads from `fetch_polygon.py` in `data/polygon/` (7 November 2026 16:08 and 16:09 UTC) |
 | `stills/glossary-map.webp` | Which part of a real answer does each glossary term name? | `glossary.md`, under the opening lines | `stills/src/glossary_map.py` (asserts inside), reads from `fetch_glossary.py` in `data/glossary/` (7 November 2026 16:03 UTC) |
 
 Each film also has a WebM copy and a `-poster.webp` file with the same name. The `fetch_*.py` scripts in
