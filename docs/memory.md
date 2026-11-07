@@ -252,9 +252,23 @@ On 7 November 2026 steps 1 to 3 ran with the key from Step 1. The
 signer gave digest `911abc82...`, the same as `sign_note.py`. Step 4
 did not run.
 
-If the optional `signing_role` setting contains the word `witness`, the
-signer refuses a path without `/witness` in it. To sign that path with
-this key, add `confirm_role: true` to the call.
+The signer runs with the `python3` on your `PATH`. It has its own BLAKE3
+code, so it needs only the `cryptography` package. The key is optional
+at install. Without a usable key, `signer_whoami` returns
+`configured: false` and a `reason`, and the sign tools sign nothing.
+
+| The signer says | Cause | Fix |
+|---|---|---|
+| `No signing key is configured` | The key setting is empty. | Run `/plugin configure emem-signer@emem`, give the seed, and restart Claude Code. |
+| `not 64 hex characters` | The key is not a 32-byte seed in hex. | Give the 64 characters in `seed.hex`. |
+| `cryptography` package | The `python3` on your `PATH` does not have it. | Install `cryptography` for that `python3`. |
+| `The server names digest ...` | `expected_digest_hex` differs from the digest the signer built. | Read the path again for its `file_cid` and the exact text. |
+| `verb must be one of` | The verb is not `create`, `str_replace` or `insert`. | Change `sign_note.py` for that verb (see below). |
+| `has no /witness in it` | The optional `signing_role` setting contains the word `witness`. | Use your agent key, or add `confirm_role: true` to the call. |
+
+On 7 November 2026, all rows except the `cryptography` row ran
+against the signer process on a local machine. The `cryptography` row
+comes from `load_key` in `plugins/emem-signer/signer/emem_signer.py`.
 
 `signer_sign_write` signs `create`, `str_replace` and `insert`. For
 `str_replace` and `insert`, `text` is the whole note after the edit,
