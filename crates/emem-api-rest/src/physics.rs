@@ -129,31 +129,50 @@ fn unprocessable(msg: impl Into<String>) -> ApiError {
     )
 }
 
-/// Pull the first Primary fact for `band` out of a recall response and
-/// return its scalar value + fact CID. Returns `None` for absences,
-/// non-scalar values, or a missing band.
+/// The finite scalar Primary fact for `band` with the highest tslot, as
+/// value + fact CID. Recall returns facts oldest first, so the first match
+/// is the oldest scene. Returns `None` for absences, non-scalar values, or
+/// a missing band.
 fn primary_scalar_for_band(
     resp: &emem_primitives::RecallResp,
     band: &str,
 ) -> Option<(f64, String)> {
-    for (idx, f) in resp.facts.iter().enumerate() {
+    primary_candidates_for_band(&resp.facts, &resp.receipt.fact_cids, band)
+        .pop()
+        .map(|(_, v, cid, _)| (v, cid))
+}
+
+/// Every finite scalar Primary fact for `band` in a recall response, as
+/// `(tslot, value, fact_cid, fact)`, sorted by tslot ascending. On equal
+/// tslots the recall order is kept.
+fn primary_candidates_for_band(
+    facts: &[Fact],
+    cids: &[emem_fact::FactCid],
+    band: &str,
+) -> Vec<(u64, f64, String, PrimaryFact)> {
+    let mut out = Vec::new();
+    for (idx, f) in facts.iter().enumerate() {
         if let Fact::Primary(p) = f {
             if p.band == band {
                 if let ciborium::Value::Float(v) = p.value {
                     if v.is_finite() {
-                        let cid = resp
-                            .receipt
-                            .fact_cids
-                            .get(idx)
-                            .map(|c| c.0.clone())
-                            .unwrap_or_default();
-                        return Some((v, cid));
+                        let cid = cids.get(idx).map(|c| c.0.clone()).unwrap_or_default();
+                        out.push((p.tslot, v, cid, p.clone()));
                     }
                 }
             }
         }
     }
-    None
+    out.sort_by_key(|(t, _, _, _)| *t);
+    out
+}
+
+/// Index of the candidate at `target` tslot when one exists, else of the
+/// newest. `tslots` must be sorted ascending.
+fn candidate_at_or_newest(tslots: &[u64], target: Option<u64>) -> Option<usize> {
+    target
+        .and_then(|t| tslots.iter().rposition(|ts| *ts == t))
+        .or_else(|| tslots.len().checked_sub(1))
 }
 
 /// Pull every Primary fact for `band` out of a recall response, sorted
@@ -185,14 +204,14 @@ fn primary_history_for_band(
     out
 }
 
-/// Walk the responder-signed primary fact for `band` at `cell` (auto-
-/// materialising on miss) and surface `(value, fact_cid, primary_clone)`.
-/// Returns a structured error if the materializer found nothing.
-async fn fetch_primary_scalar(
+/// Every finite scalar primary fact for `band` at `cell` (auto-
+/// materialising on miss), as `(tslot, value, fact_cid, fact)` sorted by
+/// tslot ascending. Returns a structured error if there is none.
+async fn fetch_primary_candidates(
     cell: &str,
     band: &str,
     state: &AppState,
-) -> Result<(f64, String, PrimaryFact), ApiError> {
+) -> Result<Vec<(u64, f64, String, PrimaryFact)>, ApiError> {
     let req = RecallReq {
         cell: cell.to_string(),
         bands: Some(vec![band.to_string()]),
@@ -200,27 +219,28 @@ async fn fetch_primary_scalar(
         ..Default::default()
     };
     let (resp, _notes) = recall_with_auto_materialize(&req, state).await?;
-    for (idx, f) in resp.facts.iter().enumerate() {
-        if let Fact::Primary(p) = f {
-            if p.band == band {
-                if let ciborium::Value::Float(v) = p.value {
-                    if v.is_finite() {
-                        let cid = resp
-                            .receipt
-                            .fact_cids
-                            .get(idx)
-                            .map(|c| c.0.clone())
-                            .unwrap_or_default();
-                        return Ok((v, cid, p.clone()));
-                    }
-                }
-            }
-        }
+    let candidates = primary_candidates_for_band(&resp.facts, &resp.receipt.fact_cids, band);
+    if candidates.is_empty() {
+        return Err(unprocessable(format!(
+            "no usable {band} primary fact at cell {cell}: \
+             materializer returned no scalar value (absence, non-scalar, or upstream failure)"
+        )));
     }
-    Err(unprocessable(format!(
-        "no usable {band} primary fact at cell {cell}: \
-         materializer returned no scalar value (absence, non-scalar, or upstream failure)"
-    )))
+    Ok(candidates)
+}
+
+/// The newest (highest tslot) responder-signed primary fact for `band` at
+/// `cell`, as `(value, fact_cid, primary_clone)`.
+async fn fetch_primary_scalar(
+    cell: &str,
+    band: &str,
+    state: &AppState,
+) -> Result<(f64, String, PrimaryFact), ApiError> {
+    let mut candidates = fetch_primary_candidates(cell, band, state).await?;
+    let (_, v, cid, p) = candidates
+        .pop()
+        .ok_or_else(|| unprocessable(format!("no usable {band} primary fact at cell {cell}")))?;
+    Ok((v, cid, p))
 }
 
 /// 8 closest cell64 neighbours around `centre_cell` plus the centre, in a
@@ -499,32 +519,21 @@ pub async fn heat_solve(mut req: HeatSolveReq, state: &AppState) -> Result<JsonV
     let band = "modis.lst_day_8day";
     // Fetch all 9 facts in parallel — one ORNL DAAC round-trip per
     // missing cell otherwise dominates wall time.
-    type FetchOutcome = (usize, Result<(f64, String, PrimaryFact), ApiError>);
+    type FetchOutcome = (
+        usize,
+        Result<Vec<(u64, f64, String, PrimaryFact)>, ApiError>,
+    );
     let mut set: tokio::task::JoinSet<FetchOutcome> = tokio::task::JoinSet::new();
     for (idx, c) in cells.iter().enumerate() {
         let cell = c.clone();
         let st = state.clone();
-        set.spawn(async move { (idx, fetch_primary_scalar(&cell, band, &st).await) });
+        set.spawn(async move { (idx, fetch_primary_candidates(&cell, band, &st).await) });
     }
-    let mut values: [f64; 9] = [0.0; 9];
-    let mut cids: [String; 9] = Default::default();
-    let mut signed_ats: [String; 9] = Default::default();
-    let mut units: [String; 9] = Default::default();
-    let mut centre_unit: Option<String> = None;
-    let mut have_centre = false;
+    let mut candidates: [Vec<(u64, f64, String, PrimaryFact)>; 9] = Default::default();
     let mut errors: Vec<JsonValue> = Vec::new();
     while let Some(j) = set.join_next().await {
         match j {
-            Ok((idx, Ok((v, cid, p)))) => {
-                values[idx] = v;
-                cids[idx] = cid;
-                signed_ats[idx] = p.signed_at.clone();
-                units[idx] = p.unit.clone().unwrap_or_default();
-                if idx == 4 {
-                    have_centre = true;
-                    centre_unit = p.unit.clone();
-                }
-            }
+            Ok((idx, Ok(c))) => candidates[idx] = c,
             Ok((idx, Err(e))) => {
                 errors.push(json!({
                     "neighbor_index": idx,
@@ -539,6 +548,35 @@ pub async fn heat_solve(mut req: HeatSolveReq, state: &AppState) -> Result<JsonV
             }
         }
     }
+    // The stencil is one moment in time: the centre's newest composite
+    // sets the tslot, and each neighbour uses its fact at that tslot.
+    // A neighbour without one falls back to its newest fact, and
+    // `time_aligned` turns false.
+    let centre_tslot = candidates[4].last().map(|(t, _, _, _)| *t);
+    let mut values: [f64; 9] = [0.0; 9];
+    let mut cids: [String; 9] = Default::default();
+    let mut signed_ats: [String; 9] = Default::default();
+    let mut tslots: [Option<u64>; 9] = [None; 9];
+    let mut units: [String; 9] = Default::default();
+    let mut centre_unit: Option<String> = None;
+    let mut have_centre = false;
+    for (idx, cands) in candidates.iter().enumerate() {
+        let ts: Vec<u64> = cands.iter().map(|(t, _, _, _)| *t).collect();
+        let Some(pick) = candidate_at_or_newest(&ts, centre_tslot) else {
+            continue;
+        };
+        let (tslot, v, cid, p) = &cands[pick];
+        values[idx] = *v;
+        cids[idx] = cid.clone();
+        signed_ats[idx] = p.signed_at.clone();
+        tslots[idx] = Some(*tslot);
+        units[idx] = p.unit.clone().unwrap_or_default();
+        if idx == 4 {
+            have_centre = true;
+            centre_unit = p.unit.clone();
+        }
+    }
+    let time_aligned = tslots.iter().flatten().all(|t| Some(*t) == centre_tslot);
     if !have_centre {
         return Err(unprocessable(format!(
             "centre cell {} has no usable {band} fact: cannot integrate without an initial condition. Errors: {}",
@@ -621,6 +659,11 @@ pub async fn heat_solve(mut req: HeatSolveReq, state: &AppState) -> Result<JsonV
         "initial_condition_k": centre_initial_k,
         "neighborhood_initial_k": values,
         "neighborhood_signed_at": signed_ats,
+        "neighborhood_tslots": tslots,
+        "time_aligned": time_aligned,
+        "time_alignment_note": if time_aligned { JsonValue::Null } else {
+            json!("Some cells have no fact at the centre's tslot and use their newest fact instead. Compare `neighborhood_tslots`: part of the stencil range can be a change in time, not in space.")
+        },
         "neighborhood_units": units,
         "imputed_neighbor_indices": imputed,
         "imputation_note": if imputed.is_empty() { JsonValue::Null } else {
@@ -1518,6 +1561,62 @@ pub async fn post_jepa_predict(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn lst_fact(tslot: u64, v: f64) -> Fact {
+        Fact::Primary(PrimaryFact {
+            cell: "defi.zb595.nizu.zd4b1".into(),
+            band: "modis.lst_day_8day".into(),
+            tslot,
+            value: ciborium::Value::Float(v),
+            unit: Some("K".into()),
+            confidence: 1.0,
+            uncertainty: None,
+            sources: vec![],
+            derivation: emem_fact::Derivation {
+                fn_key: "t@1".into(),
+                args: None,
+            },
+            privacy_class: "public".into(),
+            schema_cid: emem_fact::SchemaCid::new("s"),
+            signer: emem_core::AttesterKey([1u8; 32]),
+            signed_at: "2026-11-07T00:15:41Z".into(),
+            served_via: None,
+        })
+    }
+
+    /// Tokyo on emem.dev, 7 Nov 2026: the centre cell held tslots 2572,
+    /// 2585, 2589 and 2593, oldest first. heat_solve took the first one
+    /// (305.04 K, signed 28 May) while the 8 neighbours were at 2593
+    /// (289.58 K), so the 15.46 K stencil range was a change in time.
+    #[test]
+    fn heat_solve_reads_the_centre_at_its_newest_tslot() {
+        let facts = vec![
+            lst_fact(2572, 305.04),
+            lst_fact(2585, 309.52),
+            lst_fact(2593, f64::NAN),
+            lst_fact(2589, 302.54),
+            lst_fact(2593, 289.58),
+        ];
+        let cids: Vec<_> = ["a", "b", "c", "d", "e"]
+            .iter()
+            .map(|c| emem_fact::FactCid::new(*c))
+            .collect();
+        let cands = primary_candidates_for_band(&facts, &cids, "modis.lst_day_8day");
+        let tslots: Vec<u64> = cands.iter().map(|c| c.0).collect();
+        assert_eq!(tslots, vec![2572, 2585, 2589, 2593]);
+        let newest = cands.last().unwrap();
+        assert_eq!((newest.1, newest.2.as_str()), (289.58, "e"));
+        assert!(primary_candidates_for_band(&facts, &cids, "era5.t2m").is_empty());
+    }
+
+    #[test]
+    fn a_neighbour_uses_the_centre_tslot_when_it_has_one() {
+        let ts = [2572, 2589, 2593];
+        assert_eq!(candidate_at_or_newest(&ts, Some(2589)), Some(1));
+        assert_eq!(candidate_at_or_newest(&ts, Some(2580)), Some(2));
+        assert_eq!(candidate_at_or_newest(&ts, None), Some(2));
+        assert_eq!(candidate_at_or_newest(&[], Some(2589)), None);
+    }
 
     #[test]
     fn heat_choose_timestep_satisfies_cfl() {
