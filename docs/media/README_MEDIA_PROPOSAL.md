@@ -77,6 +77,15 @@ Markup for line 291:
 <br><sub>Contains modified Copernicus Sentinel data 2024-2025.</sub>
 ```
 
+A film can take the place of this still at line 291. `docs/media/films/emem-ndvi-season.mp4` shows the same
+signed answer, one scene at a time. Each step shows the true-colour crop, the NDVI of the 36 blocks and the median
+on a growing chart. It ends on the one token and `verify_receipt` valid. Use the still or the film, not both:
+
+```html
+<a href="docs/media/films/emem-ndvi-season.mp4"><img src="docs/media/films/emem-ndvi-season-poster.webp" alt="Film, 32 seconds, silent, from live emem.dev reads on 7 November 2026. A farm box near Ames, Iowa, scene by scene. The poster shows 1 August 2024: a Sentinel-2 true-colour crop, all 36 blocks green, and median NDVI 0.88 with all 2,200 pixels clear. The film steps through 17 clear scenes from February 2024 to November 2025, marks the 8 dates with too few clear pixels, and ends on the one token for the series and verify_receipt valid." width="540"></a>
+<br><sub>Silent, 32 seconds. <a href="docs/media/films/emem-ndvi-season.webm">WebM</a>. Contains modified Copernicus Sentinel data 2024-2025.</sub>
+```
+
 Markup for line 90:
 
 ```html

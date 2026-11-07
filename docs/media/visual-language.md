@@ -95,6 +95,7 @@ Each row gives the question the image answers and the page that shows it. Paths 
 | `diagrams/receipt-check.svg` | How do I check a receipt without trusting the server? | `protocol.md` receipt section, embed asked of PR #32 | `diagrams/src/receipt.py`, one live `recall` receipt checked offline |
 | `films/emem-fact-to-check.mp4` | Can another agent check a fact from a token, and does one changed character fail? | `start-here.md` | `films/src/emem-fact-to-check.html` |
 | `films/emem-note-write.mp4` | How does a refused note write become an accepted one? | `memory.md` | `films/src/emem-note-write.html` |
+| `films/emem-ndvi-season.mp4` | What does one signed `field_series` answer say, scene by scene? | `agents.md`, link asked of PR #30 | `films/src/emem-ndvi-season.html`, data from `season_data.py` |
 | `stills/recall-one-cell.webp` | What does one recall return at one cell? | `agents.md` | `stills/src/recall_cell.py` |
 | `stills/similar-places.webp` | Which places look like Dubai from orbit? | `agents.md` | `stills/src/similar_places.py` |
 | `stills/ndvi-two-seasons.webp` | How does NDVI change over two seasons on one field? | `agents.md` | `stills/src/ndvi_season.py` |
@@ -139,6 +140,10 @@ Check one film frame before a full render. This command writes a PNG of the fram
 
     xvfb-run -a -s "-screen 0 1280x1280x24" python docs/media/films/src/film.py \
       docs/media/films/src/emem-fact-to-check.html fact /tmp --size 1080x960 --stills 25
+
+The season film reads `films/src/season-data.js`. `fetch_season.py` gets one true-colour crop per scene of the
+saved `field_series` answer. It does not save a crop from another scene. `season_data.py` (needs `pyproj`) writes the
+data file from the saved responses.
 
 Remove `--stills 25` and add `--poster 25.5` to render the MP4, the WebM and the poster. A full render takes about
 8 minutes on a GPU host. Check the text of a diagram:
