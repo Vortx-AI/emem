@@ -89,7 +89,10 @@ console.log(facts.facts[0].value);   // 3539.042236328125
 ```
 
 The client returns parsed JSON with the generic type `Json`. Narrow the type (here with `any`) before you index into
-it.
+it. Without the `any`, `tsc --strict` stops with error TS2339.
+
+To run the code with Node 24, save it as `quick.mts` and run `node quick.mts`. Node 24 removes the type
+annotations itself. The `.mts` extension makes the file an ES module, which lets you use `await` at the top level.
 
 ### Go
 
@@ -148,8 +151,9 @@ async fn main() -> anyhow::Result<()> {
 
 The Rust example needs the crates `reqwest` (with the `json` feature), `tokio`, `serde_json` and `anyhow`.
 
-On 7 November 2026 we ran the curl and Python examples on this page against emem.dev. We did not run the
-TypeScript, Go and Rust examples on that day. They send the same request bodies as the curl example.
+On 7 November 2026 we ran the curl, Python and TypeScript examples on this page against emem.dev. The
+TypeScript run used Node 24.19.0 and `@vortxai/emem` 2.4.4, and `tsc` 7.0.2 with `--strict` accepted the code. We
+did not run the Go and Rust examples on that day. They send the same request bodies as the curl example.
 
 ## What the two calls did
 
