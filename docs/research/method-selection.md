@@ -119,7 +119,7 @@ other forest of their class.
    Am has five selection forests of its own. The pool looks for forests with eight or more loss cells in 2021 to
    2023. A class with at least three such forests gives up to five, the largest loss first. Aw gives Chiquitania,
    Bokeo, Lobaye, Prey Lang and Sinop. Af gives Jambi, Ketapang, Madre de Dios, Ituri and Caqueta. Cw had two, so the
-   pool leaves it out. Sagaing therefore gets the global choice. These forests are already in other experiments'
+   pool leaves it out. The Cw forest, Sagaing, gets the global choice. These forests are already in other experiments'
    evidence, so the pool enters no method's status evidence.
 3. `canopy-loss-method-selection-2022-2025`: runs once (1) and (2) are scored. Its plan prints every forest's
    decision. It also prints the climate class of every forest it read, and the fact each class comes from. The lab
