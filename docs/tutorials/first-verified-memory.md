@@ -114,12 +114,14 @@ Open a second terminal or a different machine, or send the token to a colleague.
 curl -s -X POST https://emem.dev/v1/memory_token/resolve \
   -H 'content-type: application/json' \
   -d '{"token":"emem:fact:defi.zb555.ze8e5.xawO:zxxbyowj2vlhyvgcj55brc47aoubvnibo7ydck4q2vn32uqcp3oa"}' \
-  | jq -c '{band, value, unit, signed_at: .fact.signed_at}'
-# {"band":"copdem30m.elevation_mean","value":187.33578491210938,"unit":"m","signed_at":"2026-07-16T10:47:40Z"}
+  | jq -c '{band, value, unit, signed_at: .fact.signed_at, cell_matches}'
+# {"band":"copdem30m.elevation_mean","value":187.33578491210938,"unit":"m","signed_at":"2026-07-16T10:47:40Z","cell_matches":true}
 ```
 
-The response holds the signed fact in `fact`. It also copies `value` and `unit` to the top level. It has its own
-`receipt`. The receiver checks that receipt with the step 2 check:
+The response holds the signed fact in `fact`. It also copies `value` and `unit` to the top level. `cell_matches`
+is `true` when the cell in the token is the cell of the signed fact. If the cells differ, emem refuses the token with
+HTTP 409 and names the correct cell. The response has its own `receipt`. The receiver checks that receipt with the
+step 2 check:
 
 ```bash
 curl -s -X POST https://emem.dev/v1/memory_token/resolve \
