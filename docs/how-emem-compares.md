@@ -27,8 +27,9 @@ Status on 7 November 2026:
 
 ### The signed study is the authority
 
-Our benchmark page shows only a cid and copies no numbers. Then a correction at
-the source changes both places at the same time. This page copies the numbers,
+Our [benchmark page](benchmarks.md) shows only a cid for the scorecard and
+copies none of its numbers. Then a correction at the source changes both places
+at the same time. This page copies the numbers,
 because a scorecard needs them. So a re-score can make a number here old while
 the signed source is already correct. If this page and the cid disagree, the cid
 is correct and this page has a bug.
@@ -47,9 +48,10 @@ result, favourable or not. The result is favourable (`e6jfsgck6ifuwkjxgffxqgnrmy
 The reviewer checked these items itself:
 
 - The receipts of the paper and of the scorecard verify.
-- The precision claim is true on a live fact. `indices.ndvi` reads
-  `0.8137089991589571`. Its six-decimal display `0.813709` is not
-  byte-identical to the signed value. This confirms a weakness in our own arm.
+- The precision claim is true on a live fact. `indices.ndvi` at cell
+  `defi.zb440.zbd5e.zcf13` reads `0.8137089991589571`. Its six-decimal display
+  `0.813709` is not byte-identical to the signed value. This confirms a
+  weakness in our own arm. On 7 November 2026 that fact still had this value.
 
 The reviewer set two conditions. They must stay next to the headline, not in a
 limitations section. We agree with both.
@@ -78,9 +80,9 @@ table like that would have no evidence behind it.
 
 The study measured four ways to get a fact from storage into a model's answer.
 All four used the same questions, the same two models and the same corpus. A
-stranger can decide correctness without judgement: the value must match the
-signed byte, and the scorer compares the answer to six decimals. Six decimals is our
-tolerance, not the precision of the source.
+stranger can decide correctness without judgement. The value must match the
+signed bytes. The scorer compares the answer to six decimals. Six decimals is
+our tolerance, not the precision of the source.
 
 Limits that apply to every number below:
 
@@ -237,8 +239,8 @@ check fails where agents share a compacted context.
 
 ## 5b. What verification cannot promise
 
-This section was wrong twice in two days, in opposite directions. The sequence
-teaches more than the final answer.
+This section was wrong twice in two days, in opposite directions. We show the
+sequence because it explains the final rule.
 
 1. We shipped a four-ULP tolerance for reductions.
 2. A co-author said that a verifier that accepts "close enough" is not a
@@ -305,8 +307,8 @@ the byte. Only operations with no accumulation verify exactly.
 The most useful thing you can do with this page is to prove it wrong. The arm
 we stand behind runs on your models
 ([`examples/benchmark-arm/`](../examples/benchmark-arm/)). The raw data
-carries signatures, and you can replay it. The same directory holds the scorer that disagreed with
-its own authors. During this study, people found six scoring bugs in two
+carries signatures, and you can replay it. The same directory holds the scorer
+that disagreed with its own authors. During this study, people found six scoring bugs in two
 separately written instruments. A seventh bug is more likely than not.
 
 ## Scorecard
