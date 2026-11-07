@@ -1079,20 +1079,19 @@ emem has two layers. Both use the same signature and receipt.
 - Earth memory. A fact has the key `(cell, band, tslot)`. The responder signs
   the BLAKE3 digest of the fact's canonical CBOR. The bytes verify the same on
   any replica that holds them.
-- Agent memory. Each agent has a scratchpad of notes that it can write. Six
-  verbs follow the Anthropic memory tool: `emem_memory_view`,
-  `emem_memory_create`, `emem_memory_str_replace`, `emem_memory_insert`,
-  `emem_memory_delete` and `emem_memory_rename`. `emem_memory_supersede` adds
-  a new version and keeps the old one. Each note has a `kind`: `core`,
-  `episodic`, `semantic`, `procedural`, `resource` or `vault`. The default
-  is `resource`. A `core` note shows first in a `memory_view` folder list.
-  `episodic`, `semantic`, `procedural` and `resource` come from the CoALA
-  taxonomy. The responder keeps a `vault` note encrypted and search does
-  not index it; see [The kinds](memory.md#the-kinds). A path under
-  `/memories/by_attester/<pubkey8>/` needs an Ed25519 signature from that key.
-  `<pubkey8>` is the first eight characters of the base32 public key.
-  `emem_memory_search` searches note text with BGE-768 vectors in a LanceDB
-  index. `GET /v1/memory/sse` streams new writes.
+- Agent memory. Each agent has a scratchpad of notes that it can write.
+  - Six verbs follow the Anthropic memory tool: `emem_memory_view`,
+    `emem_memory_create`, `emem_memory_str_replace`, `emem_memory_insert`,
+    `emem_memory_delete` and `emem_memory_rename`.
+  - `emem_memory_supersede` adds a new version and keeps the old one.
+  - Each note has a `kind`. The default is `resource`. The six kinds, their
+    time to live and the encrypted `vault` kind are in
+    [The kinds](memory.md#the-kinds).
+  - A path under `/memories/by_attester/<pubkey8>/` needs an Ed25519
+    signature from that key. `<pubkey8>` is the first eight characters of
+    the base32 public key.
+  - `emem_memory_search` searches note text with BGE-768 vectors in a
+    LanceDB index. `GET /v1/memory/sse` streams new writes.
 
 Old tokens with the prefixes `memt:`, `memb:` and `meme:` still resolve.
 They are the old names of `emem:fact:`, `emem:bundle:` and `emem:entity:`.
@@ -1134,24 +1133,29 @@ provenance classes by name, for example
   only the facts that come back. The filter does not change
   `bands_already_attested_at_cell`.
 
-Eight read primitives take a time bound: recall, `recall_polygon`,
-`query_region`, `trajectory`, `find_similar`, `state`, `state_multi` and
-`memory_bundle`. Each takes two bounds. `as_of_tslot` gives the latest fact
-observed at or before the bound. `as_of_signed_at` gives the latest fact
-signed at or before the bound. If you set both, both apply. In
-`memory_bundle`, put the bounds in each triple, not at the top level.
+A time bound reads the memory as it was at an earlier time. There are two
+bounds. If you set both, both apply.
+
+- `as_of_tslot` gives the latest fact observed at or before the bound.
+- `as_of_signed_at` gives the latest fact signed at or before the bound.
+
 The receipt of recall, `query_region`, `trajectory` and `find_similar` then
 has an `as_of` block. An auditor can replay the query later and get the same
-bytes. `edges/recall` takes `as_of_tslot` only. `diff`, `compare` and
-`verify` take no time bound. On 7 November 2026, the `/openapi.json` schemas
-showed the bounds only for recall, `recall_polygon` and `trajectory`. The MCP
-schemas showed them for the first seven primitives. A GET of `/mcp/full`
-lists names and descriptions only. A `tools/list` call to `/mcp/full`
-returns each schema. On 7 November 2026 it took 9 pages; follow
-`nextCursor`. To get one schema, call `emem_tools` with
-`{"name": "emem_state"}`.
-No published schema shows the bounds in a `memory_bundle` triple
-(`BundleTriple` in `crates/emem-primitives/src/memory_bundle.rs`).
+bytes. `diff`, `compare` and `verify` take no time bound. Not every schema
+shows the bounds. This table gives the schemas on 7 November 2026.
+
+| Primitive | Bounds it takes | In `/openapi.json` | In the MCP schema |
+|---|---|---|---|
+| recall, `recall_polygon`, `trajectory` | both | yes | yes |
+| `query_region`, `find_similar`, `state`, `state_multi` | both | no | yes |
+| `memory_bundle` | both, in each triple, not at the top level | no | no |
+| `edges/recall` | `as_of_tslot` only | yes | yes |
+
+The bounds in a `memory_bundle` triple are in `BundleTriple` in
+`crates/emem-primitives/src/memory_bundle.rs`. To see an MCP schema, call
+`emem_tools` with `{"name": "emem_state"}`. You can also send `tools/list`
+to `/mcp/full` and follow `nextCursor`. On 7 November 2026 that took 9
+pages. A GET of `/mcp/full` gives names and descriptions only.
 
 ### Routes for operations from other memory libraries
 
