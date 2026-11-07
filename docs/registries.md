@@ -331,8 +331,11 @@ in snake case.
 | `ClassTable` | `{op:"class_table", inner:..., classes:[[t, v], ...], default:...}` | `v` of the first pair with `t > inner`, else `default` |
 
 Evaluation is pure. Given `samples: HashMap<String, f64>`, the AST reduces to
-`Option<f64>`. A missing band makes the whole expression `None`, never a
-silent zero. Receipts show this as
+`Option<f64>`. A missing band makes the expression `None`, never a
+silent zero. The one exception is `or_else`: when its `primary` has a
+missing band, it returns `fallback`. Before evaluation, the dispatcher
+checks the required bands. These are all bands except the bands inside an
+`or_else` primary. When one is missing, the receipt shows
 `algorithm_outcomes[].skip_reason: "missing_input:<band>"`.
 
 The triple-consensus algorithms do not use `Expr`. They use a wider formula

@@ -942,11 +942,20 @@ has a `FactCid`, the responder signs it, and you can cite it like a
 Primary or Derivative fact.
 
 The responder writes the reason as one line of text. Most reason texts
-start with a short code and a colon. Three kinds of text do not: the
-MODIS texts ("no valid ... observation in ..."), the Hansen texts
-("Hansen GFC v1.13 tile ... not present ...") and the algorithm texts
-("algorithm '...': missing input bands ..."). `reason_cid` is the content address of
-that text (`reason_cid_for`, `crates/emem-api-rest/src/lib.rs`):
+start with a short code and a colon. Some texts have no code:
+
+| Source | Start of the text |
+|---|---|
+| MODIS | `no valid <product> <variable> observation in ...` |
+| Hansen GFC | `Hansen GFC v1.13 tile ... not present ...` |
+| Algorithms | `algorithm '...': missing input bands ...` |
+| NASA POWER | `nasa power response missing ...`, `nasa power nodata sentinel ...` |
+| SoilGrids (HTTP 404 outside the land mask) | `soilgrids status 404 Not Found for ...` |
+| Open-Meteo Marine | `marine response missing ...`, `marine response had no hour ...`, `marine hourly.<field>[<i>] is null ...` |
+
+For these texts, the text before the first colon is not a code.
+`reason_cid` is the content address of the reason text
+(`reason_cid_for`, `crates/emem-api-rest/src/lib.rs`):
 
 ```text
 reason_cid = lowercase(base32_nopad(blake3(reason_text)[0..16]))   // 26 characters
@@ -982,6 +991,11 @@ with that code still verify.
 | `gmrt_coverage_gap`, `gmrt_not_implemented` | The cell is outside the GMRT bathymetry area, or the GMRT read path cannot serve this request. |
 | `out_of_bounds`, `before_record`, `nodata` | CHIRPS: the cell is outside ±50° latitude, the date is before 1981-01-01, or the pixel is -9999. |
 | `geotessera_no_tile` | Tessera publishes no embedding tile for this cell and year. |
+| `s2_scl_pixel_unusable` | Every Sentinel-2 scene in the search window has an unusable scene class (SCL) at this pixel, for example cloud or shadow. |
+| `soilgrids_outside_mask` | The cell is outside the SoilGrids 2.0 latitude range of -60° to +84°. |
+| `soilgrids_no_data`, `soilgrids_non_finite` | ISRIC gives no value for one or more depth slices, or the depth average is not a finite number. |
+| `soilgrids_missing_unit_scale` | ISRIC gives no usable `d_factor`, so the responder cannot convert the value to its documented unit. |
+| `overture_no_road_within_50m` | The Overture release has no carriageway segment within 50 m of the point. Footways, paths and pedestrian areas do not count. |
 | `needs_backfill` | A `temporal_diff` read has no stored fact at the earlier time slot. The text names the `POST /v1/backfill` call. |
 
 The OpenAPI `Fact` schema also lists a typed `absence_reason` label
@@ -1127,7 +1141,7 @@ MATCH
 
 At 00:59 UTC on 7 November 2026, a recall with no `bands` field at
 that cell gave 358 facts: 355 primary facts and 3 absences. The script
-gave `MATCH` for all 358. That set included a vector value with NaN
+gave `MATCH` for each of the 358 facts. That set included a vector value with NaN
 entries and one fact with `served_via`.
 
 For an absence you can also check `reason_cid`. Hash the `reason` text
@@ -1344,7 +1358,7 @@ the same file gives the error code (`crates/emem-core/src/error.rs`):
 | Steps 2 to 7 (duplicate leaf, root mismatch, bad key, bad signature) | `bad_signature` | 422 |
 | Step 8 (key not allowed on the fact plane) | `level_too_low` | 403 |
 
-The step 8 message starts with `fact_plane_closed:`. It tells the
+The step 8 message starts with `LevelTooLow: fact_plane_closed:`. It tells the
 caller to use `POST /v1/derive` (§5.2) for a value of its own. See
 `docs/errors.md` for the full refusal.
 
@@ -1741,7 +1755,7 @@ receipt = json.load(open("receipt.json"))
 
 # The signing key travels ON the receipt, so verifying needs no second call.
 # (`responder` under /.well-known/emem.json is an object describing the
-# encoding, not the key itself; `responder_pubkey_b32` there is the key.)
+# encoding, not the key itself; `responder.pubkey_b32` there is the key.)
 pk_bytes = bytes(receipt["responder"])             # [u8; 32]
 
 def le32(n): return n.to_bytes(4, "little")
@@ -2421,17 +2435,22 @@ receipt's Merkle root. On 7 November 2026 the same steps passed again
 for the same entry, at `tree_size` 3,243,767.
 
 The Claude Code plugin ships a verifier for steps 2, 3, 5 and 6. It
-needs no packages. Save the step 1 and step 4 responses, then run:
+needs no packages. The `inclusion` command checks the proof against the
+STH inside the same response. So for the plugin, get the step 4 proof
+without `tree_size`. Then the proof and its STH have the same size. A
+proof at an older `tree_size` gives `INVALID` when the log has grown
+(live on 7 November 2026: proof at 3,245,000, STH at 3,245,620). Save the
+step 1 and step 4 responses, then run:
 
 ```sh
 python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py sth sth.json
 python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py inclusion inclusion.json
 ```
 
-The `inclusion` command checks the STH inside the inclusion response.
-Compare its `root_b32` with the step 1 STH yourself. The same script
-also checks a consistency proof between two STHs (§9.6.1.1). Step 7 is
-not in the script.
+The STH inside the step 4 response can be newer than the step 1 STH.
+To connect the two, check a consistency proof from the step 1 size to
+the size in the step 4 response (§9.6.1.1). The same script does that
+check with its `consistency` command. Step 7 is not in the script.
 
 ##### 9.6.1.1 Check a consistency proof by hand
 

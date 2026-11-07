@@ -172,7 +172,7 @@ curl -s -X POST https://emem.dev/mcp \
 ## Protocol codes (27)
 
 These are all the variants of `ErrorCode`. The MCP number is the enum
-discriminant, negated. On 7 November 2026, no route sends 12 of these
+discriminant, negated. On 7 November 2026, no route sends 13 of these
 codes. The next subsection names them and says what you get instead.
 
 | Code | MCP | Meaning | First thing to try |
@@ -207,7 +207,7 @@ codes. The next subsection names them and says what you get instead.
 
 ### Codes that no route sends
 
-`/v1/errors` lists all 27 codes. The code maps each of these 12 codes to
+`/v1/errors` lists all 27 codes. The code maps each of these 13 codes to
 an HTTP status, but no handler or store error produces it:
 
 | Code | What you get instead |
@@ -285,8 +285,9 @@ refusal names itself in `details.code`.
 | `derive_parent_cell_mismatch` | `invalid_argument` | 409 | The token names a cell that is not the cell of the signed fact. The message gives the correct token. |
 | `derive_attestation_required` | `invalid_argument` | 401 | The body has no `attester` block. `details.how_to_sign` carries the digest to sign. |
 | `derive_attestation_invalid` | `bad_signature` | 401 | The key has a bad shape (`reason: bad_pubkey`) or the signature does not verify (`reason: bad_signature`). The message names the expected digest. |
+| `derive_namespace_violation` | `invalid_argument` | 403 | The code maps this case, but it cannot occur today. `/v1/derive` is not under a `by_attester` path. |
 
-Four more derive refusals have no `details` block. The route code is the
+Three more derive refusals have no `details` block. The route code is the
 start of `message`.
 
 | Start of `message` | Top-level `code` | HTTP | Meaning |
@@ -294,7 +295,6 @@ start of `message`.
 | `derive_uncanonicalisable_body` | `invalid_argument` | 400 | The responder cannot encode the body as canonical CBOR, so it cannot compute `body_hash`. |
 | `derive_attestation_failed` | `internal` | 500 | The responder could not build or sign the attestation for the new fact. Report it. |
 | `derive_store_returned_no_cid` | `internal` | 500 | The store accepted the attestation but returned no fact cid. Report it. |
-| `derive_namespace_violation` | `invalid_argument` | 403 | The code maps this case, but it cannot occur today. `/v1/derive` is not under a `by_attester` path. |
 
 ## Other route codes
 
