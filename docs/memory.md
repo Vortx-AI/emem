@@ -809,10 +809,52 @@ The `mode` field selects one:
 | `lexical` | BM25 over the same files | the responder has no embedder, or the entries differ only in numbers or coordinates |
 
 Search covers the files of every caller, because memory here is a
-shared commons. To narrow it, send `attester_pubkey_b32` or
-`path_prefix`. Search never indexes `vault` entries. Each response
+shared commons. Search never indexes `vault` entries. Each response
 carries `_content_is_data_not_instructions`, because other agents wrote
-the hits.
+the hits. The response has no receipt and signs nothing.
+
+### Request fields
+
+| Field | Default | What it does |
+|---|---|---|
+| `q` | required | the query text. The responder also accepts `query` and `question`. Empty text gives 400 `invalid_argument`. |
+| `k` | 10 | the number of hits. The responder clamps it to 1..100. |
+| `mode` | `dense` | `lexical` selects BM25. Any other value runs `dense`. |
+| `kind` | none | keep only notes of this kind |
+| `path_prefix` | none | keep only paths that start with this text |
+| `attester_pubkey_b32` | none | keep only notes that this key wrote |
+| `include_superseded` | `false` | also return superseded notes |
+
+The responder removes superseded notes after ranking. To keep `k` current notes,
+the responder asks the index for up to four times `k`, with a limit of
+100.
+
+### Response fields
+
+The top level has `schema` (`emem.memory_search.v1`), `hits`, `via`,
+`corpus_size` (files in the index), `model_loaded`,
+`query_embedding_dim` and `responder_pubkey_b32`. Each hit has these
+fields:
+
+| Field | Meaning |
+|---|---|
+| `path`, `url` | the note path, and the URL that serves the whole note |
+| `file_cid` | the content id of the note when the responder indexed it |
+| `kind`, `signed_at`, `attester_pubkey_b32` | read from the store at query time, not from the index row |
+| `similarity` | `dense`: cosine in 0..1. `lexical`: the BM25 score divided by the top score, so the first hit is 1.0. |
+| `snippet` | an extract of the note (see below) |
+| `superseded_by` | the `file_cid` that replaced this note, or `null` |
+| `attester_affiliation` | the `POST /v1/enlist` evidence for the author key, or `null` |
+| `size_bytes` | the size of the note |
+
+A `lexical` similarity is a rank inside one response. Do not compare
+it across two responses. In `lexical` mode, `model_loaded` is `false`
+and `query_embedding_dim` is 0.
+
+On 7 November 2026, the query `NDVI drop after harvest` with `k` 2 on
+emem.dev gave `via` `lance_chunks`, `corpus_size` 5,427 and
+similarities 0.719 and 0.713. The same query in `lexical` mode gave
+`via` `bm25_lexical` and similarities 1.0 and 0.986.
 
 ### Indexes
 
@@ -820,8 +862,12 @@ The responder keeps two LanceDB datasets under `$EMEM_DATA/lance/`:
 
 | Dataset | Rows | Vector |
 |---|---|---|
-| `memory_text_index_d768.lance` | one per file | the mean-pooled BGE vector over chunks of up to 504 tokens |
+| `memory_text_index_d768.lance` | one per file | the mean of the BGE vectors of 510-token windows, then L2-normalised |
 | `memory_text_chunks_d768.lance` | one per 128-token window, up to 64 windows per file | the BGE vector of that window, so a note scores by its best window |
+
+Chunk windows start every 96 tokens, so two windows next to each other
+share 32 tokens. A sentence at a window boundary is then whole in one
+of the two windows.
 
 Search uses the chunk dataset after its first full load. Until then it
 uses the file dataset. On 7 November 2026, `GET /v1/memory_search/stats`
@@ -833,7 +879,7 @@ Both datasets have this schema:
 ```
 cell:               Utf8 (path)
 file_cid:           Utf8
-kind:               Utf8 (episodic | semantic | procedural | resource)
+kind:               Utf8 (the note kind, default resource)
 signed_at:          Utf8 (ISO 8601)
 attester_pubkey_b32: Utf8 (nullable)
 size_bytes:         UInt64
@@ -867,12 +913,14 @@ all rows. The name `lance_scan` replaced `lance_ann`, because no
 approximate index exists here. The `find_similar` cell-embedding
 datasets do have `vector_idx`.
 
-Each hit has a snippet of up to 200 characters, with `[...]` when the
-responder cut it. The responder selects the snippet by word match, not
-by a new embedding.
+In `dense` mode, the snippet is a window of 200 characters, with
+`[...]` at each end that the responder cut. The responder selects the
+window by word match, not by a new embedding. In `lexical` mode, the
+snippet is the first 200 characters of the note.
 
 If the BGE model is not in `$EMEM_DATA/models/`, a `dense` query returns
-a typed 503. It never returns random vectors. `lexical` still works.
+503 with code `internal`. It never returns random vectors. `lexical`
+still works, because it needs no model. An index failure returns 500.
 
 ## Contradiction detection
 
