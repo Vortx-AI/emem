@@ -91,9 +91,25 @@ so an extended tool also works on `/mcp`.
 
 The examples use the cell of Mount Fuji, `defi.zb592.nUkO.zEzE`. Every call
 in this section ran again on 7 November 2026 and returned HTTP 200, except the
-note write, which needs your key. The MCP form is the `params` object of a
-JSON-RPC `tools/call` request. A count or value in an answer can change on a
-later day.
+note write, which needs your key. A count or value in an answer can change on
+a later day.
+
+The MCP form is the `params` object of a JSON-RPC `tools/call` request. To
+send it without an MCP client, wrap it as below. emem.dev answered this call
+with no `initialize` call before it.
+
+```bash
+curl -s -X POST https://emem.dev/mcp \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"emem_locate","arguments":{"place":"Mount Fuji"}}}'
+```
+
+The tool answer is a JSON string in `result.content[0].text`. An MCP answer
+has a size limit. On 7 November 2026, emem.dev cut answers at 12,000 bytes.
+The code default is 24,000 bytes (`EMEM_MCP_RESPONSE_BUDGET_BYTES`). A cut
+answer has an `_emem_truncation` block. It names each omitted field and the
+call that gives the rest. The REST route has no size limit.
 
 ### Job: find the right tool
 
@@ -141,7 +157,9 @@ curl -s -X POST https://emem.dev/v1/locate \
 
 Read `cell64` (`defi.zb592.nUkO.zEzE`) and `data_at_this_cell`, which lists
 the bands you can recall there. `via` names the geocoder that answered. Before
-you use the cell, make sure that `selected.is_high_confidence` is `true`. For an
+you use the cell, make sure that `selected.is_high_confidence` is `true`.
+On 7 November 2026, the MCP answer for Mount Fuji was too large. It omitted
+`data_at_this_cell`, so use the REST call to read that field. For an
 object such as a bridge or a field, use
 [Find the shared identity of an object](#job-find-the-shared-identity-of-an-object).
 
@@ -294,7 +312,8 @@ recalls each triple, so it fetches a missing fact first.
 
 ### Job: verify a receipt
 
-Send the `receipt` object from any signed answer. This pipe uses `jq`:
+Send the `receipt` object from any signed answer. The curl form sends a recall
+answer into the check through `jq`.
 
 ```json
 {"name": "emem_verify_receipt", "arguments": {"receipt": {"...": "the receipt object from recall"}}}
