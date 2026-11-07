@@ -147,9 +147,14 @@ The paper's contributions, stated once:
   method stated per number, typed failure modes, and the limits
   restated as an adversary model (§14, §15, §16).
 
-![emem architecture: one Rust binary, two wire surfaces](/docs/diagrams/01-architecture.svg)
+![emem architecture. Open-data sources (STAC and COG) feed one responder binary on the first miss. MCP and REST clients reach the same handlers, such as recall, find_similar, verify and hunt. The responder reads its manifests (bands, algorithms, sources, schema) and appends every write to a signed log with a Merkle root per batch.](/docs/diagrams/01-architecture.svg)
 *Figure 1: one binary, signed end to end. The same handlers answer MCP
 and REST, reads need no auth, and every write is logged.*
+
+On a phone screen, [architecture.svg](/docs/media/diagrams/architecture.svg)
+shows the same binary in one column, from live reads on 7 November 2026.
+It follows one call through seven steps: call, find in the store, fetch
+on a miss, hash, sign, log and answer.
 
 ### 1.1 Drift has two directions
 
@@ -178,7 +183,7 @@ An attribution ledger ships (§10.3): per-term evidence under a signed
 receipt. Splitting a delta numerically among the terms is still open
 work; nothing in this build computes the split.
 
-![the observed change at a pinned reference decomposes into environment, sensor, geometry, encoder, and noise terms; only the first is the world](/docs/diagrams/37-change-decomposition.svg)
+![The change at one place is a sum of five terms: the world, the sensor, the geometry, the encoder, and noise. Only the first term is the world. Signed metadata records or pins the other terms. change_attribution@1 ships a signed ledger that lists the evidence for each term. The numeric split of one change among the terms does not ship.](/docs/diagrams/37-change-decomposition.svg)
 *Figure 2: the decomposition. Only Δ_env is about the world; the
 substrate pins or separates the other four by construction, and
 splitting a specific delta is the open primitive of §10.3.*
@@ -375,7 +380,7 @@ equivalent in what dereferencing proves. There is one type per shape of
 memory: a point, a set, an object, a bare place, and, for a world model,
 a field and a field over time.
 
-![two agents, one memory: agent A hands agent B one line of text and agent B verifies it without trusting agent A](/docs/diagrams/35-two-agents-one-memory.svg)
+![Agent A recalls a signed fact and gives agent B one line: an emem:fact: token of about 84 characters. Agent B resolves the token, gets the same bytes from any node that holds the fact, and checks the signature offline. Agent B does not trust agent A.](/docs/diagrams/35-two-agents-one-memory.svg)
 *Figure 3: the token lifecycle. Recall returns a signed fact and its
 receipt; the token is the one-line citation; the receiver resolves it to
 the identical bytes and verifies the receipt offline.*
@@ -540,9 +545,14 @@ and `resolution = 21` distinguishes the active grid from the pre-0.0.3
 305 m grid. A legacy cell64 fails decoding with `NotGeoCell` rather than
 silently misplacing a fact by hundreds of metres.
 
-![cell + band + tslot to canonical CBOR to blake3 to 52-character base32 CID](/docs/diagrams/09-address-algebra.svg)
-*Figure 4: the address algebra. Three integers become one handle the
-rest of the protocol cites.*
+![A table of the four wire forms. cell: 64 bits, four base-65,536 bigrams. tslot: 64 bits, base32 LEB128 with a t. prefix. cid: a 32-byte BLAKE3 digest in lowercase base32. vec: a 1792-D fp16 vector. Its short id (vec64) is the first 12 bytes of its BLAKE3 hash. /v1/state returns the full vector. Cells that are near each other share a string prefix.](/docs/diagrams/09-address-algebra.svg)
+*Figure 4: the four wire forms and their sizes. The cell, the tslot
+and the CID together address one fact.*
+
+[address.svg](/docs/media/diagrams/address.svg) applies the cell form to
+one place, Mount Fuji, from live `locate` reads. It shows the four parts,
+the nine neighbourhood cells, and a cell 8,766 km away that keeps the
+first two parts. A shared prefix does not always mean near.
 
 The string form is four base-65,536 bigrams joined by `.`, drawn from a
 65,536-entry alphabet (`crates/emem-codec/src/alphabet.rs:48`); four
@@ -657,10 +667,14 @@ Every answer carries an ed25519 receipt that verifies offline against the
 responder's published key. No callback, no account, no API key. The
 receiver checks arithmetic, not reputation.
 
-![receipt preimage, ed25519 signature, merkle path, offline verify](/docs/diagrams/10-trust-plane.svg)
+![The receipt preimage: a domain tag, request_id, served_at, optional scope, as_of, edges and manifest, the primitive, the lists of cells and fact_cids, an optional field binding, and a digest of the Merkle inclusion proof. BLAKE3 makes a 32-byte digest and Ed25519 signs it. Anyone verifies it offline with the responder public key from /.well-known/emem.json.](/docs/diagrams/10-trust-plane.svg)
 *Figure 5: the trust plane. What a responder signs, and how anyone
 re-checks it without trusting the server; the `/verify` page recomputes
 these steps in the browser.*
+
+![One live recall receipt at Mount Fuji, 3539.04 m, checked offline on 7 November 2026. A fixed header and seven receipt fields make a 328-byte preimage. Its BLAKE3 digest verifies with Ed25519 against the key from /.well-known/emem.json: VALID. Change served_at by one character and the digest changes: INVALID. A valid check shows which key signed these fact ids, not that the value is true.](/docs/media/diagrams/receipt-check.svg)
+*Figure 5 applied to one live receipt, checked offline with the
+`verify.py` script of the `emem-verify-receipt` skill.*
 
 ### 6.1 One rule
 
@@ -937,8 +951,9 @@ A leaf is `blake3(0x00 || blake3(attestation_cbor))`: the hash of a whole
 attestation *batch*, appended from exactly one call site, after
 verification. Individual facts are not leaves.
 
-Five endpoints: `GET /v1/log/sth`, `GET /v1/log/inclusion`,
-`GET /v1/log/consistency`, `POST /v1/log/witness`, and
+Seven endpoints: `GET /v1/log/sth`, `GET /v1/log/inclusion`,
+`GET /v1/log/consistency`, `GET /v1/log/entries`,
+`GET /v1/log/test_vectors`, `POST /v1/log/witness`, and
 `GET /v1/log/witnesses`. Inclusion and consistency proofs are both real,
 both pure functions, and both round-trip tested for every leaf at every
 size from 1 to 33; the inclusion verifier rejects an over-long path, and
@@ -987,20 +1002,44 @@ appended in an order.
 This is the gap most worth stating plainly, because the two mechanisms
 read as one system and are not.
 
-A client **cannot currently prove that a fact it was served is in the
-transparency log.** The receipt preimage has no log binding: there is no
-`sth`, `root`, `tree_size`, or `leaf_index` segment in the tag table
-(§6.2). The Merkle proof a receipt does carry is over the batch root, a
-different tree. And to query `/v1/log/inclusion?entry_hash=`, a client
-would need `blake3(attestation_cbor)` for a batch it never receives and
-cannot request, because no endpoint reads an attestation back. There is
-no `fact_cid -> leaf_index` index.
+The receipt preimage has no log binding: there is no `sth`, `root`,
+`tree_size`, or `leaf_index` segment in the tag table (§6.2). The Merkle
+proof that a receipt carries is over the batch root, a different tree.
+A receipt also carries `merkle_proof.log_entry_hash`, the hash of the
+log entry that holds the fact's batch. That field is outside the signed
+preimage (`crates/emem-fact/src/receipt.rs`).
 
-In practice the log is auditable as a standalone append-only structure,
-disconnected from the facts anyone is actually served. Closing that gap
-is tracked as the next increment on this substrate, and until it lands,
-the honest description is the one in this paragraph rather than the one
-the word "transparency" suggests.
+A client can still join a fact to the log with three reads, and check
+each step offline:
+
+1. `GET /v1/log/inclusion?fact_cid=<cid>` names the entry that holds the
+   fact's batch and returns its audit path to the current signed tree head.
+2. `GET /v1/log/entries?start=<i>&end=<i+1>` returns the bytes of that
+   entry. Their BLAKE3 must equal the `entry_hash_b32` of the proof.
+3. The client decodes the attestation in those bytes and finds the fact
+   in it.
+
+On 7 November 2026 the Mount Fuji elevation fact `qejpz7cg...` gave entry
+2,463,431 of 3,248,898. The entry was one attestation of 1,235 bytes
+that held one fact. Its BLAKE3 matched the proof, and the 22-hash audit
+path reached the signed root. The film below shows that proof step by
+step.
+
+So the log is no longer separate from the facts that clients get. The
+join is a set of extra reads, not part of the signed receipt. For a fact
+signed before receipts carried `log_entry_hash`, step 1 returns 404
+`cid_not_found` until the responder builds its batch-root index, a few
+minutes after a restart.
+
+[![Film poster. The audit path of the Mount Fuji entry, hash 17 of 22: a bar shows 424,992 entries around the entry, the 131,072 entries covered so far in blue and the next block of 131,072 entries in purple. A list shows hashes 14 to 18, with the size of each block, its side and the new hash.](media/films/emem-log-climb-poster.webp)](media/films/emem-log-climb.mp4)
+
+*Silent, 38 seconds. Select the picture to play the MP4, or get the
+[WebM](media/films/emem-log-climb.webm). The film shows the Fuji entry
+climb 22 hashes to the root of the signed head of size 3,248,898. One
+changed character in hash 10 gives another root, and inclusion is
+invalid. A 14-hash consistency proof links the head of size 3,248,892 to
+it. Live reads on 7 November 2026, checked offline with `verify_log.py`.
+The source is in [media/films/src/](media/films/src/log_climb_data.py).*
 
 ### 8.5 Witnesses are scaffolding, not a network
 
@@ -1166,10 +1205,10 @@ foundation embedding. Earlier versions also ran Clay, Prithvi and Galileo;
 facts they signed still verify. **172 algorithms** and **27 topics**
 are enumerated at `/v1/algorithms` and `/v1/topics`.
 
-![the encoder runs at the source and emits an embedding; emem stores and signs the embedding on the ground](/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg)
-*Figure 6: the representation is the interface. emem signs the
-embedding agents actually read, not the pixels, and the frozen encoder
-checkpoint pins the Δ_encoder term of §1.1 by construction.*
+![Sentinel-2, Sentinel-1, HLS, MODIS and DEM data go to the responder. It decodes them into spectral indices, SAR backscatter, terrain and surface temperature. Four deterministic decoders read the same place. It signs each value, and each signed value names its source.](/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg)
+*Figure 6: the responder decodes each open archive into typed values
+and signs each value. Four deterministic decoders read the same place,
+so a disagreement between them is information.*
 
 ### 10.1 Bands: the 1792-dimension voxel
 

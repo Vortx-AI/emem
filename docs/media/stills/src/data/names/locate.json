@@ -1,0 +1,67 @@
+[
+ {
+  "phrasing": "Mount Fuji",
+  "cell64": "defi.zb592.nUkO.zEzE",
+  "lat": 35.3628384,
+  "lng": 138.7307677,
+  "label": "富士山 (volcano), 小山町, 静岡県, 日本",
+  "source": "cache",
+  "via": "cache",
+  "confidence_reason": "wikidata_confirms_answer",
+  "is_high_confidence": true,
+  "disambiguation_required": false,
+  "wikidata": null
+ },
+ {
+  "phrasing": "mount fuji",
+  "cell64": "defi.zb592.nUkO.zEzE",
+  "lat": 35.3628384,
+  "lng": 138.7307677,
+  "label": "富士山 (volcano), 小山町, 静岡県, 日本",
+  "source": "cache",
+  "via": "cache",
+  "confidence_reason": "wikidata_confirms_answer",
+  "is_high_confidence": true,
+  "disambiguation_required": false,
+  "wikidata": null
+ },
+ {
+  "phrasing": "Fujisan",
+  "cell64": "defi.zb592.nemu.zEvO",
+  "lat": 35.36055555555556,
+  "lng": 138.7275,
+  "label": "Mount Fuji",
+  "source": "wikidata",
+  "via": "wikidata",
+  "confidence_reason": "wikidata_prominence_decision",
+  "is_high_confidence": true,
+  "disambiguation_required": false,
+  "wikidata": "Q39231"
+ },
+ {
+  "phrasing": "35.3606, 138.7274",
+  "cell64": "defi.zb592.nemu.zEvE",
+  "lat": 35.3606,
+  "lng": 138.7274,
+  "label": null,
+  "source": "direct",
+  "via": "direct",
+  "confidence_reason": "direct_lat_lng",
+  "is_high_confidence": true,
+  "disambiguation_required": false,
+  "wikidata": null
+ },
+ {
+  "phrasing": "Fuji-san, Japan",
+  "cell64": "defi.zb593.xeqE.zac9b",
+  "lat": 35.4710138,
+  "lng": 138.7926376,
+  "label": "北口本宮冨士浅間神社 (place_of_worship), 富士吉田市, 山梨県, 日本",
+  "source": "cache",
+  "via": "cache",
+  "confidence_reason": "ambiguous_top_two_candidates",
+  "is_high_confidence": false,
+  "disambiguation_required": true,
+  "wikidata": null
+ }
+]

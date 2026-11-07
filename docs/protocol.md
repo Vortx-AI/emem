@@ -22,8 +22,8 @@ dots, e.g. `dedi.zaf00.bafi.baba`. The integer form is what gets hashed
 and compared; the dotted text form is what shows up inside facts and
 receipts.
 
-![address algebra: cell + band + tslot → canonical CBOR → blake3 → 52-character base32 CID](/docs/diagrams/09-address-algebra.svg)
-*The full address pipeline at a glance. Section 4 walks each box; the SVG also names every constant the encoder uses.*
+![A table of the four wire forms. cell: 64 bits, four base-65,536 bigrams. tslot: 64 bits, base32 LEB128 with a t. prefix. cid: a 32-byte BLAKE3 digest in lowercase base32. vec: a 1792-D fp16 vector. Its short id (vec64) is the first 12 bytes of its BLAKE3 hash. /v1/state returns the full vector. Cells that are near each other share a string prefix.](/docs/diagrams/09-address-algebra.svg)
+*The four wire forms and their sizes. Section 1 gives the cell, section 2 the tslot and section 3 the CID.*
 
 ### 1.1 Bit layout
 
@@ -776,8 +776,8 @@ Failure → write rejected. The HTTP layer surfaces this as the
 
 ## 7. Receipt
 
-![the trust plane: preimage, signature, merkle path, offline verify](/docs/diagrams/10-trust-plane.svg)
-*The five-step trust pipeline. Section 7.2 specifies the preimage byte-by-byte; sections 8 and 9 cover the Merkle path and the append-only log.*
+![The receipt preimage: a domain tag, request_id, served_at, optional scope, as_of, edges and manifest, the primitive, the lists of cells and fact_cids, an optional field binding, and a digest of the Merkle inclusion proof. BLAKE3 makes a 32-byte digest and Ed25519 signs it. Anyone verifies it offline with the responder public key from /.well-known/emem.json.](/docs/diagrams/10-trust-plane.svg)
+*What a responder signs. Section 7.2 gives the preimage byte by byte. Sections 8 and 9 give the Merkle path and the append-only log.*
 
 `crates/emem-fact/src/receipt.rs:11-58`.
 
@@ -1478,9 +1478,9 @@ offline):
   ed25519 over `PreimageV1("emem.translog.sth.v1")` with segments
   `1:u64_be(tree_size), 2:root, 3:signed_at, 4:responder_pubkey` (same
   preimage discipline as receipts, section 7.1).
-- `GET /v1/log/inclusion?leaf_index=<i>` (or `?entry_hash=<base32>`)
-  returns an audit path proving entry `i` is committed under the STH.
-  Verify with `translog::verify_inclusion`.
+- `GET /v1/log/inclusion?leaf_index=<i>` (or `?entry_hash=<base32>`, or
+  `?fact_cid=<cid>`) returns an audit path proving entry `i` is committed
+  under the STH. Verify with `translog::verify_inclusion`.
 - `GET /v1/log/consistency?first=<m>&second=<n>` returns a proof that the
   tree of size `m` is a prefix of the tree of size `n` (append-only).
   Verify with `translog::verify_consistency` against the `first_root` in
@@ -1512,9 +1512,21 @@ TXT or well-known evidence under a domain, from `GET /v1/enlist`) and
 `self_operator` (this node's declared key, or a key vouched by its own
 domains). `independent_operator_count` counts distinct `org_vouched`
 domains, not keys, since keys are free and domains are not. Each key's
-co-signatures also share the per-key write rate limit. A
-`fact_cid -> leaf_index` index, so an inclusion proof can be requested by
-fact rather than by log position, is the next increment on this substrate.
+co-signatures also share the per-key write rate limit.
+
+You can ask for an inclusion proof by fact: `?fact_cid=` finds the log
+entry through the fact's stored proof. A fact that this responder did not
+sign, or that has no stored proof, returns 404 `cid_not_found`. An older
+fact also returns it while the responder still builds its batch-root index
+after a restart. Retry it after a few minutes.
+
+![The Mount Fuji elevation fact, 3539.04 m, was signed in a batch of one fact. That batch is entry 2,463,431 of 3,248,898 in the log. A ladder of 22 bars shows its audit path: each bar is one hash, covering from 1 entry at the bottom to 2,097,152 entries at the top. The root computed from them matches the signed tree head of size 3,248,898, and the Ed25519 signature is valid. One character changed in hash 10 gives a different root, and inclusion is invalid. Below, a 14-hash consistency proof links the head of size 3,248,892 (09:28:13 UTC) to the head of size 3,248,898 (09:28:53 UTC): valid.](media/stills/log-proof.webp)
+
+*Live calls to emem.dev on 7 November 2026, checked offline with
+`plugins/emem/skills/emem-transparency-log/scripts/verify_log.py`. The
+log shows that emem recorded the fact and did not remove it. It does not
+show that the value is correct. The script and the saved responses are in
+[media/stills/src/](media/stills/src/log_proof.py).*
 
 #### Memory writes in the log
 

@@ -1,0 +1,219 @@
+{
+  "holncvvxgdd6mj4bbj2brot3t76vqc7c7iag4a2ip3emzzovqgyq": {
+    "kind": "primary",
+    "cell": "defi.zb5d0.bAhE.zd9c1",
+    "band": "indices.ndvi",
+    "tslot": 0,
+    "value": 0.6038568393528355,
+    "confidence": 0.9,
+    "sources": [
+      {
+        "scheme": "sentinel_s2_l2a",
+        "id": "https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/18/T/WL/2026/5/S2B_18TWL_20260504_0_L2A/B08.tif ; https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/18/T/WL/2026/5/S2B_18TWL_20260504_0_L2A/B04.tif",
+        "captured_at": "2026-05-04T16:01:44.240000Z"
+      }
+    ],
+    "derivation": {
+      "fn_key": "sentinel2_l2a_indices_ndvi@1",
+      "args": [
+        40.78277148378919,
+        -73.96534299024175,
+        "S2B_18TWL_20260504_0_L2A",
+        32618,
+        "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+        [
+          4907.0,
+          1212.0
+        ],
+        6.977433,
+        40.0,
+        30
+      ]
+    },
+    "privacy_class": "public",
+    "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+    "signer": [
+      255,
+      254,
+      72,
+      239,
+      8,
+      57,
+      144,
+      88,
+      50,
+      189,
+      59,
+      5,
+      171,
+      89,
+      152,
+      150,
+      76,
+      49,
+      228,
+      100,
+      142,
+      79,
+      43,
+      250,
+      36,
+      191,
+      48,
+      224,
+      42,
+      206,
+      101,
+      84
+    ],
+    "signed_at": "2026-05-06T08:41:10Z"
+  },
+  "l542njdjrkdpacdyuuwdei3hn55gqnqzy5gubdi6r35qf7uzlvlq": {
+    "kind": "primary",
+    "cell": "defi.zb5d0.bAhE.zd9c1",
+    "band": "indices.ndvi",
+    "tslot": 20747,
+    "value": 0.8783482142857143,
+    "confidence": 0.95,
+    "sources": [
+      {
+        "scheme": "sentinel_s2_l2a",
+        "id": "https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/18/T/WL/2026/10/21/S2B_MSIL2A_20261021T155309_N0513_R054_T18TWL_20261021T192252.SAFE/GRANULE/L2A_T18TWL_A050273_20261021T155851/IMG_DATA/R10m/T18TWL_20261021T155309_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/18/T/WL/2026/10/21/S2B_MSIL2A_20261021T155309_N0513_R054_T18TWL_20261021T192252.SAFE/GRANULE/L2A_T18TWL_A050273_20261021T155851/IMG_DATA/R10m/T18TWL_20261021T155309_B04_10m.tif",
+        "captured_at": "2026-10-21T15:53:09.027000Z"
+      }
+    ],
+    "derivation": {
+      "fn_key": "sentinel2_l2a_indices_ndvi@1",
+      "args": [
+        40.78277148378919,
+        -73.96534299024175,
+        "S2B_MSIL2A_20261021T155309_R054_T18TWL_20261021T192252",
+        32618,
+        "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+        [
+          6049.0,
+          1327.0
+        ],
+        17.800865,
+        40.0,
+        30,
+        4,
+        1,
+        "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+        -1000.0,
+        "reader=cog-pixel-floor@2"
+      ]
+    },
+    "privacy_class": "public",
+    "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+    "signer": [
+      255,
+      254,
+      72,
+      239,
+      8,
+      57,
+      144,
+      88,
+      50,
+      189,
+      59,
+      5,
+      171,
+      89,
+      152,
+      150,
+      76,
+      49,
+      228,
+      100,
+      142,
+      79,
+      43,
+      250,
+      36,
+      191,
+      48,
+      224,
+      42,
+      206,
+      101,
+      84
+    ],
+    "signed_at": "2026-10-22T18:11:50Z"
+  },
+  "iu4ydfwa5wnrcnl3wpt5tj6uscfbitb4rzttxvbihho4rwbbmnaa": {
+    "kind": "primary",
+    "cell": "defi.zb5d0.bAhE.zd9c1",
+    "band": "indices.ndvi",
+    "tslot": 20761,
+    "value": 0.7928127772848269,
+    "confidence": 0.95,
+    "sources": [
+      {
+        "scheme": "sentinel_s2_l2a",
+        "id": "https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/18/T/WL/2026/11/04/S2A_MSIL2A_20261104T154701_N0513_R011_T18TWL_20261104T203111.SAFE/GRANULE/L2A_T18TWL_A059382_20261104T154658/IMG_DATA/R10m/T18TWL_20261104T154701_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/18/T/WL/2026/11/04/S2A_MSIL2A_20261104T154701_N0513_R011_T18TWL_20261104T203111.SAFE/GRANULE/L2A_T18TWL_A059382_20261104T154658/IMG_DATA/R10m/T18TWL_20261104T154701_B04_10m.tif",
+        "captured_at": "2026-11-04T15:47:01.024000Z"
+      }
+    ],
+    "derivation": {
+      "fn_key": "sentinel2_l2a_indices_ndvi@1",
+      "args": [
+        40.78277148378919,
+        -73.96534299024175,
+        "S2A_MSIL2A_20261104T154701_R011_T18TWL_20261104T203111",
+        32618,
+        "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+        [
+          5041.0,
+          1467.0
+        ],
+        0.473073,
+        40.0,
+        30,
+        4,
+        1,
+        "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+        -1000.0,
+        "reader=cog-pixel-floor@2"
+      ]
+    },
+    "privacy_class": "public",
+    "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+    "signer": [
+      255,
+      254,
+      72,
+      239,
+      8,
+      57,
+      144,
+      88,
+      50,
+      189,
+      59,
+      5,
+      171,
+      89,
+      152,
+      150,
+      76,
+      49,
+      228,
+      100,
+      142,
+      79,
+      43,
+      250,
+      36,
+      191,
+      48,
+      224,
+      42,
+      206,
+      101,
+      84
+    ],
+    "signed_at": "2026-11-07T10:40:41Z"
+  }
+}

@@ -83,7 +83,7 @@ def checkpoints():
     CX, CY = 1006, 566
 
     doors = [
-        ("POST /verdict", "any agent, any model", INDIGO, True),
+        ("POST /verdict", "same as /verdict/native", INDIGO, True),
         ("POST /verdict/mcp", "MCP tools/call, or a result", TEAL, True),
         ("POST /verdict/openai", "any OpenAI-shaped client", LEAF, True),
         ("POST /verdict/cloudevent", "Knative · Dapr · Argo", TURMERIC, True),
@@ -101,7 +101,7 @@ def checkpoints():
         avoid.append((lx, y, 74))
     _ground(s, avoid=avoid)
     _header(s, "Nine doors, one decision",
-            "seven belong to nobody · the same evidence yields the same verdict through every one")
+            "seven routes need no vendor · a test checks that the same evidence gets the same verdict on every route")
 
     for i, (lab, sub, col, open_) in enumerate(doors):
         y = ys[i]
@@ -123,9 +123,9 @@ def checkpoints():
 
     s.lotus(CX, CY, 96)
     s.seal(CX + 78, CY - 78, 12, fill=LEAF)
-    s.text(CX, CY + 148, "ONE ENGINE", 14, INK, font=MONO, anchor="middle",
+    s.text(CX, CY + 164, "ONE ENGINE", 14, INK, font=MONO, anchor="middle",
            weight="bold")
-    s.text(CX, CY + 170, "policy pipeline · pure · no IO", 11, INK_SOFT,
+    s.text(CX, CY + 186, "policy pipeline · pure · no IO", 11, INK_SOFT,
            font=MONO, anchor="middle")
 
     _card(s, 1236, 372, 300, 196, LEAF, "the same answer",
@@ -155,7 +155,7 @@ def verdict_path():
     stages = [
         ("scan", "emem: tokens", INDIGO, "0 ms"),
         ("resolve", "warm only", TEAL, "≤400 ms"),
-        ("modules", "fast only", TURMERIC, "≤50 ms ea"),
+        ("modules", "fast only", TURMERIC, "50 ms budget"),
         ("evaluate", "first match", LEAF, "µs"),
         ("sign", "ed25519", LAC, ""),
         ("append", "chain · fsync", VERMIL, ""),
@@ -170,24 +170,24 @@ def verdict_path():
     avoid.append((W / 2, 776, 600))
     _ground(s, avoid=avoid)
     _header(s, "One verdict, in order",
-            "assemble · sign · append · THEN answer — the order is the product, not an implementation detail")
+            "assemble · sign · append · THEN answer: the guard logs the verdict before it answers")
 
     inners = ["ring", "fish", "leaf", "hatch", "ring", "fish"]
     for i, (lab, sub, col, budget) in enumerate(stages):
         if i:
             s.flow((xs[i - 1] + 34, ys), (xs[i] - 34, ys), INK_SOFT, 1.4, op=0.7)
         s.roundel(xs[i], ys, 32, col, petal=(i % 2 == 0), inner=inners[i % 6])
-        s.text(xs[i], ys + 54, lab, 12, INK, font=MONO, anchor="middle", weight="bold")
-        s.text(xs[i], ys + 72, sub, 10, INK_SOFT, font=MONO, anchor="middle")
+        s.text(xs[i], ys + 66, lab, 12, INK, font=MONO, anchor="middle", weight="bold")
+        s.text(xs[i], ys + 84, sub, 10, INK_SOFT, font=MONO, anchor="middle")
         if budget:
-            s.text(xs[i], ys - 52, budget, 10, VERMIL, font=MONO, anchor="middle",
+            s.text(xs[i], ys - 60, budget, 10, VERMIL, font=MONO, anchor="middle",
                    weight="bold")
 
     s.flow((xs[-1] + 34, ys), (rx - 110, ys), LEAF, 1.7, op=0.9, glow=True)
     s.lotus(rx, ys, 88)
     s.seal(rx + 72, ys - 72, 12, fill=LEAF)
-    s.text(rx, ys + 142, "ANSWER", 13, INK, font=MONO, anchor="middle", weight="bold")
-    s.text(rx, ys + 162, "allow / deny + leaf", 10.5, INK_SOFT, font=MONO, anchor="middle")
+    s.text(rx, ys + 152, "ANSWER", 13, INK, font=MONO, anchor="middle", weight="bold")
+    s.text(rx, ys + 172, "allow / deny + leaf", 10.5, INK_SOFT, font=MONO, anchor="middle")
 
     # The wall. 800 ms self-budget under a 1000 ms floor: being late is not a
     # slow verdict, it is an unreachable server, and enough of those stop
@@ -195,7 +195,7 @@ def verdict_path():
     s.line(x0 - 46, ys - 128, xs[-1] + 96, ys - 128, VERMIL, 1.2, op=0.5)
     s.text(x0 - 46, ys - 140, "800 ms self-budget, under the 1000 ms floor the caller can configure",
            11, VERMIL, font=MONO)
-    s.text(x0 - 46, ys - 96, "late is not slow: it is a transport failure, and enough of them stop enforcement for everyone",
+    s.text(x0 - 46, ys - 96, "a late verdict counts as a transport failure, and enough of them stop enforcement for everyone",
            10, INK_SOFT, font=MONO)
 
     _card(s, 214, 700, 420, 150, INK_SOFT, "if the log cannot take it",
@@ -246,7 +246,7 @@ def dlp_chassis():
         s.text(272, y - 4, lab, 12, INK, font=MONO, weight="bold")
         s.text(272, y + 14, sub, 10, INK_SOFT, font=MONO)
         s.text(272, y + 30, note, 9.5, col, font=MONO)
-        s.flow((402, y), (676, 470), col, 1.4, op=0.8, bow=(470 - y) * 0.08)
+        s.flow((540, y), (676, 470), col, 1.4, op=0.8, bow=(470 - y) * 0.08)
 
     # Centre: the pipeline. Two declarations decide where a module may run,
     # and neither is taken on trust.
@@ -263,9 +263,9 @@ def dlp_chassis():
     s.flow((1020, 470), (1076, 470), LEAF, 1.7, op=0.9, glow=True)
     s.lotus(1150, 470, 74)
     s.seal(1150 + 62, 470 - 62, 11, fill=LEAF)
-    s.text(1150, 584, "SIGNED VERDICT", 12.5, INK, font=MONO, anchor="middle", weight="bold")
-    s.text(1150, 604, "+ config digest of the", 10, INK_SOFT, font=MONO, anchor="middle")
-    s.text(1150, 620, "exact module set", 10, INK_SOFT, font=MONO, anchor="middle")
+    s.text(1150, 598, "SIGNED VERDICT", 12.5, INK, font=MONO, anchor="middle", weight="bold")
+    s.text(1150, 618, "+ config digest of the", 10, INK_SOFT, font=MONO, anchor="middle")
+    s.text(1150, 634, "exact module set", 10, INK_SOFT, font=MONO, anchor="middle")
 
     # Right: what the log does and does not carry. Narrow column, so the lines
     # are cut to fit rather than trusted to.
@@ -277,19 +277,19 @@ def dlp_chassis():
 
     # The bottom lane: the actual difference, drawn as two outcomes.
     s.line(196, 668, W - 196, 668, INK_SOFT, 0.8, op=0.4)
-    _card(s, 196, 698, 620, 152, INK_SOFT, "everyone's verdict path today",
+    _card(s, 196, 698, 620, 152, INK_SOFT, "a common verdict path today",
           ["detection → allow/deny → unsigned JSON → a mutable audit table",
            "",
            "the org's own database says what happened.",
-           "nobody can prove it later. that is testimony."])
+           "no one can prove it later. that is testimony."])
     _card(s, 856, 698, 620, 152, LEAF, "the same verdict, on this chassis",
           ["detection → allow/deny → ed25519 → append-only hash chain",
            "",
            "signatures prove each verdict genuine.",
-           "the chain proves none were removed. that is evidence."],
+           "a record removed mid-log breaks the chain. that is evidence."],
           badge="THE DIFFERENCE", badge_col=LEAF)
 
-    _footer(s, "We will never win a detection-accuracy race, and we do not need to: the half after the verdict is the half nobody ships.",
+    _footer(s, "emem-guard does not compete on detection accuracy. It signs and logs what happens after the verdict.",
             "an abstain is never a block · a sidecar's outage must not become the operator's")
     s.save(f"{OUT}/42-guard-dlp-chassis.svg")
     return "42-guard-dlp-chassis"
@@ -345,7 +345,7 @@ def deployments():
     ]
 
     for x, (col, title, who, lines, verb, note) in zip(cols, panels):
-        s.roundel(x, cy - 176, 34, col, petal=True, inner="ring")
+        s.roundel(x, cy - 184, 34, col, petal=True, inner="ring")
         # Clear of the roundel's spikes, which reach about 20px past r.
         s.text(x, cy - 112, title, 12.5, INK, font=MONO, anchor="middle", weight="bold")
         s.text(x, cy - 93, who, 11, col, font=MONO, anchor="middle", weight="bold")
@@ -361,7 +361,7 @@ def deployments():
     invariants = [
         "a citation this node does not hold is an ALLOW, never a deny: it is indistinguishable from one minted elsewhere",
         "an uncertain case allows: we are one control among several, and a wrong deny is what gets a guard switched off",
-        "claim_gating denies on ABSENCE, so it ships off and shadow is the only way to turn it on",
+        "claim_gating denies on ABSENCE, so it ships off: measure it in shadow mode before you turn it on",
     ]
     for i, ln in enumerate(invariants):
         s.dot(300, 812 + i * 26, 2.6, VERMIL)

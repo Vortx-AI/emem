@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1040" width="1600" height="1040" role="img" aria-label="How satellites become a source of truth for multi-agent systems and robotic fleets on the ground: two admission rules in orbit, one trust gate, one shared memory, and ground consumers who verify alone. Gaps are labeled coming soon.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1040" width="1600" height="1040" role="img" lang="en" aria-labelledby="title"><title id="title">Three columns. Orbit: the open archive, admitted because anyone can recompute it, and operator satellites, a candidate profile that would admit output only with a signed execution trace. emem: a trust gate with eighteen substrate profiles (one active, seventeen candidate) and seventeen named refusal codes, and the shared memory of cells, signed facts and tokens. Ground: robot fleets, agent swarms and a later auditor. A panel lists the gaps that do not ship yet.</title>
 <defs>
 <radialGradient id="paper" cx="50%" cy="50%" r="72%"><stop offset="0%" stop-color="#f3eee2"/><stop offset="100%" stop-color="#ebe4d3"/></radialGradient>
 <filter id="blur" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="7"/></filter>
@@ -26,8 +26,8 @@
 </g>
 
 <!-- title -->
-<text x="800" y="52" text-anchor="middle" class="h" font-size="33" font-weight="bold">Satellites as a source of truth for the machines on the ground</text>
-<text x="800" y="82" text-anchor="middle" class="h dim" font-size="17" font-style="italic">one trust surface from orbit to ground: enrolled by key, believed by execution, anchored to a record no participant owns</text>
+<text x="800" y="52" text-anchor="middle" class="h" font-size="33" font-weight="bold">Satellite data as checkable evidence for machines on the ground</text>
+<text x="800" y="82" text-anchor="middle" class="h dim" font-size="17" font-style="italic">one trust path from orbit to ground: enrolled by key, checked by execution trace, kept in a log that witnesses co-sign</text>
 
 <!-- ══ ORBIT column ══ -->
 <text x="250" y="130" text-anchor="middle" class="h dim" font-size="15" letter-spacing="3">ORBIT · THE OBSERVERS</text>
@@ -36,23 +36,23 @@
 <rect x="55" y="150" width="390" height="180" rx="14" fill="#faf7ee" stroke="#d59a2a" stroke-width="2.5"/>
 <text x="75" y="180" class="h" font-size="19" font-weight="bold">The open archive</text>
 <text x="75" y="203" class="m" font-size="12.5">Sentinel-1 · Sentinel-2 · Cop-DEM · CHIRPS</text>
-<text x="75" y="228" class="h" font-size="13.5">Admitted by recomputability: anyone can re-fetch</text>
-<text x="75" y="246" class="h" font-size="13.5">the cited source and recompute the value. Publishes</text>
-<text x="75" y="264" class="h" font-size="13.5">declared lineage (processing baseline, BLAKE3 register).</text>
+<text x="75" y="228" class="h" font-size="12.5">Admitted by recomputability: anyone can re-fetch</text>
+<text x="75" y="246" class="h" font-size="12.5">the cited source and recompute the value. Publishes</text>
+<text x="75" y="264" class="h" font-size="12.5">declared lineage (processing baseline, BLAKE3 register).</text>
 <rect x="75" y="281" width="150" height="26" rx="13" fill="#d59a2a"/>
-<text x="150" y="299" text-anchor="middle" class="h" font-size="13" font-weight="bold" fill="#fff">DRIFT ANCHOR</text>
-<text x="238" y="299" class="h dim" font-size="12">moves only when the world moves</text>
+<text x="150" y="299" text-anchor="middle" class="h" font-size="13" font-weight="bold" style="fill:#fff">DRIFT ANCHOR</text>
+<text x="236" y="299" class="h dim" font-size="11.5">moves with the world or baseline</text>
 
 <!-- operator constellation -->
 <rect x="55" y="360" width="390" height="270" rx="14" fill="#faf7ee" stroke="#2f5e86" stroke-width="2.5"/>
-<text x="75" y="391" class="h" font-size="19" font-weight="bold">The operator constellation</text>
-<rect x="315" y="374" width="112" height="24" rx="12" fill="#2f5e86"/>
-<text x="371" y="391" text-anchor="middle" class="m" font-size="10.5" fill="#fff">orbital.satellite.v1</text>
-<text x="75" y="415" class="h" font-size="13.5">An operator's own spacecraft is not an archive.</text>
-<text x="75" y="433" class="h" font-size="13.5">It is a device: respected as a contributor,</text>
-<text x="75" y="451" class="h" font-size="13.5" font-weight="bold">refused on its word alone.</text>
-<text x="75" y="477" class="h" font-size="13.5">Each pass window ships its OS execution trace,</text>
-<text x="75" y="495" class="h" font-size="13.5">digest-chained, signed, the payloads bound inside:</text>
+<text x="75" y="391" class="h" font-size="19" font-weight="bold">Operator satellites</text>
+<rect x="297" y="374" width="134" height="24" rx="12" fill="#2f5e86"/>
+<text x="364" y="391" text-anchor="middle" class="m" font-size="10.5" style="fill:#fff">orbital.satellite.v1</text>
+<text x="75" y="415" class="h" font-size="12.5">emem treats an operator's own spacecraft as a</text>
+<text x="75" y="433" class="h" font-size="12.5">device, not an archive: its output is welcome,</text>
+<text x="75" y="451" class="h" font-size="13.5" font-weight="bold">but not on its word alone.</text>
+<text x="75" y="477" class="h" font-size="12.5">Candidate profile: each pass must ship its OS trace,</text>
+<text x="75" y="495" class="h" font-size="12.5">digest-chained, signed, the payloads bound inside:</text>
 <!-- chained segment glyph -->
 <g class="m" font-size="10.5">
 <rect x="75" y="510" width="82" height="24" rx="5" fill="#2f5e86" opacity="0.14"/><text x="116" y="526" text-anchor="middle">syscall</text>
@@ -65,7 +65,7 @@
 <rect x="339" y="540" width="86" height="24" rx="5" fill="#2f5e86" opacity="0.14"/><text x="382" y="556" text-anchor="middle">storage</text>
 </g>
 <text x="75" y="590" class="h dim" font-size="12.5">Same rule for every machine that watches the world:</text>
-<text x="75" y="607" class="h dim" font-size="12.5">telescope, microscope (100 nm), CCTV, phone, drone, robot.</text>
+<text x="75" y="607" class="h dim" font-size="12.5">telescope, microscope, CCTV, phone, drone, robot.</text>
 
 <!-- ══ PROTOCOL column ══ -->
 <text x="790" y="130" text-anchor="middle" class="h dim" font-size="15" letter-spacing="3">EMEM · RESPECT WITHOUT BELIEF</text>
@@ -73,64 +73,64 @@
 <!-- gate -->
 <rect x="580" y="150" width="420" height="215" rx="14" fill="#faf7ee" stroke="#2e8c84" stroke-width="2.5"/>
 <text x="600" y="180" class="h" font-size="19" font-weight="bold">The trust gate</text>
-<text x="600" y="204" class="h" font-size="13.5">Substrate registry: ten profiles, one per machine class,</text>
-<text x="600" y="222" class="h" font-size="13.5">content-addressed so an enrollment pins its exact contract.</text>
-<text x="600" y="246" class="h" font-size="13.5">The verifier admits only output bound inside a complete,</text>
-<text x="600" y="264" class="h" font-size="13.5">unaltered trace, and names every failure it finds:</text>
+<text x="600" y="204" class="h" font-size="12.5">Substrate registry: eighteen profiles, one per source class.</text>
+<text x="600" y="222" class="h" font-size="12.5">One is active (the open archive); seventeen are candidates.</text>
+<text x="600" y="246" class="h" font-size="12.5">The verifier admits only output bound inside a complete,</text>
+<text x="600" y="264" class="h" font-size="12.5">unaltered trace, and names every failure it finds:</text>
 <g class="m" font-size="11">
 <rect x="600" y="278" width="112" height="22" rx="11" fill="#2e8c84" opacity="0.15"/><text x="656" y="293" text-anchor="middle">chain_broken</text>
 <rect x="718" y="278" width="112" height="22" rx="11" fill="#2e8c84" opacity="0.15"/><text x="774" y="293" text-anchor="middle">missing_layer</text>
 <rect x="836" y="278" width="120" height="22" rx="11" fill="#2e8c84" opacity="0.15"/><text x="896" y="293" text-anchor="middle">output_unbound</text>
 <rect x="600" y="306" width="136" height="22" rx="11" fill="#2e8c84" opacity="0.15"/><text x="668" y="321" text-anchor="middle">signature_invalid</text>
-<text x="750" y="321" class="h dim" font-size="12">…seventeen named refusals, never a bare no</text>
+<text x="750" y="321" class="h dim" font-size="12">…seventeen named refusals</text>
 </g>
-<text x="600" y="352" class="h dim" font-size="12.5">Un-enrolled writers are untouched: the gate cannot break the archive.</text>
+<text x="600" y="352" class="h dim" font-size="12">Only enrolled devices go through the gate. The archive does not.</text>
 
 <!-- drift scoring chip -->
 <rect x="580" y="385" width="420" height="52" rx="26" fill="#d59a2a" opacity="0.13" stroke="#d59a2a" stroke-width="1.5"/>
-<text x="790" y="407" text-anchor="middle" class="h" font-size="13.5" font-weight="bold">every admitted device claim is scored against the anchor</text>
-<text x="790" y="425" text-anchor="middle" class="h" font-size="12.5">consistent · tension · contradicted, and tension is surfaced, never silently dropped</text>
+<text x="790" y="407" text-anchor="middle" class="h" font-size="13.5" font-weight="bold">scoring a device claim against the anchor ships</text>
+<text x="790" y="425" text-anchor="middle" class="h" font-size="12.5">consistent · tension · contradicted; not yet on the write path</text>
 
 <!-- memory -->
 <rect x="580" y="460" width="420" height="245" rx="14" fill="#faf7ee" stroke="#4f8a3d" stroke-width="2.5"/>
 <text x="600" y="490" class="h" font-size="19" font-weight="bold">The shared memory</text>
-<text x="600" y="514" class="h" font-size="13.5">One 64-bit address per patch of ground (~9.55 m); one signed</text>
-<text x="600" y="532" class="h" font-size="13.5">fact per observation, blake3 over canonical bytes, ed25519</text>
-<text x="600" y="550" class="h" font-size="13.5">receipts, an append-only log with inclusion proofs.</text>
-<text x="600" y="576" class="h" font-size="13.5">What travels between machines is a handle, not a payload:</text>
+<text x="600" y="514" class="h" font-size="12.5">One 64-bit address per patch of ground (~9.55 m); one</text>
+<text x="600" y="532" class="h" font-size="12.5">signed fact per observation, blake3 over canonical bytes,</text>
+<text x="600" y="550" class="h" font-size="12.5">ed25519 receipts, an append-only log with inclusion proofs.</text>
+<text x="600" y="576" class="h" font-size="12.5">Machines pass a token, not a payload:</text>
 <g class="m" font-size="12">
 <text x="600" y="600">emem:fact:&lt;cell64&gt;:&lt;fact_cid&gt;  one observation</text>
 <text x="600" y="622">emem:trace:&lt;trace_cid&gt;       execution evidence</text>
-<text x="600" y="644">emem:bundle:&lt;bundle_cid&gt;     one pass, one handle</text>
+<text x="600" y="644">emem:bundle:&lt;bundle_cid&gt;     one pass, one token</text>
 <text x="600" y="666">emem:entity:&lt;entity_cid&gt;     one name per object</text>
 </g>
-<text x="600" y="692" class="h dim" font-size="12.5">Byte-identical from any replica: the address is the content.</text>
+<text x="600" y="692" class="h dim" font-size="12.5">Entity ids hash an anchor; the other three hash the bytes.</text>
 
 <!-- ══ GROUND column ══ -->
 <text x="1330" y="130" text-anchor="middle" class="h dim" font-size="15" letter-spacing="3">GROUND · THE MULTI-AGENT SYSTEM</text>
 
 <rect x="1130" y="150" width="400" height="160" rx="14" fill="#faf7ee" stroke="#6e4a93" stroke-width="2.5"/>
 <text x="1150" y="180" class="h" font-size="19" font-weight="bold">Robotic fleets</text>
-<text x="1150" y="204" class="h" font-size="13.5">Vendor A and vendor B share one map with no shared</text>
-<text x="1150" y="222" class="h" font-size="13.5">backend. Each write carries execution evidence the other</text>
-<text x="1150" y="240" class="h" font-size="13.5">vendor verifies alone; a satellite pass and a robot pass</text>
-<text x="1150" y="258" class="h" font-size="13.5">land in the same record under the same rule.</text>
+<text x="1150" y="204" class="h" font-size="12.5">Vendor A and vendor B share one map with no shared</text>
+<text x="1150" y="222" class="h" font-size="12.5">backend. Today a robot reads signed facts at a landmark</text>
+<text x="1150" y="240" class="h" font-size="12.5">and hands tokens to the other vendor, who verifies alone.</text>
+<text x="1150" y="258" class="h" font-size="12.5">Robot-signed writes wait on robot.fleet.v1 (candidate).</text>
 <text x="1150" y="288" class="m dim" font-size="11.5">robot.fleet.v1 · examples/fleet-memory</text>
 
 <rect x="1130" y="335" width="400" height="150" rx="14" fill="#faf7ee" stroke="#2f5e86" stroke-width="2.5"/>
 <text x="1150" y="365" class="h" font-size="19" font-weight="bold">Agent swarms</text>
-<text x="1150" y="389" class="h" font-size="13.5">Different models, different companies, no shared trust.</text>
-<text x="1150" y="407" class="h" font-size="13.5">Two agents cite the same token and reason about the same</text>
-<text x="1150" y="425" class="h" font-size="13.5">observation, not two paraphrases of it. The citation</text>
-<text x="1150" y="443" class="h" font-size="13.5">survives compaction, handoff, and model swap.</text>
+<text x="1150" y="389" class="h" font-size="12.5">Different models, different companies, no shared trust.</text>
+<text x="1150" y="407" class="h" font-size="12.5">Two agents cite the same token and reason about the</text>
+<text x="1150" y="425" class="h" font-size="12.5">same observation, not two paraphrases of it. The citation</text>
+<text x="1150" y="443" class="h" font-size="12.5">survives compaction, handoff, and model swap.</text>
 <text x="1150" y="470" class="m dim" font-size="11.5">MCP · REST · A2A, reads need no key</text>
 
 <rect x="1130" y="510" width="400" height="150" rx="14" fill="#faf7ee" stroke="#2e8c84" stroke-width="2.5"/>
 <text x="1150" y="540" class="h" font-size="19" font-weight="bold">The auditor, years later</text>
-<text x="1150" y="564" class="h" font-size="13.5">No account, no API key, maybe no author left to ask.</text>
-<text x="1150" y="582" class="h" font-size="13.5">Recompute the blake3, check the ed25519, replay the</text>
-<text x="1150" y="600" class="h" font-size="13.5">inclusion proof, re-run the trace verdict: the answer is</text>
-<text x="1150" y="618" class="h" font-size="13.5">arithmetic, and arithmetic does not retire.</text>
+<text x="1150" y="564" class="h" font-size="12.5">No account, no API key, maybe no author left to ask.</text>
+<text x="1150" y="582" class="h" font-size="12.5">Recompute the blake3, check the ed25519, replay the</text>
+<text x="1150" y="600" class="h" font-size="12.5">inclusion proof, re-run the trace verdict: the answer is</text>
+<text x="1150" y="618" class="h" font-size="12.5">arithmetic, and arithmetic does not retire.</text>
 <text x="1150" y="645" class="m dim" font-size="11.5">/verify · emem_verify_receipt · emem_trace_verify</text>
 
 <!-- flows -->
@@ -150,19 +150,19 @@
 <text x="80" y="765" class="h" font-size="17" font-weight="bold" style="fill:#f3eee2" letter-spacing="2">WHY THIS ENDURES</text>
 <text x="80" y="794" class="h" font-size="14" style="fill:#f3eee2">Built for the day its authors are gone. When machine-made claims outnumber anyone's capacity</text>
 <text x="80" y="814" class="h" font-size="14" style="fill:#f3eee2">to re-check them, trust by authority fails and arithmetic remains: content addresses, signatures,</text>
-<text x="80" y="834" class="h" font-size="14" style="fill:#f3eee2">inclusion proofs, and an anchor no single participant controls. Forging one number means</text>
-<text x="80" y="854" class="h" font-size="14" style="fill:#f3eee2">simulating a whole causally consistent execution and beating an archive anyone can recompute.</text>
-<text x="80" y="886" class="h" font-size="14" font-style="italic" fill="#d59a2a">Is this worth it, or just the obvious? The obvious part is signing data. The earned part is</text>
-<text x="80" y="906" class="h" font-size="14" font-style="italic" fill="#d59a2a">refusing signed data without execution evidence, and anchoring it to a record no one owns.</text>
-<text x="80" y="938" class="h" font-size="12.5" fill="#b5ad9c">Honest cost, measured against our own interest: a token spends ~5.8x the context of the bare</text>
-<text x="80" y="956" class="h" font-size="12.5" fill="#b5ad9c">number. It pays only where a claim must outlive its author and be checked without trust.</text>
-<text x="80" y="980" class="m" font-size="11" fill="#b5ad9c">not memory. evidence of what actually happened.</text>
+<text x="80" y="834" class="h" font-size="14" style="fill:#f3eee2">inclusion proofs, and an append-only log that outside witnesses co-sign. The trace verifier checks</text>
+<text x="80" y="854" class="h" font-size="14" style="fill:#f3eee2">chain, clocks, layers, output binding and signature. Layer cross-checks are not shipped yet.</text>
+<text x="80" y="886" class="h" font-size="14" font-style="italic" style="fill:#d59a2a">Signing data is the easy part. The harder part is to refuse signed device data that has no</text>
+<text x="80" y="906" class="h" font-size="14" font-style="italic" style="fill:#d59a2a">execution evidence, and to keep it in an append-only log that outside witnesses co-sign.</text>
+<text x="80" y="938" class="h" font-size="12.5" style="fill:#b5ad9c">Cost, measured on 11 August 2026: one token uses about 9.5x the LLM tokens of the bare value;</text>
+<text x="80" y="956" class="h" font-size="12.5" style="fill:#b5ad9c">a bundle of up to 256 uses 23 in total. Use it where a claim must outlive its author.</text>
+<text x="80" y="980" class="m" font-size="11" style="fill:#b5ad9c">emem keeps the evidence of what ran, with the value it produced.</text>
 
 <rect x="935" y="730" width="610" height="262" rx="14" fill="#faf7ee" stroke="#5c564b" stroke-width="1.8" stroke-dasharray="6 5"/>
 <text x="960" y="765" class="h" font-size="17" font-weight="bold" letter-spacing="2">HONEST GAPS · COMING SOON</text>
 <g class="h" font-size="13.5">
-<text x="960" y="794">· hosted trace writes: the os_trace field on POST /v1/attest,</text>
-<text x="972" y="812">with an authenticated enrollment surface</text>
+<text x="960" y="794">· a first production trust anchor: self-service enrollment refuses every call</text>
+<text x="972" y="812">today; drift scoring is not yet wired into the write path</text>
 <text x="960" y="836">· a freshness nonce, so a window cannot be replayed</text>
 <text x="960" y="860">· hardware quotes (TPM / DICE) as one more evidence layer</text>
 <text x="960" y="884">· traced derivations: device derivatives are refused today, on purpose</text>
@@ -172,5 +172,5 @@
 <text x="972" y="974">makes every replica byte-identical, the uplink is the open part</text>
 </g>
 
-<text x="800" y="1022" text-anchor="middle" class="h dim" font-size="11.5">emem 2.0.0 · diagram 39 · every box above is shipped code or listed as a gap · docs/plans/encoder-substrates.md</text>
+<text x="800" y="1022" text-anchor="middle" class="h dim" font-size="11.5">diagram 39 · checked against the code on 7 November 2026 · every box is shipped code or a listed gap · docs/plans/encoder-substrates.md</text>
 </svg>

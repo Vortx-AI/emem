@@ -2,8 +2,8 @@
 """EUDR supply-chain diagram in the engram's ink-on-paper Mithila hand.
 
 A geolocated plot is checked against the forest baseline and the Hansen
-loss-year, signed into one Due Diligence Statement, and that signed handle
-clears customs. Same kit as the engram, architecture, and federation.
+loss-year, signed into one Due Diligence Statement, and the operator can file
+that statement in TRACES NT with the signed token as its evidence. Same kit as the engram, architecture, and federation.
 
 Output: docs/diagrams/eudr.png
 """
@@ -21,8 +21,8 @@ f_sub = c.font(FONT_MONO, 12)
 f_lab = c.font(FONT_MONO, 12)
 f_tiny = c.font(FONT_MONO, 10)
 
-c.text(56, 50, "EUDR: a plot, proven deforestation-free", f_title, INK)
-c.text(58, 86, "forest baseline + Hansen loss-year against the 2020 cut-off, signed into one handle that clears customs",
+c.text(84, 50, "EUDR: a plot checked against the 2020 cut-off", f_title, INK)
+c.text(86, 86, "JRC GFC2020 forest baseline and Hansen loss year per cell, signed into one token the operator can file as evidence",
        f_sub, INK_SOFT)
 
 MID = 470  # vertical centre of the narrative band
@@ -66,7 +66,7 @@ c.text(PX, MID - 233, "6-decimal geolocation", f_tiny, INK_SOFT, center=True)
 for (py, col, cleared) in plots:
     field(PX, py, 150, 84, col, cleared)
 # two baselines feeding the check
-c.text(PX, MID + 200, "JRC GFC2020 · Hansen v1.12", f_tiny, INK_SOFT, center=True)
+c.text(PX, MID + 272, "JRC GFC2020 · Hansen v1.13", f_tiny, INK_SOFT, center=True)
 tree(PX - 46, MID + 250); tree(PX + 4, MID + 252, col=TEAL); tree(PX + 52, MID + 250, cleared=True)
 
 # ----------------------------------------------------------------- centre: the verdict (signed DDS)
@@ -79,7 +79,7 @@ for (py, col, _) in plots:
         c.dot(pts[k][0], pts[k][1], 1.2, INK_SOFT, a=160)
 c.lotus(VX, VY, 78)
 c.text(VX, VY + 100, "Due Diligence Statement", f_sub, INK, center=True)
-c.text(VX, VY + 117, "one signed 26-char handle", f_lab, INK_SOFT, center=True)
+c.text(VX, VY + 117, "one signed citable token", f_lab, INK_SOFT, center=True)
 c.seal(VX + 66, VY - 66, 11, fill=LEAF)  # PASS seal
 
 # cut-off timeline beneath the verdict
@@ -103,7 +103,7 @@ for i, v in enumerate(hb):
     x = cx_cut + 50 + i * 16
     c.di.rectangle([c.S(x), c.S(TY - 6 - v * 6), c.S(x + 9), c.S(TY - 6)],
                    fill=c.rgba(TURMERIC, 220), outline=c.rgba(INK, 255), width=max(1, c.S(0.8)))
-c.text(cx_cut + 90, TY - 52, "loss-year histogram", f_tiny, INK_SOFT, center=True)
+c.text(cx_cut + 110, TY - 52, "loss-year histogram", f_tiny, INK_SOFT, center=True)
 
 # ----------------------------------------------------------------- right: customs gate (TRACES NT)
 GX, GY = 1320, MID
@@ -114,8 +114,8 @@ c.polyline(pts, LEAF, 1.6, a=210)
 for k in range(0, len(pts), 8):
     c.dot(pts[k][0], pts[k][1], 1.5, LEAF, a=190)
 c.seal((VX + GX) / 2, VY - 34, 10, fill=GOLD_PALE)
-c.text((VX + GX) / 2, VY - 58, "proof of origin", f_tiny, INK, center=True)
-c.text((VX + GX) / 2, VY - 44, "in one CID", f_tiny, INK_SOFT, center=True)
+c.text((VX + GX) / 2, VY - 76, "signed check", f_tiny, INK, center=True)
+c.text((VX + GX) / 2, VY - 62, "in one token", f_tiny, INK_SOFT, center=True)
 
 # torana gate
 gw, gh = 150, 200
@@ -135,14 +135,14 @@ for k in range(7):  # arch dots
 # EU ring of stars on the arch
 c.dot_ring(GX, GY - gh / 2 - 18, 22, 8, 2.2, GOLD_PALE)
 c.text(GX, GY - gh / 2 - 56, "TRACES NT · EU customs", f_lab, INK, center=True)
-c.text(GX, GY + gh / 2 + 16, "the handle clears the border", f_tiny, INK_SOFT, center=True)
+c.text(GX, GY + gh / 2 + 16, "the operator files the statement", f_tiny, INK_SOFT, center=True)
 
 # ----------------------------------------------------------------- legend
 ly = H - 60
-lx = 70
-c.seal(lx + 7, ly, 7, fill=LEAF); c.text(lx + 18, ly - 7, "pass (deforestation-free)", f_lab, INK); lx += 18 + c.textw("pass (deforestation-free)", f_lab) + 28
+lx = 96
+c.seal(lx + 7, ly, 7, fill=LEAF); c.text(lx + 18, ly - 7, "pass: no forest loss after the cut-off", f_lab, INK); lx += 18 + c.textw("pass: no forest loss after the cut-off", f_lab) + 28
 c.line((lx, ly - 8), (lx, ly + 8), VERMIL, 1.6); c.text(lx + 8, ly - 7, "2020 cut-off", f_lab, INK); lx += 8 + c.textw("2020 cut-off", f_lab) + 28
 c.di.rectangle([c.S(lx), c.S(ly - 8), c.S(lx + 9), c.S(ly)], fill=c.rgba(TURMERIC, 220), outline=c.rgba(INK, 255)); c.text(lx + 16, ly - 7, "signed loss-year histogram", f_lab, INK); lx += 16 + c.textw("signed loss-year histogram", f_lab) + 28
-c.line((lx, ly), (lx + 26, ly), LEAF, 1.6); c.text(lx + 32, ly - 7, "signed CID crosses customs", f_lab, INK)
+c.line((lx, ly), (lx + 26, ly), LEAF, 1.6); c.text(lx + 32, ly - 7, "signed token goes with the statement", f_lab, INK)
 
 print("eudr.png", c.save("docs/diagrams/eudr.png"))

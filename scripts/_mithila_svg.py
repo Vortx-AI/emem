@@ -515,10 +515,34 @@ class Svg:
         )
         body = (f'<g filter="url(#blur)">{"".join(self.glow)}</g>' if self.glow else "")
         body += "".join(self.main)
+        title = getattr(self, "title", None)
+        if not title:
+            return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.W} {self.H}" '
+                    f'width="{self.W}" height="{self.H}" role="img">{defs}{body}</svg>')
         return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.W} {self.H}" '
-                f'width="{self.W}" height="{self.H}" role="img">{defs}{body}</svg>')
+                f'width="{self.W}" height="{self.H}" role="img" lang="en" aria-labelledby="title">'
+                f'<title id="title">{title}</title>{defs}{body}</svg>')
 
     def save(self, path):
+        if not getattr(self, "title", None):
+            self.title = diagram_label(path)
         with open(path, "w") as f:
             f.write(self.svg())
         return path
+
+
+def diagram_label(path):
+    """Content text for a docs/diagrams SVG, taken from its aria-label in index.html.
+
+    index.html is the one place that states what each diagram shows, so a
+    re-run of a generator keeps the SVG <title> equal to the page's alt text.
+    The label is already escaped for HTML attributes, which is also valid XML.
+    """
+    import os, re
+    name = os.path.basename(path)
+    index = os.path.join(os.path.dirname(os.path.abspath(path)), "index.html")
+    if not name.endswith(".svg") or not os.path.exists(index):
+        return None
+    m = re.search(r'data="/docs/diagrams/' + re.escape(name) + r'" aria-label="([^"]*)"',
+                  open(index).read())
+    return m.group(1) if m else None

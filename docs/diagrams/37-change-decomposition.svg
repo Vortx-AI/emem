@@ -1,4 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 320" font-family="Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" lang="en" viewBox="0 0 900 320" font-family="Helvetica, Arial, sans-serif" role="img" aria-labelledby="t37">
+  <title id="t37">The change at one place is a sum of five terms: the world, the sensor, the geometry, the encoder, and noise. Only the first term is the world. Signed metadata records or pins the other terms. change_attribution@1 ships a signed ledger that lists the evidence for each term. The numeric split of one change among the terms does not ship.</title>
   <rect x="0" y="0" width="900" height="320" fill="#ffffff"/>
   <text x="60" y="38" font-size="20" font-weight="bold" fill="#1a1a1a">The change at a pinned reference is not one event</text>
   <text x="60" y="60" font-size="13" fill="#666666">&#916;z = &#916;_env + &#916;_sensor + &#916;_geo + &#916;_encoder + &#949; &#183; only the first term is the world</text>
@@ -28,11 +29,11 @@
   <text x="210" y="210" font-size="12" fill="#2e7d32" text-anchor="middle">the signal a memory of the world exists to keep</text>
 
   <path d="M 364 180 L 364 190 L 840 190 L 840 180" stroke="#888888" fill="none" stroke-width="1.5"/>
-  <text x="602" y="210" font-size="12" fill="#666666" text-anchor="middle">pinned or separated by the substrate, by construction</text>
-  <text x="602" y="228" font-size="11" fill="#8a8a8a" text-anchor="middle">encoder checkpoint hash &#183; signed scene selection &#183; bi-temporal bounds &#183; cloud/QA class</text>
+  <text x="602" y="210" font-size="12" fill="#666666" text-anchor="middle">recorded or pinned in signed metadata (&#916;_geo is not estimated yet)</text>
+  <text x="602" y="228" font-size="11" fill="#8a8a8a" text-anchor="middle">signed scene sources &#183; encoder recipe (fn_key) &#183; tslot window &#183; S2 cloud class (s2.scl)</text>
 
   <!-- footer -->
   <line x1="60" y1="252" x2="840" y2="252" stroke="#e0e0e0" stroke-width="1"/>
-  <text x="60" y="278" font-size="12" fill="#1a1a1a">Splitting a specific &#916;z among the terms is the open primitive <tspan font-family="monospace">change_attribution@1</tspan>:</text>
-  <text x="60" y="296" font-size="12" fill="#666666">a derivative fact with parent cids under a signed receipt, so the attribution is as checkable as the readings it explains.</text>
+  <text x="60" y="278" font-size="12" fill="#1a1a1a">Ships: <tspan font-family="monospace">change_attribution@1</tspan> returns a signed ledger. Each term lists its evidence and fact cids, or says it is not estimated.</text>
+  <text x="60" y="296" font-size="12" fill="#666666">Not shipped: the numeric split of one &#916;z among the terms. The ledger returns <tspan font-family="monospace">split = null</tspan>.</text>
 </svg>

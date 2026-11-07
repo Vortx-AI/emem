@@ -31,7 +31,7 @@ The agricultural-field surface (`/v1/field_boundaries` plus
 World's global product (CC-BY-4.0, ~3.17 B field polygons) via
 PMTiles range reads.
 
-![emem architecture — one binary, two wire surfaces](/docs/diagrams/01-architecture.svg)
+![emem architecture. Open-data sources (STAC and COG) feed one responder binary on the first miss. MCP and REST clients reach the same handlers, such as recall, find_similar, verify and hunt. The responder reads its manifests (bands, algorithms, sources, schema) and appends every write to a signed log with a Merkle root per batch.](/docs/diagrams/01-architecture.svg)
 *The whole stack in one figure. The ASCII variant below is the same shape, terminal-friendly.*
 
 ## Process topology

@@ -1,0 +1,14 @@
+{
+ "x-emem-scene-item-id": "S2B_MSIL2A_20241023T113319_R080_T29SMC_20241023T125515",
+ "x-emem-scene-datetime": "2024-10-23T11:33:19.024000Z",
+ "x-emem-scene-cloud-cover": "0.00",
+ "x-emem-scene-epsg": "32629",
+ "x-emem-scene-bbox-crs": "485980.000,4285280.000,487990.000,4287280.000",
+ "x-emem-scene-pixel-size": "10.0000,10.0000",
+ "x-emem-scene-sun": "",
+ "x-emem-scene-view": "",
+ "x-emem-scene-stretch-r": "1172-3664",
+ "x-emem-scene-stretch-g": "1224-3302",
+ "x-emem-scene-stretch-b": "1163-3034",
+ "request-bbox": "-9.16130,38.71607,-9.13823,38.73407"
+}

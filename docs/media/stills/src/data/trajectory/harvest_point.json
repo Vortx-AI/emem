@@ -1,0 +1,71 @@
+{
+  "kind": "primary",
+  "cell": "defi.zb493.xuqA.zcb5f",
+  "band": "indices.ndvi",
+  "tslot": 20570,
+  "value": 0.8339622641509434,
+  "confidence": 0.95,
+  "sources": [
+    {
+      "scheme": "sentinel_s2_l2a",
+      "id": "https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/43/P/GQ/2026/4/S2C_43PGQ_20260427_0_L2A/B08.tif ; https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/43/P/GQ/2026/4/S2C_43PGQ_20260427_0_L2A/B04.tif",
+      "captured_at": "2026-04-27T05:25:20.566000Z"
+    }
+  ],
+  "derivation": {
+    "fn_key": "sentinel2_l2a_indices_ndvi@1",
+    "args": [
+      12.971898542355802,
+      77.59366454927073,
+      "S2C_43PGQ_20260427_0_L2A",
+      32643,
+      "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+      [
+        2430.0,
+        220.0
+      ],
+      0.24841,
+      40.0,
+      30,
+      4,
+      2
+    ]
+  },
+  "privacy_class": "public",
+  "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+  "signer": [
+    255,
+    254,
+    72,
+    239,
+    8,
+    57,
+    144,
+    88,
+    50,
+    189,
+    59,
+    5,
+    171,
+    89,
+    152,
+    150,
+    76,
+    49,
+    228,
+    100,
+    142,
+    79,
+    43,
+    250,
+    36,
+    191,
+    48,
+    224,
+    42,
+    206,
+    101,
+    84
+  ],
+  "signed_at": "2026-08-02T14:57:13Z"
+}

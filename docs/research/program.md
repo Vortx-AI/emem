@@ -35,10 +35,13 @@ the algorithm registry (`crates/emem-core/data/algorithms-v0.json`) on 29 Octobe
 
 | finding | entries |
 |---|---|
-| carry any measured accuracy, skill or validation | none |
+| carry an accuracy, skill or validation measured on emem (77 quote a published `accuracy_band` or say nobody has quantified it) | none |
 | state the formula as prose only, with no machine-evaluable expression | 95 |
 | do not run on this deployment: read an encoder or band it has retired (Clay, Prithvi, Galileo, Tessera, DMSP nightlights), name a route it no longer serves (the learned JEPA-v2 head, the three-encoder consensus), or read a band no materializer serves | 44 |
 | cite their own shaping as "editorial" or heuristic | 14 |
+
+The audit read 169 entries. On 7 November 2026 the registry holds 172, and 98 of them are prose only. The live
+`here_counts` of `GET /v1/algorithms` gives 36 `stored_only` and 8 `cannot_run`, which is the same 44.
 
 The drought index entry is a sharp example: it needs thirty years of `weather.precipitation_mm`, and that band holds
 the current hour only, so the recipe cannot run here at all. A registry that cannot say how good its entries are
@@ -52,12 +55,14 @@ under its own key (`mujzmxes`), in this order:
 1. **The plan.** `research/experiments/<id>/plan.md`, written before any data is read. (The code that runs the experiments is in the emem-world
    repository, private until peer review; every note and record it writes is public.) It states the question, the
    reference, the labelling rule, every method under test with the blake3 of its own source, and the deciding score
-   with its rule (a paired bootstrap of 2,000 resamples of cells, fixed seed). The transparency log orders the plan
+   with its rule (a paired bootstrap of 2,000 resamples, fixed seed). The first plans resampled cells; plans written
+   after rule 12 resample forests, each with all its cells. The transparency log orders the plan
    before the result, so a plan cannot be edited to fit what was found.
 2. **The inputs.** Every series and raster the experiment reads is a signed emem response, cited by token: per-cell
    Sentinel-2 series from `field_series`, and the reference raster from `band_raster` (`forest_raster@1`).
 3. **The reference.** Independent of every method. In the first programme the methods read Sentinel-2 and the
-   reference is Hansen Global Forest Change, read from Landsat.
+   reference is Hansen Global Forest Change, read from Landsat. A later method also reads Landsat
+   (`lab:memory_hls_emp@4`), so its plans state that shared input (rule 13).
 4. **The result.** `research/experiments/<id>/result.md`, citing the plan by path and content id, with every
    method's score, the interval on its difference from the registry baseline, the per-site breakdown and the
    verdict the pre-registered rule gives.
@@ -131,9 +136,11 @@ interval of 1.8 to 8.6 m (Sen's rank-based interval on the Theil-Sen slope), ove
 2023. The canopy programme tested the same reading as a detector, the share of a cell's pixels that stay green, and
 the darkest tenth of a cell's pixels as another. Neither beat the registry rule at scale or on the seven forests of
 the MCC replication; after the cloud screen, both beat it on the ten of the third replication, where their best
-sites were managed forests with partial harvests. Their record is mixed. Over all three MCC experiments the quiet
-rules found 91% of cells where half the forest was cleared and 20% where a twentieth was, so the cell-size experiment
-reads the same detectors at 200 m, scored on the same pixels.
+sites were managed forests with partial harvests. They have a mixed record. The quiet rules are the three that flag the
+least stable forest. The paper's section 5.9 pools the three MCC experiments. There they found 91% of cells that lost half their forest or more.
+They found 20% of cells that lost 5 to 10%. So the cell-size experiment read the same detectors at 200 m,
+scored on the same Hansen pixels. Every detector found more of the lost forest, and the share of stable pixels
+flagged barely moved (paper, section 5.10).
 
 **Cloud and haze correction.** Sen2Cor's scene classification misses thin cloud and haze, which pull NDVI and NBR
 down and almost never up. The program tests corrections in time rather than trusting the mask: a temporal screen
@@ -233,7 +240,8 @@ synthetic forest of 60 stable and 10 cleared cells:
 | a drought year, every band 1.25 noise sd lower | 60 of 60 | 5 of 60 | 10 of 10 |
 
 This is memory and relations together: the cell's own past says what is normal for it, and its forest says what is
-normal this year. Version 3 is registered in the two-reference experiment, against version 2.
+normal this year. The two-reference experiment compared version 3 with version 2 and found no clear difference
+(paper, section 5.14).
 
 **Calibration had to be earned.** On synthetic stable cells, three versions of the null failed before one held, and
 each failure is a general lesson for memory-driven detectors:
@@ -255,8 +263,16 @@ all point the right way (version 2 over version 1, radar over optical alone, mem
 and none is decisive at six forests. False-discovery control across a forest's cells was too strict. And the stated
 5% false-alarm rate did not hold on real forests: 9.2% for the fused detector, 13.3% for optical alone. Real forests
 change in ways five remembered years do not hold, and some cells Hansen calls stable did lose canopy; until a second
-reference separates the two, the stated rate is a floor. The next experiment needs more forests read, which needs the
-server to finish heavy reads (gap ledger).
+reference separates the two, the stated rate is a floor. The lab could not read four of the ten forests, because heavy
+reads met server timeouts (502) and upstream errors (400) (gap ledger).
+
+**Later results.** Three later experiments read more forests (paper, sections 5.14, 5.15 and 5.21). Under Hansen, on ten
+new forests, the memory detectors led, and the calibrated ones flagged 1.2 to 1.8% of stable cells against a stated 5%.
+JRC TMF marked only 5 cells as loss, against 42 for Hansen, too few to judge any method. Version 4
+(`lab:memory_hls_emp@4`) adds Landsat 8 and 9 to the optical memory. On nine forests that had loss, it scored MCC 0.420 and beat the registry rule
+with forests resampled (+0.031 to +0.685). Its gain over version 3 (-0.066 to +0.203) is not yet clear of zero. The
+replication in section 5.21 read the four forests that failed and six new ones. Its best detector scored MCC 0.93, but
+56 of its 59 loss cells are one clearing at Humaitá.
 
 **How high can accuracy go?** The score is bounded by the reference. On 4,391 tropical forest cells, Hansen's loss
 year and JRC TMF's deforestation year agree on which cells lost forest at an MCC of only 0.39 to 0.48 (2021 to 2023;
@@ -277,8 +293,9 @@ memory like everything else. Claims of near-perfect accuracy will be stated agai
 2. Let the memory learn: update a cell's normal from observations its timeline has confirmed as undisturbed, so slow
    change is remembered and a confirmed change resets the normal.
 3. Let neighbours speak: a fork confirmed next door raises the prior of a fork here, because clearings spread.
-4. Add sensors as emem serves them: Landsat or HLS for memory before 2017 and a third optical reading, and per-pixel
-   stacks from `band_cube` instead of cell medians (the cell-size experiment says finer reading finds more).
+4. Add sensors as emem serves them. Version 4 already adds Landsat 8 and 9 as a second optical reading (section
+   5.15 of the paper). Still to do: Landsat or HLS for memory before 2017. Also to do: per-pixel stacks from
+   `band_cube` instead of cell medians, because the cell-size experiment says finer reading finds more.
 
 ## 5. Rules of evidence
 
@@ -366,11 +383,13 @@ disagreements between sources; that list is the program's agenda.
   (`lab:memory_hls_emp@4`) won its first experiment with forests resampled and awaits replication. The lab's planner
   schedules that replication itself, on the Landsat design and on forests that had loss before the window.
 - Much of that disagreement follows the climate (the paper, section 5.18, post hoc): in seasonally dry forest the
-  registry rule holds up, and in evergreen forest the memory detectors beat it widely. Whether choosing by climate
-  beats choosing the best on average is the method-selection experiment's context policy, scored on years its
-  evidence does not cover.
-- At 400 m they find 20% of cells with 5 to 10% cleared. Whether a 200 m reading closes that gap is the cell-size
-  experiment's question.
+  registry rule stays competitive, and in evergreen forest the memory detectors beat it widely. The method-selection
+  experiments test whether choosing by climate beats the best method on average (sections 5.19 and 5.20 of the paper). In the
+  first, the context policy chose as the global policy at every forest. In the second, its difference from the
+  global policy was -0.035 to +0.028 MCC, so the test does not decide.
+- At 400 m the quiet rules find 20% of cells with 5 to 10% cleared (the paper, section 5.9). The cell-size
+  experiment (section 5.10) scored the same pixels at 200 m. Two detectors gained with intervals clear of zero, and
+  none lost. The lab has not yet run a full experiment that scores 200 m cells.
 - Clearings that cover under 5% of a 400 m cell are left out of scoring.
 - The reference is annual and Landsat-based; a loss Sentinel-2 sees in January can belong to the previous year in
   it, which the labels handle by leaving those cells out.

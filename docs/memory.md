@@ -110,7 +110,8 @@ The signed preimage (v2) is:
 blake3("emem.memory_write.v2|" + verb + "|" + path + "|" + body_hash + "|" + base)
 ```
 
-where `body_hash = blake3(canonical body bytes)` as 32 raw bytes, and
+where `body_hash = blake3(canonical body bytes)` as 32 raw bytes.
+
 A `file_cid` is the first 16 bytes of `blake3(content)`, in lowercase
 RFC 4648 base32 with no padding (26 characters). The first 16 bytes, not
 all 32: a reader who re-hashes a note must cut the digest before encoding.
@@ -128,11 +129,20 @@ nothing is there. What counts as the body depends on the verb:
 | `supersede` | the note marked stale | `"<superseded_by>\|<reason>"` | current `file_cid` |
 
 You do not have to build this by hand. Send the write without `attester`
-and the 401 carries `details.how_to_sign`: the exact 32-byte digest for
+and the refusal carries `details.how_to_sign`: the exact 32-byte digest for
 that write, the encoding rules, and a runnable Python example. Sign the
 digest and resend the identical body. No registration or API key is
 involved; any locally generated keypair works. Keep the seed: the key
 owns its namespace, and a write can only be unpublished by that key.
+
+A silent film of 35 seconds shows one `create` from refusal to storage.
+Select the picture to play the MP4, or get the
+[WebM](media/films/emem-note-write.webm). The digest and the signature
+are real, made offline with a throwaway key. The refusal and the stored
+result have the shapes in the server code. The film wrote nothing to
+emem.dev.
+
+[![Film poster. The agent builds the digest itself: BLAKE3 over "emem.memory_write.v2|create|", the path, the BLAKE3 of file_text and "absent" gives 2ced569b3e75145a6d1ee66eed2c2a6d8ddeaf512b84e29157107eb3a9e7aada, the same digest as the refusal.](media/films/emem-note-write-poster.webp)](media/films/emem-note-write.mp4)
 
 Why `base`: caller signatures are stored in the ledger so authorship can
 be re-verified offline, which makes every past signature public. Binding
@@ -168,13 +178,17 @@ Who may write where:
 - `/memories/.well-known/` is reserved to the operator and refuses every
   key, the responder's included (`reason: reserved_namespace`).
 
-Refusals, all with `details.code` naming the case:
+The memory verbs are MCP tools (`emem_memory_create` and the others), and
+no REST route writes a note. So a refusal comes back as a tool result
+with `isError: true`. Its text starts with the error name and carries
+`details`, where `details.code` names the case:
 
-- No attester where one is needed → 401 `memory_attestation_required`.
-- Signature does not verify, or the key is malformed → 401
+- The write has no attester, and the path or policy needs one →
+  `memory_attestation_required`.
+- The signature does not verify, or the key has the wrong form →
   `memory_attestation_invalid`; the message names the digest the
   responder expected.
-- Wrong namespace, wrong owner or reserved prefix → 403
+- Wrong namespace, wrong owner or reserved prefix →
   `memory_namespace_violation`.
 
 Bare `/memories/...` is **not** anyone-writable by default. A release
