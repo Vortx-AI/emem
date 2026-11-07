@@ -61,7 +61,8 @@ Each pass has three steps.
      higher.
    - Churn. The agent lists the notes of the configured kinds
      (`emem_memory_list_by_kind`). It groups them by a normalized path stem.
-     The stem is the last path part up to its first dot. Then trailing
+     The stem keeps the parent path. It cuts the last path part at its
+     first dot. Then trailing
      digits, trailing `-`, `_` or spaces, and a trailing `(copy)` come off
      (`normalize_stem` in `lib.rs`). The first dot is not always the
      extension: `notes/v1.2-final` becomes `notes/v`. Thus `notes/site-1`, `notes/site-2`
@@ -141,8 +142,16 @@ and you do not need a separate key. The agent records the cost as 0.0,
 because the responder does its own metering.
 
 `/v1/ask` answers questions about places. Nobody designed it to rewrite
-notes. The transport uses the `answer` text, or else the `summary` text, as
-the merge. When neither field has text, the transport refuses. Read the
+notes. The transport uses the `answer` text as the merge. When the response
+has no `answer` field, the transport uses the `summary` text. When it gets
+no text, the transport refuses and the candidate gets no merge. An empty
+`answer` string also gives a refusal, even when `summary` has text.
+
+On 7 November 2026, emem.dev did not answer a merge request. We sent
+`POST /v1/ask` with a two-note merge question. The response had
+`status: needs_location` and no `answer` or `summary` field. With that
+response, the transport refuses. A question that resolves to a place gets
+an `answer`, but that text describes the place, not a merge. Read the
 merged text before you trust this route.
 
 ## Budget and loop caps
