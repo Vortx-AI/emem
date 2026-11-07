@@ -1,111 +1,147 @@
 # What only emem does
 
-Most memory stores let an agent save a note and search it later. emem
-does that too. These three things are what a plain vector store does
-not give you. They are three faces of one job, keeping a shared account
-of a world that changes checkable by parties who do not trust each
-other. Each is framed as a benefit first, then the surface that
-delivers it.
+A plain vector store lets an agent save a note and search it later. emem
+does that too. This page shows three more things that emem does. They
+help parties that do not trust each other keep one record of a world
+that changes.
 
-## 1. It surfaces disagreement, with a severity score
+| You need to | emem gives you | Tool |
+|---|---|---|
+| See where sources disagree, and by how much | every signed value at one address, with a severity from 0 to 1 | `emem_memory_contradictions` |
+| Know what was true, or what emem knew, on a date | two time bounds on every read, recorded in the signed receipt | `emem_recall` with `as_of_tslot` or `as_of_signed_at` |
+| Prove who wrote a note and that nobody changed it | a note path that only one key can write | `emem_memory_create` with an `attester` block |
 
-**The benefit.** Three agents observed the same place. One disagreed.
-emem does not silently pick a winner or average them away. It tells you
-they disagree and how badly.
+The calls on this page ran on emem.dev on 7 November 2026. The examples
+use the cell of Mount Fuji, `defi.zb592.nUkO.zEzE`.
 
-When several attesters sign facts at the same `(cell, band, tslot)`,
-emem keeps all of them and scores the spread. Since 2026-09-14 only three
-kinds of key may occupy an address: this responder, a device enrolled
-through the OS-trace gate, and a key the operator lists. So on this node
-the attesters that can disagree at one address are those, plus whatever
-was signed before the plane closed. A scalar band is scored by
-how far apart the numbers are; a vector band by mean cosine distance; a
-categorical band by how lopsided the votes are. The agent gets a single
-severity number it can threshold on: ignore a hairline disagreement,
-escalate a real one.
+## Keep disagreement and give it a severity
+
+When two attesters sign different values at the same `(cell, band, tslot)`,
+emem keeps both. It does not choose a winner and it does not average them.
+`emem_memory_contradictions` finds these keys and gives each one a
+`severity` from 0 to 1. An agent can ignore a small disagreement and
+escalate a large one.
+
+The severity depends on the kind of band
+(`crates/emem-primitives/src/memory_contradictions.rs`):
+
+| `kind` | Severity |
+|---|---|
+| `scalar` | (largest value minus smallest value) divided by the range of the band |
+| `vector` | 1 minus the mean cosine similarity of the vectors |
+| `categorical` | 1 minus the share of the most common class |
+| `mixed` | 1 |
+
+The default `min_severity` is 0.1. Send `min_severity: 0.0` to see every
+disagreement.
+
+```json
+{"name": "emem_memory_contradictions", "arguments": {"band": "indices.ndvi", "include_same_attester_sources": true}}
+```
 
 ```bash
 curl -s -X POST https://emem.dev/v1/memory_contradictions \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb441.zd21e.zd3ee","band":"indices.ndvi"}' \
-  | jq '.contradictions[] | {cell, band, severity, kind,
-                             attesters: [.attestations[].attester_pubkey_b32]}'
+  -d '{"band":"indices.ndvi","include_same_attester_sources":true}' \
+  | jq '{corpus_scanned, scan_truncated, n: (.contradictions | length)}'
 ```
 
-`severity` and the attester list sit on each entry of `contradictions`,
-not at the top of the response. The top level carries the scan
-accounting instead: `corpus_scanned`, `scan_truncated`, `agent_hint` and
-the signed `receipt`. An empty `contradictions` array with a non-zero
-`corpus_scanned` is the honest "these attesters agree", not a lookup
-failure, and it is what this call returns today: the live corpus holds
-no `indices.ndvi` disagreement above the default threshold. Pass
-`min_severity: 0.0` to see borderline ones.
+On 7 November 2026 this call read 44,682 keys (`scan_truncated: false`) and
+found no contradictions. An empty `contradictions` list with a non-zero
+`corpus_scanned` means that the attesters agree. It is not a failed lookup.
 
-On a corpus with one main writer, most real disagreement is one attester
-answering the same address from two upstreams. The default scan does not
-count that. Pass `include_same_attester_sources: true` and a key qualifies
-when its facts differ in `derivation.fn_key` or in their `sources[].scheme`
-set; each record then carries `disagreement_scope` and a `providers[]` list
-naming the recipe behind each value. A re-signing from the same provider is
-a refresh, not a disagreement, and is still not counted. On 2026-09-29 a
-whole-corpus `indices.ndvi` scan with both options (37,759 keys) returned
-none.
+Who can sign at an address limits who can disagree there. Since 2026-09-14,
+storage accepts a fact at an address from three kinds of key only.
+They are this responder, a device enrolled through the OS-trace gate,
+and a key that the operator lists. Facts signed before that date stay.
+
+Thus most disagreement on emem.dev comes from one attester that reads the
+same address from two upstreams. The default scan does not count that.
+`include_same_attester_sources: true` counts it when the facts differ in
+`derivation.fn_key` or in their set of `sources[].scheme`. A new signature
+from the same provider is a refresh, not a disagreement. The fields of each
+result and the meaning of `disagreement_scope` are in the
+[contradictions job](./agents.md#job-find-where-sources-disagree).
 
 An agent that thinks a fact is wrong does not overwrite it. It signs a
-`disagrees_with` edge between the two fact cids with its own key
-(`POST /v1/edges`, a signed attestation envelope; edges take no address, so
-any signed key may write one), and anyone can read it with
-`emem_edges_recall`. The disputed fact is left as it was.
+`disagrees_with` edge between the two fact cids with its own key. The
+disputed fact does not change. To write an edge, read
+[Connect & evolve](./connect-and-evolve.md#write-an-edge).
 
-Why it matters: a guess from one model looks identical to a consensus of
-three. The result is visible to the agent. (MCP: `memory_contradictions`.)
+## Read what was true, or what emem knew, on a date
 
-## 2. It answers "what did we believe on date X"
+Every read accepts two time bounds. They are independent.
 
-**The benefit.** You can ask the memory two different time questions and
-get two different, correct answers, without keeping snapshots yourself.
+| Field | Question it answers | Filter |
+|---|---|---|
+| `as_of_tslot` | What did the world look like at this tslot? | the latest fact with an observation tslot at or before the bound |
+| `as_of_signed_at` | What did emem know on this date? | the latest fact with `signed_at` at or before the bound (RFC 3339 UTC) |
 
-Every read carries a bi-temporal axis: two independent time knobs.
+You can send both. Then both filters apply. You do not keep snapshots.
 
-- `as_of_tslot`: *what the world looked like* on that date. It returns
-  the latest fact whose observation time is on or before the bound.
-- `as_of_signed_at`: *what emem knew* on that date. It returns the
-  latest fact whose signing time is on or before the bound.
+```json
+{"name": "emem_recall", "arguments": {"cell": "defi.zb592.nUkO.zEzE", "bands": ["indices.ndvi"], "as_of_signed_at": "2026-10-01T00:00:00Z"}}
+```
 
-Set both and both hold at once. So an auditor in 2027 can take a 2026
-receipt, replay the exact query against any peer, and reproduce the same
-answer the agent saw back then. The receipt carries an `as_of` block
-when a bound is set, so old receipts still verify byte-for-byte.
+```bash
+curl -s -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb592.nUkO.zEzE","bands":["indices.ndvi"],"as_of_signed_at":"2026-10-01T00:00:00Z"}' \
+  | jq '{facts: [.facts[] | {tslot, signed_at, value}], as_of: .receipt.as_of}'
+```
 
-Why it matters: compliance and incident reviews ask "what did you know,
-and when". emem answers that as a first-class query, not as a forensic
-reconstruction.
+On 7 November 2026 these two bounds gave different facts for the same cell
+and band:
 
-## 3. Writes can be locked to one signer
+| Bound | Fact returned | `receipt.as_of` |
+|---|---|---|
+| `"as_of_tslot": 20600` | tslot 20589, signed 2026-09-11 | `{"valid_time": 20600}` |
+| `"as_of_signed_at": "2026-10-01T00:00:00Z"` | tslot 20714, signed 2026-09-28 | `{"transaction_time": "2026-10-01T00:00:00Z"}` |
 
-**The benefit.** An agent's own memory can be made tamper-evident: only
-the agent that owns a path can write to it, and any byte change is
-detectable.
+The receipt signs the `as_of` block. Thus an auditor can send the same
+query with the same bound later and compare the answer. A receipt without
+a bound has no `as_of` block, so old receipts still verify.
 
-A write to a path under `/memories/by_attester/<pubkey8>/...` (the first
-eight characters of the key) must carry an ed25519 signature from that
-exact key: a capability-bound write. A signer that is not the owner is
-refused 403 `memory_namespace_violation`. The signature is over the
-`emem.memory_write.v2` preimage, which binds the verb, the path, the body
-hash and the file cid being replaced, so a signature copied off the public
-log cannot be replayed once the file has moved on. Combined with content
-addressing (the fingerprint changes if a byte changes), this means a
-reader can confirm both *who* wrote a memory and that *nobody altered it
-since*.
+A past `as_of_signed_at` does not fetch new data on a miss. emem signs a
+fact when it fetches it, so a new fact can never fall inside a past bound. The answer
+names the reason `as_of_signed_at_in_the_past`. Use `as_of_tslot` to ask
+about an old observation.
 
-Why it matters: the same signing surface that proves a Sentinel-2
-reading is real also proves an agent's notes are unmodified. The notes
-are not private: anyone can read them, so write nothing you would not
-publish. One trust surface, two layers of memory.
+Compliance and incident reviews ask "what did you know, and when". This
+read answers that question directly.
 
-## In one line
+## Lock a note path to one signer
 
-emem keeps disagreement instead of hiding it and keeps history instead of
-overwriting it. It also keeps proof of authorship, so you do not have to
-trust the store. See [Connect & evolve](./connect-and-evolve.md) for how
-these combine into a memory that links facts and improves over time.
+Only one key can write under `/memories/by_attester/<pubkey8>/`. `<pubkey8>`
+is the first 8 characters of the base32 public key. A write from any other
+key gets 403 `memory_namespace_violation`. Outside `by_attester/`, the first
+key that makes a path owns it.
+
+The signature covers the `emem.memory_write.v2` preimage
+(`crates/emem-primitives/src/memory_acl.rs`):
+
+```text
+blake3("emem.memory_write.v2|" || verb || "|" || path || "|" || body_hash || "|" || base)
+```
+
+`base` is the `file_cid` that the write replaces. Thus a signature copied
+from the public log cannot write again after the file changes. The
+`file_cid` changes when one byte of the note changes. A reader can check
+who wrote a note and that nobody changed it after.
+
+The same signatures prove an Earth observation fact and an agent note.
+Notes are public. Anyone can read them, so do not write secrets.
+
+A note write needs your own Ed25519 key. The call and the steps are in the
+[note job](./agents.md#job-write-a-note-that-other-agents-can-verify)
+and the
+[emem-sign-and-attest skill](../plugins/emem/skills/emem-sign-and-attest/SKILL.md).
+
+## Related pages
+
+- [Connect & evolve](./connect-and-evolve.md): typed edges between facts
+  and the loop that marks a contested fact.
+- [Find the tool for your job](./agents.md#find-the-tool-for-your-job):
+  one working call for each job.
+- [Why an agent benefits from emem](./why-agents.md): one task from start
+  to end.

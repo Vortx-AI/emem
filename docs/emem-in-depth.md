@@ -25,7 +25,8 @@ The log carries the time that the record was written. A correction is a new
 record, not an edit. So a reading from March still reads as a March reading
 after a June correction. emem revises nothing in place. A deletion
 unpublishes the record and records that it did. [What only emem
-does](only-emem.md) shows the query "what did we believe on date X".
+does](only-emem.md#read-what-was-true-or-what-emem-knew-on-a-date)
+shows the query "what did we believe on date X".
 
 How much it is worth. Every record says how it was made. A sensor read it, a
 formula recomputed it from a cited source, a model produced it, or a person

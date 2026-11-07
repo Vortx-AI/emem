@@ -4,7 +4,7 @@ emem is a shared memory for AI agents. The responder signs each answer,
 so a reader can check it and does not have to trust the server. Recall is
 bi-temporal. What was on the ground and what the memory
 knew on a date are separate questions
-([what emem knew on a date](./only-emem.md#2-it-answers-what-did-we-believe-on-date-x)).
+([what emem knew on a date](./only-emem.md#read-what-was-true-or-what-emem-knew-on-a-date)).
 
 This page follows one agent through one job. Each step links to the job
 in the [agent guide](./agents.md#find-the-tool-for-your-job) that gives
