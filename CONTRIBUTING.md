@@ -58,42 +58,47 @@ claim; do not silently delete it. Section 18 of
 plain words; run it on your changed lines. [docs/writing-docs.md](docs/writing-docs.md)
 gives the rules and both commands.
 
-## Add a band
+## Add a data source
 
-1. Add the entry to `crates/emem-core/data/bands-v0.json`. Each band has
-   `key`, `offset`, `dims`, `tempo` and `privacy`. The `dims` of all bands
-   must add up to 1792.
-2. Connect the materializer. Add a connector module under
-   `crates/emem-fetch/src/<your_source>.rs` and declare it in
-   `crates/emem-fetch/src/lib.rs`. Add the source to
-   `crates/emem-core/data/sources-v0.json`.
-3. Map the band to the connector in `crates/emem-api-rest/src/lib.rs`.
-   Search for an existing band that is like yours (for example
-   `weather.temperature_2m`).
-4. The new band shows in `/v1/bands` when the manifest CID changes. You
-   do not change the router.
+A new band needs a fetch module in `emem-fetch` and a materializer in
+`emem-api-rest`. [Add a connector](docs/developers/data-sources.md#add-a-connector)
+in `data-sources.md` gives all ten steps. Three of them are easy to miss:
+
+1. Add the band key to `all_materializable_bands` in
+   `crates/emem-api-rest/src/lib.rs`. If the key is not there,
+   `/v1/bands`, `/v1/materializers` and `/v1/data_availability` do not show it.
+2. A dotted key, such as `copdem30m.elevation_mean`, needs no change to
+   `crates/emem-core/data/bands-v0.json`. Only a new cube slot changes that
+   file. The `dims` of all bands must then still add up to 1792.
+3. Return `Ok(None)` for a real empty result and `Err` for an upstream
+   failure. Never invent a default value.
+
+The `SourceConnector` trait in `crates/emem-fetch/src/connectors.rs` is the
+transport layer (HTTPS, GCS, IPLD). A new data source does not use it.
+
+Test the parser offline with `cargo test -p emem-fetch <name>`. Put
+network tests in `crates/emem-fetch/tests/live_cog_fetch.rs`. They skip when
+you set `EMEM_NO_NETWORK=1`.
 
 ## Add an algorithm
 
-1. Append to `crates/emem-core/data/algorithms-v0.json` with a unique
-   versioned key (`my_score@1`), `inputs` (band names), `formula` (string,
-   evaluable), `output_unit`, `references`.
-2. The algorithm is now visible at `GET /v1/algorithms` and routable from
-   `/v1/locate`'s `algorithms_for_topic`.
-3. If the formula needs evaluation logic the existing engine does not
-   handle, extend `crates/emem-primitives/src/<…>` rather than inlining it
-   in the router.
+1. Append an entry to `crates/emem-core/data/algorithms-v0.json`. Each entry
+   needs `key` (unique and versioned, for example `my_score@1`), `kind`,
+   `inputs`, `formula`, `output`, `when_to_use`, `primitive` and `citation`.
+   The `formula` is plain math for people. The registry does not load if two
+   keys are the same or if `inputs` is empty.
+2. To let the node compute the value, add an `evaluation` expression tree.
+   Without it, the node only lists the recipe and the agent applies the
+   formula. If the tree needs a new operation, add it to `Expr` in
+   `crates/emem-core/src/algorithms.rs`.
+3. Give each entry in `parameters` a `basis`: `literature`,
+   `operational_default` or `fitted`. A `fitted` basis needs more fields.
+4. The algorithm shows at `GET /v1/algorithms`. To route `/v1/ask` and
+   `/v1/locate` to it, add its key to the `algorithms` list of a topic in
+   `crates/emem-core/data/topics-v0.json`.
 
-## Add a connector
-
-1. Create `crates/emem-fetch/src/<source>.rs`. Write an `impl SourceConnector`
-   (`kind`, `fetch`, and `fetch_range` for COG sources).
-2. Register the source in `crates/emem-core/data/sources-v0.json`
-   (`scheme`, `tempo`, `native_resolution_m`, and a `providers` list
-   with `id`, `kind`, `url_template`, `auth` and `license` for each).
-3. Add an integration test under `crates/emem-fetch/tests/`. Use
-   `live_cog_fetch.rs` as the model. Live tests skip when you
-   set `EMEM_NO_NETWORK=1`.
+A change to a registry file moves its manifest CID. Run
+`cargo test -p emem-core` after the change.
 
 ## Tests
 
