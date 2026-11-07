@@ -27,6 +27,7 @@ These add an image where README.md has none today. They remove nothing.
 |---|---|---|
 | 218, after item 6 in "Why you can trust it" | `docs/media/stills/log-proof.webp` (249,976 bytes) | Item 6 says that a reader can prove one entry under a signed head and that the log only grows. The still shows both for one live fact: a 22-hash inclusion path and a 14-hash consistency proof. |
 | 90, after step 3 of the quick start ("Read a signed measurement") | `docs/media/stills/recall-one-cell.webp` (255,266 bytes) | Step 3 reads one band at one place. The still shows what one `recall` holds at one cell: 8 facts from 6 sources, each with its own date and class, under one receipt. |
+| 266, after the paragraph about two Claude sessions, the signed channel and A2A | `docs/media/stills/a2a-exchange.webp` (242,500 bytes) | The paragraph says that A2A reaches every tool as a skill. The still shows one live A2A exchange with no key: the signed agent card, one `message/send` answered by `emem_ask`, and the receipt in the task checked offline. |
 | 291, after the first paragraph of "Earth is the first corpus, not the limit" | `docs/media/stills/ndvi-two-seasons.webp` (236,182 bytes) | The paragraph says that public archives fill the memory. The still shows one signed `field_series` answer: 17 clear Sentinel-2 scenes over two seasons, and the 8 cloudy scenes it left out. |
 
 The numbers in these stills are from 7 November 2026. Item 6 in README.md gives a log size from 10 October 2026.
@@ -48,6 +49,12 @@ Markup for line 90:
 
 ```html
 <img src="docs/media/stills/recall-one-cell.webp" alt="One recall at a Lake Geneva cell, from live emem.dev calls on 7 November 2026. Eight signed facts from six sources, oldest first: climate class Cfb, elevation 368 m, water occurrence 98 percent, land cover permanent water, NDVI 0.055 on a water pixel, NDWI 0.226, precipitation 0 mm, air temperature 9.9 degrees C. Three are recomputable from the source. One receipt covers all eight; signature valid." width="540">
+```
+
+Markup for line 266:
+
+```html
+<img src="docs/media/stills/a2a-exchange.webp" alt="Three live A2A steps against emem.dev on 7 November 2026. The agent card (emem 2.4.4, A2A 1.0, 18 skills listed of 119) has a valid EdDSA signature. One message/send, 'what is the elevation of Table Mountain?', returns a completed task answered by emem_ask: 1069.01 m from the Copernicus DEM. The receipt in the task checks valid offline; with one character of the fact id changed, it fails." width="540">
 ```
 
 ## Orbit GIFs of the 3D worlds
