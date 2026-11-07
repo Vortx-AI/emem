@@ -61,9 +61,9 @@ STEP 2  RECALL SIGNED FACTS  (POST /v1/recall, 14 bands)
   RECEIPT
     fact_cids            : 26
     merkle_proof         : present (leaf_index=0, path_len=0, root 32 bytes)
-    signature_b32        : pmed2avlvqqq7vy3a2erbsh4ypvi5wqn2rgvtpzris3kaofrgbe7...
+    signature_b32        : pw72uduefqbp65ryboz74f22c4pq52zos5m3abtt7pv3sxtekwvl...
     responder_pubkey_b32 : 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
-    served_at            : 2026-11-07T08:03:20Z
+    served_at            : 2026-11-07T08:33:35Z
 
   The receipt is signed by the responder's key. The signature covers the fact set, so a
   third party can check this recall offline without trusting the bank, the borrower, or
@@ -197,8 +197,8 @@ STEP 6  FINDINGS  (computed from the responses above)
        naive    : 0 == 0 -> True  (vacuously true: nothing was cited)
        grounded : 5 == 5 -> True
 
-  What this run did NOT show is what the guard misses on citations themselves. Run `python3
-  run.py --probe` for the four controlled checks that isolate that.
+  What this run did NOT show is what the guard misses on citations themselves. Run this
+  script again with `--probe` for the four controlled checks that isolate that.
 
 
 ============================================================================================

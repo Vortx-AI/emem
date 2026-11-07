@@ -15,8 +15,9 @@ both memos.
 
 ## What you get
 
-- A `cell64` for the parcel and 14 signed facts, each with an `emem:fact:`
-  token, under one Ed25519 receipt.
+- A `cell64` for the parcel and one Ed25519 receipt over all the signed facts
+  that the recall returned.
+- For each of the 14 bands, the newest signed fact and its `emem:fact:` token.
 - Two published algorithms applied term by term, and checked against the
   value that the responder computed.
 - Two guard verdicts, and findings that the script computes from the
@@ -33,8 +34,8 @@ python3 examples/verifiable-lending/run.py --lat 19.0760 --lng 72.8777    # any 
 ```
 
 On 7 November 2026 the first full walkthrough took about 9 seconds, because the
-responder fetched some bands from their sources. Later runs took 1 to 2
-seconds. The probe took less than 1 second. The default parcel is lat 12.9352,
+responder fetched some bands from their sources. Later runs took less than
+2 seconds. The probe took less than 1 second. The default parcel is lat 12.9352,
 lng 77.6245 (Koramangala, Bengaluru). Its cell is `defi.zb493.hufo.zccc6`.
 
 ## What the walkthrough does
@@ -42,11 +43,16 @@ lng 77.6245 (Koramangala, Bengaluru). Its cell is `defi.zb493.hufo.zccc6`.
 | step | call | result on 7 November 2026 |
 |---|---|---|
 | 1. Find the parcel address | `POST /v1/locate` with `lat`, `lng` | `cell64` `defi.zb493.hufo.zccc6` |
-| 2. Recall signed facts | `POST /v1/recall` with 14 bands | 14 of 14 bands materialized; the receipt lists 26 `fact_cids` at 08:03 UTC (this count grows with new weather readings) |
+| 2. Recall signed facts | `POST /v1/recall` with 14 bands | 14 of 14 bands materialized; 26 facts and 26 receipt `fact_cids` at 08:32 UTC (this count grows with new readings) |
 | 3. Apply published algorithms | `GET /v1/algorithms/<key>` | `vegetation_class_from_ndvi@1` gives `bare`; `flood_risk@2` gives 0.0244 (low); both agree with the responder |
 | 4. Write two memos | none | a naive memo and a grounded memo with the same numbers |
 | 5. Get two verdicts | `POST /v1/guard/verdict?shape=native` | naive: `deny` `CLAIM_UNGROUNDED`; grounded: `allow`, 5 citations, 5 `fact_cids` |
 | 6. Print findings | none | computed from the responses, not written before the run |
+
+In step 2 the recall returns every signed fact for those bands at the cell,
+oldest first. On 7 November 2026 that was 26 facts. Weather bands had 4
+readings each, and NDVI, MODIS NDVI and radar had 2 each. The script prints
+only the newest fact for each band. The receipt covers all 26.
 
 Two agents that locate the same point get the same `cell64`. So two memos about
 the parcel refer to one parcel.
