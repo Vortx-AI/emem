@@ -46,7 +46,7 @@ term for one thing.
 | token | A short text that names a record, for example `emem:fact:<cell64>:<fact_cid>`. Another agent resolves it to the same signed bytes. | [Protocol, "The tokenverse"](protocol.md#the-tokenverse), [Start here diagram](start-here.md#five-ideas) |
 | bundle | One token (`emem:bundle:<cid>`) that names up to 256 facts. | [Memory](memory.md) |
 | entity | A fixed identity for an object, such as a field or a machine. Many facts can point at it. Its id is an anchor, not a hash of the whole record. | [Protocol, "The tokenverse"](protocol.md#the-tokenverse) |
-| tree, `emem:tree:` | One Merkle root over the parts of a file. You can prove that one part belongs to the file without the other parts. | The tokenise-files skill in `plugins/emem/skills/` |
+| tree, `emem:tree:` | One Merkle root over the parts of a file. You can prove that one part belongs to the file without the other parts. | [The tokenise-files skill](../plugins/emem/skills/emem-tokenise-files/SKILL.md) |
 
 ## Notes and agents
 
