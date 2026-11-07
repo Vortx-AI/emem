@@ -631,8 +631,10 @@ emem has two layers. Both use the same signature and receipt.
   verbs follow the Anthropic memory tool: `emem_memory_view`,
   `emem_memory_create`, `emem_memory_str_replace`, `emem_memory_insert`,
   `emem_memory_delete` and `emem_memory_rename`. `emem_memory_supersede` adds
-  a new version and keeps the old one. Each note has a `kind` from the CoALA
-  taxonomy: `episodic`, `semantic`, `procedural` or `resource`. A path under
+  a new version and keeps the old one. Each note has a `kind`: `core`,
+  `episodic`, `semantic`, `procedural` or `resource`. The default is
+  `resource`. A `core` note shows first in a `memory_view` folder list. The
+  other four names come from the CoALA taxonomy. A path under
   `/memories/by_attester/<pubkey8>/` needs an Ed25519 signature from that key.
   `<pubkey8>` is the first eight characters of the base32 public key.
   `emem_memory_search` searches note text with BGE-768 vectors in a LanceDB
@@ -665,8 +667,8 @@ provenance classes by name, for example
 `estimator`, `attested_execution`, `model_output`, `human_curated` and
 `unclassified`.
 
-- Each class has a `caution` string in its `provenance` block. It names how
-  the class can fail.
+- Each fact has its class in `band_metadata.provenance.class`, with a
+  `caution` string beside it. The caution names how the class can fail.
 - `attested_execution` is a device reading. You trust it through the
   device's verified execution trace and platform attestation, not through a
   new computation.
