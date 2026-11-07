@@ -1,38 +1,53 @@
 ---
 name: emem-recall-polygon
-description: Recalls signed Earth-observation facts at sampled cells inside an area (a named region, a bounding box, or a GeoJSON boundary) in one call. Use when the user asks about an extent rather than a point, such as "average NDVI inside this watershed", "precipitation across the Western Ghats", or "elevation across this admin boundary". Returns per-cell facts, each cell with its own Ed25519 receipt, plus the sampling it actually did so the agent can state coverage honestly.
+description: Recalls signed Earth-observation facts at sampled cells inside an area in one call. The area is a named region, a bounding box or a GeoJSON boundary. Use when the user asks about an extent rather than a point. Examples are "average NDVI inside this watershed" and "precipitation across the Western Ghats". Returns facts and an Ed25519 receipt for each cell. Also returns the sampling that the call did, so the agent can state the coverage honestly.
 ---
 
 # emem-recall-polygon
 
-> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. This skill ships no scripts. Its commands read no environment variable, key or credential, and the only local files they read are ones an earlier step saved from `https://emem.dev`.
+| | |
+|---|---|
+| Use it when | The user asks about an area, not one point. |
+| You need | A place name, a bounding box with named corners, or a GeoJSON polygon. One or more band names. No key. |
+| You get | Facts for each sampled cell, one Ed25519 receipt for each cell, and the sample size and coverage. |
+| Calls | `emem_recall_polygon` (MCP, by name through `tools/call`). Or `POST /v1/recall_polygon`. |
 
-`POST /v1/recall_polygon` samples cells inside an area, recalls the
-requested bands at each, and returns them per cell with per-cell
-receipts. It is `locate`, then a sample of the area's cells, then
-`recall_many`, collapsed into one call.
+> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. The commands read no environment variable, key or credential. They read only local files that an earlier step saved from `https://emem.dev`.
 
-## When to invoke
+One call samples cells inside an area and recalls the bands at each
+cell. It does the work of `locate`, a cell sample and `recall_many`
+together. The rollup (mean, minimum, maximum) is your job.
 
-- "What's the average NDVI inside this watershed?"
-- "Show me precipitation across the area bounded by ..."
-- The user pastes a bbox or a GeoJSON polygon.
+## When to use this skill
 
-For one point use [`emem-locate-and-recall`](../emem-locate-and-recall/SKILL.md).
-For the full-resolution pixel grid over an area use
-[`emem-field-tokens`](../emem-field-tokens/SKILL.md).
+- "What is the average NDVI inside this watershed?"
+- "Show me the precipitation across the area bounded by ..."
+- The user pastes a bounding box or a GeoJSON polygon.
 
-## How to invoke
+Use a different path in these cases:
 
-Give the area in one of three ways: `place` (free text, geocoded),
-`polygon_bbox` (an object with named corners; an array is refused,
-because bbox array orders disagree between conventions), or
-`polygon_geojson` (a GeoJSON Polygon, MultiPolygon or Feature). A
-polygon on its own sets the area: its bounds become the box and its
-boundary masks the sample. `geojson` and `geometry_geojson` are aliases
-of `polygon_geojson`. Beside a bbox, the polygon only masks the sample.
+| You have or want | Do this |
+|---|---|
+| One point | Use [`emem-locate-and-recall`](../emem-locate-and-recall/SKILL.md). |
+| The full-resolution pixel grid over an area | Use [`emem-field-tokens`](../emem-field-tokens/SKILL.md). |
 
-Call `emem_recall_polygon` with:
+## Step 1: give the area
+
+Give the area in one of three fields:
+
+| Field | Form | Notes |
+|---|---|---|
+| `place` | Free text | The geocoder resolves it. Check `polygon_bbox.source` in the result (step 3). |
+| `polygon_bbox` | An object with `min_lat`, `max_lat`, `min_lng`, `max_lng` | The server refuses an array with a 400. Array orders differ between conventions. |
+| `polygon_geojson` | A GeoJSON Polygon, MultiPolygon or Feature | `geojson` and `geometry_geojson` are aliases. |
+
+A polygon alone sets the area. Its bounds become the box, and its
+boundary masks the sample. When you also send a bbox, the polygon only
+masks the sample.
+
+## Step 2: recall the area
+
+Call `emem_recall_polygon` with this body:
 
 ```json
 {"polygon_bbox": {"min_lat": 12.95, "max_lat": 13.05, "min_lng": 77.55, "max_lng": 77.65},
@@ -40,51 +55,110 @@ Call `emem_recall_polygon` with:
  "max_cells": 16, "budget_ms": 20000}
 ```
 
-`emem_recall_polygon` is outside the short tool list the plugin's MCP server
-shows. The server runs it by name through `tools/call`. If your host
-calls only listed tools, use the REST route.
+`emem_recall_polygon` is not in the short tool list that the MCP server
+of the plugin shows. The server runs it by name through `tools/call`.
+If your host calls only listed tools, use the REST route.
 
-Save the result's JSON text as `poly.json`. A result over the MCP wire
-budget (about 24 KB) comes back slimmed, and `_emem_truncation` names
-what it left out. For the whole response, send the same body to
-`POST https://emem.dev/v1/recall_polygon`. Then:
+An MCP result larger than about 24 KB comes back slimmed.
+`_emem_truncation` names what the server removed. For the full
+response, send the same body to the REST route:
 
 ```sh
+curl -s -X POST https://emem.dev/v1/recall_polygon -H 'content-type: application/json' \
+  -d '{"polygon_bbox":{"min_lat":12.95,"max_lat":13.05,"min_lng":77.55,"max_lng":77.65},
+       "bands":["copdem30m.elevation_mean"],"max_cells":16,"budget_ms":20000}' \
+  -o poly.json
 jq '{cells_sampled, facts_returned, area_km2, converged, coverage_fraction,
-     pending: (.pending | length)}' poly.json
+     is_exhaustive, pending: (.pending | length), source: .polygon_bbox.source}' poly.json
 ```
 
-- `max_cells` defaults to 64 and caps at 1024; out of range is a 400,
-  not a silent clamp.
-- `budget_ms` is a soft materialisation budget. When it expires the
-  answer is a partial 200 with `converged: false` and a typed
-  `pending[]` (each entry says why and what to do). Pending fetches are
-  detached, not aborted, so the identical request retried returns
-  strictly more. Pending entries are unsigned; they are not signed
-  absences.
-- Recorded on 2026-09-28: this exact call returned 200 with
-  `cells_sampled: 16`, `facts_returned: 0`, `converged: false` and 16
-  `pending` entries (`state: "materializing"`), and nine identical
-  retries over 30 minutes stayed at zero while the responder's fetch
-  path was saturated. Retry a few times with a pause; if `pending` does
-  not shrink, tell the user the upstream fetch is stalled rather than
-  looping, and never report the empty answer as "no data here".
-- A request with many cold cells and several bands can still pass the
-  responder's 40 s transport budget and return `compute_timeout`.
-  Narrow it: fewer bands, fewer cells, or retry once the first pass has
-  warmed the cache.
+On 6 and 7 November 2026 this call returned 200 with 16 cells sampled,
+16 facts, `area_km2` 120.05, `coverage_fraction` 0.0000133,
+`converged: true` and no pending entries.
 
-## Aggregating
+The two limits:
 
-The response is per cell; the rollup is yours. Skip absences (a
-`null` value is a signed statement that the upstream had no data) and
-guard the empty case:
+| Field | Default | Range |
+|---|---|---|
+| `max_cells` | 64 | 1 to 1024. A value out of range gives a 400, not a silent clamp. |
+| `budget_ms` | Set by the server | A soft time budget for fetches. See step 4. |
+
+## Step 3: read the coverage
+
+| Field | Meaning |
+|---|---|
+| `cells_sampled` | The number of cells that the call read. |
+| `native_grid_cells_in_polygon` | The number of 10 m cells in the area. |
+| `coverage_fraction` | `cells_sampled` divided by `native_grid_cells_in_polygon`. |
+| `is_exhaustive` | `true` only when the sample covers every cell in the area. |
+| `converged` | `false` when the time budget ran out before all fetches finished. |
+| `pending` | One typed entry for each fetch that did not finish. |
+| `polygon_bbox.source` | Where the extent came from. See the next table. |
+
+A sample is not the area. Sixteen cells over 120 km² is a sample.
+Report it as a sample.
+
+When you send a `place`, read `polygon_bbox.source`:
+
+| `polygon_bbox.source` | Where the extent came from |
+|---|---|
+| `request_polygon_bbox` | The `polygon_bbox` that you sent. |
+| `request_polygon_geojson` | The bounds of the `polygon_geojson` that you sent. |
+| `nominatim_boundingbox` | The bounding box that the Nominatim geocoder returned for the place. |
+| `wide_bbox_table` | A built-in table of large regions. |
+| `overture_division_area` | An Overture administrative boundary. |
+| `geocoder` | A geocoder that the server does not name. |
+| `centre_cell_bbox` | No extent. The geocoder found only a point, so the call read one cell. |
+
+For `centre_cell_bbox`, tell the user that the answer is for one cell.
+Do not present a one-cell answer as a regional answer.
+
+On 7 November 2026, `"place": "Cubbon Park, Bengaluru"` with
+`max_cells` 4 returned `nominatim_boundingbox`, `area_km2` 1.64 and 4
+facts.
+
+## Step 4: handle a partial answer
+
+When `budget_ms` runs out, the call returns a partial 200 with
+`converged: false` and a `pending[]` list. Each entry says why it is
+pending and what to do. The server does not stop the pending fetches.
+Thus the same request, sent again, can return more facts. The responder
+does not sign the entries in `pending`. They do not state that a cell
+has no data.
+
+On 28 September 2026, the call in step 2 returned 200 with 0 facts,
+`converged: false` and 16 entries in `pending` (`state:
+"materializing"`). Nine retries of the same call over 30 minutes also
+returned 0 facts. The fetch path of the responder had no free capacity.
+
+Retry a few times with a pause. If `pending` does not get shorter, tell
+the user that the upstream fetch has stopped. Do not loop. Never report
+an empty answer as "no data here".
+
+A request with many cold cells and several bands can pass the 40 s
+transport budget of the responder. It then returns `compute_timeout`.
+Use fewer bands or fewer cells. Or retry after the first pass has
+filled the cache.
+
+## Step 5: make the rollup
+
+The response gives facts for each cell. Skip absences: a `null` value
+is a signed statement that the upstream had no data. Guard the empty
+case:
 
 ```sh
 jq '[.by_cell[].facts[] | select(.band == "copdem30m.elevation_mean" and .value != null) | .value]
     | if length == 0 then {count: 0}
       else {count: length, mean: (add / length), min: min, max: max} end' poly.json
 ```
+
+On 6 and 7 November 2026 this filter gave 16 values, a mean of 906.7 m, a
+minimum of 885.1 m and a maximum of 940.7 m.
+
+Each cell `facts[]` can hold several readings of one band, oldest
+first (`fact_order: "tslot_ascending"`). For the current value, take
+the last reading of each band. Or take the reading with the `tslot`
+that you mean.
 
 ## Response shape (abridged)
 
@@ -97,31 +171,41 @@ jq '[.by_cell[].facts[] | select(.band == "copdem30m.elevation_mean" and .value 
   "cells": [ ... ], "cells_sampled": 16, "facts_returned": 16,
   "area_km2": 120.05, "coverage_fraction": 0.0000133, "is_exhaustive": false,
   "converged": true, "pending": [], "polygon_bbox": { ..., "source": "..." },
-  "schema": "emem.recall_polygon.v1"
+  "merged_facts": [ ... ], "schema": "emem.recall_polygon.v1"
 }
 ```
 
-`polygon_bbox.source` says where the extent came from when you passed a
-`place`: `centre_cell_bbox` means the geocoder found no polygon and fell
-back to one cell, so say that rather than presenting a one-cell answer
-as a regional one.
+## Step 6: cite and verify the cells
 
-## Pitfalls
+The rollup has no receipt of its own. Each cell receipt verifies that
+cell only. Say which cells and which statistic you used.
 
-- **A sample is not the area.** `coverage_fraction` and `is_exhaustive`
-  state how much of the area the sample covers. Sixteen cells over
-  120 km² is a sample; report it as one.
-- **No aggregate receipt.** Each cell's receipt verifies that cell only.
-  To audit the call, pass each `by_cell[].receipt` to
-  [`emem-verify-receipt`](../emem-verify-receipt/SKILL.md).
-- **History, not just the latest.** Each cell's `facts[]` can carry
-  several readings of one band, oldest first. For "current" take the
-  last per band, or the one whose `tslot` you mean.
+The facts in this response carry no `memory_token` field. Make the
+`emem:fact:<cell64>:<fact_cid>` tokens from each cell receipt:
 
-## Before you quote the summary
+```sh
+jq -r '.by_cell | to_entries[] | .key as $c | .value.receipt.fact_cids[]
+       | "emem:fact:\($c):\(.)"' poly.json
+```
 
-An aggregate has no receipt of its own. Say which cells and which
-statistic, and carry the cells' `memory_token`s (or bundle them with
-`POST /v1/memory_bundle {"fact_cids":[...]}`) rather than the mean alone.
-See [`emem-referential-drift`](../emem-referential-drift/SKILL.md) and
+To check one cell receipt on the server, send it as `{"receipt": ...}`:
+
+```sh
+jq -c '{receipt: .by_cell | to_entries[0].value.receipt}' poly.json \
+  | curl -s -X POST https://emem.dev/v1/verify_receipt -H 'content-type: application/json' -d @- \
+  | jq -c '{valid, signature_valid, merkle_proof_valid}'
+```
+
+On 6 and 7 November 2026 both commands ran. The check returned `true` for all
+three fields. To check offline, use
+[`emem-verify-receipt`](../emem-verify-receipt/SKILL.md).
+
+To give many cells as one citation, send their `fact_cid` values to
+`POST /v1/memory_bundle {"fact_cids":[...]}`. It returns one
+`emem:bundle:` token. This call stores the bundle on the responder, so
+this skill did not run it. See
+[`emem-multi-agent-handoff`](../emem-multi-agent-handoff/SKILL.md).
+
+Before you publish the rollup, see
+[`emem-referential-drift`](../emem-referential-drift/SKILL.md) and
 [`emem-verify-before-publish`](../emem-verify-before-publish/SKILL.md).

@@ -1,123 +1,146 @@
 ---
 name: emem-urban
-description: Answers urban-analysis questions with signed emem facts and says what each number measures. Covers Overture buildings, places, road length and road bearing, WorldPop population density, the Sentinel-2 built-up index (NDBI), ESA WorldCover built-up class, JRC surface-water recurrence and DMSP night lights, with each band's source, release, resolution and failure modes. Use when the user asks how built-up, dense, connected or lit a neighbourhood is, compares districts, or needs street and building evidence another agent can verify, and when an area total must be estimated from sampled cells honestly.
+description: Answers urban-analysis questions with signed emem facts and says what each number measures. It covers Overture buildings, places, road length and road bearing, and WorldPop population density. It also covers the Sentinel-2 built-up index (NDBI), the ESA WorldCover built-up class, JRC surface-water recurrence and DMSP night lights. For each band it gives the source, release, resolution and failure modes. Use when the user asks how built-up, dense, connected or lit a neighbourhood is, or compares districts. Also use it when the user needs street and building evidence that another agent can verify, or an honest area total from sampled cells.
 ---
 
 # emem-urban
 
-> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. This skill ships no scripts. Its commands read no environment variable, key or credential, and the only local files they read are ones an earlier step saved from `https://emem.dev`.
+| | |
+|---|---|
+| Use it when | The user asks how built-up, dense, connected or lit a place is, compares districts, or needs an area total for roads or buildings. |
+| You need | A cell64 for one place, or a bounding box for an area. Get a cell64 with [`emem-locate-and-recall`](../emem-locate-and-recall/SKILL.md). No key. |
+| You get | One signed fact for each band, each with an `emem:fact:` token and the source release. An area call also gives the sample size and the coverage fraction. |
+| Calls | `POST /v1/recall` (MCP `emem_recall`), `POST /v1/recall_polygon` (MCP `emem_recall_polygon`). |
 
-emem answers per cell. A cell is about 10 m across, much smaller than
-most urban sources, so the first question for every urban number is
-what it was measured over. This skill gives the answer per band and
-shows how to go from cells to an area without overstating coverage.
+> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. Its commands read no environment variable, key or credential. The only local files that they read are files that an earlier step saved from `https://emem.dev`.
+
+emem answers for each cell. A cell is about 10 m across. Most urban
+sources are much coarser than that. Thus, for each urban number, first
+find the area that the source measured. The band table gives that area.
+Step 2 shows how to go from cells to an area and give the true
+coverage.
 
 ## The bands
 
 | Band | Unit | Measured over | Source | Watch for |
 |---|---|---|---|---|
-| `overture.buildings.count` | count | the cell's own bbox: buildings whose **centroid** falls inside | Overture buildings, release named in `derivation.args` | 0 can mean unmapped; coverage is uneven outside NA and EU |
-| `overture.places.count` | count | points inside the cell bbox | Overture places | POIs, not people or floor area |
-| `overture.transportation.road_length_m` | m | carriageway segments (class motorway through service) **clipped** to the cell bbox; footways, paths, rail and water are not counted | Overture transportation | a 10 m cell off the street reads 0 |
-| `overture.transportation.road_bearing_deg` | deg_axial, 0 to 180 from north | the nearest carriageway segment within 50 m; distance, `class` and the row groups read in `derivation.args` | Overture transportation | an Absence when no carriageway is within 50 m; a footway or plaza edge does not count |
-| `population` | people_per_km2 | one 1 km pixel, sampled at the cell | WorldPop UNadj 1 km, 2020 | the pixel's density, not people in the cell |
-| `indices.ndbi` | ratio, -1 to 1 | one 10 m Sentinel-2 pixel, (B11 - B08) / (B11 + B08) | Sentinel-2 L2A, scene id in args | read `surface_class`: a cloud-shadow pixel is not built-up evidence |
-| `esa_worldcover.lc_2021` | class | one 10 m pixel | ESA WorldCover v200, 2021 | 50 is built-up |
-| `surface_water.recurrence` | percent | one 30 m pixel | JRC Global Surface Water 1984 to 2021 | 60 N to 60 S only |
-| `nightlights.dmsp_ols_avg_dn` | DN 0 to 63 | DMSP-OLS stable lights | DMSP-OLS V4, 1992 to 2013 | saturates at 63 in any city core; no VIIRS |
+| `overture.buildings.count` | count | The bbox of the cell. A building counts when its **centroid** is inside. | Overture buildings. The release is in `derivation.args`. | 0 can mean "not mapped". Coverage is not equal everywhere, and is best in North America and Europe. |
+| `overture.places.count` | count | Points inside the bbox of the cell. | Overture places | Points of interest. Not people and not floor area. |
+| `overture.transportation.road_length_m` | m | Carriageway segments (class `motorway` through `service`), **clipped** to the bbox of the cell. Footways, paths, rail and water do not count. | Overture transportation | A 10 m cell next to a street reads 0. |
+| `overture.transportation.road_bearing_deg` | deg_axial, 0 to 180 from north | The nearest carriageway segment within 50 m. The distance, the `class` and the row groups read are in `derivation.args`. | Overture transportation | An Absence when no carriageway is within 50 m. A footway or a plaza edge does not count. |
+| `population` | people_per_km2 | One 1 km pixel, sampled at the cell. | WorldPop UNadj 1 km, 2020 | The density of the pixel, not the people in the cell. |
+| `indices.ndbi` | ratio, -1 to 1 | One 10 m Sentinel-2 pixel, (B11 - B08) / (B11 + B08). | Sentinel-2 L2A. The scene id is in `derivation.args`. | Read `surface_class`. A pixel flagged as cloud shadow or water gives no evidence of built-up land. |
+| `esa_worldcover.lc_2021` | class | One 10 m pixel. | ESA WorldCover v200, 2021 | Class 50 means built-up. |
+| `surface_water.recurrence` | percent | One 30 m pixel. | JRC Global Surface Water, 1984 to 2021 | Covers 60 N to 60 S only. |
+| `nightlights.dmsp_ols_avg_dn` | DN, 0 to 63 | DMSP-OLS stable lights. | DMSP-OLS V4, 1992 to 2013 | Retired in this code, because the upstream moved behind a login. Stored facts still recall and verify. A cell with no stored fact gets a `materialize_notes` entry with `band_retired_at_this_responder`. Saturates at 63 in a city core. There is no VIIRS band. |
 
-GHSL built-surface bands are not served (`unknown_band`, which is not
-"no data here"). `GET /v1/bands` is the full list; check a band there
-before building an analysis on it.
+emem.dev does not serve the GHSL built-surface bands. A request for
+`ghsl.built_surface_m2` returns HTTP 400 with `band_not_in_registry`.
+That error means "this responder has no such band". It does not mean
+"no data here". `GET https://emem.dev/v1/bands` gives the full catalog.
+Find a band there before you build an analysis on it.
 
-## One place
+## Step 1: read one place
 
-Call `emem_recall` with:
-
-```json
-{"cell": "defi.zb595.zbaf8.zd63c",
- "bands": ["overture.buildings.count", "overture.places.count",
-           "overture.transportation.road_length_m", "overture.transportation.road_bearing_deg",
-           "population", "indices.ndbi", "esa_worldcover.lc_2021",
-           "surface_water.recurrence", "nightlights.dmsp_ols_avg_dn"]}
-```
-
-Without MCP, send the same body to `POST https://emem.dev/v1/recall`.
-Save the result's JSON text as `urban.json`, then:
+Send this body to `POST https://emem.dev/v1/recall`, or call
+`emem_recall` with it:
 
 ```sh
-jq -c '.facts[] | {band, value, unit, observed_at, args: .derivation.args, token: .memory_token}' urban.json
+curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb595.zbaf8.zd63c","bands":["overture.buildings.count","overture.places.count","overture.transportation.road_length_m","overture.transportation.road_bearing_deg","population","indices.ndbi","esa_worldcover.lc_2021","surface_water.recurrence","nightlights.dmsp_ols_avg_dn"]}' \
+  -o urban.json
+jq -c '.facts[] | {band, value, unit, observed_at, surface_class, args: .derivation.args, token: .memory_token}' urban.json
 ```
 
-Get the cell with `emem_locate` (`POST /v1/locate`) first
-([`emem-locate-and-recall`](../emem-locate-and-recall/SKILL.md)).
+The cell is in Shibuya, Tokyo (35.65988 N, 139.70737 E). This call
+returned these values on 7 November 2026 at 01:04 UTC:
 
-Recorded on 2026-09-28 at a Shibuya cell (35.65988 N, 139.70737 E):
-WorldCover 50 (built-up), NDBI 0.024 on a pixel flagged cloud shadow,
-DMSP 63 (saturated, 2013), population 16403 people/km2 (the 1 km pixel),
-2 places, 0 buildings and 0 m of road inside the cell, and a road
-bearing of 55.63 deg_axial from a segment 11.1 m away (read before road
-bands counted carriageways only, so it may have been a footway). Overture facts
-named release `2026-09-23.1`. Each value came back with an
-`emem:fact:` token.
+| Band | Value | Note |
+|---|---|---|
+| `esa_worldcover.lc_2021` | 50 | The class for built-up. |
+| `indices.ndbi` | 0.024 (24 August 2026), -0.109 (28 October 2026) | Two scenes. `surface_class` flags the first as cloud shadow and the second as water. Neither gives evidence of built-up land. |
+| `nightlights.dmsp_ols_avg_dn` | 63 | A stored fact. The code retires the band, so it makes no new fact. Saturated. Data year 2013, satellite F18. |
+| `population` | 16403 people_per_km2 | The 1 km pixel, data year 2020. |
+| `overture.places.count` | 2 | Release `2026-09-23.1`. |
+| `overture.buildings.count` | 0 | Release `2026-09-23.1`. |
+| `overture.transportation.road_length_m` | 0 | Release `2026-10-21.0`. |
+| `overture.transportation.road_bearing_deg` | 55.63 | Class `unclassified`, 11.1 m from the cell. Release `2026-10-21.0`. |
+| `surface_water.recurrence` | 0 | |
 
-That one cell reads as "no buildings, no road" in the middle of Shibuya.
-Nothing is wrong: the cell is 10 m, it sits between features, and the
-counts are exactly what fell inside it. Area questions need area calls.
+Each fact came back with an `emem:fact:` token in `memory_token`. The
+call fetched three bands on a miss, so the result also had a
+`materialize_notes` list. A repeat call reads the stored facts and
+can show no `materialize_notes`.
 
-## An area
+The cell reads "no buildings, no road" in the middle of Shibuya. This
+is correct. The cell is 10 m across and sits between features. The
+counts give exactly what is inside the cell. For an area question,
+use an area call.
 
-Call `emem_recall_polygon` with:
+## Step 2: read an area
 
-```json
-{"polygon_bbox": {"min_lat": 35.6585, "max_lat": 35.6605, "min_lng": 139.6995, "max_lng": 139.7015},
- "bands": ["overture.transportation.road_length_m", "overture.buildings.count"],
- "budget_ms": 60000}
-```
-
-`emem_recall_polygon` is outside the short tool list the plugin's MCP server
-shows. The server runs it by name through `tools/call`. If your host
-calls only listed tools, use the REST route.
-
-Save the result's JSON text as `area.json`. A result over the MCP wire
-budget (about 24 KB) comes back slimmed, and `_emem_truncation` names
-what it left out. For the whole response, send the same body to
-`POST https://emem.dev/v1/recall_polygon`. Then:
+Send this body to `POST https://emem.dev/v1/recall_polygon`, or call
+`emem_recall_polygon` with it:
 
 ```sh
+curl -s -X POST https://emem.dev/v1/recall_polygon -H 'content-type: application/json' \
+  -d '{"polygon_bbox":{"min_lat":35.6585,"max_lat":35.6605,"min_lng":139.6995,"max_lng":139.7015},"bands":["overture.transportation.road_length_m","overture.buildings.count"],"budget_ms":60000}' \
+  -o area.json
 jq '{area_km2, cells_sampled, native_grid_cells_in_polygon, coverage_fraction, is_exhaustive}' area.json
-jq '[.by_cell | .. | objects | select(.band? == "overture.transportation.road_length_m") | .value]
-    | {n: length, nonzero: (map(select(. > 0)) | length), sum: add}' area.json
+jq -c '[.by_cell | .. | objects | select(.band? == "overture.transportation.road_length_m") | .value]
+  | {n: length, nonzero: (map(select(. > 0)) | length), sum: add}' area.json
+jq -c '[.by_cell | .. | objects | select(.band? == "overture.buildings.count") | .value]
+  | {n: length, sum: add}' area.json
 ```
 
-Recorded on 2026-09-28: 0.040 km2, 64 of about 400 cells sampled
-(`coverage_fraction` 0.16, `is_exhaustive: false`), road length nonzero
-in 45 cells, summing to 598.6 m (counted before the carriageway filter, so
-footways and paths were included); 3 building centroids in the sample.
+`emem_recall_polygon` is not in the short tool list that the MCP server
+of the plugin shows. The server runs it by name through `tools/call`.
+If your host calls only listed tools, use the REST route. An MCP result
+has a wire budget of about 24 KB. A larger result comes back slimmed,
+and `_emem_truncation` names what it left out. The REST route returns
+the full response. On 7 November 2026 it was about 400 KB for this box.
 
-The 598.6 m is a sample, not the road length of the box. A mean-per-cell
-estimate is 598.6 / 64 x 400, about 3.7 km, or roughly 93 km of road per
-km2; say it is an estimate from a 16 percent sample and cite the facts
-it came from. Do not scale building counts the same way without saying
-so: a centroid count in 10 m cells is sparse, and 3 in 64 cells has a
-wide interval. For street grids and building totals over a whole
-district, sample more cells (`cells_per_sqkm`) or page the full grid
-with `POST /v1/cells_in_bbox` and `POST /v1/recall_many`.
+This call returned these values on 7 November 2026 at 01:06 UTC:
 
-## Reading the evidence
+| Field | Value |
+|---|---|
+| `area_km2` | 0.040 |
+| `cells_sampled` | 64 |
+| `native_grid_cells_in_polygon` | about 400 |
+| `coverage_fraction` | 0.16 |
+| `is_exhaustive` | `false` |
+| Road length | Nonzero in 14 of 64 cells, sum 126.5 m |
+| Building centroids | 3 in the 64 cells |
 
-- **Release pinning.** Overture facts name their release and a hash of
-  its file listing in `sources`, so a figure stays checkable after
-  Overture drops that release.
-- **Point samples of coarse pixels.** `population`, `nightlights` and
-  WorldCover are the value of the source pixel at the cell. Two
-  neighbouring cells can be the same pixel; never difference them as a
-  gradient. The response's `spatial_basis` says so too.
-- **Years differ.** Population is 2020, WorldCover 2021, DMSP 2013,
-  Overture this month. State each date rather than one "as of".
-- **Built-up signals disagree for real reasons.** NDBI confuses bare
-  soil with roofs; WorldCover is a 2021 classifier output; Overture is
-  mapped footprints. Report which one you used.
+The 126.5 m is a sample. It is not the road length of the box. An
+estimate from the mean for each cell is 126.5 / 64 x 400, about 790 m.
+That is about 20 km of carriageway for each km2. When you give this
+number, say that it is an estimate from a 16 percent sample. Cite the
+facts that it came from.
+
+Do not scale the building count in the same way without a warning. A
+centroid count in 10 m cells is sparse. A count of 3 in 64 cells has a
+wide interval. To get street grids and building totals over a full
+district, sample more cells with `cells_per_sqkm`. Or list the full
+grid with `POST /v1/cells_in_bbox` and read it with
+`POST /v1/recall_many` (at most 256 cells for each call).
+
+## Read the evidence correctly
+
+- Overture facts name their release in `sources`, with a hash of the
+  file listing of that release. Thus a figure stays checkable after
+  Overture removes the release.
+- `population`, `nightlights.dmsp_ols_avg_dn` and
+  `esa_worldcover.lc_2021` give the value of the source pixel at the
+  cell. Two adjacent cells can be the same pixel. Do not subtract
+  them and call the result a gradient. The `spatial_basis` object in
+  the response gives the same warning.
+- The data years are different. Population is 2020, WorldCover is
+  2021, DMSP is 2013, and Overture is a 2026 release. Give each date.
+  Do not give one "as of" date for all of them.
+- The built-up signals can disagree for real reasons. NDBI can read
+  bare soil as roofs. WorldCover is the output of a 2021 classifier.
+  Overture gives mapped footprints. Say which signal you used.
 
 To cite a figure in a report, see
 [`emem-research-grade-citation`](../emem-research-grade-citation/SKILL.md).
