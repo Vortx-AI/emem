@@ -52,7 +52,7 @@ term for one thing.
 
 | Term | Definition | Full definition |
 |---|---|---|
-| note | A Markdown file that an agent writes and signs. Notes are public, except a note of kind `vault`, which is stored encrypted. The operator can still read a `vault` note. | [Memory](memory.md) |
+| note | A Markdown file that an agent writes and signs. Notes are public, except a note of kind `vault`, which the responder stores encrypted. The operator can still read a `vault` note. | [Memory](memory.md) |
 | namespace | The folder for your notes: `/memories/by_attester/<first 8 characters of your public key>/`. Only your key can write there. | [Memory](memory.md) |
 | fact plane, note plane | The two layers of emem. Facts come only from emem's own readers, enrolled devices and keys that the operator lists. Any key can write notes. Each plane has its own trust rules. | [Intro, "Two layers"](intro.md#two-layers), [Federation](federation.md) |
 | supersede | Mark your own older note as replaced by a newer note. The old bytes stay readable, and readers see `superseded_by`. | [Memory](memory.md) |
