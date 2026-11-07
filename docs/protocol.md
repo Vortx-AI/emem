@@ -3039,7 +3039,7 @@ value by the equal-area weight of its cell.
 
 The spec says a claim MUST carry one of `tslot` or `window`, and
 `emem-claim` defines `ClaimError::NoTime`, `TypeMismatch` and
-`UnsupportedOp` for that purpose. On 6 November 2026 no evaluator
+`UnsupportedOp` for that purpose. On 7 November 2026 no evaluator
 returns these errors. The table below shows what the code in
 `crates/emem-primitives/src/verify.rs` and `find_similar.rs` does, and
 what emem.dev returned that day.
@@ -3053,8 +3053,10 @@ what emem.dev returned that day.
 
 So in `verify`, a verdict can mean "the value passes or fails the test"
 or "the types do not compare". A `true` from `ne` or `ni` is the risky
-case. Check the fact values in `evidence` to tell the two apart. New ops ship under semver. An unknown op MUST give
-a structured error, not `false`, and the responder does that.
+case. Check the fact values in `evidence` to tell the two apart.
+
+New ops ship under semver. An unknown op MUST give a structured error,
+not `false`. The responder does that: the last row of the table.
 
 ---
 
@@ -3081,7 +3083,7 @@ conformance gate:
 | CID | Source manifest | What the manifest pins |
 |-----|-----------------|--------------|
 | `bands_cid` | `bands-v0.json` | 43 cube slots summing to exactly 1792 dims, each with its tempo and privacy class. Materializer-wired band names route into those slots (`GET /v1/materializers` gave `pagination.total` 113 on 7 November 2026). That routing is not in this manifest |
-| `algorithms_cid` | `algorithms-v0.json` | 172 algorithms in three kinds: 29 `solo`, 114 `combined`, 29 `embedding`. Each entry carries typed `parameters`, `learned_from` with citations, and `prerequisites`, so a third party can run it again against the receipt that cites it. [agents.md](agents.md) lists the catalog. Seven entries are triple-encoder consensus recipes: `clay_prithvi_tessera_triple_consensus@1`, `deforestation_triple@1`, `coastal_erosion_triple@1`, `urban_expansion_triple@1`, `wetland_change_triple@1`, `disaster_anomaly_triple@1` and `climate_archetype_triple@1`. The manifest declares them, but they do not run on emem.dev, because the operator retired the encoders. `/v1/locate` shows them with `available_now: false` |
+| `algorithms_cid` | `algorithms-v0.json` | 172 algorithms in three kinds: 29 `solo`, 114 `combined`, 29 `embedding`. Each entry carries typed `parameters`, `learned_from` with citations, and `prerequisites`, so a third party can run it again against the receipt that cites it. [agents.md](agents.md) lists the catalog. Seven entries are triple-encoder consensus recipes: `clay_prithvi_tessera_triple_consensus@1`, `deforestation_triple@1`, `coastal_erosion_triple@1`, `urban_expansion_triple@1`, `wetland_change_triple@1`, `disaster_anomaly_triple@1` and `climate_archetype_triple@1`. The manifest declares them, but they do not run on emem.dev, because the operator retired the encoders. On 7 November 2026, the `here` block in `GET /v1/algorithms` gave `status: cannot_run` for the first and `status: stored_only` for the other six. A `stored_only` recipe answers only at a cell that holds a fact signed before its input bands were retired |
 | `sources_cid` | `sources-v0.json` | 46 source schemes, each with its providers, tempo and native resolution. The manifest does not record transport. In the code, many connectors use the shared STAC + COG sampler (`crates/emem-fetch/src/cog.rs`). Others use HTTPS JSON, Parquet on S3, NCSS CSV, TAR or ZIP, Overpass QL and PMTiles |
 | `schema_cid` | `schema-v0.json` | CDDL bundle pinned to `hash="blake3"`, `signature="ed25519"`, `cid_encoding="base32-nopad-lowercase"` |
 
@@ -3111,8 +3113,8 @@ value. Three rules follow, and an external encoder must copy them:
 A check on 6 November 2026 confirmed this on `bands-v0.json`. CBOR of the
 JSON in file order, and CBOR with sorted keys, both gave a different
 digest. CBOR in struct field order with rules 2 and 3 gave
-`mesoyti3qcs22pftcq27ljwcf3ifktnkqid4euqxyskhea5rpgra`. That is the
-live `bands_cid` and the value the test
+`mesoyti3qcs22pftcq27ljwcf3ifktnkqid4euqxyskhea5rpgra`. That was the
+live `bands_cid` on 7 November 2026, and it is the value the test
 `the_bands_manifest_cid_is_unchanged_by_the_class_vocabulary` in
 `crates/emem-core/src/bands.rs` pins.
 
