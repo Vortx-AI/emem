@@ -118,12 +118,16 @@ serves such geometry, it withholds it (`bbox_withheld`,
 ### Time
 
 The key is `(a, b, t)`, not `a`. Time is part of the object, not
-metadata on it. Every read primitive accepts the bi-temporal pair:
+metadata on it. These read primitives accept the bi-temporal pair:
+recall, query_region, trajectory, find_similar and memory_bundle.
 
 - `as_of_tslot` gives what was true on the ground at that time.
 - `as_of_signed_at` gives what the memory knew at that time.
 
-Thus `Recall(M, a, t)` is the read that ships today.
+Thus the read that ships today is `Recall(M, a, t)`: one place, and a
+bound on one or both time axes. `diff` and `compare` take their own two
+times and do not accept the pair. `memory_contradictions` does not
+accept it either.
 
 ### Properties
 
@@ -136,7 +140,7 @@ machine checks is open work for all of them.
 | Immutability | no operation rewrites an observation; a change is a new observation that `supersedes` the old one on the transaction-time axis | content addressing (a changed byte gives a different `cid`); supersede edges; bi-temporal reads replay the old state |
 | Determinism | the encoding is canonical: equal values give equal bytes, and equal bytes give equal names | canonical CBOR and BLAKE3; golden-vector tests pin the Rust and JS encoders to each other |
 | Reproducibility | a name resolves to byte-identical bytes on any responder that holds it. You can also compute `direct_sensor` and `deterministic_index` observations again from their cited raw source | content addressing; provenance classes; the `deterministic: true` recall filter |
-| Verifiability | any answer verifies offline with only the public key of the responder | the receipt preimage (see below). An RFC 6962 transparency log (`/v1/log/*`) that outside witnesses co-sign. `/verify` in the browser. The Python samples in [agents](./agents.md) run against production and print VALID |
+| Verifiability | any signed answer verifies offline with only the public key of the responder | the receipt preimage (see below). An RFC 6962 transparency log (`/v1/log/*`) that outside witnesses co-sign. `/verify` in the browser. The Python samples in [agents](./agents.md) run against production and print VALID |
 | Composability | signed sets and named objects are first-class | `emem:bundle:` (N observations, one signed envelope); `emem:entity:` (one object identity over many observations) |
 | Honest absence | an absence of data is itself a signed answer with a typed reason, and you can cite it | absence facts; never an empty 200 that looks like knowledge |
 | Attested trust class | an attestation says how emem made a value. The class comes from the signed bands manifest, not from a claim in one response | the provenance class is in the content-addressed bands manifest, and every receipt preimage includes its `bands_cid` |
@@ -352,8 +356,8 @@ band cube over time). But a gaussian patch, a mesh or a road graph is
 not an observation yet. The worlds bake keeps its derived splats in a
 provenance sidecar. The real content of the gap "derivation over more
 than one step as signed objects" is this: let `v` hold typed artifacts
-with canonical encodings. Then a mesh is signed, cited and evicted in
-the same way as an NDVI reading. This makes the fact model stronger. It
+with canonical encodings. Then emem signs a mesh, and agents cite and
+evict it, in the same way as an NDVI reading. This makes the fact model stronger. It
 does not add a second object system next to it.
 
 ### Learned graphs and declared rules
@@ -363,8 +367,9 @@ knows the graph. The position here is deliberate:
 
 - The RULES stay declared, versioned and signed, because nobody can
   verify a discovered rule again.
-- WHICH declared derivations exist, apply and are worth running at a
-  cell for a goal is discovered, not hardcoded.
+- Discovery, not hardcoded code, picks WHICH declared derivations
+  exist, apply and are worth running at a cell for a goal. Only the
+  seed of this planner ships (see below).
 
 The seed of that planner ships. `/v1/ask` sends a question to the
 recipes that apply, in `algorithms_for_question`. One goal already has
