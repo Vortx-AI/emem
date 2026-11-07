@@ -137,8 +137,8 @@ error for an input out of range or not finite, and does not clamp.
 
 ### 1.3 Text form: 4 bigrams + dots
 
-Defined in `crates/emem-codec/src/cell64.rs:14-24`. The 64-bit integer
-is split into four 16-bit lanes (`d0=raw>>48`, `d1=raw>>32`,
+Defined in `crates/emem-codec/src/cell64.rs:14-24`. The code splits the 64-bit integer
+into four 16-bit lanes (`d0=raw>>48`, `d1=raw>>32`,
 `d2=raw>>16`, `d3=raw`, each masked to 16 bits) and each lane indexes
 a 65,536-entry alphabet built deterministically in
 `crates/emem-codec/src/alphabet.rs:22-46`:
@@ -147,7 +147,7 @@ a 65,536-entry alphabet built deterministically in
 - Vowels: `a e i o u A E I O U` (10).
 - Bigrams: outer product `c1·v1·c2·v2`, in that exact loop order →
   21 × 10 × 21 × 10 = 44,100 bigrams covering indices 0..44,099.
-- Indices 44,100..65,535 are filled with synthetic codepoints
+- Synthetic codepoints fill indices 44,100..65,535:
   `z<hex4>`, where `<hex4>` is the four-digit lowercase hex of the
   index itself.
 
@@ -299,9 +299,9 @@ Sample-band cadences:
 
 ### 2.4 Text form: `t.<base32-nopad-leb128>`
 
-Defined in `crates/emem-codec/src/tslot_text.rs:9-13`. The integer is
-encoded as little-endian LEB128 (varint), then the byte string is
-base32-encoded with `data_encoding::BASE32_NOPAD` and lowercased.
+Defined in `crates/emem-codec/src/tslot_text.rs:9-13`. The code encodes
+the integer as little-endian LEB128 (varint). Then it encodes the byte string
+with `data_encoding::BASE32_NOPAD` and makes it lowercase.
 
 ```rust
 fn to_tslot_text(t: Tslot) -> String {
@@ -332,8 +332,8 @@ A CID is the name of a block of bytes. A hash of the bytes makes the
 name, so the same bytes always get the same CID. If one byte
 changes, the CID changes. A `fact_cid` is the CID of one fact.
 
-Facts and manifests use BLAKE3 over canonical CBOR. The hash bytes are encoded with
-`data_encoding::BASE32_NOPAD` and lowercased. Three lengths are in use:
+Facts and manifests use BLAKE3 over canonical CBOR. The text form of the hash bytes is
+`data_encoding::BASE32_NOPAD`, in lowercase. Three lengths are in use:
 
 | Form | Bytes | Chars | Source | Use |
 |------|-------|-------|--------|-----|
@@ -341,7 +341,7 @@ Facts and manifests use BLAKE3 over canonical CBOR. The hash bytes are encoded w
 | `entity_cid`, `bundle_cid` | 16 | 26 | `crates/emem-primitives/src/entity.rs:251` (`compute_entity_cid`), `crates/emem-primitives/src/memory_bundle.rs:159` (`compute_bundle_cid`) | a reference to an object, not a binding of its whole body ([§3.2](#32-factcid)) |
 | `FactCid`, manifest CID | 32 | 52 | `crates/emem-cache/src/sled_hot.rs:813-820` (`fact_cid_of`), `crates/emem-core/src/manifest.rs:111-119` | durable storage and signing |
 
-The full 32-byte hash of a fact is computed once (`blake3_32`, cbor.rs:77-83).
+The code computes the full 32-byte hash of a fact once (`blake3_32`, cbor.rs:77-83).
 A `cid64` is the first 8 bytes of that hash. An `entity_cid` and a
 `bundle_cid` are not prefixes of any fact CID. Each hashes its own text
 preimage (`emem.entity.v1|...` or `emem.memory_bundle.v1|...`) and keeps the
@@ -386,8 +386,8 @@ The truncated rule is real, but it belongs to two other identifiers.
 `entity_cid` and `bundle_cid` are `blake3(...)[..16]`, 26 characters.
 They anchor a reference; they do not bind a whole body.
 
-Mutating any field of the fact changes its CBOR bytes and therefore its
-FactCid; the round-trip test at `crates/emem-fact/tests/round_trip.rs`
+A change to any field of the fact changes its CBOR bytes and therefore its
+FactCid. The round-trip test at `crates/emem-fact/tests/round_trip.rs`
 (CBOR → decode → re-encode → byte-equal) pins this.
 
 The same recipe constructs the other newtypes from `cid.rs:25-34`:
@@ -697,8 +697,8 @@ body_hash = blake3(cbor(DeriveBody))
 ```
 
 One scheme needs one verifier. The verb separates the domains. No
-memory-file verb is `derive`, so a signature for a file write cannot be
-replayed as a derivation, and the reverse. `emem.memory_write|` is the
+memory-file verb is `derive`, so nobody can replay a signature for a file write
+as a derivation, and the reverse. `emem.memory_write|` is the
 v1 domain, and derive still uses it. Memory file writes now sign under
 `emem.memory_write.v2|` (§7.5). A new name for the v1 domain would make
 every derive signature already issued invalid, so the name stays.
@@ -709,7 +709,7 @@ in declaration order**:
 | # | key | encoding |
 |---|---|---|
 | 1 | `fn_key` | text |
-| 2 | `inputs` | array of text, in caller order (order is signed) |
+| 2 | `inputs` | array of text, in caller order (the signature covers the order) |
 | 3 | `cell` | text |
 | 4 | `band` | text |
 | 5 | `tslot_window` | array of two unsigned ints |
@@ -1121,9 +1121,8 @@ The exact preimage construction is one function per version in
 the receipt and rebuild under THAT rule; do not assume the current one.
 A verifier that hardcodes v1 rejects every receipt signed after the
 cutover, and one that hardcodes v2 rejects every receipt signed before
-it. Both remain valid and both must verify. `GET /v1/verifier_spec` is
-generated from the same constants the signer uses and is the source of
-truth if this prose ever disagrees with it.
+it. Both remain valid and both must verify. The responder builds `GET /v1/verifier_spec`
+from the same constants the signer uses. If this prose disagrees with it, trust the endpoint.
 
 The signed digest is `blake3` over a domain-separated, tagged,
 length-prefixed segment stream:
@@ -1133,9 +1132,9 @@ length-prefixed segment stream:
    domain is `receipt`.
 2. A scalar segment is `tag:u8 || u32-LE len || bytes`.
 3. A list segment is `tag:u8 || u32-LE count || (u32-LE len || bytes)*`.
-4. Optional scalar segments are omitted entirely when absent; their tag
-   simply does not appear, so presence and absence are unambiguous. An
-   empty list is still written as its tag with count 0.
+4. An absent optional scalar segment does not appear at all, not even its
+   tag, so presence and absence are unambiguous. An empty list still
+   appears as its tag with count 0.
 
 The receipt segments, in tag order (constants live in
 `emem_attest::receipt_tag`, `crates/emem-attest/src/lib.rs`):
@@ -1203,8 +1202,7 @@ the canonical segment table. The responder makes it from the same
 compiled `emem_attest` constants that the signer uses. So it cannot
 drift from the wire. If it and this page disagree, trust the endpoint.
 
-**Legacy v0.** Receipts with `preimage_version` absent or `0` were
-signed under the pre-cutover untagged pipe rule
+**Legacy v0.** Receipts with `preimage_version` absent or `0` use the pre-cutover untagged pipe rule
 `blake3(request_id|served_at|[scope|][as_of|][edges|][manifest|]primitive|cell,*|cid,*)`;
 `POST /v1/verify_receipt` still verifies those, but no responder emits
 v0 anymore.
@@ -1546,7 +1544,7 @@ Legacy receipts (`preimage_version` absent or `0`) instead use the v0
 pipe rule from §7.1; `POST /v1/verify_receipt` handles both versions and
 is the reference verifier. A verifier that can reproduce this preimage
 and run ed25519 verify is the entire trust-rebinding path; no other call
-to the responder is required.
+to the responder is necessary.
 
 <a id="75-capability-binding-for-memory-writes"></a>
 
@@ -1558,9 +1556,9 @@ it later, offline, without trust in the responder. §7.5.1 shows the
 check step by step.
 
 Memory file writes can carry an `attester: {pubkey_b32, sig_b32}`
-block where the signature is computed by the *caller* (not the
-responder) over a separate preimage. The responder checks this
-signature before persisting the write, and rejects it if the path
+block. The *caller* (not the responder) computes this signature over
+a separate preimage. The responder checks this
+signature before it stores the write, and rejects it if the path
 namespace belongs to a different attester.
 
 ```
@@ -1573,10 +1571,10 @@ attester_sig = ed25519_sign(caller_signing_key, attester_preimage)
 
 `base` is the `file_cid` now at `path`, or the literal `absent` when
 the path holds nothing, so a create of a new path signs `absent`. It makes
-each signature name the version it replaces, so a signature read off the
-public ledger cannot be replayed later. The v1 preimage is the same without
-`.v2` and without `|| "|" || base`. Since 2026-11-05 a write signed with it
-is refused for every verb (`reason: v1_retired`); notes signed with v1
+each signature name the version it replaces, so nobody can replay a signature
+from the public ledger later. The v1 preimage is the same without
+`.v2` and without `|| "|" || base`. Since 2026-11-05 the responder refuses
+a write signed with it for every verb (`reason: v1_retired`); notes signed with v1
 before then still verify when read.
 
 `memory_view` returns an `authorship` block that says which version the
@@ -1596,8 +1594,8 @@ where:
 - `verb ∈ {create, str_replace, insert, delete, rename, supersede}`
 - `path` is the canonical memory path beginning with `/memories/`, the
   path the verb writes *to*: for `rename` that is the `new_path`
-- `body_hash = blake3(canonical body bytes)`, where the canonical body
-  is defined per verb:
+- `body_hash = blake3(canonical body bytes)`, where each verb has its
+  own canonical body:
 
 | verb | canonical body |
 |---|---|
@@ -1650,8 +1648,8 @@ but the wrong namespace returns 403 `memory_namespace_violation`. A
 write with an invalid signature returns 401
 `memory_attestation_invalid`.
 
-Bare `/memories/...` paths (no `by_attester` segment) are governed by
-the responder's memory-write policy, not by the namespace rule. A
+The responder's memory-write policy, not the namespace rule, controls
+bare `/memories/...` paths (no `by_attester` segment). A
 release build refuses every unattested write by default, with 401
 `memory_attestation_required`. An operator sets the policy with an
 environment variable, read once at start:
@@ -1688,7 +1686,7 @@ does not prove that the note is true. Reads need no key.
    `path` is the current path in the view. Use the bytes as served. Do
    not decode and re-encode them.
 3. If `authorship.caller_signed` is `false`, stop. No caller signature
-   exists, so authorship cannot be checked.
+   exists, so you cannot check authorship.
 4. For `create`, `str_replace` and `insert`, compute `blake3(bytes)`.
    It must equal `body_hash_hex`.
 5. Build the digest under `preimage_version`. Do not try the other
@@ -2426,12 +2424,12 @@ value. Three rules follow, and an external encoder must copy them:
    not in file order. For a band, the order is `key`, `family`,
    `provenance_class`, `offset`, `dims`, `tempo`, `privacy`, then the
    optional text fields.
-2. A JSON key that the struct does not declare is dropped. In
-   `bands-v0.json`, `_source_note` is dropped and `_note` is kept.
+2. The parser drops a JSON key that the struct does not declare. In
+   `bands-v0.json`, it drops `_source_note` and keeps `_note`.
 3. An optional field that is absent or empty is left out. A missing
    `provenance_class` is written as `unclassified`.
 
-On 6 November 2026 this was checked on `bands-v0.json`. CBOR of the
+A check on 6 November 2026 confirmed this on `bands-v0.json`. CBOR of the
 JSON in file order, and CBOR with sorted keys, both gave a different
 digest. CBOR in struct field order with rules 2 and 3 gave
 `mesoyti3qcs22pftcq27ljwcf3ifktnkqid4euqxyskhea5rpgra`. That is the
@@ -2486,13 +2484,13 @@ are already deployed.
 
 1. Manifests are content-addressed. An operator who publishes a new
    `bands-v0.json` gets a new `bands_cid` (§12). Facts signed under
-   the old `bands_cid` stay valid and are not signed again. The
+   the old `bands_cid` stay valid, and nobody signs them again. The
    receipt's signed `source_versions` tells a verifier which manifest
    set applied (§12).
 2. Schema changes happen at the manifest level. A CDDL change gives a
    new `schema_cid`. A fact has no version field, and the CBOR encoder
-   has no version on the wire. Two facts with different `schema_cid`
-   values are described by their own manifests.
+   has no version on the wire. Each of two facts with different `schema_cid`
+   values has its own manifest.
 3. Operators add ops and connectors under semver. New `Claim` ops,
    new `Source` connector kinds and new `Tempo` variants ship with a
    new manifest CID. A responder that does not know an op or a

@@ -21,7 +21,7 @@ anything. Writes have tiers by what they can reach, never by who is asking
 - What a write changes for others: what every reader recalls at
   `(cell, band, tslot)`.
 - Before: storage accepted any Ed25519 key. The trace gate answered "does not
-  apply" to keys that were not enrolled. The attester registry only counted
+  apply" to keys that nobody had enrolled. The attester registry only counted
   keys. `/v1/enlist` said that no caller could write a fact by any route,
   which was false.
 - Now: **closed by default.** Storage admits three kinds of key: the responder
@@ -49,11 +49,11 @@ anything. Writes have tiers by what they can reach, never by who is asking
 ### Shared entity space: `emem_entity`, `emem_entity_link`
 
 - What a write changes for others: what every agent resolves a phrase to.
-- Before: the T3 gate was enforced (403 live). But the gate discarded
+- Before: the T3 gate worked (403 live). But the gate discarded
   attribution. The alias tree was a bare list of CIDs in arrival order.
   `resolve` told readers to cite the first one. There was no dispute path and
   no rate limit.
-- Now: **every claim is attributed** in `emem.entity_alias_claims`, with
+- Now: **`emem.entity_alias_claims` records who made every claim**, with
   entity, stance, key, `signed_at` and receipt ids. `resolve` ranks by the
   number of distinct keys that assert a binding, never by arrival order.
 - Each candidate carries `asserted_by`, `disputed_by`,
@@ -119,7 +119,7 @@ anything. Writes have tiers by what they can reach, never by who is asking
   asserts minus disputes, once per key. It needs a written Sybil analysis
   first.
 - **T3 means "callable at a declared endpoint."** One such key is still one
-  vote in the shared space. Counting independent keys raises the cost of an
+  vote in the shared space. A count of independent keys raises the cost of an
   attack from one key to N endpoints. It does not make the cost infinite.
   T4 and T5 are the real limit. On 7 November 2026 the server computed T4 on
   demand and did not compute T5 (`/v1/enlist` says so).
