@@ -102,7 +102,8 @@ To report a new attack, follow [SECURITY.md](../../SECURITY.md).
 - `emem_entity_resolve("Trafalgar Square")` returned 3 distinct objects,
   `contested: true`, none attributed. That was the state before the fix.
   A reader now sees it, and the server does not silently pick the first
-  append. On 7 November 2026 the same call still returned 3 candidates,
+  append. On 7 November 2026 (03:05 UTC) `POST /v1/entity/resolve` with
+  `{"text":"Trafalgar Square"}` still returned 3 candidates,
   `contested: true`, each with `independent_attesters: 0`.
 - `CanonicalKey = (cell, band, tslot)`. The redb `put_batch` wrote the index
   with no check. On 14 September 2026, 20 million `fact_proofs` rows and 2.4
@@ -134,6 +135,6 @@ To report a new attack, follow [SECURITY.md](../../SECURITY.md).
   T4 and T5 are the real limit. On 7 November 2026 the server computed T4 on
   demand and did not compute T5 (`/v1/enlist` says so).
 - The boot panic (`PathAndQuery::from_static`, right after the ACME
-  cached-cert event) did not have a backtrace. The production unit now sets
-  `RUST_BACKTRACE=1` (`deploy/systemd/emem-server.service`), so the next
-  panic logs one.
+  cached-cert event) did not have a backtrace. The production unit
+  (`deploy/systemd/emem-server.service`) runs the server in a container. It
+  now passes `RUST_BACKTRACE=1` to that container, so the next panic logs one.
