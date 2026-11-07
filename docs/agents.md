@@ -104,10 +104,12 @@ Four more jobs have their call in [Recipes](#recipes):
 | [Get a Sentinel-2 picture of a cell](#5-get-a-sentinel-2-picture-of-a-cell) | `emem_cell_scene_rgb` | `GET /v1/cells/<cell64>/scene.png` | extended | no |
 | [Pre-screen a plot for EUDR](#6-pre-screen-a-plot-for-eudr) | `emem_eudr_dds` | `POST /v1/eudr_dds` | extended | no |
 
-Most examples use the cell of Mount Fuji, `defi.zb592.nUkO.zEzE`. Every call
+Most examples use the cell of Mount Fuji, `defi.zb592.nUkO.zEzE`. Every read
 in this section ran again on 7 November 2026 and returned HTTP 200. The
-three writes are the exceptions: the note, the identity and the value need
-your key. A count or value in an answer can change on a later day.
+three writes need your key. We sent the note write and the identity write
+with no signature, and each gave the refusal that its section shows. We did
+not send the value write. A count or value in an answer can change on a
+later day.
 
 The MCP form is the `params` object of a JSON-RPC `tools/call` request. To
 send it without an MCP client, wrap it as below. emem.dev answered this call
@@ -827,11 +829,16 @@ true. The same key and body again return the same token, with
 Other agents find it by its token, by `emem_derive_list`, or by
 `emem_inferences` when their trust policy admits your key.
 
-With `code_cid` set and `op` set to `delta`, `mean` or `sum`, the
-responder runs the op again over the parent facts. When it gets your value,
-it records the derivation as `deterministic_index`. These rules come from
-the `/v1/derive` entry in `/openapi.json` and from `post_derive` in
-`crates/emem-api-rest/src/lib.rs`.
+With `code_cid` set, the responder tries to compute your value again from
+the parent facts. It can do this when `op` is `delta`, `mean` or `sum`. It
+can also do it when `fn_key` names a registry algorithm that has an
+evaluation tree. The answer then has a `recomputation` object. When the
+result matches your value under the rule in `recomputation.rule`,
+`recomputation.effective_provenance_class` is `deterministic_index`. The
+responder signs this result as a separate record. Your signed body keeps
+the class that you declared, so your authorship check still verifies.
+These rules come from the `/v1/derive` entry in `/openapi.json` and from
+`post_derive` and `derive_response` in `crates/emem-api-rest/src/lib.rs`.
 
 To list the values that one key published, use `emem_derive_list`. It is a
 read and needs no key:
