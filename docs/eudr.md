@@ -490,6 +490,12 @@ Both disclaimers state the limits of the Earth-observation verdict.
 The deforestation cut-off is 31 December 2020 (Article 1(2)). It does not change.
 The verdict uses this date by default.
 For a what-if audit, send a different `cut_off_date`; `cut_off_year_applied` gives the year that ran.
+The verdict uses only the year: the first four characters of `cut_off_date`.
+If those are not four digits, the request fails with 400 `invalid_argument`.
+Loss in a year after that year is a failure.
+A cell with Hansen loss in or before that year, and no JRC GFC2020 forest, is `not_in_scope`.
+The forest baseline is the JRC GFC2020 map for every cut-off year.
+Thus a JRC forest cell counts as forest at a 2018 cut-off too.
 Regulations (EU) 2024/3234 and 2025/2650 moved the start of the obligations.
 For large operators they apply from 30 December 2026.
 For micro and small enterprises they apply from 30 June 2027.
