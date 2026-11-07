@@ -54,7 +54,10 @@ Above the facts, each agent has notes that it owns. A note is a Markdown file. S
 
 Each read accepts two time filters. `as_of_tslot` asks what was true on the ground on a date. `as_of_signed_at` asks
 what emem knew on a date. When you set both, both apply. Send `as_of_tslot` as a tslot number, not a date string.
-Send `as_of_signed_at` as an RFC 3339 time, such as `2026-11-01T00:00:00Z`.
+Send `as_of_signed_at` as an RFC 3339 time in UTC that ends in `Z`, such as `2026-11-01T00:00:00Z`.
+The responder writes each `signed_at` in UTC and compares your value with it as text. A time with an
+offset, such as `+05:30`, moves the cut by that offset. On 7 November 2026, `2026-09-28T17:30:00+05:30` kept a
+Mount Fuji fact signed at `2026-09-28T12:23:41Z`. The same instant as `2026-09-28T12:00:00Z` did not keep it.
 
 ![A chart with ground time (tslot) across and signed time (signed_at) up. as_of_tslot is a vertical line that keeps facts to its left. as_of_signed_at is a horizontal line that keeps facts below it. With both set, only facts in the lower left area are kept. A fact observed later, or signed later, is not kept.](media/diagrams/time-filters.svg)
 
