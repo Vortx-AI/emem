@@ -28,7 +28,9 @@ check that you can run offline. The step-by-step checks are in
 | What each refusal means | [errors](./errors.md) |
 
 The short version of those checks is in
-[section 12](#12-verify-without-trusting-us).
+[section 12](#12-verify-without-trusting-us). To run the receipt and log
+checks with three plugin scripts, see
+[section 12.1](#121-run-the-checks-with-the-plugin-scripts).
 
 ## 1. Which code answered you
 
@@ -452,6 +454,52 @@ You can check all of the above from outside:
 
 If a check disagrees with what this responder told you, the responder is
 wrong, and the evidence is yours. That is the design.
+
+### 12.1 Run the checks with the plugin scripts
+
+The Claude Code plugin in `plugins/emem/` ships three verifiers. They use
+only the Python standard library and the `emem_crypto.py` file next to
+them. Run the commands from the repository root. Each script prints
+`VALID` or `INVALID` per check, and exits 1 when a check fails.
+
+Check a receipt. Use the receipt from a `POST /v1/recall` response
+(saved as `recall.json`), as in
+[Check your first receipt](./protocol.md#check-your-first-receipt):
+
+```sh
+python3 plugins/emem/skills/emem-verify-receipt/scripts/verify.py recall.json
+```
+
+Check that the log holds the entry for that receipt. Use the
+`merkle_proof.log_entry_hash` from the receipt, and the `sth.tree_size`
+from the head:
+
+```sh
+curl -s https://emem.dev/v1/log/sth -o sth.json
+curl -s 'https://emem.dev/v1/log/inclusion?entry_hash=<log_entry_hash>&tree_size=<tree_size>' -o inclusion.json
+python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py inclusion inclusion.json
+```
+
+Keep `sth.json`. Later, get a new head and prove that the log only grew
+between the two heads:
+
+```sh
+curl -s https://emem.dev/v1/log/sth -o new_sth.json
+curl -s 'https://emem.dev/v1/log/consistency?first=<old tree_size>&second=<new tree_size>' -o consistency.json
+python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py consistency sth.json new_sth.json consistency.json
+```
+
+On 7 November 2026 all three checks gave `VALID` against emem.dev. The
+inclusion proof was for leaf 2,463,431 at `tree_size` 3,243,860, with 22
+hashes. The consistency proof went from size 3,243,767 to 3,243,860, with
+19 hashes.
+
+The scripts do not check two things. The `inclusion` command verifies the
+head inside the inclusion response, so compare its `root_b32` with the
+`sth.json` that you kept. The link from the log entry to the receipt's
+Merkle root is step 7 of
+[protocol §9.6.1](./protocol.md#961-check-an-inclusion-proof-by-hand).
+Do that step by hand.
 
 The [threat model](./security/threat-model.md) lists every write surface
 where one party can change what another party reads. It also says what stops
