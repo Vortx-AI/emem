@@ -1737,6 +1737,7 @@ What the substrate gives you:
   `fact_mismatch`. `receipt_reshaped_after_signing` means the signed body
   is intact, but the proof or `preimage_version` changed after the
   responder signed it.
-  `failure_detail` gives the remedy in prose. `merkle_proof_valid` is
+  For the first three causes, `failure_detail` gives the remedy in
+  prose. For `fact_mismatch`, it is null. `merkle_proof_valid` is
   null when the receipt has no proof or the responder does not hold the
   first fact.
