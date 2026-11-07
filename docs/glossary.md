@@ -9,7 +9,7 @@ term for one thing.
 |---|---|---|
 | cell, `cell64` | One square of about 10 m on the Earth. Its address has four parts, for example `defi.zb592.nUkO.zEzE`. | [Protocol, section 1](protocol.md#1-cell64-the-spatial-primitive) |
 | tslot | A whole number for a time period: the day, month or other period of an observation, at the cadence of its band. | [Protocol, section 2](protocol.md#2-tslot-temporal-addressing) |
-| bi-temporal read | A read with two time filters. `as_of_tslot` asks what was true on the ground on a date. `as_of_signed_at` asks what emem knew on a date. | [Memory](memory.md) |
+| bi-temporal read | A read with two time filters. `as_of_tslot` asks what was true on the ground on a date. `as_of_signed_at` asks what emem knew on a date. The first takes a tslot number, the second an RFC 3339 time. | [Memory](memory.md) |
 
 ## Facts
 

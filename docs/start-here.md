@@ -41,7 +41,7 @@ curl -sS -X POST https://emem.dev/v1/ask -H 'content-type: application/json' \
   -d '{"q":"what is the elevation of Mount Fuji?"}' | jq -r .answer
 ```
 
-On 6 November 2026 the answer named the place, then gave "elevation 3539.04 m". The value is for the one cell that
+On 7 November 2026 the answer named the place, then gave "elevation 3539.04 m". The value is for the one cell that
 the name resolves to, not for the summit. The answer also gives the age of the reading.
 
 Do the same in two steps, so you see what emem signs. First find the cell:
@@ -87,7 +87,7 @@ On 7 November 2026 the key started with `777er3yi`. You can also paste a token i
 ## Use the right field name
 
 Each endpoint has its own request fields. A field that works on one endpoint can fail on another. This table shows
-what each endpoint accepted on 6 November 2026.
+what each endpoint accepted on 7 November 2026.
 
 | Endpoint | Send the place or question as | Also accepted | Do not send |
 |---|---|---|---|
@@ -117,7 +117,8 @@ Do not make a REST path from a tool name.
 - A place name gives one cell of about 10 m. For an area, use the area tools.
 - The first read of a new place is slower, because emem reads the public archive first. On 7 November 2026 a
   first read took 0.6 to 1.7 s, and a repeat read took less than 0.1 s.
-- Notes are public, and the log keeps them. Do not write a secret in a note.
+- Notes are public, except a note of kind `vault`, which is stored encrypted. The log keeps every note. Do not
+  write a secret in a plain note.
 
 The full list is in the [README](https://github.com/Vortx-AI/emem/blob/main/README.md#what-the-checks-do-not-prove).
 

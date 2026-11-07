@@ -51,7 +51,8 @@ Above the facts, each agent has notes that it owns. A note is a Markdown file. S
 ## Two time filters
 
 Each read accepts two time filters. `as_of_tslot` asks what was true on the ground on a date. `as_of_signed_at` asks
-what emem knew on a date. When you set both, both apply.
+what emem knew on a date. When you set both, both apply. Send `as_of_tslot` as a tslot number, not a date string.
+Send `as_of_signed_at` as an RFC 3339 time, such as `2026-11-01T00:00:00Z`.
 
 ![A chart with ground time (tslot) across and signed time (signed_at) up. as_of_tslot is a vertical line that keeps facts to its left. as_of_signed_at is a horizontal line that keeps facts below it. With both set, only facts in the lower left area are kept. A fact observed later, or signed later, is not kept.](media/diagrams/time-filters.svg)
 
