@@ -203,9 +203,9 @@ The corpus, questions and models were the same. Only the retriever changed.
 BM25 equals the accuracy of the addressed arm with no minting, no round trips
 and no protocol.
 
-The cause is clear. A coordinate is a rare literal string. So all chunks are
-almost the same in embedding space but very different in token overlap. Cosine
-similarity cannot use that property. BM25 uses it directly.
+A coordinate is a rare literal string. So all chunks are almost the same in
+embedding space, but their token overlap is very different. Cosine similarity
+cannot use that difference. BM25 uses it directly.
 
 So the claim is narrow. Dense embedding similarity fails on homogeneous numeric
 corpora. Lexical retrieval on the same corpus does not fail. If a lexical index
