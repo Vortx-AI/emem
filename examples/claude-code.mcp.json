@@ -1,14 +1,9 @@
 {
-  "_doc": "Save this as `.mcp.json` at your project root. Claude Code will discover it on next launch. The hosted instance at https://emem.dev/mcp is HTTPS-only. Claude Code's schema requires the `type` field to disambiguate the MCP transport (http vs sse vs stdio); `\"type\": \"http\"` is the literal identifier MCP defines for the Streamable-HTTP transport family — it does NOT mean the URL is plain HTTP. The actual URL below is HTTPS. The stdio bridge entry is a fallback for older runtimes that don't speak Streamable-HTTP MCP yet.",
+  "_doc": "Save this file as .mcp.json at your project root. Claude Code finds it at the next start and asks you to approve the server. The same result from the command line: claude mcp add --transport http emem https://emem.dev/mcp. The value \"type\": \"http\" names the MCP Streamable HTTP transport. It does not mean plain HTTP; the URL is HTTPS. If your runtime cannot use Streamable HTTP, replace the entry with {\"command\": \"npx\", \"args\": [\"-y\", \"mcp-remote\", \"https://emem.dev/mcp\"]}. That bridge needs Node.js. Do not keep both entries, or every tool loads twice.",
   "mcpServers": {
     "emem": {
       "type": "http",
       "url": "https://emem.dev/mcp"
-    },
-    "emem_via_remote": {
-      "_doc": "Fallback for environments that need a stdio bridge — install `mcp-remote` first: `npm install -g mcp-remote`",
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "https://emem.dev/mcp"]
     }
   }
 }
