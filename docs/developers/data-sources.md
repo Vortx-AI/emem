@@ -12,8 +12,8 @@ own Primary attestation, and persist it forever — so the next caller hits the
 hot cache. This is the read → attest → cache loop that lets every cell on
 Earth answer cite-ably from day one.
 
-![How one value becomes a fact, in five steps with real bytes. Read: HTTP Range requests to the open Copernicus DEM file on AWS, 43.4 MB; emem reads the first 64 KiB, then one tile. Sample: copernicus_dem_30m_aws_pixel@1 turns 35.3628 N, 138.7308 E into 3539.04 m. Encode: canonical CBOR, 743 bytes, fields in record order. Hash: BLAKE3 in base32 gives fact_cid qejpz7cg…2jjbplq, and hashing the bytes again gives the same id. Sign: the responder signs a Merkle root over fact ids, and each read gets a signed receipt. A red panel changes one byte of the value, 3539.0422 m to 3539.0420 m, and the id becomes 26zhvwvf…dj7porq.](../media/diagrams/data-flow.svg)
-*One elevation fact at Mount Fuji, from the file on AWS to its content id. The bytes come from `GET /v1/facts/qejpz7cg…` with `Accept: application/cbor` on emem.dev, 7 November 2026. Same bytes give the same id on every machine. Value from Copernicus DEM GLO-30. Source: [`data_flow.py`](../media/diagrams/src/data_flow.py).*
+![open pixel → signed receipt, in eight steps](/docs/diagrams/02-data-flow.svg)
+*The path a single value takes from an upstream tile to a citable fact. Same upstream + same registries ⇒ same CID, byte-for-byte.*
 
 ## Materialization flow
 
