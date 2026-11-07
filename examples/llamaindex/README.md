@@ -37,7 +37,9 @@ To use a different emem node, set `EMEM_MCP_URL`. The default is
 1. It connects to `https://emem.dev/mcp` over Streamable HTTP with
    `BasicMCPClient`.
 2. It loads the 18 core emem tools that `/mcp` lists with `McpToolSpec`.
-3. It makes a `FunctionAgent` with the `gpt-4.1-mini` model.
+3. It makes a `FunctionAgent` with the `gpt-4.1-mini` model. The system
+   prompt names three tools in order: `emem_locate`, `emem_recall` with the
+   cell as `cell`, and `emem_verify_receipt`.
 4. It asks what the signed record says about the elevation of South Mumbai.
    It also asks for the `fact_cid` and how to verify it.
 
@@ -57,7 +59,8 @@ We also made the emem calls that the agent needs, on the same day:
 | `emem_recall` with the place name | error `no_geocoder_match`: the name is ambiguous |
 
 If the model sends the place name to `emem_recall`, emem refuses to guess.
-The model must use the cell from `emem_locate`.
+The model must use the cell from `emem_locate`. The system prompt tells the
+model to do this.
 
 ## Notes
 
