@@ -1521,7 +1521,8 @@ length-prefixed segment stream:
 
 1. The stream opens with the 17 bytes `emem.preimage.v1\x00`, then
    `u32-LE(len(domain))`, then the domain string. For receipts the
-   domain is `receipt`.
+   domain is `receipt`. Receipts under v1 and v2 both use this prefix.
+   The `v1` in it names the stream format, not the receipt rule.
 2. A scalar segment is `tag:u8 || u32-LE len || bytes`.
 3. A list segment is `tag:u8 || u32-LE count || (u32-LE len || bytes)*`.
 4. An absent optional scalar segment does not appear at all, not even its
@@ -1554,6 +1555,10 @@ receipt field:
 | `as_of_hex` | the bounded `as_of` |
 | `edges_hex` | the sorted `edge_cids` |
 | `manifest_hex` | the sorted `source_versions{registry_cid, schema_cid, bands_cid, sources_cid}` |
+
+Each digest enters the stream as text: its 64 lowercase hex characters,
+as ASCII bytes. It does not enter as 32 raw bytes. The same applies to
+`field_hex` and `merkle_hex` below.
 
 `bands_cid` is inside the manifest digest, so the signature also
 attests the active band set.
@@ -1594,13 +1599,16 @@ the canonical segment table. The responder makes it from the same
 compiled `emem_attest` constants that the signer uses. So it cannot
 drift from the wire. If it and this page disagree, trust the endpoint.
 
-**Legacy v0.** Receipts with `preimage_version` absent or `0` use the pre-cutover untagged pipe rule
+#### Legacy v0 receipts
+
+Receipts with `preimage_version` absent or `0` use the pre-cutover untagged pipe rule
 `blake3(request_id|served_at|[scope|][as_of|][edges|][manifest|]primitive|cell,*|cid,*)`;
 `POST /v1/verify_receipt` still verifies those, but no responder emits
 v0 anymore.
 
-**What the preimage does not cover.** The segments above are the
-complete signed surface. These items are not in the preimage:
+#### What the preimage does not cover
+
+The segments above are the complete signed surface. These items are not in the preimage:
 
 - The caller's free-text `place` or `q` string. A wrong-place geocode
   gives a clean signature for the wrong cell64. The trust chain attests
@@ -1619,7 +1627,9 @@ The receipt alone does not show how the responder read the question.
 If a later reader needs *"the user asked X and the responder agreed"*,
 send the original query with the receipt.
 
-**The `as_of` block enters the preimage.** A read can carry a
+#### How the `as_of` block enters the preimage
+
+A read can carry a
 bi-temporal bound: `as_of_tslot`, `as_of_signed_at`, or both. Then the
 receipt body carries an `as_of: {valid_time?, transaction_time?}`
 block. Its blake3-hex over canonical CBOR goes into the stream as the
@@ -1633,7 +1643,9 @@ verifier must do the same, or a valid receipt fails. The signature binds
 the bound in two ways: directly through `as_of_hex`, and through the
 `fact_cids` that the bound selected.
 
-**Each responder makes its own fact identity.** Each `Primary`, `Absence`
+#### Each responder makes its own fact identity
+
+Each `Primary`, `Absence`
 (`NegativeFact`) and `Derivative` fact body includes `signed_at`, the ISO 8601 wall clock
 at materialisation time. `signed_at` is part of the canonical CBOR that
 gives `fact_cid`. So two responders that materialise the same
@@ -1641,6 +1653,8 @@ gives `fact_cid`. So two responders that materialise the same
 **different `fact_cid`s**. This is intentional: each responder signs
 under its own identity. To ask "does any responder have this
 observation", join on `(cell, band, tslot)`, not on `fact_cid`.
+
+#### Fan-out endpoints sign each cell separately
 
 Fan-out endpoints over many cells, for example
 `POST /v1/recall_polygon`, emit one separately signed receipt per
