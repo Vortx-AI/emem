@@ -605,18 +605,22 @@ for 2 facts or 256 facts.
 
 | Input | What the responder binds |
 |---|---|
-| `triples`: a list of `{cell, band, tslot?}` | The fact that a recall finds for each triple. With no `tslot`, the latest fact. The responder first geocodes a place name in `cell`. |
+| `triples`: a list of `{cell, band, tslot?, as_of_tslot?, as_of_signed_at?}` | The fact that a recall finds for each triple. With no `tslot`, the fact with the highest tslot. The responder first geocodes a place name in `cell`. The two `as_of` fields go to that recall. |
 | `fact_cids`: a list of fact cids | Exactly these facts. Use this to pin the facts you already read. |
 
-The limit is 256 entries in one call. Entry 257 gives a typed 400.
-An optional `purpose` string goes into the hash. The same facts with a
-different purpose thus give a different token.
+Send exactly one of the two lists. No list, or both lists, gives a 400
+`invalid_argument`. The limit is 256 entries in one call. Entry 257
+gives a 400 `invalid_argument`. An optional `purpose` string goes into
+the hash. The same facts with a different purpose thus give a different
+token. An optional top-level `scope` applies to the recall of every
+triple.
 
 The response gives `bundle_token`, one citation per entry, and two
 counts. `members` is the number of entries. `resolved` is the number of
 entries that found a fact. An entry with no fact has a `miss_reason`.
 Read the two counts before you hand the token on. A bundle can be
-partial.
+partial. The citations keep the order of the request. The `fact_cids`
+and `cells` lists in the response drop repeats.
 
 The command below composes a bundle. This page does not run it, because
 the responder stores each bundle it composes. A triple can also make
@@ -669,7 +673,21 @@ Two limits apply:
 - Only the responder that composed a bundle can resolve its token.
   Other responders give a 404. They hold no copy of the bundle.
 - A bundle binds primary facts only. A cid of another kind becomes a
-  miss.
+  miss. That citation has an empty `cell` and `band` and
+  `resolved_tslot` 0, and these values go into the hash.
+
+The read route gives these errors. Each one below ran on 7 November
+2026, except the 503:
+
+| Request | Status | `code` |
+|---|---|---|
+| Token without the `emem:bundle:` or old `memb:` prefix, also a bare `bundle_cid` | 400 | `invalid_argument` |
+| Cid part not 16 to 96 letters and digits, for example `emem:bundle:abc` | 400 | `invalid_argument` |
+| Good shape, but this responder holds no such bundle | 404 | `cid_not_found` |
+| Responder runs without its sled store | 503 | `cache_error` |
+
+The route description in `/openapi.json` says that a bare `bundle_cid`
+works. The code refuses it, so always send the full token.
 
 ## Tokenised files: `emem:tree`
 
