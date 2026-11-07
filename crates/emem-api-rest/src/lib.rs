@@ -65592,6 +65592,38 @@ fn coverage_page<'a>(
 mod reported_bug_tests {
     use super::*;
 
+    /// temporal_route took the absolute age, so a fact signed after
+    /// `query_time` scored as a fresh observation at that time.
+    #[test]
+    fn temporal_route_ignores_facts_signed_after_the_query_time() {
+        let signed = vec![
+            (
+                "indices.ndvi".to_string(),
+                "2026-01-01T00:00:00Z".to_string(),
+            ),
+            (
+                "indices.ndwi".to_string(),
+                "2026-11-07T00:00:00Z".to_string(),
+            ),
+            ("cams.pm25".to_string(), "2026-11-07T00:00:00Z".to_string()),
+        ];
+        let query = parse_iso8601_unix("2026-11-01T00:00:00Z").unwrap();
+        let map = latest_signed_at_by_band(&signed, query);
+        assert_eq!(
+            map.get("indices").copied(),
+            parse_iso8601_unix("2026-01-01T00:00:00Z")
+        );
+        assert!(!map.contains_key("cams"));
+
+        let (q_fresh, _, _) = score_band(emem_core::tslot::Tempo::Fast, query, Some(query));
+        let (q_future, _, _) = score_band(
+            emem_core::tslot::Tempo::Fast,
+            query,
+            Some(query + 86_400 * 6),
+        );
+        assert!(q_future <= q_fresh);
+    }
+
     /// docs/media/ holds GIF and WebP files. Every response carries
     /// `x-content-type-options: nosniff`, so an octet-stream type made a
     /// browser download them instead of showing them.
@@ -86941,6 +86973,30 @@ mod recall_freshness_tests {
     }
 }
 
+/// Latest `signed_at` per band prefix among facts signed at or before
+/// `query_unix_s`. A fact signed after the query time did not exist then;
+/// counting it made a past query score as freshly observed.
+fn latest_signed_at_by_band(
+    signed: &[(String, String)],
+    query_unix_s: i64,
+) -> std::collections::HashMap<String, i64> {
+    let mut map = std::collections::HashMap::new();
+    for (band, signed_at) in signed {
+        let Some(t) = parse_iso8601_unix(signed_at) else {
+            continue;
+        };
+        if t > query_unix_s {
+            continue;
+        }
+        let prefix = band.split('.').next().unwrap_or(band).to_string();
+        let entry = map.entry(prefix).or_insert(t);
+        if t > *entry {
+            *entry = t;
+        }
+    }
+    map
+}
+
 /// Score a band given the query time, the band's last-known
 /// observation time at the cell (or None if we have nothing), and
 /// the band's tempo class. Returns (score, kernel, derivation).
@@ -86950,7 +87006,7 @@ fn score_band(
     last_obs_unix_s: Option<i64>,
 ) -> (f64, &'static str, String) {
     let dt_s: f64 = match last_obs_unix_s {
-        Some(t) => (query_unix_s - t).abs() as f64,
+        Some(t) => (query_unix_s - t).max(0) as f64,
         None => {
             // No observation → the kernel has no anchor. We score by
             // the *opportunity*: a static band still rates 1 because a
@@ -87138,26 +87194,19 @@ async fn temporal_route_inner(
         {
             let pairs = s.storage.scan_cell(&cell, None).await.unwrap_or_default();
             let cids: Vec<emem_fact::FactCid> = pairs.into_iter().map(|(_k, c)| c).collect();
-            let mut map = std::collections::HashMap::new();
+            let mut signed: Vec<(String, String)> = Vec::new();
             if !cids.is_empty() {
                 if let Ok(facts) = s.storage.get_facts_many(&cids).await {
                     for f in facts.into_iter().flatten() {
-                        let (band, signed_at) = match f {
-                            Fact::Primary(p) => (p.band, p.signed_at),
-                            Fact::Absence(n) => (n.band, n.signed_at),
-                            Fact::Derivative(_) => continue,
-                        };
-                        if let Some(t) = parse_iso8601_unix(&signed_at) {
-                            let prefix = band.split('.').next().unwrap_or(&band).to_string();
-                            let entry = map.entry(prefix).or_insert(t);
-                            if t > *entry {
-                                *entry = t;
-                            }
+                        match f {
+                            Fact::Primary(p) => signed.push((p.band, p.signed_at)),
+                            Fact::Absence(n) => signed.push((n.band, n.signed_at)),
+                            Fact::Derivative(_) => {}
                         }
                     }
                 }
             }
-            map
+            latest_signed_at_by_band(&signed, query_unix)
         }
     };
 
@@ -87187,7 +87236,7 @@ async fn temporal_route_inner(
                 "kernel":           kernel,
                 "derivation":       derivation,
                 "last_obs_unix_s":  last_obs,
-                "last_obs_age_s":   last_obs.map(|t| (query_unix - t).abs()),
+                "last_obs_age_s":   last_obs.map(|t| query_unix - t),
             }),
             intent_matched,
         ));
