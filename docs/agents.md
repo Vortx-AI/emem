@@ -494,7 +494,9 @@ The answer held one NDVI fact, at tslot 20589. The receipt signs the bound in
 
 A bound before every fact gives an empty `facts` list with status 200, not a
 404. `temporal_advice.facts_at_cell_unbounded` counts the facts that the bound
-removed. On 7 November 2026 it was 377 at this cell. A past `as_of_signed_at`
+removed. On 7 November 2026 it was 377 at this cell. The answer has
+`temporal_advice` only when the bound removes every fact. The call above,
+which kept one fact, had no `temporal_advice`. A past `as_of_signed_at`
 does not fetch new data. Its `materialize_notes` entry has `reason`
 `as_of_signed_at_in_the_past` and `retryable` false. An early `as_of_tslot`
 still tries a fetch. At tslot 100 the note had `reason_class` `upstream_error`
