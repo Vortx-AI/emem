@@ -520,11 +520,14 @@ The answer also has a signed `receipt` and `cos_lat_weighting_applied`.
 `op` is one of `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `ni`, `exists` or `absent`.
 
 The call above has no `tslot`, so emem checks every stored tslot of the band.
+Put `tslot` or `window` inside `claim`.
+emem ignores a `tslot` at the top level of the body.
 The default mode is `fast`: emem reads only facts that it already holds.
 A `false` verdict with an empty `evidence` list means that emem holds no fact.
 It does not mean that the claim is false.
-On 7 November 2026, the same claim with `"tslot": 1` returned exactly that.
-To fetch a missing fact first, send `"mode": "resolve"` with a `tslot`.
+On 7 November 2026, the same claim with `"tslot": 1` inside `claim` returned exactly that.
+With `"tslot": 1` at the top level, it returned `true` with the same evidence as above.
+To fetch a missing fact first, send `"mode": "resolve"` and a `tslot` in `claim`.
 This comes from `crates/emem-primitives/src/verify.rs`.
 
 ### Job: cite one fact for another agent
