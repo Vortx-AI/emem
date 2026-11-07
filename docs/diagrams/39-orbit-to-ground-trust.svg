@@ -27,7 +27,7 @@
 
 <!-- title -->
 <text x="800" y="52" text-anchor="middle" class="h" font-size="33" font-weight="bold">Satellites as a source of truth for the machines on the ground</text>
-<text x="800" y="82" text-anchor="middle" class="h dim" font-size="17" font-style="italic">one trust surface from orbit to ground: enrolled by key, believed by execution, anchored to a record no participant owns</text>
+<text x="800" y="82" text-anchor="middle" class="h dim" font-size="17" font-style="italic">one trust path from orbit to ground: enrolled by key, checked by execution trace, kept in a log that witnesses co-sign</text>
 
 <!-- ══ ORBIT column ══ -->
 <text x="250" y="130" text-anchor="middle" class="h dim" font-size="15" letter-spacing="3">ORBIT · THE OBSERVERS</text>
@@ -150,10 +150,10 @@
 <text x="80" y="765" class="h" font-size="17" font-weight="bold" style="fill:#f3eee2" letter-spacing="2">WHY THIS ENDURES</text>
 <text x="80" y="794" class="h" font-size="14" style="fill:#f3eee2">Built for the day its authors are gone. When machine-made claims outnumber anyone's capacity</text>
 <text x="80" y="814" class="h" font-size="14" style="fill:#f3eee2">to re-check them, trust by authority fails and arithmetic remains: content addresses, signatures,</text>
-<text x="80" y="834" class="h" font-size="14" style="fill:#f3eee2">inclusion proofs, and an anchor no single participant controls. The trace verifier checks</text>
+<text x="80" y="834" class="h" font-size="14" style="fill:#f3eee2">inclusion proofs, and an append-only log that outside witnesses co-sign. The trace verifier checks</text>
 <text x="80" y="854" class="h" font-size="14" style="fill:#f3eee2">chain, clocks, layers, output binding and signature. Layer cross-checks are not shipped yet.</text>
 <text x="80" y="886" class="h" font-size="14" font-style="italic" style="fill:#d59a2a">Signing data is the easy part. The harder part is to refuse signed device data that has no</text>
-<text x="80" y="906" class="h" font-size="14" font-style="italic" style="fill:#d59a2a">execution evidence, and to check it against a record that no participant owns.</text>
+<text x="80" y="906" class="h" font-size="14" font-style="italic" style="fill:#d59a2a">execution evidence, and to keep it in an append-only log that outside witnesses co-sign.</text>
 <text x="80" y="938" class="h" font-size="12.5" style="fill:#b5ad9c">Cost, measured on 11 August 2026: one token uses about 9.5x the LLM tokens of the bare value;</text>
 <text x="80" y="956" class="h" font-size="12.5" style="fill:#b5ad9c">a bundle of up to 256 uses 23 in total. Use it where a claim must outlive its author.</text>
 <text x="80" y="980" class="m" font-size="11" style="fill:#b5ad9c">emem keeps the evidence of what ran, with the value it produced.</text>
