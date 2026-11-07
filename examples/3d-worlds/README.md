@@ -162,7 +162,7 @@ The command writes four files:
 | --- | --- |
 | `out/rondonia.ply` | A standard 3D Gaussian Splatting PLY. It holds positions, `f_dc_* = (rgb - 0.5) / 0.28209479` (the degree-0 spherical-harmonic coefficient), `opacity` as a logit, `scale_*` as log sigmas and `rot_*` as a normalized `(w, x, y, z)` quaternion. It opens in SuperSplat, gsplat, antimatter15/splat and PlayCanvas. It uses the y-down COLMAP frame those viewers expect. The sidecar records the axis flip. |
 | `out/rondonia.splat` | The antimatter15 format, 32 bytes per splat, sorted by volume times opacity for progressive loading. |
-| `out/rondonia.provenance.json` | Schema `emem.splat_provenance.v1`. It holds the responder pubkey and the `fact_cid` of each band for each splat. It also holds the signed receipts as received, the sha256 of each artifact, the scene transform and a re-check recipe. |
+| `out/rondonia.provenance.json` | Schema `emem.splat_provenance.v1`. It holds the responder public key and the `fact_cid` of each band for each splat. It also holds the signed receipts as received, the sha256 of each artifact, the scene transform and a re-check recipe. |
 | `out/rondonia.scene.json` | The fetched scene. Serve it as `window.EMEM_DATA` to render offline, or give it to `capture.mjs`. |
 
 `--verify` sends each stored receipt to `POST /v1/verify_receipt`. The run

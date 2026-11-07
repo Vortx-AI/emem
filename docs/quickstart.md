@@ -289,7 +289,7 @@ your compose call returned. One bundle holds a maximum of 256 facts (`GET /v1/li
 
 Reads of the memory layer are open. Each write must have a signature. A write verb carries an `attester` block,
 which is an Ed25519 signature over the write. emem.dev refuses an unsigned write with
-`memory_attestation_required`. Your namespace is `/memories/by_attester/<first 8 characters of your pubkey>/`.
+`memory_attestation_required`. Your namespace is `/memories/by_attester/<first 8 characters of your public key>/`.
 Only your key can write there. There is no account. The signature is the only credential.
 
 The CLI of the Python SDK keeps a key and signs for you. The last command below is a **write**. It needs your
