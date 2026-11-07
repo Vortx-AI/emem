@@ -61,6 +61,11 @@ response sets `stencil_diagnostic.is_uniform` to true. The MODIS LST noise floor
 uniform, or one coarse source pixel filled all 9 cells. The flag tells
 the caller to check which.
 
+The answer is in `forecast_k`, the centre temperature after
+`hours_ahead`. `delta_k` is the change from `initial_condition_k`.
+`neighborhood_initial_k` gives the 9 start values in the order of
+`neighborhood_order`.
+
 Example, run on emem.dev on 7 November 2026 (HTTP 200, `n_steps` 1):
 
 ```sh
@@ -68,6 +73,9 @@ curl -s https://emem.dev/v1/heat_solve \
   -H 'content-type: application/json' \
   -d '{"cell":"Tokyo"}'
 ```
+
+That call gave `initial_condition_k` 305.04, `forecast_k` 305.025 and
+`delta_k` -0.015.
 
 ## `/v1/wave_solve`: 1D shallow water
 
@@ -90,20 +98,30 @@ true:
 - The offshore boundary cell is at least 5 m deep.
 - At least 50 % of the profile cells are more than 1 m deep.
 
-A land-locked profile returns HTTP 422 with `error_kind:
-LandLockedProfile`. The `details` object has the measured GMRT depths
-and a `next_steps` list with `try_longer_profile` and
-`try_different_cell`. The solver does not return a wave for an inland
-cell.
+A land-locked profile returns HTTP 422 with `code: invalid_argument`.
+The `details` object has `error_kind: LandLockedProfile`, the measured
+GMRT depths in `depth_profile_m` and a `next_steps` list. The list has
+`try_longer_profile` and `try_different_cell`. The solver does not
+return a wave for an inland cell.
 
-The profile is short: 64 cells is about 610 m. Near shallow coasts the
-walk often does not reach 5 m of water. On 7 November 2026, every coastal
+The profile is short: 64 cells is about 610 m. The walk also stops
+at the first cell that is on land again, and gives that cell a depth
+of 0 m. Thus a profile can have fewer cells than `n_offshore_cells`.
+Near shallow coasts the walk often does not reach 5 m of water.
+
+On success, `arrival_height_m` is the largest wave height at the
+coast. `arrival_time_s` is the time it first reaches
+`arrival_threshold_m`, which is 5 % of `offshore_height_m`. It is null
+when the wave does not reach the threshold. On 7 November 2026, every coastal
 cell tried on emem.dev returned 422. A cell near Waikiki, with
 `n_offshore_cells: 64`, gave the land-locked rejection. Bondi Beach and
 Nazare gave `source_fetch_failed`, because a profile cell had no usable
 GMRT value.
 
-This request runs, and shows the 422 rejection with its details:
+This request runs, and shows the 422 rejection with its details. On
+7 November 2026 its profile had 44 cells, not 64. The last cell had
+The offshore end cell had
+0 m depth, and 32 % of the cells were more than 1 m deep:
 
 ```sh
 curl -s https://emem.dev/v1/wave_solve \
@@ -139,8 +157,15 @@ agricultural NDVI literature, and no training changes them. The response states 
 value again from the `history_values` in the response. The route name
 is historical.
 
+The answer is in `forecast_value`. `history_values` and
+`history_tslots` give the samples it used. `forecast_tslot` is the
+latest sample tslot plus 1 (`physics.rs`). For `indices.ndvi` that is
+one day later, not one month later, so do not read it as the date of
+the forecast.
+
 Example, run on emem.dev on 7 November 2026 (HTTP 200,
-`lookback_months_used` 6, `lag_12_used` false):
+`lookback_months_used` 6, 6 samples, `lag_12_used` false,
+`forecast_value` 0.018):
 
 ```sh
 curl -s https://emem.dev/v1/jepa_predict \
