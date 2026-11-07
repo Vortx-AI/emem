@@ -223,8 +223,9 @@ class is `model_output`, not a measurement.
 Each reading has `captured_at` and `age_s`. A wind speed is a decision input
 only while it is fresh. The newest value that emem holds is not always a
 current value. Check `age_s` before you act, so that the sprayer does not use a
-value from yesterday afternoon. On 7 November 2026, the wind speed at this cell
-was 1.9 m/s with `age_s: 1375`.
+value from yesterday afternoon. On 7 November 2026 at 03:05 UTC, the wind speed
+at this cell was 2.1 m/s, with `captured_at: 2026-11-07T02:00:00Z` and
+`age_s: 1801`.
 
 The weather and soil routes return a `fact_cid` for each band, but no receipt.
 To get a receipt, send the same cell and bands to `POST /v1/recall`.
