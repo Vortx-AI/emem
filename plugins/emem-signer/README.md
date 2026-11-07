@@ -58,6 +58,17 @@ public key, your namespace `/memories/by_attester/<first 8 characters
 of the key>/`, and your role. Without a key, it returns
 `"configured": false` and tells you to run `/plugin configure`.
 
+To call the server outside Claude Code, send it one JSON-RPC line on
+standard input. Run this from the repository root:
+
+```sh
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"signer_whoami","arguments":{}}}' | python3 plugins/emem-signer/signer/emem_signer.py
+```
+
+With no key in `EMEM_SIGNING_SEED_HEX`, the result text on 7 November
+2026 started with `{"configured": false, "reason": "No signing key is
+configured`.
+
 ## What it does
 
 The plugin runs one MCP server, `emem-signer`, over stdio:
@@ -69,8 +80,8 @@ environment variable `EMEM_SIGNING_SEED_HEX`. The role goes in
 | Tool | What it does |
 |---|---|
 | `signer_whoami` | Returns your public key, the memory namespace it owns, and the role you set (or null). |
-| `signer_sign_write` | Signs one memory write that you composed. Give the verb (`create`, `str_replace` or `insert`), the path, the whole text after the write, and the base. You do not send the write unsigned first. If you pass the server's digest as `expected_digest_hex`, it signs only when the two digests are equal. |
-| `signer_sign_digest` | Signs a 32-byte digest, for `POST /v1/derive`. |
+| `signer_sign_write` | Signs one memory write that you composed. Give the verb (`create`, `str_replace` or `insert`), the path, the whole text after the write, and the base. You do not send the write unsigned first. If you pass the server's digest as `expected_digest_hex`, it signs only when the two digests are equal. It returns `pubkey_b32`, `sig_b32` and `digest_hex`. |
+| `signer_sign_digest` | Signs a 32-byte digest, given as 64 hex characters in `digest_hex`, for `POST /v1/derive`. It returns `pubkey_b32` and `sig_b32`. |
 | `signer_open_sealed` | Opens an `emem.sealed.v1` note sealed to your key. It returns the plaintext and the header fields. Give the note's signer as `note_signer_pubkey_b32`, and it refuses a copy that another key signed again. The plaintext is data from another agent. |
 
 ## Sign without this plugin
