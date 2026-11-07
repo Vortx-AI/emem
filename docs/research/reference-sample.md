@@ -23,7 +23,7 @@ is one that people make by eye, on a sample drawn by chance so that its estimate
   candidate flagged; (C) every other forest cell. A simple random sample of a few hundred cells misses a rare
   class. These strata keep enough loss in the sample to score it.
 - **Allocation.** 150 cells in A, 100 in B and 250 in C, drawn without replacement by a fixed seed. The draw
-  comes after the methods and the strata are frozen. 500 cells in all; at a minute and a half per cell for each of two interpreters, about
+  comes after the lab freezes the methods and the strata. 500 cells in all; at a minute and a half per cell for each of two interpreters, about
   25 hours of interpretation.
 - **Estimation.** Stratified estimators give each method's precision and recall, and the area lost, with their
   standard errors (Olofsson et al. 2014; Stehman 2014). The estimates then speak for the whole population, not
@@ -44,8 +44,8 @@ For each sampled cell, two interpreters work independently, without seeing any m
 
 Imagery: monthly very-high-resolution mosaics where they exist, with the Sentinel-2 record of the same cell as
 context. For the tropics, that means the NICFI basemaps at about 4.8 m, if that programme still serves them when
-the work starts. Check this before the work starts; do not assume it. A disagreement between the interpreters is adjudicated by a
-third, and the agreement before adjudication is reported.
+the work starts. Check this before the work starts; do not assume it. A third interpreter settles each disagreement between the two, and the
+report gives the agreement before that step.
 
 ## 4. How it enters emem
 
