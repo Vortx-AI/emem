@@ -42,6 +42,13 @@ Put this caption at line 287, in place of its first sentence. "One live answer f
 
 Do not delete `02-verify.gif`, `04-guard.gif`, `10-research.gif` or `11-two-agents.gif` before the signed README stops using them.
 
+## Kept as it is
+
+`docs/media/readme/14-common-decoder.gif` at line 260 ("One record, many readers") stays. It records three
+models from three vendors that read one token. This branch makes only read calls to emem.dev and calls no model,
+so it cannot record that again with live data. A still of the emem side only would not show the claim of the
+section, which is about the models.
+
 ## Additions
 
 These add an image where README.md has none today. They remove nothing.

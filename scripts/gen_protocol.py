@@ -121,15 +121,15 @@ def federation():
             s.qpath((a[0], a[1]), ctrl, (b[0], b[1]), INK_SOFT, 1.1, op=0.6)
     s.lotus(CX, CY, 78)
     s.seal(CX + 66, CY - 66, 11, fill=LEAF)
-    s.text(CX, CY + 116, "one content id", 13, INK, font=MONO, anchor="middle", weight="bold")
-    s.text(CX, CY + 136, "resolved byte-for-byte", 11, INK_SOFT, font=MONO, anchor="middle")
+    s.text(CX, CY + 142, "one content id", 13, INK, font=MONO, anchor="middle", weight="bold")
+    s.text(CX, CY + 162, "resolved byte-for-byte", 11, INK_SOFT, font=MONO, anchor="middle")
     inners = ["fish", "leaf", "hatch", "ring"]
     for i, (x, y, col) in enumerate(nodes):
         s.roundel(x, y, 32, col, signed=True, petal=(i % 2 == 0), inner=inners[i % 4])
         # push labels below for the lower nodes, above for the upper nodes
         below = y >= CY
-        s.text(x, y + (54 if below else -66), "responder", 11, INK, font=MONO, anchor="middle", weight="bold")
-        s.text(x, y + (72 if below else -50), "key:" + pubs[i], 10.5, INK_SOFT, font=MONO, anchor="middle")
+        s.text(x, y + (54 if below else -72), "responder", 11, INK, font=MONO, anchor="middle", weight="bold")
+        s.text(x, y + (74 if below else -52), "key:" + pubs[i], 10.5, INK_SOFT, font=MONO, anchor="middle")
 
     def client(cx, cy, near):
         s.circle(cx, cy, 17, fill=PAPER, stroke=INK, sw=1.5)
