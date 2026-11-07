@@ -15,6 +15,8 @@
 //!   OPENAI_API_KEY                          key for the above
 //!   EMEM_SLEEP_AGENT_USE_ASK=1              route via responder /v1/ask
 
+#![forbid(unsafe_code)]
+
 use std::sync::Arc;
 
 use clap::Parser;

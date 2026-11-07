@@ -39,6 +39,8 @@
 //! The real rewrite path is real code; it is simply unexercised when no
 //! key is configured.
 
+#![forbid(unsafe_code)]
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
