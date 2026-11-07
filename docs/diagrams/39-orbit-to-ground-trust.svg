@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1040" width="1600" height="1040" role="img" lang="en" aria-labelledby="title"><title id="title">Three columns. Orbit: the open archive, admitted because anyone can recompute it, and operator satellites, admitted only with a signed execution trace. emem: a trust gate with eighteen substrate profiles (one active, seventeen candidate) and seventeen named refusal codes, and the shared memory of cells, signed facts and tokens. Ground: robot fleets, agent swarms and a later auditor. A panel lists the gaps that do not ship yet.</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1040" width="1600" height="1040" role="img" lang="en" aria-labelledby="title"><title id="title">Three columns. Orbit: the open archive, admitted because anyone can recompute it, and operator satellites, a candidate profile that would admit output only with a signed execution trace. emem: a trust gate with eighteen substrate profiles (one active, seventeen candidate) and seventeen named refusal codes, and the shared memory of cells, signed facts and tokens. Ground: robot fleets, agent swarms and a later auditor. A panel lists the gaps that do not ship yet.</title>
 <defs>
 <radialGradient id="paper" cx="50%" cy="50%" r="72%"><stop offset="0%" stop-color="#f3eee2"/><stop offset="100%" stop-color="#ebe4d3"/></radialGradient>
 <filter id="blur" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="7"/></filter>
@@ -51,7 +51,7 @@
 <text x="75" y="415" class="h" font-size="12.5">emem treats an operator's own spacecraft as a</text>
 <text x="75" y="433" class="h" font-size="12.5">device, not an archive: its output is welcome,</text>
 <text x="75" y="451" class="h" font-size="13.5" font-weight="bold">but not on its word alone.</text>
-<text x="75" y="477" class="h" font-size="12.5">Each pass window ships its OS execution trace,</text>
+<text x="75" y="477" class="h" font-size="12.5">Candidate profile: each pass must ship its OS trace,</text>
 <text x="75" y="495" class="h" font-size="12.5">digest-chained, signed, the payloads bound inside:</text>
 <!-- chained segment glyph -->
 <g class="m" font-size="10.5">
