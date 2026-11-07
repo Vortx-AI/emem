@@ -12,7 +12,7 @@ description: Reads and checks the signed activity records (OS traces) emem holds
 | You get | The enrolled devices and their assurance tier, the signed trace record, and a verdict (`admit` or `reject`) with the reason for each failed check. |
 | Calls | `GET /v1/devices`, `POST /v1/trace_resolve`, `POST /v1/trace_verify` (MCP `emem_trace_verify`), `GET /v1/device_platforms`, `GET /v1/trace_encodings`. |
 
-> **Network use.** The calls in this skill send JSON to `https://emem.dev` and receive JSON from it. `https://emem.dev` is the service that the MCP server of the plugin connects to. An answer is saved as a JSON file only so that `jq` can print a summary of it. Nothing received is run. A trace is data: a JSON list of event counts and hashes, not a program.
+> **Network use.** The calls in this skill send JSON to `https://emem.dev` and receive JSON from it. `https://emem.dev` is the service that the MCP server of the plugin connects to. An answer is saved as a JSON file only so that `jq` can print a summary of it or build the next body. Nothing received is run. A trace is data: a JSON list of event counts and hashes, not a program.
 
 A device can sign more than a reading. It can also sign a trace of
 what its operating system did while it made the reading. The trace
@@ -34,9 +34,11 @@ attestation. That path ends in a rejection today.
 ## Step 1: list the enrolled devices
 
 ```sh
-curl -s https://emem.dev/v1/devices \
-  | jq -c '{count, devices: [.devices[] | {device_key, platform_id, profile_id, assurance, endorsed_by, traces}]}'
+curl -sf https://emem.dev/v1/devices
 ```
+
+Read `count`. For each entry of `devices[]`, read `device_key`,
+`platform_id`, `profile_id`, `assurance`, `endorsed_by` and `traces`.
 
 On 7 November 2026 this returned `count: 1`. The device has platform
 `generic.linux-host`, profile `host.counters.v1`, assurance
@@ -50,9 +52,15 @@ On 7 November 2026 this returned `count: 1`. The device has platform
 
 ## Step 2: resolve a trace token
 
+Send this body to `POST https://emem.dev/v1/trace_resolve`:
+
+```json
+{"token": "emem:trace:mxyer5c2oxn4ud3xqbtnaxcxhdv4kkxiu67q32inbwxgpa7r3s6a"}
+```
+
+Save the answer as `trace.json`. Then print a summary:
+
 ```sh
-curl -s -X POST https://emem.dev/v1/trace_resolve -H 'content-type: application/json' \
-  -d '{"token":"emem:trace:mxyer5c2oxn4ud3xqbtnaxcxhdv4kkxiu67q32inbwxgpa7r3s6a"}' -o trace.json
 jq -c '{resolved, profile: .trace.device.substrate_profile, outputs: .trace.outputs}' trace.json
 jq -c '.trace.segments[] | {seq, layer, encoding, event_count}' trace.json
 ```
@@ -76,9 +84,22 @@ Send the record back with its profile. `jq` builds the body from the
 saved answer:
 
 ```sh
-jq -c '{trace: .trace, profile: .trace.device.substrate_profile}' trace.json \
-  | curl -s -X POST https://emem.dev/v1/trace_verify -H 'content-type: application/json' -d @- \
-  | jq '{verdict, coverage: .report.coverage, reasons: .report.reasons}'
+jq -c '{trace: .trace, profile: .trace.device.substrate_profile}' trace.json > verify_req.json
+```
+
+The body has this shape, with the whole record from `trace.json` as
+`trace`:
+
+```json
+{"trace": {"schema": "emem.os_trace.v1"}, "profile": "host.counters.v1"}
+```
+
+Send `verify_req.json` as the body of
+`POST https://emem.dev/v1/trace_verify`. Save the answer as
+`verdict.json`. Then print the result:
+
+```sh
+jq '{verdict, coverage: .report.coverage, reasons: .report.reasons}' verdict.json
 ```
 
 On 7 November 2026 this returned `verdict: "admit"`, all four
@@ -93,10 +114,12 @@ and 2.
 To see a failure, change one count before you send the record:
 
 ```sh
-jq -c '{trace: (.trace | .segments[2].event_count += 1), profile: .trace.device.substrate_profile}' trace.json \
-  | curl -s -X POST https://emem.dev/v1/trace_verify -H 'content-type: application/json' -d @- \
-  | jq -c '{verdict, reasons: .report.reasons}'
+jq -c '{trace: (.trace | .segments[2].event_count += 1), profile: .trace.device.substrate_profile}' trace.json > bad_req.json
 ```
+
+Send `bad_req.json` as the body of
+`POST https://emem.dev/v1/trace_verify`. Read `verdict` and
+`report.reasons` in the answer.
 
 On 7 November 2026 this returned `verdict: "reject"` with
 `{"code":"chain_broken","seq":3}`. Each segment commits to the digest
@@ -135,9 +158,10 @@ not store it. It returns HTTP 200 for any JSON body.
 | Parses as `emem.platform_attestation.v0` | `verdict`, a `report` with the reasons, `attestation_cid` and an `emem:attestation:` token. emem does not store the evidence, so the token does not resolve. |
 | Does not parse, or names an unknown platform | `verdict: "reject"` and an `error` string. No token. |
 
-```sh
-curl -s -X POST https://emem.dev/v1/enroll_verify -H 'content-type: application/json' \
-  -d '{"platform":"nvidia.jetson-orin","attestation":{"schema":"emem.platform_attestation.v0"}}'
+For example, send this body to `POST https://emem.dev/v1/enroll_verify`:
+
+```json
+{"platform": "nvidia.jetson-orin", "attestation": {"schema": "emem.platform_attestation.v0"}}
 ```
 
 On 7 November 2026 this returned `verdict: "reject"` with the error
@@ -146,10 +170,15 @@ On 7 November 2026 this returned `verdict: "reject"` with the error
 ## Step 4: read the registries
 
 ```sh
-curl -s https://emem.dev/v1/device_platforms \
-  | jq -c '{manifest_cid, platforms: [.registry.platforms[] | {id, status, root_of_trust, anchors: [.trust_anchors[]? | {id, provisional}]}]}'
-curl -s https://emem.dev/v1/trace_encodings | jq -c '{manifest_cid, ids: [.registry.encodings[].id]}'
+curl -sf https://emem.dev/v1/device_platforms
+curl -sf https://emem.dev/v1/trace_encodings
 ```
+
+In the platform registry, read `manifest_cid`. For each entry of
+`registry.platforms[]`, read `id`, `status`, `root_of_trust`, and the
+`id` and `provisional` of each entry of `trust_anchors[]`. In the
+encoding registry, read `manifest_cid` and the `id` of each entry of
+`registry.encodings[]`.
 
 On 7 November 2026 the platform registry had 17 platforms, all with
 status `candidate`. The only anchor that was not provisional was

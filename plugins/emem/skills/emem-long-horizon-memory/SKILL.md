@@ -112,12 +112,10 @@ Read the note again before you edit it. The current `file_cid` is the
 It does not write over a newer version.
 
 1. Call `emem_memory_view` with `{path}`. Keep its `file_cid` and its
-   `content`. The REST read gives the same JSON:
-
-   ```sh
-   curl -s -H 'accept: application/json' \
-     https://emem.dev/memories/by_attester/<pubkey8>/state/project-log.md -o view.json
-   ```
+   `content`. The REST read gives the same JSON: send a GET to
+   `https://emem.dev/memories/by_attester/<pubkey8>/state/project-log.md`
+   with the header `accept: application/json`, and save the answer as
+   `view.json`.
 
 2. Before you trust the bytes, make sure that your key signed them:
 
@@ -157,9 +155,15 @@ comes back without its authorship block.
 The inbox has no MCP tool. Use REST. Set `to` to the first 8 characters
 of your public key, from `signer_whoami`:
 
+Send this body to `POST https://emem.dev/v1/inbox`:
+
+```json
+{"to": "<pubkey8>", "include_broadcast": false, "limit": 20}
+```
+
+Save the answer as `inbox.json`. Then list the messages:
+
 ```sh
-curl -s -X POST https://emem.dev/v1/inbox -H 'content-type: application/json' \
-  -d '{"to":"<pubkey8>","include_broadcast":false,"limit":20}' -o inbox.json
 jq '.messages[] | {to_you, from, title, file_cid}' inbox.json
 ```
 

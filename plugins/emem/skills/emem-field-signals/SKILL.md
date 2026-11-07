@@ -52,10 +52,13 @@ continues after the answer, so a retry can read more facts.
 Send this body to `POST https://emem.dev/v1/field_boundaries`, or call
 `emem_field_boundaries` with it:
 
+```json
+{"polygon_bbox": {"min_lat": 30.90, "max_lat": 30.903, "min_lng": 75.80, "max_lng": 75.804}, "clean": true}
+```
+
+Save the answer as `fields.json`. Then print a summary:
+
 ```sh
-curl -s -X POST https://emem.dev/v1/field_boundaries -H 'content-type: application/json' \
-  -d '{"polygon_bbox":{"min_lat":30.90,"max_lat":30.903,"min_lng":75.80,"max_lng":75.804},"clean":true}' \
-  -o fields.json
 jq -c '{count, returned, license, overlap_after_m2: .synthesis.overlap_after_m2,
   fields: [.geojson.features[] | {area_m2: .properties.area_m2, centroid: .properties.cell64_centroid}]}' fields.json
 ```
@@ -77,10 +80,15 @@ that identifies its outline.
 
 ## Step 2: check for a residue burn
 
+Send this body to `POST https://emem.dev/v1/field_burn_scar`:
+
+```json
+{"geometry_geojson": {"bbox": [75.80, 30.90, 75.804, 30.903]}, "start": "2025-10-01", "end": "2025-11-30", "max_cells": 16}
+```
+
+Save the answer as `burn.json`. Then print a summary:
+
 ```sh
-curl -s -X POST https://emem.dev/v1/field_burn_scar -H 'content-type: application/json' \
-  -d '{"geometry_geojson":{"bbox":[75.80,30.90,75.804,30.903]},"start":"2025-10-01","end":"2025-11-30","max_cells":16}' \
-  -o burn.json
 jq -c '{verdict, burn_events, events, observations}' burn.json
 ```
 
@@ -127,10 +135,15 @@ responder had not fetched the Sentinel-2 facts yet.
 
 ## Step 3: get the crop water use
 
+Send this body to `POST https://emem.dev/v1/field_actual_et`:
+
+```json
+{"geometry_geojson": {"bbox": [77.03, 32.57, 77.036, 32.573]}, "start": "2026-05-01", "end": "2026-06-30"}
+```
+
+Save the answer as `et.json`. Then print a summary:
+
 ```sh
-curl -s -X POST https://emem.dev/v1/field_actual_et -H 'content-type: application/json' \
-  -d '{"geometry_geojson":{"bbox":[77.03,32.57,77.036,32.573]},"start":"2026-05-01","end":"2026-06-30"}' \
-  -o et.json
 jq -c '{verdict, et_mm, et_m3_per_ha, coverage, pixel_m,
   composites: [.composites[] | {composite_start, days_in_window, et_mm, fact_cid}]}' et.json
 ```
@@ -153,15 +166,15 @@ irrigation applied.
 
 ## Step 4: look at the plot
 
-No MCP tool returns this picture. Use a GET:
+No MCP tool returns this picture. Send a GET to this URL and save the
+answer as `plot.png`:
 
-```sh
-curl -s -o plot.png \
-  -w '%header{x-emem-scene-item-id} %header{x-emem-scene-datetime} %header{x-emem-scene-cloud-cover}\n' \
-  'https://emem.dev/v1/scene.png?bbox=75.80,30.90,75.804,30.903&datetime=2025-10-01/2025-10-31&max_cloud=30'
+```text
+https://emem.dev/v1/scene.png?bbox=75.80,30.90,75.804,30.903&datetime=2025-10-01/2025-10-31&max_cloud=30
 ```
 
-The `%header{}` form needs curl 7.84 or later.
+Read the response headers `x-emem-scene-item-id`,
+`x-emem-scene-datetime` and `x-emem-scene-cloud-cover`.
 
 The PNG is a Sentinel-2 pass over the box at native 10 m. The
 `x-emem-scene-item-id`, `x-emem-scene-datetime` and
@@ -188,10 +201,15 @@ pixels that a third party can hash again, use
 
 ## Step 5: get an index for each scene
 
+Send this body to `POST https://emem.dev/v1/field_series`:
+
+```json
+{"bbox": [75.80, 30.90, 75.804, 30.903], "index": "ndvi", "start_date": "2025-10-01", "end_date": "2025-10-31"}
+```
+
+Save the answer as `series.json`. Then print one line for each scene:
+
 ```sh
-curl -s -X POST https://emem.dev/v1/field_series -H 'content-type: application/json' \
-  -d '{"bbox":[75.80,30.90,75.804,30.903],"index":"ndvi","start_date":"2025-10-01","end_date":"2025-10-31"}' \
-  -o series.json
 jq -c '.rows[] | {date, mean, clear_fraction, quality, scene, scene_cloud_cover}' series.json
 ```
 

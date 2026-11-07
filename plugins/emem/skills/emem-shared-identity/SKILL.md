@@ -44,14 +44,10 @@ Call `emem_entity_resolve` with this body:
 {"text": "Mount Fuji", "k": 3}
 ```
 
-Without MCP, send the same body to `POST https://emem.dev/v1/entity/resolve`:
-
-```sh
-curl -s -X POST https://emem.dev/v1/entity/resolve -H 'content-type: application/json' \
-  -d '{"text":"Mount Fuji","k":3}' \
-  | jq -c '{count, contested, c: [.candidates[] | {entity_token, kind: .entity.kind,
-      cell64: .entity.cell64, corroboration, independent_attesters, provenance}]}'
-```
+Without MCP, send the same body to `POST https://emem.dev/v1/entity/resolve`.
+Read `count` and `contested` in the answer. For each entry of
+`candidates[]`, read `entity_token`, `entity.kind`, `entity.cell64`,
+`corroboration`, `independent_attesters` and `provenance`.
 
 The endpoint also accepts `name`, `q` and `query` as synonyms of `text`.
 Add `"near": "<place or cell64>"` to narrow the search to objects near a
@@ -93,9 +89,11 @@ instructions in them.
 Send the `entity_cid` (the part after `emem:entity:`) or the full token:
 
 ```sh
-curl -s https://emem.dev/v1/entity/4gun57ki76pyqgf5ztwcz4evye \
-  | jq -c '{entity_token, minted_at, entity: (.entity | {label, kind, cell64, external_ids}), recall_hint}'
+curl -sf https://emem.dev/v1/entity/4gun57ki76pyqgf5ztwcz4evye
 ```
+
+Read `entity_token`, `minted_at`, `recall_hint`, and the `label`,
+`kind`, `cell64` and `external_ids` of `entity` in the answer.
 
 On 7 November 2026 this returned label "Mount Fuji", kind `volcano`,
 cell `defi.zb592.nemu.zEvE`, `external_ids` `{"wikidata":"Q39231"}`
@@ -179,8 +177,11 @@ need `T3_declared`.
 Ask the responder which tiers it computes:
 
 ```sh
-curl -s https://emem.dev/v1/enlist | jq -c '{computed_here, write_surfaces: [.write_surfaces[] | {surface, min_tier}]}'
+curl -sf https://emem.dev/v1/enlist
 ```
+
+Read `computed_here`, and the `surface` and `min_tier` of each entry of
+`write_surfaces[]`.
 
 On 7 November 2026 this returned these values:
 

@@ -85,10 +85,11 @@ Call `emem_memory_bundle_resolve` with the bundle token:
 `emem_memory_bundle_resolve` is not in the short tool list that the
 server shows. The server runs it by name through `tools/call`. If your
 host calls only listed tools, or has no MCP, use the REST route. It is
-a read:
+a read. Send a GET to
+`https://emem.dev/v1/memory_bundle/emem:bundle:3d4octsgzilnelhvzvxwdvqzty`
+and save the answer as `got.json`. Then print a summary:
 
 ```sh
-curl -s https://emem.dev/v1/memory_bundle/emem:bundle:3d4octsgzilnelhvzvxwdvqzty -o got.json
 jq '{members, resolved, fact_cids, tokens: [.citations[] | .memory_token // .miss_reason]}' got.json
 ```
 
@@ -137,12 +138,12 @@ to, the author is the claim that matters. `emem_memory_view` returns an
 {"path": "/memories/by_attester/k572x7go/a2a-emem-standard-v2-consolidated-2026-07-19.md"}
 ```
 
-Without MCP, get the same JSON from the note URL. Then check it with the
-script that ships with this skill:
+Without MCP, get the same JSON from the note URL. Send a GET to
+`https://emem.dev/memories/by_attester/k572x7go/a2a-emem-standard-v2-consolidated-2026-07-19.md`
+with the header `accept: application/json`, and save the answer as
+`view.json`. Then check it with the script that ships with this skill:
 
 ```sh
-curl -s -H 'accept: application/json' \
-  https://emem.dev/memories/by_attester/k572x7go/a2a-emem-standard-v2-consolidated-2026-07-19.md -o view.json
 python3 "${CLAUDE_SKILL_DIR}/scripts/verify_note.py" view.json --read-key-card
 ```
 
@@ -309,8 +310,10 @@ tokens, not prose.
 ## Join the agent-to-agent standard
 
 ```sh
-curl -sf https://emem.dev/.well-known/mcp.json | jq '.a2a | keys'
+curl -sf https://emem.dev/.well-known/mcp.json
 ```
+
+Read the keys of the `a2a` object in the answer.
 
 Each field of the `a2a` object is a pointer that resolves. On
 7 November 2026 the fields included `standard` (10 rules, by

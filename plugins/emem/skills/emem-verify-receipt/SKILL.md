@@ -47,13 +47,7 @@ Call `emem_recall` with this body:
 ```
 
 Without MCP, send the same body to `POST https://emem.dev/v1/recall`
-and save the result as `recall.json`:
-
-```sh
-curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.zezo.zcb35","bands":["weather.temperature_2m"]}' \
-  -o recall.json
-```
+and save the result as `recall.json`.
 
 Any saved emem response with a top-level `receipt` works. A bare
 receipt also works.
@@ -110,8 +104,10 @@ the same.
 Get the published key of the responder:
 
 ```sh
-curl -s https://emem.dev/.well-known/emem.json | jq -r '.responder.pubkey_b32'
+curl -sf https://emem.dev/.well-known/emem.json
 ```
+
+Read `responder.pubkey_b32` in the answer.
 
 On 6 November 2026 it was
 `777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka`, the same as the
@@ -128,14 +124,16 @@ it:
 {"receipt": {"primitive": "emem.recall", "request_id": "...", "served_at": "...", "...": "..."}}
 ```
 
-Without MCP, send the receipt to `POST https://emem.dev/v1/verify_receipt`:
+Without MCP, build the body from the saved response:
 
 ```sh
-jq -c '{receipt: .receipt}' recall.json \
-  | curl -s -X POST https://emem.dev/v1/verify_receipt \
-      -H 'content-type: application/json' -d @- \
-  | jq -c '{valid, preimage_version, merkle_proof_valid, signer_pubkey_b32}'
+jq -c '{receipt: .receipt}' recall.json > verify_req.json
 ```
+
+Send `verify_req.json` as the body of
+`POST https://emem.dev/v1/verify_receipt`. Read `valid`,
+`preimage_version`, `merkle_proof_valid` and `signer_pubkey_b32` in the
+answer.
 
 On 6 November 2026 this returned `valid: true`, `preimage_version: 2`
 and `merkle_proof_valid: true`.

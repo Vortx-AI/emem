@@ -40,19 +40,28 @@ responder operator can change the two quotas.
 
 ## Step 1: run OCR on the image
 
-Encode the image and send it to `/v1/ocr`:
+Build the request body from the image:
 
 ```sh
-python3 -c 'import base64, json, sys; print(json.dumps({"image_b64": base64.b64encode(open(sys.argv[1], "rb").read()).decode(), "lang": "eng"}))' report.png \
-  | curl -s -X POST https://emem.dev/v1/ocr -H 'content-type: application/json' -d @- -o ocr.json
+base64 -w0 report.png | jq -Rs '{image_b64: ., lang: "eng"}' > ocr_req.json
+```
+
+The body has this shape:
+
+```json
+{"image_b64": "<the base64 of report.png>", "lang": "eng"}
+```
+
+Send `ocr_req.json` as the body of `POST https://emem.dev/v1/ocr`.
+Through MCP, call `emem_ocr` with the same object as its arguments.
+`emem_ocr` is not in the short tool list of the plugin. The server runs
+it by name through `tools/call`. Save the answer as `ocr.json`. Then
+read it:
+
+```sh
 jq '{engine, lang, image_blake3_b32, text_blake3_b32, provenance_class}' ocr.json
 jq -r .text ocr.json
 ```
-
-Through MCP, call `emem_ocr` with the same object as its arguments:
-`{"image_b64": "<base64 of report.png>", "lang": "eng"}`. `emem_ocr`
-is not in the short tool list of the plugin. The server runs it by name
-through `tools/call`.
 
 You can send `"url"` instead of `"image_b64"`. Send one of the two, not
 both. `lang` takes Tesseract language codes. Join two or more with `+`,
@@ -76,8 +85,14 @@ The parse routes have no MCP tool. Use REST. To parse the OCR result
 from step 1:
 
 ```sh
-jq '{ocr: .}' ocr.json \
-  | curl -s -X POST https://emem.dev/v1/lab_report_parse -H 'content-type: application/json' -d @- -o lab.json
+jq '{ocr: .}' ocr.json > parse_req.json
+```
+
+Send `parse_req.json` as the body of
+`POST https://emem.dev/v1/lab_report_parse`. Save the answer as
+`lab.json`. Then read it:
+
+```sh
 jq '{verdict: .result.verdict, exceedances: .result.exceedances, sample_id: .result.sample_id.value,
      rows: [.result.rows[] | {analyte, raw: .result.raw, kind: .result.kind, result_mg_kg,
                               mrl_mg_kg, exceeds_printed_mrl, line_no}]}' lab.json
@@ -87,8 +102,20 @@ To parse your own text and compare each row with the EU MRL in force,
 add `product`:
 
 ```sh
-jq -Rs '{text: ., product: "rice"}' report.txt \
-  | curl -s -X POST https://emem.dev/v1/lab_report_parse -H 'content-type: application/json' -d @- -o lab_text.json
+jq -Rs '{text: ., product: "rice"}' report.txt > text_req.json
+```
+
+The body has this shape:
+
+```json
+{"text": "<the text of report.txt>", "product": "rice"}
+```
+
+Send `text_req.json` as the body of
+`POST https://emem.dev/v1/lab_report_parse`. Save the answer as
+`lab_text.json`. Then read it:
+
+```sh
 jq '{verdict: .result.verdict, lookup: .result.eu_mrl_lookup.status,
      rows: [.result.rows[] | {analyte, result_mg_kg, eu_mrl: .eu_mrl.display, exceeds: .eu_mrl.exceeds}]}' lab_text.json
 ```
@@ -167,8 +194,10 @@ The script checks the signature with the key in the response. Compare
 the `signer` that it prints with the published key of the responder:
 
 ```sh
-curl -s https://emem.dev/.well-known/emem.json | jq -r '.responder.pubkey_b32'
+curl -sf https://emem.dev/.well-known/emem.json
 ```
+
+Read `responder.pubkey_b32` in the answer.
 
 On 7 November 2026 this returned
 `777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka`.
