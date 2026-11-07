@@ -1,63 +1,94 @@
 # Fleet memory: two vendors, one verifiable map
 
-The robotics claim on the site, made runnable. Robot A (vendor A) names
-a landmark, reads the terrain around it, and hands over three short
-lines. Robot B (vendor B) converges on the landmark from its own
-phrasing, resolves the same signed bytes, and checks the signature
-itself. No shared backend, no shared credentials, and B never trusts A.
+This example runs the robotics claim on the site. Robot A (vendor A)
+finds a landmark, reads the terrain at it, and hands over three short
+lines. Robot B (vendor B) finds the same landmark from its own words,
+resolves the same signed bytes, and checks the signature itself. The
+two robots share no backend and no credentials, and B does not trust A.
+
+The script sends no key, so it makes no writes. It reads only, except
+for one alias request that the responder refuses (see below).
+
+## Run it
 
 ```bash
 pip install requests
 python3 fleet_memory.py
-# optional, for full offline verification:
+# optional, for the offline signature check:
 pip install blake3 cbor2 cryptography
 ```
 
-Output from a real run against the hosted node (2026-07-13):
+Output from a run against emem.dev on 7 November 2026, with the
+optional packages installed:
 
 ```
 == robot A (vendor A) ==
 landmark identity : emem:entity:4itylz3kjtwy3lgr76ku52ffqa (already named, reused)
-alias linked      : 'ramp seven at the Maasvlakte terminal'
+alias not linked  : HTTP 403, unsigned; digest to sign 173a66751b34738b...
 observed          : copdem30m.elevation_mean = 4.966909408569336 (direct_sensor, deterministic=True)
-observed          : surface_water.recurrence = 0.0 (deterministic_index, deterministic=True)
+observed          : surface_water.recurrence = 0.0 (model_output, deterministic=False)
 
 -- handoff across the vendor boundary: 3 lines, 206 characters --
 
 == robot B (vendor B) ==
 converged on      : emem:entity:4itylz3kjtwy3lgr76ku52ffqa (from 'ramp seven at the Maasvlakte terminal')
-resolved          : emem:fact:defi.zb64f.fOxa.zb6f2:kk2jit2jgjnl... -> copdem30m.elevation_mean (class=direct_sensor)
-resolved          : emem:fact:defi.zb64f.fOxa.zb6f2:bis73nwf7dk4... -> surface_water.recurrence (class=deterministic_index)
+resolved          : emem:fact:defi.zb64f.fOxa.zb6f2:4zi5cjhapkvu... -> copdem30m.elevation_mean (class=direct_sensor)
+resolved          : emem:fact:defi.zb64f.fOxa.zb6f2:h2oeyiebg7td... -> surface_water.recurrence (class=model_output)
 receipt valid     : True
 offline verify    : VALID (recomputed locally, no trust in the responder)
 ```
 
-What the 60 lines of logic demonstrate:
+## What the example shows
 
-- **The convergence discipline.** Resolve first, mint only on a miss.
-  A landmark named once is reused by every later robot in every fleet;
-  a fresh mint without that check creates a second identity, which is
-  exactly the referential drift the protocol exists to prevent.
-- **Aliases are attested.** A's crews say "Maasvlakte ramp 7", B's say
-  "ramp seven at the Maasvlakte terminal". One signed alias link makes
-  both phrasings converge on one canonical id.
-- **The handoff is tokens, not payloads.** Three lines, 206 characters,
-  for an identity plus two ground observations. Each fact token
-  resolves to byte-identical signed bytes with its provenance class
-  (both readings here are recomputable from raw source, and say so).
-- **Verification is local.** With the crypto libraries installed, B
-  recomputes the blake3 preimage and checks the ed25519 signature with
-  no network trust at all.
+Resolve first, and mint only on a miss. Robot A asks
+`/v1/entity/resolve` for its label before it does anything else. If
+any robot already named the landmark, A reuses that identity. A second
+mint for the same object makes a second identity, and that is the
+referential drift the protocol exists to stop. A mint is a signed
+write, so this script stops on a miss instead.
 
-A ROS 2 client package does not exist yet; this example is plain HTTP
-and runs anywhere Python runs, including on the robot. The substrate
-profile for robot fleets now ships as `robot.fleet.v1` in the
-substrates manifest (`crates/emem-core/data/substrates-v0.json`): a
-fleet's writes are admitted only with the robot's complete OS
-execution trace (`emem.os_trace.v1`, verified by the `emem-trace`
-crate), covering syscalls, scheduler, memory, sensor bus, energy,
-thermal, and on-device inference. Upgrading this example to
-trace-bound writes is step six in
-[docs/plans/encoder-substrates.md](../../docs/plans/encoder-substrates.md);
-the write-path gate itself is tracked in
-[docs/roadmap.md](../../docs/roadmap.md).
+An alias joins two phrasings to one identity. Crews at vendor A say
+"Maasvlakte ramp 7". Crews at vendor B say "ramp seven at the
+Maasvlakte terminal". One alias link makes both phrasings resolve to
+the same identity. The run on 13 July 2026 linked that alias, so
+robot B still converges today.
+
+An alias changes what every reader resolves, so it is a signed write
+to the shared entity space at tier T3. The script sends the alias
+without a key. The responder refuses it with HTTP 403 before it stores
+anything, and the refusal names the 32-byte digest to sign. To make
+the write, sign that digest with your own Ed25519 key and resend. A
+note uses the same pattern with a different preimage; see
+[Write your first signed note](../../docs/memory.md#write-your-first-signed-note).
+`GET /v1/enlist` says how a key reaches T3.
+
+The handoff is tokens, not payloads. Three lines and 206 characters
+carry one identity and two observations. Each fact token resolves to
+the same signed bytes, with the provenance class of the reading.
+
+The two readings have different classes. `copdem30m.elevation_mean`
+is `direct_sensor` and `deterministic=True`, so anyone can recompute
+it from the raw source. `surface_water.recurrence` is `model_output`
+and `deterministic=False`. The bands registry
+(`crates/emem-core/data/bands-v0.json`) gives JRC surface water that
+class, and the fact carries a caution to corroborate it.
+
+Robot B can check the receipt without the network. With the optional
+packages, the script rebuilds the receipt preimage with BLAKE3 and
+checks the Ed25519 signature locally. It handles preimage v1 and v2,
+including the v2 Merkle segment. Receipts served today use v2.
+
+## What does not ship
+
+- No ROS 2 client package exists. The example uses plain HTTP and runs
+  anywhere Python runs, including on a robot.
+- Trace-bound writes do not ship. The substrates manifest
+  (`crates/emem-core/data/substrates-v0.json`) lists `robot.fleet.v1`
+  with `status: candidate` and `admission: os_trace_required`. Under
+  that profile, a fleet write needs the complete OS execution trace of
+  the robot (`emem.os_trace.v1`, checked by the `emem-trace` crate).
+  The required layers are syscall, scheduler, memory, sensor bus,
+  energy, thermal and inference.
+- The upgrade of this example to trace-bound writes is step 6 in
+  [docs/plans/encoder-substrates.md](../../docs/plans/encoder-substrates.md).
+  The write-path gate is in [docs/roadmap.md](../../docs/roadmap.md).

@@ -43,14 +43,24 @@ def robot_a():
         entity_token = res["candidates"][0]["entity_token"]
         print(f"landmark identity : {entity_token} (already named, reused)")
     else:
-        ent = post("/v1/entity", {"label": LABEL, "place": PLACE})
-        entity_token = ent["entity_token"]
-        print(f"landmark identity : {entity_token} (minted)")
+        # Minting is a signed write to the shared entity space (tier T3).
+        # This example sends no key, so it stops here on a miss.
+        raise SystemExit(f"no entity for {LABEL!r}; minting one needs a signed write")
 
-    # Record the phrasing A's own crews use, signed, so other fleets
-    # converge on the canonical id from their words, not A's.
-    post("/v1/entity/alias", {"entity_token": entity_token, "alias": ALIAS})
-    print(f"alias linked      : {ALIAS!r}")
+    # Record the phrasing A's own crews use, so other fleets converge on
+    # the canonical id from their words, not A's. An alias redirects a
+    # name for every reader, so it is a signed write at tier T3. Without
+    # a key the responder refuses it, stores nothing, and names the
+    # digest to sign. The alias below was linked on 2026-07-13, so robot
+    # B still converges without this write.
+    r = requests.post(f"{BASE}/v1/entity/alias",
+                      json={"entity_token": entity_token, "alias": ALIAS}, timeout=120)
+    if r.ok:
+        print(f"alias linked      : {ALIAS!r}")
+    else:
+        hts = r.json().get("details", {}).get("how_to_sign", {})
+        digest = hts.get("sign_this", {}).get("digest_hex", "")
+        print(f"alias not linked  : HTTP {r.status_code}, unsigned; digest to sign {digest[:16]}...")
 
     # Read the ground at the landmark. ensure, not get: whatever is
     # missing is fetched from the named source, signed, and stored for
@@ -95,10 +105,43 @@ def robot_b(handoff, receipt):
         print("offline verify    : VALID (recomputed locally, no trust in the responder)")
     except ImportError:
         print("offline verify    : skipped (pip install blake3 cbor2 cryptography to run it)")
+    except Exception as e:  # cryptography raises InvalidSignature
+        print(f"offline verify    : INVALID ({type(e).__name__})")
+
+
+def merkle_binding_hex(proof):
+    """The v2 MERKLE segment: binds the receipt's proof, or marks it absent."""
+    from blake3 import blake3
+
+    def b32(v):
+        if isinstance(v, list):
+            return bytes(v)
+        try:
+            return bytes.fromhex(v)
+        except ValueError:
+            import base64
+            return base64.b32decode(v.upper() + "=" * ((-len(v)) % 8))
+
+    h = blake3()
+    h.update(b"emem.preimage.v1\x00")
+    h.update(len(b"merkle").to_bytes(4, "little"))
+    h.update(b"merkle")
+
+    def seg(tag, data):
+        h.update(bytes([tag]) + len(data).to_bytes(4, "little") + data)
+
+    if not proof:
+        seg(0x05, b"")
+    else:
+        seg(0x01, b32(proof["root"]))
+        seg(0x02, int(proof.get("leaf_index", 0)).to_bytes(4, "little"))
+        seg(0x03, b"".join(b32(p) for p in proof.get("path", [])))
+        seg(0x04, bytes([int(proof.get("version", 0))]))
+    return h.hexdigest()
 
 
 def offline_verify(r):
-    """Recompute the v1 preimage and check ed25519, entirely locally."""
+    """Recompute the v1 or v2 preimage and check ed25519, entirely locally."""
     import base64
 
     import cbor2
@@ -129,6 +172,8 @@ def offline_verify(r):
     seg(0x07, r["primitive"].encode())
     seg_list(0x08, r["cells"])
     seg_list(0x09, r["fact_cids"])
+    if r.get("preimage_version") == 2:
+        seg(0x0B, merkle_binding_hex(r.get("merkle_proof")).encode())
 
     s = r["responder_pubkey_b32"].upper()
     pk = base64.b32decode(s + "=" * ((-len(s)) % 8))
