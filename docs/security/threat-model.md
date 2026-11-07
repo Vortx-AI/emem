@@ -106,9 +106,12 @@ anything. Writes have tiers by what they can reach, never by who is asking
 
 ## What is still not done
 
-- **`fact_proofs` lives in sled**, at 20M rows on 14 September 2026. It caused
-  the whole 21-minute cold open. This is a deploy cost, not a security item.
-  The header of `emem-sled-slim` has the measurement.
+- **The 21-minute cold open is a deploy cost, not a security item.** On
+  14 September 2026 `fact_proofs` held 20M rows in sled and caused it. The
+  code now keeps `fact_proofs` and the multi-attester index in a redb file
+  (`facts.redb`). A background job copies the old sled rows across.
+  `EMEM_HOT_BACKEND=sled` rolls this back. The header of `emem-sled-slim` has
+  the measurement.
 - **Legacy alias rows stay unattributed.** There were 251 such rows on
   14 September 2026. They rank below any attributed row and carry a label. An
   operator can assert the true ones again under the responder key to remove
@@ -124,5 +127,6 @@ anything. Writes have tiers by what they can reach, never by who is asking
   T4 and T5 are the real limit. On 7 November 2026 the server computed T4 on
   demand and did not compute T5 (`/v1/enlist` says so).
 - **The boot panic** (`PathAndQuery::from_static`, right after the ACME
-  cached-cert event) did not have a backtrace. The server now captures one on
-  the next boot.
+  cached-cert event) did not have a backtrace. The production unit now sets
+  `RUST_BACKTRACE=1` (`deploy/systemd/emem-server.service`), so the next
+  panic logs one.
