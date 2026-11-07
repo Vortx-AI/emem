@@ -938,6 +938,37 @@ Run it, then read again.
 | POST | `/v1/ask` | `{q, place?, cell?, lat?, lng?}` |
 | POST | `/v1/intent` | A typed intent. Always send `type`; the other fields depend on it |
 
+`/v1/intent` (MCP `emem_intent`) accepts eight values of `type`. Each one
+needs its own fields:
+
+| `type` | Required fields |
+|---|---|
+| `where_is` | `description` |
+| `what_is_here` | one of `cell`, `place`, `description` |
+| `is_like` | `a`, `b` |
+| `did_change` | `cell`, `band`, `window` |
+| `find_like` | `key` |
+| `confirm` | `claim`, `cell` |
+| `ask` | `description` |
+| `area_over_time` | `start_date`, `end_date`, and one of `geometry`, `bbox`, `areas` |
+
+`area_over_time` sends the area and the date window to
+`emem_field_series`. Thus a host that lists only the core tools can get an
+area series. If `type` is missing or wrong, REST answers 400
+`invalid_argument`, and the error names the eight types. `emem_intent`
+answers `status: needs_intent_type` with `valid_types`. This `confirm` call
+checks a claim at one cell:
+
+```bash
+curl -s -X POST https://emem.dev/v1/intent \
+  -H 'content-type: application/json' \
+  -d '{"type":"confirm","cell":"defi.zb493.xuqA.zcb5f",
+       "claim":{"band":"indices.ndvi","op":"gt","value":0}}'
+```
+
+On 7 November 2026 it answered 200 with `plan`, `results` and
+`composite_suggestions`.
+
 #### Physics
 
 | Method | Path | Body |
@@ -1431,20 +1462,6 @@ resolves.
   until it is `null`.
 - For coverage, read `sampled_polygon_fraction`. Do not count rows.
 
-`/v1/intent` does not do this job. Its `type` field accepts `where_is`,
-`what_is_here`, `is_like`, `did_change`, `find_like`, `confirm`, `ask` and
-`area_over_time`. `type` selects which other fields the responder reads.
-`area_over_time` sends a polygon or bbox and a date window to
-`emem_field_series`. Thus a host that lists only the core tools can get an
-area series. This `confirm` call checks a claim at one cell:
-
-```bash
-curl -s -X POST https://emem.dev/v1/intent \
-  -H 'content-type: application/json' \
-  -d '{"type":"confirm","cell":"defi.zb493.xuqA.zcb5f",
-       "claim":{"band":"indices.ndvi","op":"gt","value":0}}'
-```
-
 ### 7. Use what another agent already found at a place
 
 Before you calculate a value for a place, read what research agents signed
@@ -1555,7 +1572,7 @@ route reads five shapes:
 | `?shape=` | Body it reads | Answer |
 |---|---|---|
 | `native` (default) | `{"texts":[...]}` or a chat-completions `messages` list | `{"action":"allow"\|"deny", ...}` |
-| `mcp` | a JSON-RPC `tools/call`, or a tool result | `{"allow":bool,"result":<CallToolResult to use instead>}` |
+| `mcp` | a JSON-RPC `tools/call`, or a tool result | `{"allow":bool, ...}`. A deny adds `result`: the `CallToolResult` (with `isError`) to return instead of the tool output |
 | `openai` | a moderations or chat-completions body | a moderations-shaped result with `flagged` |
 | `cloudevent` | a CloudEvents 1.0 structured event | a CloudEvent with the verdict |
 | `policy` | `{"input":{...}}` | `{"result":{"allow":bool,"deny":[...]}}` |
@@ -1920,7 +1937,7 @@ backfill window. It gives the tempo and the history range of each band.
 |---|---|---|
 | One upstream fetch in a materializer | 14 s | `EMEM_MATERIALIZER_TIMEOUT_SECS`, 2 to 240 |
 | One request at the gateway | 40 s | `EMEM_TIMEOUT_SECS`, 1 to 600 |
-| `/v1/eudr_dds` | its own, longer limit | `EMEM_EUDR_TIMEOUT_SECS`, 15 to 600 |
+| `/v1/eudr_dds` | 600 s | `EMEM_EUDR_TIMEOUT_SECS`, 15 to 600 |
 
 `GET /v1/agent_card` gives the live values under `runtime`
 (`materializer_timeout_secs`, `gateway_timeout_secs`). It advises a
@@ -1929,14 +1946,17 @@ client read timeout of `gateway_timeout_secs` plus 5 s. A region request
 gateway timeout. When time runs out, it gives a partial 200 and a retry
 hint.
 
-Retry a 5xx once. Do not retry a 4xx. A 503 has a `Retry-After` header.
-Wait that long.
+Retry a 5xx once. Do not retry a 4xx, except 429. A 429 (`rate_limited`)
+and a 503 (`overloaded`) have a `Retry-After` header of 1 second. Wait
+that long, then retry.
 
 ## CORS policy
 
 Every `/v1/*` route, `/mcp`, `/openapi.json` and each discovery route
-answers with `Access-Control-Allow-Origin: *`. The allowed methods and
-headers are also open. This is by design. No read needs a cookie or a
+answers with `Access-Control-Allow-Origin: *`. The allowed methods are
+`GET`, `POST` and `OPTIONS`. The allowed request headers include
+`content-type`, `authorization`, `accept` and the MCP session headers.
+This is by design. No read needs a cookie or a
 bearer token, and each read gives a receipt that the caller verifies
 offline. There is no credential for a cross-origin page to steal. A
 browser agent on any origin is a normal client.
