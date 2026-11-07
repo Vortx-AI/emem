@@ -1260,8 +1260,9 @@ send it. The target is one cell for each 100 km², clamped to 64 to 1024.
 
 `/v1/trajectory` reads only facts that emem already signed. An empty
 series means that emem fetched nothing there yet. It does not mean that
-the source has no observation. For a band with history, an empty read with no pin
-carries `fill.call`. That is the exact `/v1/backfill` body for the window.
+the source has no observation. For a band with history, an empty read with
+no pin carries `fill.call`. That is the exact `/v1/backfill` body for the
+window.
 Run it, then read again.
 
 `/v1/field_series` reads an area over time, one row per scene.
@@ -1280,10 +1281,10 @@ Run it, then read again.
   times scale plus offset, from the item's `raster:bands` (Collection 2:
   0.0000275 and -0.2). QA_PIXEL bits 0 to 4 (fill, dilated cloud, cirrus,
   cloud, cloud shadow) reject a pixel. Snow (bit 5) stays, unless
-  `qa_reject_bits` names it. emem does not use Landsat 7, because of its SLC-off
-  stripes. emem signs the answer as `landsat_index_series@1`, and its rows
-  carry `platform`. Do not join a Landsat line and a Sentinel-2 line
-  without a cross-calibration.
+  `qa_reject_bits` names it. emem does not use Landsat 7, because of its
+  SLC-off stripes. emem signs the answer as `landsat_index_series@1`, and
+  its rows carry `platform`. Do not join a Landsat line and a Sentinel-2
+  line without a cross-calibration.
 - `fields`: up to 500 `{id, geometry}` polygons. emem reads them in one
   window of at most 512 px on each side.
 - `memory: true` (with `fields`): each field summary carries `memory`, its
@@ -1467,15 +1468,16 @@ Look at `/v1/data_availability` before you select a window.
   oldest day first. Each day gets a status: `materialized`, `cached` or
   `unusable_at_pixel`.
 - One day holds one fact. When two acquisitions fall on one day, emem
-  keeps the newest clear one, as a point read does. The answer lists the other as
-  `same_slot`, with the scene that replaced it.
+  keeps the newest clear one, as a point read does. The answer lists the
+  other as `same_slot`, with the scene that replaced it.
 - Other bands run the per-tslot fetcher for each slot.
 - A band with no historical fetch returns `status: "present_only"`.
 
 ### MCP tools by shape
 
-`tools/list` on `/mcp` shows the 18 `core` tools in one page (about 77 KB of descriptors), on 7 November 2026.
-`/mcp/full` advertises all 116 (about 355 KB over 9 pages on 7 November 2026). Send
+On 7 November 2026, `tools/list` on `/mcp` gives the 18 `core` tools
+in one page (about 77 KB of descriptors).
+`/mcp/full` advertises all 116 (about 355 KB over 9 pages). Send
 `{"tier": "core"}`, `"extended"` or `"all"` to change the list on either
 endpoint. The `extended` and `all` lists come in pages: follow
 `nextCursor`. `tools/call` runs any tool by name on both endpoints, so a
@@ -1552,19 +1554,20 @@ These routes take an attestation that you sign with your own Ed25519
 key, from a process that you control. The MCP tool call carries JSON only,
 and `/v1/attest_cbor` takes canonical CBOR bytes.
 
-By default, the responder keeps the fact plane closed. An attestation whose facts have an
-address (cell, band, tslot) gets HTTP 403 with code `level_too_low`, and
-the message starts with `fact_plane_closed`. Only three writers can
-occupy an address: this responder, a device enrolled through the OS-trace
-gate, and a key that the operator lists. To add your own value at a place,
-use `POST /v1/derive` (MCP `emem_derive`). A derivation cites its parent
+By default, the responder keeps the fact plane closed. An attestation
+whose facts have an address (cell, band, tslot) gets HTTP 403 with code
+`level_too_low`, and the message starts with `fact_plane_closed`. Only
+three writers can occupy an address: this responder, a device enrolled
+through the OS-trace gate, and a key that the operator lists. To add your
+own value at a place, use `POST /v1/derive` (MCP `emem_derive`). A derivation cites its parent
 facts and cannot overwrite a fact that other agents recall. The rule is in
 `put_attestation` in `crates/emem-storage/src/lib.rs`.
 
-Other signed writes do have MCP
-tools: the memory verbs, `emem_derive` and the entity writes. If you send
-a memory verb or `emem_derive` without a signature, the 401 answer gives
-you the exact digest to sign. For key generation and signing, see
+Other signed writes do have MCP tools: the memory verbs, `emem_derive` and
+the entity writes. If you send a memory verb or `emem_derive` without a
+signature, the error gives you the exact digest to sign. Over REST it is
+HTTP 401. Over MCP it is a tool result with `isError: true`. For key
+generation and signing, see
 [emem-sign-and-attest](../plugins/emem/skills/emem-sign-and-attest/SKILL.md)
 and [protocol.md](protocol.md).
 
@@ -1573,10 +1576,11 @@ and [protocol.md](protocol.md).
 ## Algorithms
 
 The algorithm registry holds recipes that combine signed bands into
-agronomic and hydrological scores. Examples are `vegetation_class_from_ndvi@1`,
-`burn_severity_from_dnbr@1`, `walkability_score@1`, `heat_index@2` and
-`rusle_soil_erosion@1`. On 7 November 2026 it held 172 recipes. The list
-returns 20 per page by default. Send `?page=N&page_size=100` and follow `pagination.next_url`.
+agronomic and hydrological scores. Examples are
+`vegetation_class_from_ndvi@1`, `burn_severity_from_dnbr@1`,
+`walkability_score@1`, `heat_index@2` and `rusle_soil_erosion@1`. On 7
+November 2026 it held 172 recipes. The list returns 20 per page by
+default. Send `?page=N&page_size=100` and follow `pagination.next_url`.
 
 On the same day, 8 entries had a `parameters` block of named numbers. Each
 of these entries also has a `learned_from` object with one key for each
@@ -1644,10 +1648,11 @@ On 7 November 2026, emem.dev routed two models: `google.gemma-3-12b-it`
 (family `gemma`) and `nvidia/Cosmos3-Edge` (family `cosmos3_edge`). The
 Cosmos model returned a typed error that day: the host had no CUDA device.
 
-The `model` field also works on the MCP tools `emem_ask` and `emem_reason`,
-and on the A2A door. On the A2A door, use the `emem_ask` skill. It returns
-the signed answer also when the model does not finish. `emem_reason` returns only the
-prose, so a slow model leaves you with nothing.
+The `model` field also works on the MCP tools `emem_ask` and
+`emem_reason`, and on the A2A door. On the A2A door, use the `emem_ask`
+skill. It returns the signed answer also when the model does not finish.
+`emem_reason` returns only the prose, so a slow model leaves you with
+nothing.
 
 ```bash
 curl -s -X POST https://emem.dev/a2a/tasks \
@@ -1683,17 +1688,18 @@ Before you build on `model_answer`, know these rules:
   prose starts with `ABSTAIN:` and tells what is missing.
 - When the model gives no text, `model_answer` holds a typed error with
   `code` and `message`. The HTTP status stays 200, so read
-  `model_answer.code`. `answer` does not change, because it does not use a model.
+  `model_answer.code`. `answer` does not change, because it does not use a
+  model.
 
 ---
 
 ## Signed Absence
 
 When a band has no data at a cell, the responder does not return `404` or
-an empty array. It returns a signed Absence fact. The answer has
-`"kind": "absence"`, a `reason` and a `reason_cid`. It has no `value`
-field. The signed fact carries `reason_cid` only. The recall answer adds
-the `reason` text beside it, and the receipt does not sign that text. Read `kind`
+an empty array. It returns a signed Absence fact. The answer has `"kind":
+"absence"`, a `reason` and a `reason_cid`. It has no `value` field. The
+signed fact carries `reason_cid` only. The recall answer adds the `reason`
+text beside it, and the receipt does not sign that text. Read `kind`
 before you read `value`. You can cite its `fact_cid` like any other fact.
 
 `reason` is text that starts with a short code from the connector. Examples
