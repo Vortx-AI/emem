@@ -60,10 +60,12 @@ built the wrong package; `-p emem-guard` pulls no inference dependencies.
 cargo test --release -p emem-guard
 ```
 
-Check: every test passes; there are 136 of them. These are not smoke tests. They include the two
-signature-verification mistakes the platform documentation singles out as the
-most common (hashing a re-encoded body, and decoding the secret with a
-URL-safe alphabet), and they fail loudly if either is reintroduced.
+Check: every test passes. The crate source holds 143 tests (counted on
+7 November 2026: 123 `#[test]` and 20 `#[tokio::test]`, none ignored).
+These are not smoke tests. The platform documentation names two common
+signature-verification mistakes: a hash over a re-encoded body, and a secret
+decoded with a URL-safe alphabet. Tests cover both and fail if either comes
+back.
 
 Do not skip this step because the build succeeded. A guard that compiles and
 mis-verifies signatures accepts requests from anyone.
