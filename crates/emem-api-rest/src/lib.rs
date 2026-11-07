@@ -65423,7 +65423,7 @@ fn chrono_iso8601_utc() -> String {
 async fn coverage_json(
     State(s): State<AppState>,
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
-) -> Json<JsonValue> {
+) -> Result<Json<JsonValue>, ApiError> {
     // Hard cap is tunable so the homepage map can stream the whole corpus, not
     // a slice. Default raised to 200k (well above the current distinct-cell
     // count) so "show everywhere Earth is remembered" is literally true; the
@@ -65447,12 +65447,22 @@ async fn coverage_json(
         .as_ref()
         .iter_index(Some(scan_index_limit))
         .await
-        .unwrap_or_default();
-    Json(coverage_page(
+        // An empty list here would read as a complete scan of an empty corpus.
+        .map_err(|e| {
+            ApiError(
+                StatusCode::SERVICE_UNAVAILABLE,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("the coverage index scan failed: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+    Ok(Json(coverage_page(
         entries.iter().map(|(k, _)| k.cell.as_str()),
         limit,
         scan_index_limit,
-    ))
+    )))
 }
 
 const COVERAGE_MIN_PAGE_FOR_SCAN: usize = 1000;
@@ -65474,13 +65484,13 @@ fn coverage_page<'a>(
     limit: usize,
     scan_index_limit: usize,
 ) -> JsonValue {
-    let mut facts_scanned: usize = 0;
+    let mut index_entries_scanned: usize = 0;
     let mut by_cell: std::collections::HashMap<&'a str, u64> = std::collections::HashMap::new();
     for c in scanned_cells {
-        facts_scanned += 1;
+        index_entries_scanned += 1;
         *by_cell.entry(c).or_default() += 1;
     }
-    let scan_complete = facts_scanned < scan_index_limit;
+    let scan_complete = index_entries_scanned < scan_index_limit;
     // `total_cells` is counted before the `limit` truncation, so a client
     // (e.g. the homepage map legend) can tell a capped page from the corpus.
     let mut cells: Vec<(u64, JsonValue)> = by_cell
@@ -65510,10 +65520,10 @@ fn coverage_page<'a>(
         "total_cells": total_cells,
         "returned": cells.len(),
         "limit": limit,
-        "facts_scanned": facts_scanned,
+        "index_entries_scanned": index_entries_scanned,
         "scan_index_limit": scan_index_limit,
         "scan_complete": scan_complete,
-        "note": "total_cells counts distinct cells with a position among the facts scanned. When scan_complete is false the scan stopped at scan_index_limit, so total_cells is a lower bound; GET /v1/health and /v1/coverage_matrix use their own caps.",
+        "note": "index_entries_scanned includes entries with no cell64 position, such as notes. total_cells counts distinct cells with a position among the entries scanned. When scan_complete is false the scan stopped at scan_index_limit, in index key order: total_cells is then a lower bound, and cells are the cells with the most facts among the entries scanned, not across the whole corpus.",
         "cells": cells,
         "next": [
             "GET /v1/coverage_map.svg , same data as a 1440×720 raster (multimodal agents)",
@@ -65546,7 +65556,7 @@ mod coverage_page_tests {
         assert_eq!(body["returned"], 1);
         assert_eq!(body["cells"][0]["cell64"], FUJI);
         assert_eq!(body["cells"][0]["fact_count"], 1);
-        assert_eq!(body["facts_scanned"], 4);
+        assert_eq!(body["index_entries_scanned"], 4);
         assert_eq!(body["scan_complete"], true);
     }
 
