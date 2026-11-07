@@ -40,7 +40,7 @@ lng 77.6245 (Koramangala, Bengaluru). Its cell is `defi.zb493.hufo.zccc6`.
 | step | call | result on 7 November 2026 |
 |---|---|---|
 | 1. Find the parcel address | `POST /v1/locate` with `lat`, `lng` | `cell64` `defi.zb493.hufo.zccc6` |
-| 2. Recall signed facts | `POST /v1/recall` with 14 bands | 14 of 14 bands materialized; the receipt lists 23 `fact_cids` (this count grows with new weather readings) |
+| 2. Recall signed facts | `POST /v1/recall` with 14 bands | 14 of 14 bands materialized; the receipt lists 26 `fact_cids` at 08:03 UTC (this count grows with new weather readings) |
 | 3. Apply published algorithms | `GET /v1/algorithms/<key>` | `vegetation_class_from_ndvi@1` gives `bare`; `flood_risk@2` gives 0.0244 (low); both agree with the responder |
 | 4. Write two memos | none | a naive memo and a grounded memo with the same numbers |
 | 5. Get two verdicts | `POST /v1/guard/verdict?shape=native` | naive: `deny` `CLAIM_UNGROUNDED`; grounded: `allow`, 5 citations, 5 `fact_cids` |
@@ -91,10 +91,10 @@ The guard on the full memo also misses some claims. In step 6 on 7 November
 elevation, a length) and allowed 4 (an NDVI value, a percentage, a percentage,
 and an application number).
 
-Guard verdicts from `emem.dev` are advisory: the verdict carries `advisory: true`
-and blocks nothing. To enforce
-them, run your own node (`GET /v1/guard/selfhost`). Your own node can also check
-a corpus that this responder does not hold.
+Guard verdicts from `emem.dev` are advisory: the verdict carries
+`advisory: true` and blocks nothing. To enforce them, run your own node
+(`GET /v1/guard/selfhost`). Your own node can also check a corpus that this
+responder does not hold.
 
 ## About `expected_output.txt`
 
