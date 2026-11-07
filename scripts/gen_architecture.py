@@ -22,8 +22,8 @@ f_sub = c.font(FONT_MONO, 12)
 f_lab = c.font(FONT_MONO, 12)
 f_tiny = c.font(FONT_MONO, 10)
 
-c.text(56, 50, "One binary, signed end to end", f_title, INK)
-c.text(58, 86, "the same handlers answer MCP and REST · reads need no auth · every write is logged", f_sub, INK_SOFT)
+c.text(84, 50, "One binary, signed end to end", f_title, INK)
+c.text(86, 86, "the same handlers answer MCP and REST · reads need no auth · every write is logged", f_sub, INK_SOFT)
 
 def flow(a, b, col, w, a_=170, bow=0.0, beads=True, glow=False):
     mx, my = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
@@ -39,7 +39,7 @@ def flow(a, b, col, w, a_=170, bow=0.0, beads=True, glow=False):
             c.dot(pts[k][0], pts[k][1], 1.2, col, a=a_)
     return pts
 
-# ---- left: 46 upstream sources feed in
+# ---- left: upstream sources feed in; 5 of the 46 registered have no reader (intro.md)
 SRC_X = 150
 src_dyes = [INDIGO, LEAF, TEAL, TURMERIC, LAC, VERMIL, INDIGO, LEAF, TEAL]
 for i in range(9):
@@ -47,7 +47,7 @@ for i in range(9):
     col = src_dyes[i]
     c.roundel(SRC_X, y, 12, col, halo=False)
     flow((SRC_X + 16, y), (CX - 150, CY + (y - CY) * 0.25), INK_SOFT, 0.9, a_=120, bow=18 * math.sin(i))
-c.text(SRC_X, CY - 240, "46 sources", f_lab, INK, center=True)
+c.text(SRC_X + 24, CY - 240, "41 of 46 sources", f_lab, INK, center=True)
 c.text(SRC_X, CY + 232, "STAC + COG, signed", f_tiny, INK_SOFT, center=True)
 c.text(SRC_X, CY + 247, "on the first miss", f_tiny, INK_SOFT, center=True)
 
@@ -84,10 +84,14 @@ RR = 168
 for i, name in enumerate(prims):
     th = math.radians(-90 + i * 360 / len(prims))
     x, y = CX + RR * math.cos(th), CY + RR * math.sin(th) * 0.9
-    c.line((CX, CY), (x, y), INK_SOFT, 0.8, a=110)
+    below = math.sin(th) > 0.99
+    # The spoke and label of the node straight below the centre would cross the centre's own labels.
+    c.line((CX, CY + 122) if below else (CX, CY), (x, y), INK_SOFT, 0.8, a=110)
     c.roundel(x, y, 19, pr_dyes[i], signed=(i % 2 == 0))
-    lx = x + (26 if math.cos(th) >= 0 else -26)
-    c.text(x, y + 30, name, f_tiny, INK, center=True)
+    if below:
+        c.text(x + 30, y - 7, name, f_tiny, INK)
+    else:
+        c.text(x, y + 30, name, f_tiny, INK, center=True)
 
 # ---- centre: the binary
 c.lotus(CX, CY, 70)
@@ -96,16 +100,16 @@ c.text(CX, CY + 113, "one binary", f_lab, INK_SOFT, center=True)
 
 # ---- manifests row under the title (4 content-addressed CIDs)
 mlabels = ["bands_cid", "algorithms_cid", "sources_cid", "schema_cid"]
-mx0 = W - 470
+mx0 = W - 560
 c.text(mx0 - 14, 52, "manifests:", f_tiny, INK)
 for i, m in enumerate(mlabels):
-    x = mx0 + 12 + i * 112
+    x = mx0 + 12 + i * 125
     c.seal(x, 74, 8, fill=[INDIGO, LEAF, TURMERIC, LAC][i])
     c.text(x + 12, 68, m, f_tiny, INK_SOFT)
 
 # ---- legend
 ly = H - 60
-lx = 70
+lx = 96
 c.line((lx, ly), (lx + 26, ly), INK_SOFT, 1.1)
 c.text(lx + 32, ly - 7, "request flow", f_lab, INK); lx += 32 + c.textw("request flow", f_lab) + 30
 c.line((lx, ly), (lx + 26, ly), LEAF, 1.4); c.text(lx + 32, ly - 7, "signed write", f_lab, INK); lx += 32 + c.textw("signed write", f_lab) + 30

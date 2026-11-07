@@ -328,6 +328,18 @@ The world GIFs in `docs/media/` come from these templates.
 dependencies. It needs Node 22 or later. These commands did not run on our
 test host, because it has no Chromium:
 
+| [<img src="../../docs/media/worlds/world-rondonia-poster.webp" width="360" alt="The carbon world over Rondônia: 848 cells and 3,733 signed facts. Splat height is ESA CCI above-ground biomass. Green splats are standing forest. Orange splats are cells with a Hansen loss year.">](../../docs/media/worlds/world-rondonia.mp4) | Carbon world, Rondônia, 10 s. [MP4](../../docs/media/worlds/world-rondonia.mp4) 230 KB, [GIF](../../docs/media/world-rondonia.gif) 17.0 MB |
+
+| [<img src="../../docs/media/worlds/world-grand-canyon-poster.webp" width="360" alt="The single-band world over the Grand Canyon: 1,024 cells and 1,024 signed copdem30m.elevation_mean facts. Splat height and colour are elevation.">](../../docs/media/worlds/world-grand-canyon.mp4) | Single-band world, Grand Canyon, 10 s. [MP4](../../docs/media/worlds/world-grand-canyon.mp4) 205 KB, [GIF](../../docs/media/world-grand-canyon.gif) 14.7 MB |
+
+| [<img src="../../docs/media/worlds/world-interlaken-poster.webp" width="360" alt="The multi-band world over Interlaken: 1,024 cells and 3,026 signed facts. Height is elevation, green is Sentinel-2 NDVI and blue is JRC surface-water recurrence.">](../../docs/media/worlds/world-interlaken.mp4) | Multi-band world, Interlaken, 10 s. [MP4](../../docs/media/worlds/world-interlaken.mp4) 207 KB, [GIF](../../docs/media/world-interlaken.gif) 13.2 MB |
+
+| [<img src="../../docs/media/worlds/world-semantic-cairo-poster.webp" width="360" alt="The semantic world over Cairo and Giza: 1,024 cells and 2,017 signed facts. Colour is the 128-D GeoTessera embedding reduced to RGB by PCA.">](../../docs/media/worlds/world-semantic-cairo.mp4) | Semantic world, Cairo and Giza, 10 s. [MP4](../../docs/media/worlds/world-semantic-cairo.mp4) 192 KB, [GIF](../../docs/media/world-semantic-cairo.gif) 14.3 MB |
+
+| [<img src="../../docs/media/worlds/world-grand-canyon-columns-poster.webp" width="360" alt="A column render of the Grand Canyon: 736 signed elevation facts drawn as points on vertical columns.">](../../docs/media/worlds/world-grand-canyon-columns.mp4) | Column render, Grand Canyon, 4 s. [MP4](../../docs/media/worlds/world-grand-canyon-columns.mp4) 278 KB, [GIF](../../docs/media/world-grand-canyon-columns.gif) 7.5 MB |
+
+| [<img src="../../docs/media/worlds/world-interlaken-columns-poster.webp" width="360" alt="A column render of Interlaken: 725 signed facts for elevation, NDVI and water recurrence drawn as points on vertical columns.">](../../docs/media/worlds/world-interlaken-columns.mp4) | Column render, Interlaken, 4 s. [MP4](../../docs/media/worlds/world-interlaken-columns.mp4) 251 KB, [GIF](../../docs/media/world-interlaken-columns.gif) 5.4 MB |
+
 ```bash
 cd "$(git rev-parse --show-toplevel)/examples/3d-worlds"
 python3 make_splats.py --preset carbon --out out/rondonia

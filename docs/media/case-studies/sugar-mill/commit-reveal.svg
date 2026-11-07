@@ -1,73 +1,62 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 330" width="880" height="330" role="img" aria-labelledby="t d">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 624" width="640" height="624" role="img" aria-labelledby="t d">
   <title id="t">Panel 4 commit-then-reveal timeline, 6 November 2026 (UTC)</title>
-  <desc id="d">Six steps on one line. Both teams put the sha256 of their secret in the plan. At 20:29 a signed public note fixes the plan, the draw script, the tested file and both commitments. At 20:30 team A reveals its secret to team B. At 21:30 team B checks it against the commitment and finds that the hash is of the hex text. At 21:35 an addendum explains this without a change to the plan. The draw runs only after team B reveals.</desc>
+  <desc id="d">Seven steps from top to bottom. Before 20:29 each team puts the sha256 of its secret in the plan. At 20:29 a signed public note fixes the plan, the draw script, the tested file and both commitments. At 20:30 team A reveals its secret to team B. At 21:30 team B checks it against the commitment: it matches, and the hash is of the hex text. At 21:35 an addendum explains this rule and does not change the plan. Not yet done on 6 November 2026: team B reveals, then the draw script runs; later come the cards, the blind reads and the score. The draw script stops if a secret does not match its commitment.</desc>
   <style>
-    text { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; fill: #1f2328; }
-    .time { font-size: 15px; font-weight: 600; }
-    .lab { font-size: 12.5px; }
-    .note { font-size: 12px; fill: #57606a; }
-    .line { stroke: #57606a; stroke-width: 2; }
-    .dot { fill: #ffffff; stroke: #1f2328; stroke-width: 2; }
-    .key { fill: #1f2328; }
-    .wait { fill: #ffffff; stroke: #57606a; stroke-width: 2; stroke-dasharray: 4 3; }
-    .band { fill: #f6f8fa; stroke: #d0d7de; }
+    text { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; fill: #e6edf3; }
+    .h { font-size: 20px; font-weight: 600; }
+    .sub { font-size: 16px; fill: #8b949e; }
+    .time { font-size: 16px; font-weight: 600; fill: #79c0ff; }
+    .later { fill: #8b949e; }
+    .lab { font-size: 16px; }
+    .note { font-size: 16px; fill: #8b949e; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 16px; fill: #ffa657; }
+    .line { stroke: #8b949e; stroke-width: 2; }
+    .dot { fill: #161b22; stroke: #e6edf3; stroke-width: 2; }
+    .key { fill: #7ee787; }
+    .wait { fill: #0d1117; stroke: #8b949e; stroke-width: 2; stroke-dasharray: 4 3; }
   </style>
-  <rect x="0" y="0" width="880" height="330" fill="#ffffff"/>
+  <rect x="0" y="0" width="640" height="624" rx="8" fill="#0d1117"/>
 
-  <text class="time" x="20" y="44">Panel 4, 6 November 2026 (UTC). Nothing is drawn before both secrets are revealed.</text>
-  <line class="line" x1="60" y1="130" x2="640" y2="130"/>
-  <line class="line" x1="640" y1="130" x2="830" y2="130" stroke-dasharray="6 5"/>
+  <text class="h" x="24" y="40">Panel 4, 6 November 2026 (UTC)</text>
+  <text class="sub" x="24" y="64">Nothing is drawn before both secrets are revealed.</text>
 
-  <!-- 1 -->
-  <circle class="dot" cx="72" cy="130" r="9"/>
-  <text class="time" x="72" y="105" text-anchor="middle">before 20:29</text>
-  <text class="lab" x="72" y="165" text-anchor="middle">Each team puts</text>
-  <text class="lab" x="72" y="183" text-anchor="middle">sha256(secret)</text>
-  <text class="lab" x="72" y="201" text-anchor="middle">in the plan</text>
+  <line class="line" x1="156" y1="110" x2="156" y2="350"/>
+  <line class="line" x1="156" y1="350" x2="156" y2="470" stroke-dasharray="6 5"/>
 
-  <!-- 2 -->
-  <circle class="key" cx="196" cy="130" r="10"/>
-  <text class="time" x="196" y="105" text-anchor="middle">20:29</text>
-  <text class="lab" x="196" y="165" text-anchor="middle">Signed public note:</text>
-  <text class="lab" x="196" y="183" text-anchor="middle">plan, draw script,</text>
-  <text class="lab" x="196" y="201" text-anchor="middle">tested file, both</text>
-  <text class="lab" x="196" y="219" text-anchor="middle">commitments</text>
+  <circle class="dot" cx="156" cy="110" r="9"/>
+  <text class="time" x="136" y="116" text-anchor="end">before 20:29</text>
+  <text class="lab" x="180" y="116">Each team puts sha256(secret) in the plan.</text>
 
-  <!-- 3 -->
-  <circle class="dot" cx="320" cy="130" r="9"/>
-  <text class="time" x="320" y="105" text-anchor="middle">20:30</text>
-  <text class="lab" x="320" y="165" text-anchor="middle">Team A reveals</text>
-  <text class="lab" x="320" y="183" text-anchor="middle">its secret</text>
-  <text class="lab" x="320" y="201" text-anchor="middle">to team B</text>
+  <circle class="key" cx="156" cy="170" r="10"/>
+  <text class="time" x="136" y="176" text-anchor="end">20:29</text>
+  <text class="lab" x="180" y="176">A signed public note fixes the plan, the draw</text>
+  <text class="lab" x="180" y="198">script, the tested file and both commitments.</text>
 
-  <!-- 4 -->
-  <circle class="dot" cx="444" cy="130" r="9"/>
-  <text class="time" x="444" y="105" text-anchor="middle">21:30</text>
-  <text class="lab" x="444" y="165" text-anchor="middle">Team B checks it:</text>
-  <text class="lab" x="444" y="183" text-anchor="middle">match; the hash</text>
-  <text class="lab" x="444" y="201" text-anchor="middle">is of the hex TEXT</text>
+  <circle class="dot" cx="156" cy="230" r="9"/>
+  <text class="time" x="136" y="236" text-anchor="end">20:30</text>
+  <text class="lab" x="180" y="236">Team A reveals its secret to team B.</text>
 
-  <!-- 5 -->
-  <circle class="dot" cx="568" cy="130" r="9"/>
-  <text class="time" x="568" y="105" text-anchor="middle">21:35</text>
-  <text class="lab" x="568" y="165" text-anchor="middle">Addendum</text>
-  <text class="lab" x="568" y="183" text-anchor="middle">explains it;</text>
-  <text class="lab" x="568" y="201" text-anchor="middle">plan unchanged</text>
+  <circle class="dot" cx="156" cy="290" r="9"/>
+  <text class="time" x="136" y="296" text-anchor="end">21:30</text>
+  <text class="lab" x="180" y="296">Team B checks it: match. The hash is of the</text>
+  <text class="lab" x="180" y="318">hex TEXT, not of the raw bytes.</text>
 
-  <!-- 6 -->
-  <circle class="wait" cx="692" cy="130" r="9"/>
-  <text class="time" x="692" y="105" text-anchor="middle">next</text>
-  <text class="lab" x="692" y="165" text-anchor="middle">Team B reveals,</text>
-  <text class="lab" x="692" y="183" text-anchor="middle">then the draw script</text>
-  <text class="lab" x="692" y="201" text-anchor="middle">runs as written</text>
+  <circle class="dot" cx="156" cy="350" r="9"/>
+  <text class="time" x="136" y="356" text-anchor="end">21:35</text>
+  <text class="lab" x="180" y="356">An addendum explains the rule.</text>
+  <text class="lab" x="180" y="378">The plan does not change.</text>
 
-  <!-- 7 -->
-  <circle class="wait" cx="816" cy="130" r="9"/>
-  <text class="time" x="816" y="105" text-anchor="middle">later</text>
-  <text class="lab" x="816" y="165" text-anchor="middle">Cards,</text>
-  <text class="lab" x="816" y="183" text-anchor="middle">blind reads,</text>
-  <text class="lab" x="816" y="201" text-anchor="middle">score</text>
+  <circle class="wait" cx="156" cy="410" r="9"/>
+  <text class="time later" x="136" y="416" text-anchor="end">next</text>
+  <text class="lab" x="180" y="416">Team B reveals. Then the draw script runs</text>
+  <text class="lab" x="180" y="438">as written.</text>
 
-  <text class="note" x="20" y="270">seed = int(sha256("&lt;secret A&gt;|&lt;secret B&gt;")[:16], 16). The draw script stops if a secret does not match its commitment.</text>
-  <text class="note" x="20" y="292">Filled dot: the signed public note. Dashed circles and line: steps not yet done on 6 November 2026.</text>
+  <circle class="wait" cx="156" cy="470" r="9"/>
+  <text class="time later" x="136" y="476" text-anchor="end">later</text>
+  <text class="lab" x="180" y="476">Cards, blind reads, score.</text>
+
+  <text class="mono" x="24" y="526">seed = int(sha256("&lt;secret A&gt;|&lt;secret B&gt;")[:16], 16)</text>
+  <text class="note" x="24" y="550">The draw script stops if a secret does not match its commitment.</text>
+  <text class="note" x="24" y="574">Green dot: the signed public note.</text>
+  <text class="note" x="24" y="598">Dashed: not yet done on 6 November 2026.</text>
 </svg>

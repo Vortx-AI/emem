@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 1201" width="640" height="1201" role="img" aria-labelledby="t d">
+  <title id="t">How one value becomes a fact</title>
+  <desc id="d">Five steps from top to bottom, drawn from the real bytes of one fact. 1 Read: emem sends HTTP Range requests to the open Copernicus DEM file Copernicus_DSM_COG_10_N35_00_E138_00_DEM.tif on AWS (43.4 MB). It reads the first 64 KiB, then the one tile it needs. 2 Sample: the connector copernicus_dem_30m_aws_pixel@1 turns 35.3628 N, 138.7308 E into 3539.04 m. 3 Encode: canonical CBOR, 743 bytes; the value is the 4-byte float 45 5d 30 ad. 4 Hash: BLAKE3 in base32 gives fact_cid qejpz7cg…2jjbplq. We hashed the bytes again and got the same id. 5 Sign: the responder signs a Merkle root over fact ids with Ed25519, each read gets a signed receipt that lists them, and agents cite the fact as emem:fact:&lt;cell&gt;:&lt;fact_cid&gt;. A red panel shows one changed byte: 45 5d 30 ad becomes 45 5d 30 ac, the value becomes 3539.0420 m, and the id becomes 26zhvwvf…dj7porq. The old id does not name the new bytes. Bytes from emem.dev on 7 November 2026.</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8b949e"/>
+    </marker>
+  </defs>
+  <style>
+    .sans { font-family: "DejaVu Sans", system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .mono { font-family: "DejaVu Sans Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .h { font-size: 21px; font-weight: 600; fill: #e6edf3; }
+    .term { font-size: 20px; font-weight: 600; fill: #e6edf3; }
+    .ex { font-size: 16px; fill: #79c0ff; }
+    .tok { font-size: 16px; fill: #ffa657; }
+    .bad { font-size: 16px; fill: #ff7b72; }
+    .ok { font-size: 18px; fill: #7ee787; }
+    .txt { font-size: 18px; fill: #8b949e; }
+    .verb { font-size: 16px; fill: #8b949e; }
+    .num { font-size: 17px; font-weight: 600; fill: #79c0ff; }
+    .box { fill: #161b22; stroke: #30363d; stroke-width: 1; }
+    .badbox { fill: #161b22; stroke: #ff7b72; stroke-width: 1.5; stroke-dasharray: 6 5; }
+    .ring { fill: #0d1117; stroke: #79c0ff; stroke-width: 1.5; }
+    .flow { stroke: #8b949e; stroke-width: 1.5; fill: none; }
+  </style>
+
+  <rect x="0" y="0" width="640" height="1201" rx="12" fill="#0d1117"/>
+  <text class="sans h" x="24" y="40">How one value becomes a fact</text>
+
+  <rect class="box" x="24" y="64" width="592" height="139" rx="8"/>
+  <circle class="ring" cx="48" cy="94" r="15"/>
+  <text class="sans num" x="48" y="100" text-anchor="middle">1</text>
+  <text class="sans term" x="76" y="101">Read</text>
+  <text class="mono verb" x="196" y="101">HTTP Range</text>
+  <text class="mono ex" x="76" y="129">Copernicus_DSM_COG_10_N35_00_E…</text>
+  <text class="sans txt" x="76" y="155">An open file on AWS, 43.4 MB. emem reads</text>
+  <text class="sans txt" x="76" y="181">the first 64 KiB, then the one tile it needs.</text>
+  <path class="flow" d="M48 203 V227" marker-end="url(#a)"/>
+  <rect class="box" x="24" y="229" width="592" height="141" rx="8"/>
+  <circle class="ring" cx="48" cy="259" r="15"/>
+  <text class="sans num" x="48" y="265" text-anchor="middle">2</text>
+  <text class="sans term" x="76" y="266">Sample</text>
+  <text class="mono verb" x="196" y="266">connector</text>
+  <text class="mono ex" x="76" y="294">copernicus_dem_30m_aws_pixel@1</text>
+  <text class="mono ex" x="76" y="322">35.3628 N, 138.7308 E  →  3539.04 m</text>
+  <text class="sans txt" x="76" y="348">No state. Same pixel in, same value out.</text>
+  <path class="flow" d="M48 370 V394" marker-end="url(#a)"/>
+  <rect class="box" x="24" y="396" width="592" height="139" rx="8"/>
+  <circle class="ring" cx="48" cy="426" r="15"/>
+  <text class="sans num" x="48" y="432" text-anchor="middle">3</text>
+  <text class="sans term" x="76" y="433">Encode</text>
+  <text class="mono verb" x="196" y="433">canonical CBOR</text>
+  <text class="mono ex" x="76" y="461">743 bytes   …"value" 45 5d 30 ad…</text>
+  <text class="sans txt" x="76" y="487">The value is a 4-byte float. Fields keep</text>
+  <text class="sans txt" x="76" y="513">their record order; keys are not sorted.</text>
+  <path class="flow" d="M48 535 V559" marker-end="url(#a)"/>
+  <rect class="box" x="24" y="561" width="592" height="139" rx="8"/>
+  <circle class="ring" cx="48" cy="591" r="15"/>
+  <text class="sans num" x="48" y="597" text-anchor="middle">4</text>
+  <text class="sans term" x="76" y="598">Hash</text>
+  <text class="mono verb" x="196" y="598">BLAKE3, base32</text>
+  <text class="mono tok" x="76" y="626">fact_cid qejpz7cg…2jjbplq</text>
+  <text class="sans txt" x="76" y="652">We hashed the 743 bytes again on our own</text>
+  <text class="sans txt" x="76" y="678">machine. The id is the same.</text>
+  <path class="flow" d="M48 700 V724" marker-end="url(#a)"/>
+  <rect class="box" x="24" y="726" width="592" height="139" rx="8"/>
+  <circle class="ring" cx="48" cy="756" r="15"/>
+  <text class="sans num" x="48" y="762" text-anchor="middle">5</text>
+  <text class="sans term" x="76" y="763">Sign</text>
+  <text class="mono verb" x="196" y="763">Ed25519</text>
+  <text class="sans txt" x="76" y="789">The responder signs a Merkle root over fact ids.</text>
+  <text class="sans txt" x="76" y="815">Each read gets a signed receipt that lists them.</text>
+  <text class="mono tok" x="76" y="843">emem:fact:&lt;cell&gt;:&lt;fact_cid&gt;</text>
+
+  <rect class="badbox" x="24" y="897" width="592" height="172" rx="8"/>
+  <text class="sans term" x="48" y="933" style="fill:#ff7b72">Change one byte</text>
+  <text class="mono ex" x="48" y="965">45 5d 30 ad  →  45 5d 30 ac</text>
+  <text class="mono ex" x="48" y="993">3539.0422 m  →  3539.0420 m</text>
+  <text class="mono bad" x="48" y="1021">fact_cid 26zhvwvf…dj7porq</text>
+  <text class="sans txt" x="48" y="1051">The old id does not name the new bytes.</text>
+
+  <text class="sans txt" x="24" y="1109">Same bytes, same id, on every machine.</text>
+  <text class="sans verb" x="24" y="1145">Bytes from emem.dev, 7 November 2026, 12:17 UTC.</text>
+  <text class="sans verb" x="24" y="1167">Value from Copernicus DEM GLO-30.</text>
+</svg>

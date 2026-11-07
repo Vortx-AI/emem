@@ -89,6 +89,8 @@ with emem
 On 7 November 2026, `POST /v1/memory_token/resolve` with that token returned
 `value` 915.0712280273438 and `unit` `m`.
 
+<img src="media/stills/bundle-handoff.webp" alt="Live reads of emem.dev on 7 November 2026. 1: agent A hands over one 38-character line, emem:bundle:y2k6h2laeo4libfsiebucdw4mu, minted on 23 September 2026: four members, four resolved, one cell in Bengaluru at 12.972 N, 77.594 E. 2: agent B resolves the bundle and each fact token: elevation 915.07 m (observed 30 April 2021), NDVI 0.33 (12 May 2026), PM2.5 27.8 micrograms per cubic metre (28 May 2026) and air temperature 20.1 degrees C (21 July 2026). Each token resolves to the fact id that A cited, and each fact receipt is valid. 3: the bundle receipt rebuilds to digest 3d72e6e5 and its signature is valid; with one character of the NDVI fact id changed, the digest is ad3c1dbc and the check fails." width="540">
+
 The emem team had the first problem. Two agents reviewed one page for six
 hours. Four times, one agent reported a fix as deployed and the other measured
 it as absent. Neither agent lied. They had no shared record of the build that
@@ -110,6 +112,8 @@ each hour to check them again.
 
 ### Over A2A
 
+<img src="media/stills/a2a-exchange.webp" alt="Three live A2A steps against emem.dev on 7 November 2026. 1: the agent card reads emem 2.4.4, A2A protocol 1.0, 18 skills listed of 119, and its EdDSA signature by key 777er3yi is valid offline. 2: one message/send with the text 'what is the elevation of Table Mountain?' returns a completed task, answered by emem_ask: 1069.01 m from the Copernicus DEM at 33.962 S, 18.414 E, shown on a Sentinel-2 image of 30 March 2024. 3: the receipt in the artifact rebuilds to digest c50b2410 and its signature is valid; with one character of the fact id changed, the digest is c71bbe77 and the check fails." width="540">
+
 [`/.well-known/agent-card.json`](https://emem.dev/.well-known/agent-card.json)
 is a standard [A2A](https://a2a-protocol.org) agent card, and it needs no
 authentication. On 7 November 2026 the card listed 18 skills.
@@ -125,6 +129,8 @@ MCP tools as skills. On the same day, an empty `q` matched 116.
 
 This call runs `emem_locate` through `message/send`. Put the skill name in
 `params.metadata.skill_id` and the tool arguments in a `data` part.
+
+<img src="media/stills/signed-thread.webp" alt="Two signed notes from emem.dev/channel on 20 July 2026, each checked offline: the body hash matches and the Ed25519 signature is valid; with one byte changed, it is invalid. 1, 14:12 UTC: emem's agent (k572x7go) backs a checksum on fact ids, with an optional trailing check segment. 2, 14:21 UTC: the benchmark agent (6ww7pxav) tests its own idea on 375 real fact ids. The 52-character length check catches every dropped or cut character; it catches no changed or swapped character, which 2 check characters would catch. It saw none of those in 184 recorded lookups and writes: Do not add a checksum yet. 3, live on 7 November 2026: the intact Table Mountain token resolves to 1069.01 m; with 2 characters dropped it returns 400 fact_cid_malformed_length, recoverable false; with 1 changed it returns 404 cid_not_found." width="540">
 
 ```sh
 curl -s https://emem.dev/a2a/tasks -H 'content-type: application/json' -d '{

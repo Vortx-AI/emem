@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 860" width="720" height="860">
-  <title>Mumbai, India — copdem30m.elevation_mean</title>
-  <desc>emem.dev value-painted bbox grid; band=copdem30m.elevation_mean, n_cells=64, range=[2.00, 115.00].</desc>
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="t d" viewBox="0 0 720 860" width="720" height="860">
+  <title id="t">Mumbai, India: copdem30m.elevation_mean, mean elevation in metres on an 8 by 8 grid of cells</title>
+  <desc id="d">emem.dev value-painted bbox grid; band=copdem30m.elevation_mean, n_cells=64, range=[2.00, 115.00].</desc>
   <defs>
     <style>
       .h1 { font-family: 'Source Serif 4','Source Serif Pro','Georgia',serif; font-weight: 600; font-size: 21px; fill: #1a1a1a; }
@@ -13,7 +13,7 @@
   </defs>
   <rect width="720" height="860" fill="#faf7f2"/>
   <text x="22" y="34" class="h1">Mumbai, India</text>
-  <text x="22" y="50" class="dek">Elevation per cell · 2 – 115 m</text>
+  <text x="22" y="50" class="dek">Elevation per cell · 2 to 115 m</text>
   <rect x="0" y="56" width="720" height="720" fill="#f3ede2"/>
   <rect x="270.27" y="415.86" width="90.00" height="90.00" fill="#ede5cd" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.zc5ec.zf619 · 18.0</title></rect>
   <rect x="450.16" y="415.86" width="90.00" height="90.00" fill="#f5f1e8" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.zc5ec.zf73d · 5.0</title></rect>

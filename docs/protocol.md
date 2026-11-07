@@ -140,6 +140,8 @@ integer form. Facts and receipts contain the dotted text form.
 ![A table of the four wire forms. cell: 64 bits, four base-65,536 bigrams. tslot: 64 bits, base32 LEB128 with a t. prefix. cid: a 32-byte BLAKE3 digest in lowercase base32. vec: a 1792-D fp16 vector. Its short id (vec64) is the first 12 bytes of its BLAKE3 hash. /v1/state returns the full vector. Cells that are near each other share a string prefix.](/docs/diagrams/09-address-algebra.svg)
 *The four wire forms and their sizes. Section 1 gives the cell, section 2 the tslot and section 3 the CID.*
 
+<img src="media/stills/wire-forms.webp" alt="Still from live emem.dev reads on 7 November 2026. One NDVI fact at Mount Fuji, with its three ids decoded. The cell64 defi.zb592.nUkO.zEzE is four 16-bit lanes, 4,442, 46,482, 22,968 and 43,466, of the word 0x115ab59259b8a9ca. Its fields are mode 1, resolution 21, base 0xab, reserved 0, lat_q 1,460,582 and lng_q 3,713,482. They give the centre 35.362818 N, 138.730793 E, the same centre that /v1/locate returns for Mount Fuji. The tslot 20,389 times 86,400 seconds opens on 28 October 2025 at 00:00 UTC. The Sentinel-2 scene was captured at 01:37 UTC that day. Its text form is t.uwpqc. The fact_cid has 52 base32 characters. They are the 32 bytes of the BLAKE3 digest of the 790 canonical CBOR bytes of the fact. Hashed again offline, the bytes give the same fact_cid." width="540">
+
 ### 1.1 Bit layout
 
 Defined in `crates/emem-codec/src/geo.rs:41-50`.
@@ -1720,6 +1722,15 @@ A read can carry a scope, a bi-temporal bound, edges, or
 (`0x03`/`0x04`/`0x05`/`0x06`) before `0x07`, in tag order. Each one is
 the blake3-hex of the field's canonical CBOR (see §7.1).
 
+The example above is short on purpose. A live recall receipt has the same layout, with the
+`0x06` manifest segment and the `0x0b` Merkle segment added:
+
+<img src="media/stills/receipt-preimage.webp" alt="Still from live emem.dev reads on 7 November 2026 at 15:44 UTC. One recall of elevation at Mount Fuji, 3539.04 m, with its receipt preimage rebuilt offline. The stream is 328 bytes. It opens with emem.preimage.v1, a zero byte, u32 7 and the word receipt. Then seven segments follow, each a tag, a u32 length and bytes: 0x01 request_id 01M6VAY5SE7K7ARPYCPG02760R, 31 bytes. 0x02 served_at 2026-11-07T15:44:50Z, 25 bytes. 0x06 manifest_hex, the BLAKE3 of four manifest ids, 69 bytes. 0x07 primitive emem.recall, 16 bytes. 0x08 cells, a list of one cell, defi.zb592.nUkO.zEzE, 29 bytes. 0x09 fact_cids, a list of one fact, qejpz7cg and so on, 61 bytes. 0x0b merkle_hex, the BLAKE3 of the inclusion proof, 69 bytes. The segments 0x03 scope, 0x04 as_of, 0x05 edges and 0x0a field are not in this read, so they are not written. The BLAKE3 digest of the stream is 0ea5c613 and so on, the same digest that /v1/verify_receipt reports. The Ed25519 signature checks as valid offline with the key 777er3yi from /.well-known/emem.json. When served_at changes by one character, from 15:44:50Z to 15:44:51Z, the digest becomes 5cf49f72 and so on, and the same signature fails." width="540">
+
+*One live receipt, rebuilt segment by segment. The offline digest equals the one that `POST /v1/verify_receipt`
+reports, and the signature checks with the published key. A change of one character in `served_at` makes the check
+fail. Data and checks: [media/stills/src/receipt_data.py](media/stills/src/receipt_data.py).*
+
 ### 7.3 Merkle proof attachment
 
 `Server::sign_receipt_v1_inner` (`crates/emem-storage/src/server.rs`)
@@ -2607,6 +2618,8 @@ endpoints prove nothing to it.
 
 #### 9.6.1 Check an inclusion proof by hand
 
+![The Mount Fuji elevation fact, 3539.04 m, was signed in a batch of one fact. That batch is entry 2,463,431 of 3,248,898 in the log. A ladder of 22 bars shows its audit path: each bar is one hash, covering from 1 entry at the bottom to 2,097,152 entries at the top. The root computed from them matches the signed tree head of size 3,248,898, and the Ed25519 signature is valid. One character changed in hash 10 gives a different root, and inclusion is invalid. Below, a 14-hash consistency proof links the head of size 3,248,892 (09:28:13 UTC) to the head of size 3,248,898 (09:28:53 UTC): valid.](media/stills/log-proof.webp)
+
 This check connects a receipt to the signed head. Each step uses only
 values from the responses, BLAKE3 and Ed25519.
 
@@ -3006,7 +3019,6 @@ carries its bytes twice in base32, once under each name. Thus a client
 that follows the log, for example on a phone, should read summaries. In
 a summary row you can check only `entry_hash_b32`. To check it, fetch
 the full entry and hash its bytes again.
-
 
 ### 9.7 Signed readings of things emem did not measure
 

@@ -802,6 +802,8 @@ curl -s -X POST https://emem.dev/v1/find_similar \
   -d '{"key":"defi.zb592.nUkO.zEzE","k":3}'
 ```
 
+<img src="media/stills/similar-places.webp" alt="Still from live emem.dev calls on 7 November 2026. find_similar with key Dubai, k 8, band geotessera, mode hamming_then_rerank returned 7 neighbours. A grid of Sentinel-2 crops from 2024, each about 2 km wide, on one colour scale: the Dubai seed, then Giza, Egypt 0.81; Lisbon, Portugal 0.81; 21.14 N 0.68 W 0.78; 38.00 N 116.00 W 0.78; 31.76 N 35.50 E 0.78; Giza, Egypt 0.78; Chicago, USA 0.77. Five crops show dry, bare ground; Lisbon and Chicago show city blocks. verify_receipt returns valid. A note says to read the score as surface texture, not climate." width="540">
+
 Read `neighbors` and `interpretation`. The score compares surface texture, not
 climate. `returned_k` can be lower than `requested_k`. On 7 November 2026,
 this call asked for 3 and returned 2. emem.dev no longer makes new
@@ -1161,6 +1163,8 @@ pages. A GET of `/mcp/full` gives names and descriptions only.
 
 ### Routes for operations from other memory libraries
 
+<img src="media/stills/recall-one-cell.webp" alt="Still from live emem.dev calls on 7 November 2026. A 10 km Sentinel-2 crop of Lake Geneva from 12 October 2026, with a ring on cell defi.zb610.tAhU.hejI at 46.4500 N, 6.5500 E. One recall returned 8 facts from 6 sources, oldest first: climate class Cfb (30 Oct 2018), elevation 368 m (30 Apr 2021), water occurrence 98 percent (1 Jan 2022), land cover class 80, permanent water bodies (28 Oct 2022), NDVI 0.055 with pixel class Water, so not a vegetation reading, and NDWI 0.226 (15 Oct 2026), precipitation 0 mm and air temperature 9.9 degrees C (7 Nov 2026, 09:00 UTC). Green dots mark the 3 facts that are recomputable from the source: elevation, NDVI and NDWI. One receipt covers the 8 fact ids; signature valid, merkle proof valid." width="540">
+
 If you come from mem0, Letta, LangGraph or your own retrieval stack, use this
 table. The [job table](#find-the-tool-for-your-job) covers recall, locate,
 area recall, change, similarity, ask, tokens, bundles, receipts and
@@ -1348,6 +1352,7 @@ block, and a receipt. This call ran on emem.dev on 7 November 2026.
 
 ```sh
 curl -s https://emem.dev/mcp \
+
   -H 'content-type: application/json' \
   -H 'accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"emem_memory_view","arguments":{"path":"/memories/by_attester/k572x7go/a2a-emem-standard-v2-consolidated-2026-07-19.md"}}}' \
@@ -1606,6 +1611,35 @@ no pin carries `fill.call`. That is the exact `/v1/backfill` body for the
 window. Run it, then read again.
 
 `/v1/field_series` reads an area over time, one row per scene.
+
+<img src="media/stills/ndvi-two-seasons.webp" alt="Still from live emem.dev calls on 7 November 2026. A farm box near Ames, Iowa, of 2200 Sentinel-2 pixels. Two true-colour crops: 1 August 2024, median NDVI 0.88, and 22 October 2024, median NDVI 0.26. A chart of median NDVI with the p10 to p90 band for 17 clear scenes from February 2024 to November 2025, with two peaks in July and August. Eight cloudy scenes are marked as left out. The whole series has one token, emem:fact:defi.zb5dd.ze38f.nEzo:gutxcpc54gzyegyuvxr7dkevmixz5k7dnq3sfzckqocfpwbcixma, and verify_receipt returns valid." width="540">
+
+The still above is one `field_series` answer for a box of about 500 m by 440 m.
+It came from the call below on 7 November 2026. The signature shows who
+computed the series. It does not show which crop grew there.
+[`stills/src/ndvi_season.py`](media/stills/src/ndvi_season.py) draws it
+from the saved responses. Contains modified Copernicus Sentinel data
+2024-2025. The same answer is also a film, one scene at a time:
+[MP4](media/films/emem-ndvi-season.mp4). It is silent and 32 seconds
+long.
+
+```sh
+curl -s -X POST https://emem.dev/v1/field_series -H 'content-type: application/json' \
+  -d '{"bbox":[-93.700,42.000,-93.694,42.004],"start_date":"2024-01-01","end_date":"2025-12-31","index":"ndvi"}'
+```
+
+<img src="media/stills/field-outlines.webp" alt="Still from live emem.dev calls on 7 November 2026. A Sentinel-2 true-colour image of a farm box near Ames, Iowa, on 22 June 2025, with 20 field outlines from field_boundaries. A chart gives the median NDVI of each field on 17 clear dates in 2025: 8 fields are at 0.8 or more on 22 June, and 12 are under 0.75. Cards show one polygon_cid that both answers carry, one field_series token for the 20 series, and verify_receipt valid." width="540">
+
+To read one series per field, first get the outlines. On 7 November 2026
+`field_boundaries` returned 139 outlines in a larger box around the box
+above (latitude 41.996 to 42.008, longitude -93.706 to -93.688). The still
+uses the 20 outlines over 1 ha. They went to `field_series` as `fields`, with
+the first 8 characters of each `polygon_cid` as the `id`. Each field's
+summary carries the same `polygon_cid`, so the two answers join without
+coordinates. The outlines come from Fields of The World (CC-BY-4.0). A
+model drew them at 10 m, so check them against the scene. The fetch
+script is [`stills/src/fetch_fields.py`](media/stills/src/fetch_fields.py).
+Contains modified Copernicus Sentinel data 2025.
 
 - `index`: `ndvi` (default), `ndwi`, `ndmi` (alias `lswi`), `evi`, `nbr`,
   `ndti` or `ndsi` (alias `mndwi`) come from Sentinel-2. NDSI is green
@@ -1994,6 +2028,19 @@ a topic. The encoder gives scores and writes no text. Each number in
 Add `model` to the request to get one more field, `model_answer`. It holds
 the prose of one model that read the same envelope. The deterministic
 `answer` stays in the response.
+
+<img src="media/stills/ask-trail.webp" alt="Still from one live call to POST /v1/ask on 7 November 2026: what is the NDVI in Central Park, New York? The answer is NDVI 0.79. Four reasoning stages follow, each with its own address that commits to the stage before it: located (cell defi.zb5d0.bAhE.zd9c1), routed (topic vegetation_condition), recalled (3 signed NDVI facts) and scored (5 computed values). The three Sentinel-2 NDVI facts are 0.60 on 4 May 2026, 0.88 on 21 October 2026 and 0.79 on 4 November 2026; the answer quotes the newest. The receipt over the 3 fact ids is valid offline and at /v1/verify_receipt. All 4 stage addresses recompute as BLAKE3 over the stored bytes. One changed byte in the recalled stage moves its address." width="540">
+
+The still above shows one live answer and the `reasoning` block that comes
+with it. Each stage has an `emem:state:` address. `GET /v1/state/<cid>`
+returns the stage bytes, and BLAKE3 over those bytes gives the address
+again. The receipt signs the fact ids. The stage addresses are content
+addresses, not signatures. The responder computes the scored values for
+the answer and does not sign them as facts.
+[`stills/src/fetch_ask.py`](media/stills/src/fetch_ask.py) saves the
+responses and [`stills/src/ask_trail.py`](media/stills/src/ask_trail.py)
+checks them and draws the image. Contains modified Copernicus Sentinel
+data 2026.
 
 ```bash
 curl -s -X POST https://emem.dev/v1/ask \
@@ -2472,6 +2519,8 @@ Shortened answer, from 7 November 2026:
 count the citations that resolved. To see what happened to each citation,
 read `citations[].state`:
 
+<img src="media/stills/guard-check.webp" alt="Three drafts checked by live calls to POST /v1/guard/verdict on 7 November 2026. The cited fact is the Table Mountain elevation, 1069.01 m. Draft 1 states 1069.01 m and cites the fact: citation verified, allow. Draft 2 cites the same fact but states 1250 m: deny, PROV_VALUE, fix correct_value. Draft 3 states 1250 m with no citation: allow by default, deny CLAIM_UNGROUNDED with claim_gating=true. Each receipt verifies." width="540">
+
 | `state` | Meaning |
 |---|---|
 | `verified` | The responder holds the fact, and its signature verifies. |
@@ -2870,6 +2919,8 @@ signature stops verifying. Always get a fact by its cid, through
 No receipt covers `merged_facts`. Each cell has its own receipt at
 `by_cell.<cell>.receipt`. Cite facts from `by_cell`, with the receipt of
 their cell.
+
+<img src="media/stills/area-receipts.webp" alt="Two identical recall_polygon calls on 7 November 2026 over a 7.54 square km box on the Mount Fuji summit, 16 cells, Copernicus DEM elevation. At 16:08:38 UTC: 0 facts and 16 unsigned pending entries, reason_class deferred, because the responder was at its cold-fetch ceiling of 600 per minute. At 16:09:28 UTC: 16 facts and 16 receipts, drawn as dots on a Sentinel-2 image with elevations from 3,022 m to 3,687 m. Each receipt names 1 cell and 1 fact id and checks valid offline; with another cell's fact id or cell it is invalid. merged_facts has no receipt. The mean, 3,349 m, is not signed, and 16 cells are 0.021 percent of the cells in the box." width="540">
 
 ## Next steps are data
 

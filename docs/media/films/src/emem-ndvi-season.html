@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>One farm box near Ames, Iowa, in 17 Sentinel-2 scenes and one signed answer</title>
+<style>
+:root { --bg:#0d1117; --panel:#161b22; --line:#30363d; --text:#e6edf3; --muted:#8b949e;
+        --id:#79c0ff; --ok:#7ee787; --bad:#ff7b72; --sig:#d2a8ff; --tok:#ffa657; }
+* { box-sizing:border-box; margin:0; padding:0; }
+html,body { width:1080px; height:960px; background:var(--bg); overflow:hidden; }
+body { font-family: "DejaVu Sans", system-ui, sans-serif; color:var(--text); }
+.mono { font-family: "DejaVu Sans Mono", ui-monospace, monospace; }
+h1 { position:absolute; left:60px; right:60px; top:30px; font-size:40px; font-weight:700; line-height:1.2; }
+#status { position:absolute; left:60px; right:60px; top:92px; font-size:30px; color:var(--muted); display:flex; gap:24px; white-space:nowrap; }
+#status b { color:var(--text); }
+#status .v { color:var(--ok); font-weight:700; }
+.pan { position:absolute; top:146px; width:470px; height:420px; border:2px solid var(--line); border-radius:14px; overflow:hidden; background:var(--panel); }
+.pan svg { width:100%; height:100%; display:block; }
+.cap { position:absolute; top:574px; width:470px; font-size:30px; white-space:nowrap; color:var(--muted); }
+#chart { position:absolute; left:60px; top:628px; width:960px; height:200px; overflow:visible; }
+#card { position:absolute; left:60px; right:60px; top:96px; height:520px; opacity:0;
+        background:var(--panel); border:2px solid var(--line); border-radius:18px; padding:26px 34px; }
+#card .k { font-size:30px; color:var(--muted); margin-bottom:6px; }
+#card .row { margin-bottom:18px; font-size:32px; line-height:1.3; }
+.tok { color:var(--tok); } .ok { color:var(--ok); } .bad { color:var(--bad); }
+#foot { position:absolute; left:60px; right:60px; bottom:16px; font-size:30px; line-height:1.3; color:var(--muted); }
+</style>
+<script src="season-data.js"></script>
+</head>
+<body>
+<h1 id="h1">One farm box near Ames, Iowa</h1>
+<div id="intro" style="position:absolute; left:60px; right:60px; top:90px; font-size:32px; color:var(--muted)"></div>
+<div id="status"><span id="date"><b>&nbsp;</b></span><span id="med"></span><span id="clr"></span></div>
+
+<div class="pan" style="left:60px"><svg id="rgb"></svg></div>
+<div class="pan" style="left:550px"><svg id="ndvi"></svg></div>
+<div class="cap" style="left:60px">Sentinel-2, 10 m pixels</div>
+<div class="cap" style="left:550px" id="leg"></div>
+<svg id="chart" viewBox="0 0 960 200"></svg>
+
+<div id="card">
+  <div class="row"><div class="k">one POST /v1/field_series, one signed answer, one token</div>
+    <div class="mono tok" style="font-size:30px; line-height:1.35" id="tok"></div></div>
+  <div class="row"><div class="k">POST /v1/verify_receipt</div>
+    <div class="mono">signature_valid <span class="ok">true</span>&nbsp; merkle_proof_valid <span class="ok">true</span></div></div>
+  <div class="row" id="excl"></div>
+  <div class="row" style="color:var(--muted)">The crop colours are stretched per scene. The NDVI values are not.</div>
+</div>
+
+<div id="foot">Live reads from emem.dev on 7 November 2026.<br>
+Contains modified Copernicus Sentinel data 2024-2025.</div>
+
+<script>
+const S = window.SEASON, R = S.rows, N = R.length;
+const T0 = 2.4, D = 1.35, TEND = T0 + N * D, DUR = TEND + 6.6;
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const ease = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+const NS = 'http://www.w3.org/2000/svg';
+const el = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
+const fmt = s => { const d = new Date(s + 'T00:00:00Z'); return `${d.getUTCDate()} ${d.toLocaleString('en-GB', { month: 'short', timeZone: 'UTC' })} ${d.getUTCFullYear()}`; };
+
+// NDVI ramp: bare soil brown to dense green
+const STOPS = [[0.0, [110, 75, 42]], [0.2, [160, 122, 60]], [0.4, [201, 180, 88]], [0.6, [111, 191, 74]], [0.8, [46, 139, 58]], [0.9, [31, 111, 44]]];
+function ramp(v) {
+  if (v == null) return null;
+  v = clamp(v, 0, 0.9);
+  for (let i = 1; i < STOPS.length; i++) if (v <= STOPS[i][0]) {
+    const [a, ca] = STOPS[i - 1], [b, cb] = STOPS[i], k = (v - a) / (b - a);
+    return ca.map((c, j) => c + (cb[j] - c) * k);
+  }
+  return STOPS[STOPS.length - 1][1];
+}
+const rgb = c => `rgb(${c.map(Math.round).join(',')})`;
+
+// view: the farm box plus a margin, in crop pixels
+const xs = S.box.map(p => p[0]), ys = S.box.map(p => p[1]);
+const pad = 13, vx = Math.min(...xs) - pad, vy = Math.min(...ys) - pad;
+const vw = Math.max(...xs) - Math.min(...xs) + 2 * pad, vh = vw * 420 / 470;
+const vy2 = vy - (vh - (Math.max(...ys) - Math.min(...ys) + 2 * pad)) / 2;
+const VB = `${vx} ${vy2} ${vw} ${vh}`;
+const pts = q => q.map(p => p.join(',')).join(' ');
+
+const A = document.getElementById('rgb'), B = document.getElementById('ndvi');
+A.setAttribute('viewBox', VB); B.setAttribute('viewBox', VB);
+const imgs = R.map(r => el('image', { href: r.img, width: S.w, height: S.h, style: 'image-rendering:pixelated', opacity: 0 }, A));
+el('polygon', { points: pts(S.box), fill: 'none', stroke: '#ffa657', 'stroke-width': 0.7 }, A);
+el('rect', { x: vx, y: vy2, width: vw, height: vh, fill: '#161b22' }, B);
+const quads = S.quads.map(q => el('polygon', { points: pts(q), fill: '#30363d', stroke: '#0d1117', 'stroke-width': 0.35 }, B));
+el('polygon', { points: pts(S.box), fill: 'none', stroke: '#ffa657', 'stroke-width': 0.7 }, B);
+
+// legend under the NDVI panel
+const leg = document.getElementById('leg');
+leg.innerHTML = 'NDVI &nbsp;<svg width="130" height="22" style="vertical-align:-4px"><defs><linearGradient id="lg">' +
+  STOPS.map(([v, c]) => `<stop offset="${v / 0.9}" stop-color="${rgb(c)}"/>`).join('') +
+  '</linearGradient></defs><rect width="130" height="22" rx="4" fill="url(#lg)"/></svg> 0 to 0.9';
+
+// chart
+const C = document.getElementById('chart');
+const d0 = Date.UTC(2024, 0, 1), d1 = Date.UTC(2026, 0, 1);
+const L = 70, Rt = 950, Tp = 10, Bt = 160;
+const X = s => L + (Date.parse(s + 'T00:00:00Z') - d0) / (d1 - d0) * (Rt - L);
+const Y = v => Bt - v / 1.0 * (Bt - Tp);
+for (const v of [0, 0.5, 1.0]) {
+  el('line', { x1: L, x2: Rt, y1: Y(v), y2: Y(v), stroke: '#30363d', 'stroke-width': 1.5 }, C);
+  el('text', { x: L - 12, y: Y(v) + 9, fill: '#8b949e', 'font-size': 30, 'text-anchor': 'end', 'font-family': 'DejaVu Sans' }, C).textContent = v.toFixed(1);
+}
+for (const [s, lab] of [['2024-01-01', 'Jan 2024'], ['2024-07-01', 'Jul'], ['2025-01-01', 'Jan 2025'], ['2025-07-01', 'Jul'], ['2026-01-01', 'Jan 2026']]) {
+  el('line', { x1: X(s), x2: X(s), y1: Bt, y2: Bt + 8, stroke: '#30363d', 'stroke-width': 1.5 }, C);
+  el('text', { x: X(s), y: Bt + 36, fill: '#8b949e', 'font-size': 30, 'text-anchor': s === '2026-01-01' ? 'end' : s === '2024-01-01' ? 'start' : 'middle', 'font-family': 'DejaVu Sans' }, C).textContent = lab;
+}
+const exMarks = S.excluded.map(e => {
+  const g = el('g', { opacity: 0 }, C), x = X(e.date), y = Bt - 10;
+  el('path', { d: `M${x - 6},${y - 6}L${x + 6},${y + 6}M${x - 6},${y + 6}L${x + 6},${y - 6}`, stroke: '#ff7b72', 'stroke-width': 3 }, g);
+  return { g, t: e.date };
+});
+const path = el('polyline', { fill: 'none', stroke: '#7ee787', 'stroke-width': 3, 'stroke-linejoin': 'round' }, C);
+const dots = R.map(r => el('circle', { cx: X(r.date), cy: Y(r.median), r: 6, fill: '#7ee787', opacity: 0 }, C));
+const ring = el('circle', { r: 13, fill: 'none', stroke: '#e6edf3', 'stroke-width': 3, opacity: 0 }, C);
+
+document.getElementById('intro').textContent = `Sentinel-2 had ${S.candidates} candidate dates over this box.`;
+document.getElementById('tok').textContent = S.token.slice(0, 32) + "\n" + S.token.slice(32, 58) + "\n" + S.token.slice(58);
+document.getElementById('tok').style.whiteSpace = 'pre';
+document.getElementById('excl').innerHTML = `<span class="bad">&#x2715;</span> ${S.excluded.length} more dates had too few clear pixels. The answer lists each one with its reason.`;
+
+function seek(t) {
+  const fk = (t - T0) / D;
+  const k = clamp(Math.floor(fk), 0, N - 1);
+  const inK = clamp(fk - k, 0, 1);
+  const prev = k > 0 && t >= T0 ? k - 1 : k;
+  const mix = t < T0 ? 1 : ease(inK / 0.25);
+  imgs.forEach((im, i) => im.setAttribute('opacity', i === k ? mix : i === prev && i !== k ? 1 : 0));
+  // put the current crop on top
+  A.insertBefore(imgs[k], A.querySelector('polygon'));
+  const show = t >= T0 - 0.6;
+  const blockMix = t < T0 ? ease((t - (T0 - 0.6)) / 0.6) : ease(inK / 0.3);
+  quads.forEach((q, i) => {
+    const now = ramp(R[k].blocks[i]);
+    const was = t < T0 ? null : ramp(R[prev].blocks[i]);
+    if (!show) { q.setAttribute('fill', '#30363d'); return; }
+    if (now == null) { q.setAttribute('fill', '#0d1117'); return; }
+    const base = was || [48, 54, 61];
+    q.setAttribute('fill', rgb(base.map((c, j) => c + (now[j] - c) * blockMix)));
+  });
+  const r = R[inK < 0.12 && t >= T0 ? prev : k];
+  const intro = document.getElementById('intro');
+  intro.style.opacity = 1 - ease((t - (T0 - 0.7)) / 0.4);
+  document.getElementById('date').innerHTML = `<b>${fmt(r.date)}</b>`;
+  document.getElementById('med').innerHTML = `median NDVI <span class="v">${r.median.toFixed(2)}</span>`;
+  document.getElementById('clr').innerHTML = r.n_clear === 2200 ? 'all 2,200 pixels clear' : `${r.n_clear.toLocaleString('en-US')} of 2,200 pixels clear`;
+  const status = document.getElementById('status');
+  status.style.opacity = ease((t - (T0 - 0.3)) / 0.35);
+  // chart grows with the scenes
+  const shown = t < T0 ? 0 : k + (inK > 0.15 ? 1 : 0);
+  path.setAttribute('points', R.slice(0, shown).map(q => `${X(q.date)},${Y(q.median)}`).join(' '));
+  dots.forEach((c, i) => c.setAttribute('opacity', i < shown ? 1 : 0));
+  const cur = t < T0 ? null : R[k].date;
+  exMarks.forEach(m => m.g.setAttribute('opacity', cur && m.t <= cur ? 1 : t >= TEND ? 1 : 0));
+  if (t >= T0 && t < TEND + 0.2) { ring.setAttribute('cx', X(r.date)); ring.setAttribute('cy', Y(r.median)); ring.setAttribute('opacity', inK > 0.15 ? 1 : 0); }
+  else ring.setAttribute('opacity', 0);
+  // end card
+  const e = ease((t - TEND - 0.2) / 0.5);
+  const card = document.getElementById('card');
+  card.style.opacity = e; card.style.transform = `translateY(${(1 - e) * 20}px)`;
+  for (const p of document.querySelectorAll('.pan, .cap')) p.style.opacity = 1 - 0.85 * e;
+  status.style.opacity = Math.min(+status.style.opacity, 1 - e);
+  document.getElementById('h1').textContent = t >= TEND + 0.2 ? '17 clear scenes, one signed answer' : 'One farm box near Ames, Iowa';
+  return { t, k };
+}
+window.film = { duration: DUR, fps: 30, ready: Promise.all([document.fonts.ready, ...imgs.map(i => new Promise(res => { const p = new Image(); p.onload = p.onerror = res; p.src = i.getAttribute('href'); }))]).then(() => true), seek: t => Promise.resolve(seek(t)) };
+seek(0);
+</script>
+</body></html>

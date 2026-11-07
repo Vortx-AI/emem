@@ -475,6 +475,8 @@ You do not have to build this digest yourself. Send the write without
 `attester`. The refusal holds `details.how_to_sign`, which gives
 three things:
 
+[![Film poster. The agent builds the digest itself: BLAKE3 over "emem.memory_write.v2|create|", the path, the BLAKE3 of file_text and "absent" gives 2ced569b3e75145a6d1ee66eed2c2a6d8ddeaf512b84e29157107eb3a9e7aada, the same digest as the refusal.](media/films/emem-note-write-poster.webp)](media/films/emem-note-write.mp4)
+
 - the exact 32-byte digest for that write
 - the encoding rules
 - a Python example that runs

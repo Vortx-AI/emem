@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 1612" width="640" height="1612" role="img" aria-labelledby="t d">
+  <title id="t">One binary fetches, hashes, signs and logs</title>
+  <desc id="d">What answers when an agent calls emem.dev. Step 1, Call: REST has 183 paths under /v1, MCP at POST /mcp has 116 tools, and both reach the same handlers. Steps 2 to 6 run inside one Rust binary, emem-server version 2.4.4. 2 Look up: a redb fact store on local disk; a hit returns the stored fact. 3 Fetch on a miss: 46 sources in the registry, for example sentinel2.l2a through Planetary Computer STAC, copernicus.dem.30m as a COG on AWS open data, and open_meteo as a JSON API; HTTP range reads take only the bytes needed. 4 Hash: canonical CBOR, and its BLAKE3 hash is the fact id, for example qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq. 5 Sign: one Ed25519 responder key, 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka, signs a batch root of fact ids and a receipt for each read. 6 Log: each write appends to an RFC 6962 Merkle log; the signed tree head showed 3,250,469 entries at 12:22 UTC. 7 Answer: fact, receipt and token; anyone checks the receipt offline with the public key at /.well-known/emem.json. A signature shows who signed, not that the value is true. Live reads on 7 November 2026. 3 of the 46 sources name a GPU model sidecar that no longer runs.</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8b949e"/>
+    </marker>
+  </defs>
+  <style>
+    .sans { font-family: "DejaVu Sans", system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .mono { font-family: "DejaVu Sans Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .h { font-size: 23px; font-weight: 600; fill: #e6edf3; }
+    .term { font-size: 20px; font-weight: 600; fill: #e6edf3; }
+    .val { font-size: 18px; font-weight: 600; fill: #e6edf3; }
+    .ex { font-size: 16px; fill: #79c0ff; }
+    .sig { font-size: 16px; fill: #d2a8ff; }
+    .ok { font-size: 18px; fill: #7ee787; }
+    .txt { font-size: 18px; fill: #8b949e; }
+    .verb { font-size: 16px; fill: #8b949e; }
+    .foot { font-size: 16px; fill: #8b949e; }
+    .num { font-size: 17px; font-weight: 600; fill: #79c0ff; }
+    .box { fill: #161b22; stroke: #30363d; stroke-width: 1; }
+    .door { fill: #0d1117; stroke: #30363d; stroke-width: 1; }
+    .bin { fill: none; stroke: #79c0ff; stroke-width: 1.5; stroke-dasharray: 7 5; }
+    .ring { fill: #0d1117; stroke: #79c0ff; stroke-width: 1.5; }
+    .flow { stroke: #8b949e; stroke-width: 1.5; fill: none; }
+  </style>
+  <rect x="0" y="0" width="640" height="1612" rx="12" fill="#0d1117"/>
+  <rect class="bin" x="20" y="298" width="600" height="980" rx="12"/>
+  <text class="sans h" x="24" y="42">One binary fetches, hashes, signs and logs</text>
+  <text class="sans txt" x="24" y="70">What answers when an agent calls emem.dev</text>
+  <rect class="box" x="40" y="96" width="560" height="152" rx="8"/>
+  <circle class="ring" cx="64" cy="126" r="15"/>
+  <text class="sans num" x="64" y="132" text-anchor="middle">1</text>
+  <text class="sans term" x="92" y="133">Call</text>
+  <text class="sans txt" x="172" y="133">two doors, same handlers</text>
+  <rect class="door" x="92" y="148" width="224" height="80" rx="6"/>
+  <text class="sans term" x="106" y="178">REST</text>
+  <text class="mono ex" x="182" y="178">/v1/*</text>
+  <text class="sans txt" x="106" y="210">183 paths</text>
+  <rect class="door" x="332" y="148" width="224" height="80" rx="6"/>
+  <text class="sans term" x="346" y="178">MCP</text>
+  <text class="mono ex" x="422" y="178">POST /mcp</text>
+  <text class="sans txt" x="346" y="210">116 tools</text>
+  <path class="flow" d="M64 248 V296" marker-end="url(#a)"/>
+  <rect class="box" x="40" y="350" width="560" height="116" rx="8"/>
+  <circle class="ring" cx="64" cy="380" r="15"/>
+  <text class="sans num" x="64" y="386" text-anchor="middle">2</text>
+  <text class="sans term" x="92" y="387">Look up</text>
+  <text class="sans txt" x="212" y="387">redb fact store on local disk</text>
+  <text class="sans txt" x="92" y="419">A hit returns the stored fact at once.</text>
+  <text class="sans txt" x="92" y="447">A miss goes to step 3.</text>
+  <path class="flow" d="M64 466 V490" marker-end="url(#a)"/>
+  <rect class="box" x="40" y="492" width="560" height="204" rx="8"/>
+  <circle class="ring" cx="64" cy="522" r="15"/>
+  <text class="sans num" x="64" y="528" text-anchor="middle">3</text>
+  <text class="sans term" x="92" y="529">Fetch on a miss</text>
+  <text class="sans txt" x="282" y="529">open data, no copy</text>
+  <text class="sans txt" x="92" y="561">46 sources in the registry, for example:</text>
+  <text class="mono ex" x="92" y="589">sentinel2.l2a</text>
+  <text class="sans txt" x="288" y="589">STAC, Planetary Computer</text>
+  <text class="mono ex" x="92" y="617">copernicus.dem.30m</text>
+  <text class="sans txt" x="288" y="617">COG, AWS open data</text>
+  <text class="mono ex" x="92" y="645">open_meteo</text>
+  <text class="sans txt" x="288" y="645">JSON API</text>
+  <text class="sans txt" x="92" y="673">HTTP range reads take only the bytes needed.</text>
+  <path class="flow" d="M64 696 V720" marker-end="url(#a)"/>
+  <rect class="box" x="40" y="722" width="560" height="172" rx="8"/>
+  <circle class="ring" cx="64" cy="752" r="15"/>
+  <text class="sans num" x="64" y="758" text-anchor="middle">4</text>
+  <text class="sans term" x="92" y="759">Hash</text>
+  <text class="sans txt" x="182" y="759">canonical CBOR, BLAKE3</text>
+  <text class="sans txt" x="92" y="791">The value, cell, time and method become bytes.</text>
+  <text class="sans txt" x="92" y="819">Their hash is the fact id:</text>
+  <text class="mono ex" x="92" y="847">qejpz7cgvk347ordd6vrdtmwzp</text>
+  <text class="mono ex" x="92" y="875">rqlzcnkmotsjton2x4y2jjbplq</text>
+  <path class="flow" d="M64 894 V918" marker-end="url(#a)"/>
+  <rect class="box" x="40" y="920" width="560" height="172" rx="8"/>
+  <circle class="ring" cx="64" cy="950" r="15"/>
+  <text class="sans num" x="64" y="956" text-anchor="middle">5</text>
+  <text class="sans term" x="92" y="957">Sign</text>
+  <text class="sans txt" x="182" y="957">Ed25519, one responder key</text>
+  <text class="mono sig" x="92" y="989">777er3yihgifqmv5hmc2wwmysz</text>
+  <text class="mono sig" x="92" y="1017">gddzderzhsx6rex4yoakwomvka</text>
+  <text class="sans txt" x="92" y="1045">The key signs a batch root of fact ids,</text>
+  <text class="sans txt" x="92" y="1073">and a receipt for each read.</text>
+  <path class="flow" d="M64 1092 V1116" marker-end="url(#a)"/>
+  <rect class="box" x="40" y="1118" width="560" height="144" rx="8"/>
+  <circle class="ring" cx="64" cy="1148" r="15"/>
+  <text class="sans num" x="64" y="1154" text-anchor="middle">6</text>
+  <text class="sans term" x="92" y="1155">Log</text>
+  <text class="mono verb" x="162" y="1155">GET /v1/log/sth</text>
+  <text class="sans txt" x="92" y="1187">Each write appends to an RFC 6962 Merkle log.</text>
+  <text class="sans txt" x="92" y="1215">A signed tree head proves it only grows.</text>
+  <text class="sans val" x="92" y="1243">3,250,469 entries at 12:22 UTC</text>
+  <text class="sans term" x="40" y="332">emem-server</text>
+  <text class="sans txt" x="192" y="332">one Rust binary, version 2.4.4</text>
+  <path class="flow" d="M64 1278 V1326" marker-end="url(#a)"/>
+  <rect class="box" x="40" y="1328" width="560" height="172" rx="8"/>
+  <circle class="ring" cx="64" cy="1358" r="15"/>
+  <text class="sans num" x="64" y="1364" text-anchor="middle">7</text>
+  <text class="sans term" x="92" y="1365">Answer</text>
+  <text class="sans txt" x="202" y="1365">fact + receipt + token</text>
+  <text class="sans txt" x="92" y="1397">Anyone checks the receipt offline with the</text>
+  <text class="sans txt" x="92" y="1425">public key at /.well-known/emem.json.</text>
+  <text class="sans ok" x="92" y="1453">valid: the bytes are what this key signed.</text>
+  <text class="sans txt" x="92" y="1481">A signature shows who signed, not that it is true.</text>
+  <text class="sans foot" x="24" y="1536">Live reads of emem.dev on 7 November 2026 at 12:22 UTC:</text>
+  <text class="sans foot" x="24" y="1560">/v1/sources, /openapi.json, /v1/tools, /v1/log/sth.</text>
+  <text class="sans foot" x="24" y="1584">3 of the 46 sources name a GPU model sidecar that no longer runs.</text>
+</svg>

@@ -26,6 +26,14 @@ note and check who wrote it.
 5. The writer of a note signs it. Your notes live under `/memories/by_attester/<first 8 characters of your key>/`.
    Only your key can write there. You make the key on your machine. Nobody gives it to you.
 
+![Six steps from a place to a checked fact. The place "Mount Fuji" goes to the cell defi.zb592.nUkO.zEzE. The cell gives a fact: elevation 3539.04 m, with its fact_cid. The responder signs a receipt with Ed25519. The fact becomes an emem:fact: token. Another agent resolves the token and checks the receipt offline. A signature shows who signed, not that the value is true. Values are from emem.dev on 7 November 2026.](media/diagrams/fact-chain.svg)
+
+The same path as a silent film of 33 seconds, with live values. Select the picture to play the MP4.
+At the end, one changed character in the receipt makes the check fail.
+The values come from live calls to emem.dev on 7 November 2026. The elevation is from the Copernicus GLO-30 DEM.
+
+[![Film poster. Agent B resolves the emem:fact token for Mount Fuji: the same fact_cid and 3539.04 m. verify_receipt returns signature_valid true, merkle_proof_valid true and valid. A signature shows who signed. It does not show that the value is true.](media/films/emem-fact-to-check-poster.webp)](media/films/emem-fact-to-check.mp4)
+
 The [glossary](glossary.md) defines every other term, such as band, tslot, absence and supersede.
 
 ## Get a signed answer
@@ -39,8 +47,8 @@ curl -sS -X POST https://emem.dev/v1/ask -H 'content-type: application/json' \
   -d '{"q":"what is the elevation of Mount Fuji?"}' | jq -r .answer
 ```
 
-On 6 November 2026 the answer started with "elevation 3539.04 m". The value is for the one cell that the name
-resolves to, not for the summit.
+On 7 November 2026 the answer named the place, then gave "elevation 3539.04 m". The value is for the one cell that
+the name resolves to, not for the summit. The answer also gives the age of the reading.
 
 Do the same in two steps, so you see what emem signs. First find the cell:
 
@@ -71,14 +79,21 @@ verdict = verify_receipt_offline(json.load(open("fact.json"))["receipt"])
 print(verdict.ok, verdict.why)
 ```
 
-The check uses the public key in the receipt. To be sure that emem signed it, compare that key with the key in
-[`/.well-known/emem.json`](https://emem.dev/.well-known/emem.json). You can also paste a token into
+The check uses the public key in the receipt, `receipt.responder_pubkey_b32`. To be sure that emem signed it,
+compare that key with the field `responder.pubkey_b32` in
+[`/.well-known/emem.json`](https://emem.dev/.well-known/emem.json):
+
+```bash
+curl -sS https://emem.dev/.well-known/emem.json | jq -r .responder.pubkey_b32
+```
+
+On 7 November 2026 the key started with `777er3yi`. You can also paste a token into
 [emem.dev/verify](https://emem.dev/verify).
 
 ## Use the right field name
 
 Each endpoint has its own request fields. A field that works on one endpoint can fail on another. This table shows
-what each endpoint accepted on 6 November 2026.
+what each endpoint accepted on 7 November 2026.
 
 | Endpoint | Send the place or question as | Also accepted | Do not send |
 |---|---|---|---|
@@ -89,6 +104,11 @@ what each endpoint accepted on 6 November 2026.
 When a place name has more than one match, `locate` returns `selected.is_high_confidence: false`, and `ask` returns
 `status: needs_location`. Then give a more specific name, or send `lat` and `lng`.
 
+Two phrasings of one place can resolve to two cells. After you locate a place, hand on the `cell64` or the
+`emem:fact:` token, not the name.
+
+![Five phrasings of Mount Fuji sent to locate on 7 November 2026 gave four cells. "Mount Fuji" and "mount fuji" gave defi.zb592.nUkO.zEzE, elevation 3539.04 m. "Fujisan" gave the Wikidata point 390 m away, 3766.73 m. The coordinates 35.3606, 138.7274 gave the next cell, 10 m from that point, 3768.41 m. "Fuji-san, Japan" gave a shrine 13.3 km away, 871.37 m, with disambiguation_required true. A map shows the points. The emem:fact: token for the first cell resolves to the same signed bytes for any agent. All four receipts check valid offline.](media/stills/one-place-many-names.webp)
+
 The authority for every field is [`/openapi.json`](https://emem.dev/openapi.json). Over MCP, call a tool by its name.
 Do not make a REST path from a tool name.
 
@@ -98,18 +118,23 @@ Do not make a REST path from a tool name.
 |---|---|---|
 | Give an AI agent in Claude, Cursor, VS Code or another MCP host access to emem | `claude mcp add --transport http emem https://emem.dev/mcp` | [Agents](agents.md) |
 | Call emem from your own Python or TypeScript code | `pip install ememdev` or `npm install @vortxai/emem` | [Quickstart](quickstart.md) |
-| Prove that one part belongs to a file, and keep the other parts private | The tree example in the [README](../README.md#quickstart) | The tokenise-files skill in `plugins/emem/skills/` |
+| Prove that one part belongs to a file, and keep the other parts private | The tree example in the [README](https://github.com/Vortx-AI/emem/blob/main/README.md#quickstart) | The [tokenise-files skill](../plugins/emem/skills/emem-tokenise-files/SKILL.md) |
 | Write signed notes that other agents can check | Make a key on your machine, then let the first refused write give you the digest to sign | [Memory](memory.md), and the [case study](case-studies/sugar-mill.md), section 3 |
 | Run your own node | `docker run -p 127.0.0.1:5051:5051 ghcr.io/vortx-ai/emem:latest` | [Self-host](self-host.md) |
 
 ## What the checks do not prove
 
 - A signature tells you who signed. It does not tell you that the value is correct.
-- A place name gives one cell of about 10 m. For an area, use the area tools.
-- The first read of a new place can take tens of seconds, because emem reads the public archive first.
-- Notes are public, and the log keeps them. Do not write a secret in a note.
+- A place name gives one cell of about 10 m. For an area, use `POST /v1/recall_polygon`, which samples cells
+  inside the area and says how many it read.
+- The first read of a new place is slower, because emem reads the public archive first. On 7 November 2026 a
+  first read took 0.6 to 1.7 s, and a repeat read took less than 0.1 s.
+- Notes are public, except a note of kind `vault`, which the responder stores encrypted. The operator can still read a
+  `vault` note, because its key derives from the responder's secret. Only the responder key can sign the
+  `vault_capability` that opens it, so the writer cannot read it back. The log keeps every note. Do not write a
+  secret in any note. If the operator must not read it, encrypt it on your side before you write.
 
-The full list is in the [README](../README.md#what-the-checks-do-not-prove).
+The full list is in the [README](https://github.com/Vortx-AI/emem/blob/main/README.md#what-the-checks-do-not-prove).
 
 ## Next pages
 

@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Change one bit of a fact, and its id changes</title>
+<script src="one-byte-data.js"></script>
+<style>
+:root { --bg:#0d1117; --panel:#161b22; --line:#30363d; --text:#e6edf3; --muted:#8b949e;
+        --id:#79c0ff; --ok:#7ee787; --bad:#ff7b72; --sig:#d2a8ff; --tok:#ffa657; }
+* { box-sizing:border-box; margin:0; padding:0; }
+html,body { width:1080px; height:960px; background:var(--bg); overflow:hidden; }
+body { font-family: "DejaVu Sans", system-ui, sans-serif; color:var(--text); }
+.mono { font-family: "DejaVu Sans Mono", ui-monospace, monospace; }
+#steps { position:absolute; left:60px; right:60px; top:40px; display:flex; gap:12px; }
+#steps div { flex:1; height:60px; border-radius:12px; border:2px solid var(--line); color:var(--muted);
+             font-size:30px; display:flex; align-items:center; justify-content:center; gap:10px; }
+#steps div b { font-size:30px; width:42px; height:42px; border-radius:21px; border:2px solid currentColor;
+               display:inline-flex; align-items:center; justify-content:center; }
+#steps div.on { color:var(--text); border-color:var(--id); background:var(--panel); }
+#steps div.done { color:var(--id); }
+h1 { position:absolute; left:60px; right:60px; top:130px; font-size:44px; font-weight:700; line-height:1.15; }
+#gridwrap { position:absolute; left:60px; top:226px; width:960px; }
+#legend { display:flex; gap:30px; font-size:30px; color:var(--muted); margin-top:12px; }
+#legend i { display:inline-block; width:22px; height:22px; border-radius:4px; vertical-align:-3px; margin-right:8px; }
+.scene { position:absolute; left:60px; right:60px; top:588px; height:200px; opacity:0; }
+.card { background:var(--panel); border:2px solid var(--line); border-radius:18px; padding:20px 30px; }
+.k { font-size:30px; color:var(--muted); margin-bottom:4px; }
+.v { font-size:32px; }
+.id { color:var(--id); } .ok { color:var(--ok); } .bad { color:var(--bad); } .tok { color:var(--tok); }
+.strike { text-decoration: line-through; text-decoration-thickness:3px; color:var(--muted); }
+.pill { display:inline-block; padding:2px 14px; border-radius:24px; border:2px solid currentColor; font-size:30px; font-weight:700; }
+#foot { position:absolute; left:60px; right:60px; bottom:16px; font-size:30px; line-height:1.3; color:var(--muted); }
+</style></head>
+<body>
+<div id="steps">
+  <div data-s="1"><b>1</b>Bytes</div><div data-s="2"><b>2</b>Id</div><div data-s="3"><b>3</b>Change</div>
+  <div data-s="4"><b>4</b>New id</div><div data-s="5"><b>5</b>Check</div>
+</div>
+<h1 id="title"></h1>
+
+<div id="gridwrap">
+  <svg id="grid" width="960" height="272" viewBox="0 0 960 272"></svg>
+  <div id="legend">
+    <span><i style="background:#1f6feb"></i>band name</span>
+    <span><i style="background:#79c0ff"></i>cell64</span>
+    <span><i style="background:#e6edf3"></i>value, 4 bytes</span>
+    <span id="lgbad" style="opacity:0"><i style="background:#ff7b72"></i>changed</span>
+  </div>
+</div>
+
+<section class="scene" data-t="0,6.6" data-step="1" data-title="One signed fact is 743 bytes.">
+  <div class="card">
+    <div class="k">GET /v1/facts/qejpz7cg… (Mount Fuji, elevation)</div>
+    <div class="v"><span class="mono">copdem30m.elevation_mean</span> = <b id="v1"></b> m</div>
+    <div class="v" style="font-size:30px; color:var(--muted); margin-top:6px" data-in="3.4">Each square is one byte of canonical CBOR.</div>
+  </div>
+</section>
+
+<section class="scene" data-t="6.6,13.0" data-step="2" data-title="The fact id is BLAKE3 of all the bytes.">
+  <div class="card">
+    <div class="k">fact_cid = base32( BLAKE3( 743 bytes ) )</div>
+    <div class="v mono id" id="cid1" style="font-size:30px; line-height:1.3"></div>
+    <div class="v" style="font-size:30px; color:var(--muted); margin-top:6px" data-in="10.6">The token cites this id.</div>
+  </div>
+</section>
+
+<section class="scene" data-t="13.0,19.6" data-step="3" data-title="Change one bit in the value.">
+  <div class="card">
+    <div class="k">value bytes (float32)</div>
+    <div class="v mono"><span id="hx1"></span>  →  <span id="hx2"></span></div>
+    <div class="v mono" data-in="15.2" style="margin-top:4px"><span id="vv1"></span> m  →  <span class="bad" id="vv2"></span> m</div>
+    <div class="v" style="font-size:30px; color:var(--muted); margin-top:4px" data-in="16.6">Both round to 3539.04 m.</div>
+  </div>
+</section>
+
+<section class="scene" data-t="19.6,25.6" data-step="4" data-title="Hash again: the id is a new one.">
+  <div class="card">
+    <div class="v mono strike" id="cid2" style="font-size:30px; line-height:1.3"></div>
+    <div class="v mono bad" id="cid3" style="font-size:30px; line-height:1.3; margin-top:8px"></div>
+    <div class="v" style="font-size:30px; color:var(--muted); margin-top:6px" data-in="22.4" id="diffn"></div>
+  </div>
+</section>
+
+<section class="scene" data-t="25.6,33.0" data-step="5" data-title="Ask emem.dev for both ids.">
+  <div class="card">
+    <div class="v mono" style="font-size:30px">GET /v1/facts/qejpz7cg…  <span class="pill ok">200</span> <span class="ok">743 bytes, same id</span></div>
+    <div class="v mono" style="font-size:30px; margin-top:12px" data-in="27.4">GET /v1/facts/26zhvwvf…  <span class="pill bad">404</span> <span class="bad">cid_not_found</span></div>
+    <div class="v" style="font-size:30px; color:var(--muted); margin-top:10px" data-in="29.2">Any reader can hash the bytes again. No key is needed.</div>
+  </div>
+</section>
+
+<div id="foot">Live reads, emem.dev, 7 November 2026, 15:06 UTC.<br>Copernicus GLO-30 DEM. We changed the bit offline.</div>
+
+<script>
+const DUR = 33.0, COLS = 53, SZ = 18;
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const ease = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+const inR = (i, r) => i >= r[0] && i < r[1];
+const g = document.getElementById('grid');
+let s = '';
+for (let i = 0; i < D.n; i++) {
+  const x = (i % COLS) * SZ, y = Math.floor(i / COLS) * SZ;
+  s += `<rect id="b${i}" x="${x + 1}" y="${y + 1}" width="${SZ - 3}" height="${SZ - 3}" rx="3"/>`;
+}
+g.innerHTML = s + '<rect id="scan" x="0" y="0" width="960" height="4" fill="#79c0ff" opacity="0"/>';
+const rects = [...g.querySelectorAll('rect[id^=b]')];
+const base = i => inR(i, D.band) ? '#1f6feb' : inR(i, D.cell) ? '#79c0ff'
+  : (i >= D.value_at && i < D.value_at + 4) ? '#e6edf3' : '#30363d';
+const split = c => c.slice(0, 26) + '<br>' + c.slice(26);
+document.getElementById('v1').textContent = D.value;
+document.getElementById('cid2').innerHTML = split(D.cid);
+document.getElementById('cid3').innerHTML = split(D.bad_cid);
+document.getElementById('vv1').textContent = D.value;
+document.getElementById('vv2').textContent = D.bad_value;
+document.getElementById('diffn').textContent = `${52 - D.same_chars} of 52 characters differ.`;
+const cid1 = document.getElementById('cid1');
+
+function seek(t) {
+  let step = 1, title = '';
+  for (const sc of document.querySelectorAll('.scene')) {
+    const [a, b] = sc.dataset.t.split(',').map(Number);
+    const o = Math.min(ease((t - a) / 0.45), b >= DUR ? 1 : ease((b - t) / 0.45));
+    sc.style.opacity = t >= a - 0.01 && t < b + 0.01 ? o : 0;
+    sc.style.transform = `translateY(${(1 - ease((t - a) / 0.45)) * 20}px)`;
+    if (t >= a) { step = +sc.dataset.step; title = sc.dataset.title; }
+  }
+  const h = document.getElementById('title');
+  h.textContent = title;
+  for (const d of document.querySelectorAll('#steps div')) {
+    const n = +d.dataset.s;
+    d.className = n === step ? 'on' : n < step ? 'done' : '';
+  }
+  for (const e of document.querySelectorAll('[data-in]')) {
+    const k = ease((t - +e.dataset.in) / 0.4);
+    e.style.opacity = k; e.style.transform = `translateY(${(1 - k) * 12}px)`;
+  }
+  // bytes appear row by row, then field colours come in
+  const shown = Math.round(ease(t / 2.2) * D.n);
+  const colour = ease((t - 2.2) / 0.8);
+  const flipped = t >= 14.6;
+  const rows = Math.ceil(D.n / COLS);
+  // hash scan: twice over the grid, once for each id
+  const scanA = clamp((t - 7.4) / 2.4, 0, 1), scanB = clamp((t - 20.0) / 2.0, 0, 1);
+  const scanning = (t > 7.4 && t < 9.8) || (t > 20.0 && t < 22.0);
+  const scanRow = (t < 15 ? scanA : scanB) * rows;
+  const scan = document.getElementById('scan');
+  scan.setAttribute('opacity', scanning ? 1 : 0);
+  scan.setAttribute('y', Math.min(scanRow * SZ, rows * SZ - 4));
+  rects.forEach((r, i) => {
+    let c = base(i);
+    if (c !== '#30363d' && colour < 1) c = colour > 0.5 ? c : '#30363d';
+    if (i === D.flip_at && flipped) c = '#ff7b72';
+    r.setAttribute('fill', c);
+    let op = i < shown ? 1 : 0;
+    if (scanning && Math.floor(i / COLS) < scanRow) op = 0.55;
+    if (i === D.flip_at && flipped) op = 1;
+    r.setAttribute('opacity', op);
+  });
+  document.getElementById('lgbad').style.opacity = flipped ? 1 : 0;
+  // the id types in after the first scan
+  const k = clamp((t - 9.8) / 0.9, 0, 1);
+  cid1.innerHTML = split(D.cid.slice(0, Math.round(k * 52)));
+  const hx1 = document.getElementById('hx1'), hx2 = document.getElementById('hx2');
+  hx1.textContent = D.hex;
+  hx2.innerHTML = t >= 14.6 ? D.bad_hex.slice(0, 9) + '<span class="bad" style="background:rgba(255,123,114,0.2)">' + D.bad_hex.slice(9) + '</span>' : D.hex;
+  return { t, step };
+}
+window.film = { duration: DUR, fps: 30, ready: document.fonts.ready.then(() => true), seek: t => Promise.resolve(seek(t)) };
+seek(0);
+</script>
+</body></html>
