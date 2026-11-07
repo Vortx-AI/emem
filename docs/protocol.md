@@ -3248,7 +3248,8 @@ Operators (`Op`):
 
 Aggregations over a window (`Claim.agg`): `any`, `all`, `mean`, `min`,
 `max`. With no `agg`, the evaluator uses `any`. `mean` weights each
-value by the equal-area weight of its cell.
+value by the equal-area weight of its cell (see the note on `verify`
+below).
 
 The spec says a claim MUST carry one of `tslot` or `window`, and
 `emem-claim` defines `ClaimError::NoTime`, `TypeMismatch` and
@@ -3260,13 +3261,28 @@ what emem.dev returned that day.
 | Input | Result |
 |---|---|
 | no `tslot` and no `window` | accepted; the claim uses the facts at every tslot for that band |
+| a `band` with no fact at the cell, including a name that is not in the registry | `verdict: false` and an empty `evidence` list, for every op except `absent` with an absence fact. No error, and no fetch in the default mode |
 | `value` of a different type from the fact, for example a string against a number | `verdict: false` for `eq`, `lt`, `le`, `gt`, `ge` and `in`. `verdict: true` for `ne`, and for `ni` with an array `value`, because no value is equal. The fact CIDs are in `evidence`. No error |
 | `agg` that is not one of the five names | evaluated as `any` |
 | unknown `op` | HTTP 400 `invalid_argument`, with `details.deserializer_error` naming the ten valid ops |
 
-So in `verify`, a verdict can mean "the value passes or fails the test"
-or "the types do not compare". A `true` from `ne` or `ni` is the risky
-case. Check the fact values in `evidence` to tell the two apart.
+So in `verify`, a `false` can mean "the value fails the test", "the
+types do not compare" or "no fact exists". A `true` from `ne` or `ni`
+can mean that the types do not compare. Check the fact values in
+`evidence` to tell these cases apart. An empty `evidence` list means
+that the responder had no fact to test.
+
+The request has an optional `mode` field (`VerifyReq` in `verify.rs`):
+
+| `mode` | What the responder does when no fact matches |
+|---|---|
+| `fast` (default) | evaluates over the facts that it already holds |
+| `resolve` | fetches and signs the fact first, but only when the claim names one `tslot` or a `window` with equal ends. A band with no connector gives an error, not `false` |
+
+All facts in a `verify` call come from the one requested cell. So the
+equal-area weight of `mean` is the same for each value, and `mean` is
+the plain mean. The response field `cos_lat_weighting_applied` is
+`true` whenever `agg` is `mean`.
 
 New ops ship under semver. An unknown op MUST give a structured error,
 not `false`. The responder does that: the last row of the table.
