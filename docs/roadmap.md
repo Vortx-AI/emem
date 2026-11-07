@@ -400,8 +400,8 @@ a relabel would only rename facts.
 The first answer to them was that the class needed a version, because it
 would move `bands_cid`, and every receipt commits to that value. A
 measurement showed that the cid did not change. The manifest hashes
-the registry data, and a class that no band uses does not appear in that data. The real
-cost was four match arms in one file. A test now pins the cid
+the registry data, and a class that no band uses does not appear in
+that data. The real cost was four match arms in one file. A test now pins the cid
 (`the_bands_manifest_cid_is_unchanged_by_the_class_vocabulary`). If a
 future class does move it, that is a wire change, and the test shows
 it.
@@ -430,15 +430,16 @@ has the full rule.
 Status: shipped on 2026-08-13.
 
 A contributor, `dpwotikn`, found the problem when they read
-`/v1/algorithms` to build on it. In `flood_risk@2`, the parameter `dem_agreement_threshold_m` cites the
-Copernicus DEM product specification. The parameter beside it,
+`/v1/algorithms` to build on it. In `flood_risk@2`, the parameter
+`dem_agreement_threshold_m` cites the Copernicus DEM product
+specification. The parameter beside it,
 `dem_agreement_penalty`, cites nothing. Their words for the risk: "one
 parameter earned its citation, the neighbour inherited its credibility by
 adjacency."
 
 The problem was not in one algorithm only. At that time, eleven of
-nineteen parameters, across seven algorithms, had no source. Each one stood beside a parameter
-that had a source.
+nineteen parameters, across seven algorithms, had no source. Each one
+stood beside a parameter that had a source.
 
 The fix is a rule in the loader (`crates/emem-core/src/algorithms.rs`).
 Each parameter must declare a `basis` in its `learned_from` entry. If a
@@ -558,8 +559,8 @@ reader can compare two addresses by prefix without a decode step.
 #### Per-encoder calibration for the change gate
 
 This item needs no more work. The gate used three image encoders. The
-maintainers removed those encoders, so there is nothing to calibrate. One result still applies
-to a future gate. A scalar nuisance parameter can move a threshold, but it
+maintainers removed those encoders, so there is nothing to calibrate.
+One result still applies to a future gate. A scalar nuisance parameter can move a threshold, but it
 cannot change the order of the candidates (`dpwotikn`, 2026-08-13).
 
 #### Accuracy, separate from verifiability
