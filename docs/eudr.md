@@ -72,7 +72,8 @@ This endpoint does not use WRI-Sims driver attribution or RADD SAR alerts.
 
 Each cell gets a verdict first.
 A cell is forest at the cut-off when JRC GFC2020 calls it forest.
-It is also forest when Hansen `treecover2000` is 10 % or more and Hansen shows no loss up to the cut-off year.
+It is also forest when Hansen `treecover2000` is 10 % or more and the Hansen loss year is `0` or after the cut-off year.
+A missing Hansen loss year does not make a cell forest.
 
 | Cell state | Cell verdict |
 |---|---|
@@ -81,8 +82,13 @@ It is also forest when Hansen `treecover2000` is 10 % or more and Hansen shows n
 | Forest at the cut-off, Hansen loss year after the cut-off year | `fail` |
 | Forest at the cut-off, no Hansen loss after it | `pass` |
 
-A cell that lost its forest at or before the cut-off year was not forest at the cut-off.
-Its verdict is `not_in_scope`, never `pass`.
+Take a cell that JRC does not call forest, with a Hansen loss at or before the cut-off year.
+That cell was not forest at the cut-off, so its verdict is `not_in_scope`, never `pass`.
+The Hansen loss year does not overrule JRC.
+A cell that JRC calls forest stays forest, and an earlier Hansen loss does not change that.
+
+Only Hansen loss sets `fail` on this endpoint.
+`eudr_verdict_for` also accepts TMF, WRI-Sims and RADD values, but both read paths pass it none.
 
 The plot verdict then uses the first rule that applies:
 
@@ -99,6 +105,8 @@ The same count gives 1 ha on a 10 ha plot (`fail`).
 
 A `not_in_scope` plot has `deforestation_free_non_forest: true` when no cell carries a `refinement_applied` value.
 A natural-cause loss, `sims_natural_cause`, is one such value.
+This endpoint does not read WRI-Sims, so no `not_in_scope` cell carries a refinement value.
+Thus, in the code on 7 November 2026, every `not_in_scope` plot has `deforestation_free_non_forest: true`.
 
 The DDS verdict combines the plot verdicts by the first rule that applies:
 
