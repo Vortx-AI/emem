@@ -164,6 +164,7 @@ values of two adjacent cells and call the result a gradient.
 |---|---|---|
 | `cid_not_found` (404) | No stored fact for that band at that cell, and no materialiser could fetch one. | Read `GET /v1/data_availability` to see which bands the responder can materialise. |
 | `invalid_cell` (400) | The `cell` has the shape of a `cell64` but has a symbol that is not in the alphabet. The responder does not geocode it. | Do step 1 again. |
+| `no_geocoder_match` (404) | The `cell` has a character such as `-` that cannot be in a `cell64`. Thus the responder tried it as a place name, and no geocoder found it. | Do step 1 again, or send `lat` and `lng`. |
 | `band_not_in_registry` | The responder does not know the band name. | Find the correct name in `GET /v1/bands`. |
 | `compute_timeout` | The request took longer than the transport limit of the responder, 40 s on emem.dev. | Ask for fewer bands. Or try again after the background fetch is complete. |
 | `_emem_truncation` in an MCP result | The result was larger than the MCP wire limit, about 24 KB. The server made it smaller and lists what it removed. | Ask for fewer bands, or send the same body to the REST route. The REST route returns the full response. |
