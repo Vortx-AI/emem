@@ -9107,7 +9107,7 @@ async fn federation_json(s: &AppState, responder_b32: &str) -> JsonValue {
                 "independent_witnesses": independent_distinct.len(),
                 "freshest_independent_witness_entries_behind": independent_freshest,
                 "head_is_independently_witnessed": independent_freshest == Some(0),
-                "independence_note": "head_is_witnessed counts this node's own co-signatures, made every two minutes by its write-liveness canary. The independent_* fields exclude witness_pubkey_b32 above and are the ones that bear on split view.",
+                "independence_note": "head_is_witnessed counts this node's own co-signatures, made every two minutes by its write-liveness canary. The independent_* fields exclude witness_pubkey_b32 above, but keys are free, so one party with many keys can satisfy them. For split view, read head_is_witnessed_by_independent_operator at /v1/log/witnesses: it counts only keys vouched by a domain that is not this node's own.",
                 "url": "/v1/log/witnesses",
             })
         }
@@ -24544,7 +24544,7 @@ async fn get_log_witnesses(
         },
         "witnesses": out,
         "nearest_witnessed": nearest,
-        "note": "Each entry is a witness's ed25519 co-signature over (tree_size, root). Verify offline; then call /v1/log/consistency?first=<that tree_size>&second=<current> to confirm the log the witness saw is an append-only prefix of the log you see. A witness attests ONLY the prefix it signed: `entries_behind_current` is how much of the current log no witness has seen, and `head_is_witnessed` is false whenever that is non-zero. Read `head_is_witnessed` with care: it counts ANY co-signature including this node's own write-liveness canary, which signs the head every two minutes, so it is nearly always true and is not a measure of outside oversight. `head_is_independently_witnessed` is the same question with `self_witness_pubkey_b32` removed, and it is the one that speaks to split view. Consistency proofs remain checkable by anyone regardless — split-view detection is what needs a second pair of eyes, and that is what a stale witness cannot give you.",
+        "note": "Each entry is a witness's ed25519 co-signature over (tree_size, root). Verify offline; then call /v1/log/consistency?first=<that tree_size>&second=<current> to confirm the log the witness saw is an append-only prefix of the log you see. A witness attests ONLY the prefix it signed: `entries_behind_current` is how much of the current log no witness has seen, and `head_is_witnessed` is false whenever that is non-zero. Read `head_is_witnessed` with care: it counts ANY co-signature including this node's own write-liveness canary, which signs the head every two minutes, so it is nearly always true and is not a measure of outside oversight. `head_is_independently_witnessed` is the same question with `self_witness_pubkey_b32` removed. Keys are free, so one party with many fresh keys can make it true. `head_is_witnessed_by_independent_operator` counts only org_vouched keys (fresh DNS or well-known evidence under a domain that is not this node's own), and it is the one that speaks to split view. Anyone can check a consistency proof. Split-view detection needs a second party, and a stale witness cannot give you that.",
         "submit": "POST /v1/log/witness {tree_size, root_b32, witness_pubkey_b32, signature_b32}",
         "preimage": "PreimageV1(\"emem.translog.witness.v1\"){1:u64_be tree_size, 2:root, 3:witness_pubkey}"
     })))
@@ -89416,6 +89416,35 @@ mod tests {
         );
         assert_eq!(found["worlds"][0]["url"], "/v1/worlds/canyon");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The prose must send a split-view reader to the operator field, not to
+    /// the key count that the test below shows a swarm of keys can inflate.
+    #[tokio::test]
+    async fn witnesses_note_points_split_view_readers_at_operators() {
+        use tower::ServiceExt;
+        let app = Router::new()
+            .route("/v1/log/witnesses", get(get_log_witnesses))
+            .with_state(test_app_state());
+        let req = axum::extract::Request::builder()
+            .uri("/v1/log/witnesses")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let doc: JsonValue = serde_json::from_slice(&body).unwrap();
+        let note = doc["note"].as_str().unwrap();
+        assert!(
+            note.contains("`head_is_witnessed_by_independent_operator`")
+                && note.contains("it is the one that speaks to split view"),
+            "{note}"
+        );
+        assert!(doc
+            .get("head_is_witnessed_by_independent_operator")
+            .is_some());
     }
 
     /// A swarm of fresh keys must not look like independent oversight: only
