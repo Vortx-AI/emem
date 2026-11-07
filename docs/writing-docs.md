@@ -45,7 +45,8 @@ Use a bundle to send many facts in one line."
 
 Two scripts check Markdown. Both need only Python 3.
 
-`scripts/doc_lint.py` is the gate in CI. The `doc-lint` job runs it on each push to `main` and each pull request to `main`. It reads
+`scripts/doc_lint.py` is the gate in CI. The `doc-lint` job runs it on each push to `main` and each pull request to
+`main`. It reads
 `README.md`, `CONTRIBUTING.md` and `docs/**/*.md`. It finds these problems:
 
 - em and en dashes,
@@ -85,5 +86,6 @@ ASD-STE100 dictionary. When the team decides that a word is a defined technical 
 ## Pages the STE lint skips
 
 The STE lint skips six records: the collaboration log, the changelog, the two whitepapers (`whitepaper-v1.md` and
-`whitepaper-v2.md`), the agent notes and the test results in `tests/comprehensive/results/`. We keep their text as it is.
+`whitepaper-v2.md`), the agent notes and the test results in `tests/comprehensive/results/`. We keep their text as it
+is.
 The list is `skip_paths` in `scripts/ste_lint_rules.json`.

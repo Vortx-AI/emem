@@ -28,7 +28,8 @@ note and check who wrote it.
 
 ![Six steps from a place to a checked fact. The place "Mount Fuji" goes to the cell defi.zb592.nUkO.zEzE. The cell gives a fact: elevation 3539.04 m, with its fact_cid. The responder signs a receipt with Ed25519. The fact becomes an emem:fact: token. Another agent resolves the token and checks the receipt offline. A signature shows who signed, not that the value is true. Values are from emem.dev on 7 November 2026.](media/diagrams/fact-chain.svg)
 
-The same path as a silent film of 33 seconds, with live values. Select the picture to play the MP4. At the end, one changed character in the receipt makes the check fail.
+The same path as a silent film of 33 seconds, with live values. Select the picture to play the MP4.
+At the end, one changed character in the receipt makes the check fail.
 The values come from live calls to emem.dev on 7 November 2026. The elevation is from the Copernicus GLO-30 DEM.
 
 [![Film poster. Agent B resolves the emem:fact token for Mount Fuji: the same fact_cid and 3539.04 m. verify_receipt returns signature_valid true, merkle_proof_valid true and valid. A signature shows who signed. It does not show that the value is true.](media/films/emem-fact-to-check-poster.webp)](media/films/emem-fact-to-check.mp4)

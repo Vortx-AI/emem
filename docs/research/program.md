@@ -74,7 +74,8 @@ under its own key (`mujzmxes`), in this order:
    its evidence table and recomputes its status.
 
 The picture shows steps 1, 4 and 5 for one experiment, the one in section 5.5 of the
-[canopy-loss paper](canopy-loss-2026-10.md). The script `experiment_chain.py` drew it from the lab's signed records on 7 November 2026.
+[canopy-loss paper](canopy-loss-2026-10.md). The script `experiment_chain.py` drew it from the lab's signed records on 7
+November 2026.
 
 <p align="center"><img src="../media/stills/experiment-chain.webp" width="420" alt="One experiment of the methods lab, key mujzmxes: canopy loss on 19 scored forests, 2024 to 2025, as three signed records in log order. Plan note at log leaf 3,124,533, signed 09:36:23 UTC on 29 October 2026, content id ls7ckvg4, names 14 methods by the BLAKE3 of their source. The experiment@1 record at leaf 3,124,774, 40 minutes and 241 entries later: its fact id is the BLAKE3 of its 10,154 CBOR bytes, it cites the plan's content id, all 14 method hashes appear in the plan, and it has 16 signed input tokens at 4 cells. The result note at leaf 3,124,779 cites the same plan. Pooled MCC over 486 loss and 1,184 stable cells: seasonal_loss_nbr@1 0.381, the registry rule 0.295. All signatures and inclusion proofs checked offline against tree size 3,253,685."></p>
 
@@ -142,7 +143,8 @@ interval of 1.8 to 8.6 m (Sen's rank-based interval on the Theil-Sen slope), ove
 the darkest tenth of a cell's pixels as another. Neither beat the registry rule at scale or on the seven forests of
 the MCC replication; after the cloud screen, both beat it on the ten of the third replication, where their best
 sites were managed forests with partial harvests. They have a mixed record. The quiet rules are the three that flag the
-least stable forest. The paper's section 5.9 pools the three MCC experiments. There they found 91% of cells that lost half their forest or more.
+least stable forest. The paper's section 5.9 pools the three MCC experiments. There they found 91% of cells that lost
+half their forest or more.
 They found 20% of cells that lost 5 to 10%. So the cell-size experiment read the same detectors at 200 m,
 scored on the same Hansen pixels. Every detector found more of the lost forest, and the share of stable pixels
 flagged barely moved (paper, section 5.10).
@@ -274,7 +276,8 @@ reads met server timeouts (502) and upstream errors (400) (gap ledger).
 **Later results.** Three later experiments read more forests (paper, sections 5.14, 5.15 and 5.21). Under Hansen, on ten
 new forests, the memory detectors led, and the calibrated ones flagged 1.2 to 1.8% of stable cells against a stated 5%.
 JRC TMF marked only 5 cells as loss, against 42 for Hansen, too few to judge any method. Version 4
-(`lab:memory_hls_emp@4`) adds Landsat 8 and 9 to the optical memory. On nine forests that had loss, it scored MCC 0.420 and beat the registry rule
+(`lab:memory_hls_emp@4`) adds Landsat 8 and 9 to the optical memory. On nine forests that had loss, it scored MCC 0.420
+and beat the registry rule
 with forests resampled (+0.031 to +0.685). Its gain over version 3 (-0.066 to +0.203) is not yet clear of zero. The
 replication in section 5.21 read the four forests that failed and six new ones. Its best detector scored MCC 0.93, but
 56 of its 59 loss cells are one clearing at Humaitá.
@@ -389,7 +392,8 @@ disagreements between sources; that list is the program's agenda.
   schedules that replication itself, on the Landsat design and on forests that had loss before the window.
 - Much of that disagreement follows the climate (the paper, section 5.18, post hoc): in seasonally dry forest the
   registry rule stays competitive, and in evergreen forest the memory detectors beat it widely. The method-selection
-  experiments test whether choosing by climate beats the best method on average (sections 5.19 and 5.20 of the paper). In the
+  experiments test whether choosing by climate beats the best method on average (sections 5.19 and 5.20 of the paper).
+  In the
   first, the context policy chose as the global policy at every forest. In the second, its difference from the
   global policy was -0.035 to +0.028 MCC, so the test does not decide.
 - At 400 m the quiet rules find 20% of cells with 5 to 10% cleared (the paper, section 5.9). The cell-size

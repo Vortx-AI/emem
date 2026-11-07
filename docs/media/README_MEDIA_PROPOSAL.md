@@ -59,9 +59,11 @@ film above after line 219. To keep one film, use the one above.
 <br><sub>Contains modified Copernicus Sentinel data 2026.</sub>
 ```
 
-Put this caption at line 287, in place of its first sentence. "One live answer from `/v1/ask`: the number, the stages that reached it, and the signed facts under it." Keep the video link.
+Put this caption at line 287, in place of its first sentence. "One live answer from `/v1/ask`: the number, the stages
+that reached it, and the signed facts under it." Keep the video link.
 
-Do not delete `02-verify.gif`, `04-guard.gif`, `10-research.gif` or `11-two-agents.gif` before the signed README stops using them.
+Do not delete `02-verify.gif`, `04-guard.gif`, `10-research.gif` or `11-two-agents.gif` before the signed README stops
+using them.
 
 ## Kept as it is
 

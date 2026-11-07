@@ -12,18 +12,22 @@ JRC TMF from the same Landsat archive. On the same cells they agree at an MCC of
 Hansen also shares an input with one of the candidates, the Landsat version of the memory detector. Neither product
 dates a loss more finely than its year, so neither can measure how fast an alert arrives.
 
-[Rule of evidence 13](program.md#5-rules-of-evidence) says that only independent references decide. The strongest independent reference
+[Rule of evidence 13](program.md#5-rules-of-evidence) says that only independent references decide. The strongest
+independent reference
 is one that people make by eye, on a sample drawn by chance so that its estimates generalise.
 
 ## 2. Population and sample
 
-- **Population.** Every forest cell of the experiments' forests, at the cell size each experiment reads. That is 400 m now,
-  and 200 m in a finer-cell experiment (companion paper, section 5.10). A cell is forest when its mean 2000 tree cover is 30% or more.
+- **Population.** Every forest cell of the experiments' forests, at the cell size each experiment reads. That is 400 m
+  now,
+  and 200 m in a finer-cell experiment (companion paper, section 5.10). A cell is forest when its mean 2000 tree cover
+  is 30% or more.
 - **Strata.** (A) cells that any candidate method flagged in the window; (B) cells Hansen marks as lost and no
   candidate flagged; (C) every other forest cell. A simple random sample of a few hundred cells misses a rare
   class. These strata keep enough loss in the sample to score it.
 - **Allocation.** 150 cells in A, 100 in B and 250 in C, drawn without replacement by a fixed seed. The draw
-  comes after the lab freezes the methods and the strata. 500 cells in all; at a minute and a half per cell for each of two interpreters, about
+  comes after the lab freezes the methods and the strata. 500 cells in all; at a minute and a half per cell for each of
+  two interpreters, about
   25 hours of interpretation.
 - **Estimation.** Stratified estimators give each method's precision and recall, and the area lost, with their
   standard errors (Olofsson et al. 2014; Stehman 2014). The estimates then speak for the whole population, not
@@ -44,7 +48,8 @@ For each sampled cell, two interpreters work independently, without seeing any m
 
 Imagery: monthly very-high-resolution mosaics where they exist, with the Sentinel-2 record of the same cell as
 context. For the tropics, that means the NICFI basemaps at about 4.8 m, if that programme still serves them when
-the work starts. Check this before the work starts; do not assume it. A third interpreter settles each disagreement between the two, and the
+the work starts. Check this before the work starts; do not assume it. A third interpreter settles each disagreement
+between the two, and the
 report gives the agreement before that step.
 
 ## 4. How it enters emem
