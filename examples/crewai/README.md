@@ -60,8 +60,8 @@ We also called `emem_eudr_dds` with the same plot on the same day:
 |---|---|
 | `due_diligence_statement.verdict` | `pass` |
 | `per_plot_results[0].verdict` | `not_in_scope` |
-| the one cell | `defi.zb3dc.zba55.niye`, label `not_in_scope`, 4 `fact_cids` |
-| `jrc_forest_2020` at the cell | 0 (not forest at the cut-off) |
+| `per_plot_results[0].per_cell_verdicts[0]` | cell `defi.zb3dc.zba55.niye`, `label` `not_in_scope`, 4 `fact_cids` |
+| `per_cell_verdicts[0].jrc_forest_2020` | 0 (not forest at the cut-off) |
 | `responder_pubkey_b32` | `777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka` |
 
 The point is in the city. It was not forest on 31 December 2020, so the
