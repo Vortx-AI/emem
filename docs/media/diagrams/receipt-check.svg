@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 1158" width="640" height="1158" role="img" aria-labelledby="t d">
+  <title id="t">How to check a receipt without the server</title>
+  <desc id="d">How to check an emem receipt without trusting the server, shown with one live recall at Mount Fuji (elevation 3539.04 m). 1: rebuild the signed bytes from the receipt fields: header 28 B, request_id 31 B, served_at 25 B, manifest 69 B, primitive 16 B, cells 29 B, fact_cids 61 B, merkle 69 B; the preimage is 328 bytes. 2: the digest is blake3 of the preimage, c965e13b33d01ba3...b92f170a. Take the responder key from /.well-known/emem.json, 777er3yi, and Ed25519 verify gives VALID. 3: change one character of served_at, 18 to 19 seconds. The digest becomes 309488c7c53ef28e...d25f83e3 and the same signature gives INVALID. Read from emem.dev on 7 November 2026 at 12:44 UTC and checked offline with verify.py of the emem-verify-receipt skill. A valid check shows which key signed these fact ids, not that the value is true.</desc>
+  <style>
+    .sans { font-family: "DejaVu Sans", system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .mono { font-family: "DejaVu Sans Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .h { font-size: 23px; font-weight: 600; fill: #e6edf3; }
+    .term { font-size: 20px; font-weight: 600; fill: #e6edf3; }
+    .term2 { font-size: 17px; font-weight: 600; fill: #e6edf3; }
+    .ex { font-size: 17px; fill: #79c0ff; }
+    .bad2 { font-size: 17px; fill: #ff7b72; }
+    .same { fill: #8b949e; }
+    .txt { font-size: 17px; fill: #8b949e; }
+    .foot { font-size: 16px; fill: #8b949e; }
+    .num { font-size: 17px; font-weight: 600; fill: #79c0ff; }
+    .ok { font-size: 19px; font-weight: 600; fill: #7ee787; }
+    .badtxt { font-size: 19px; font-weight: 600; fill: #ff7b72; }
+    .ex .badtxt { font-size: 17px; }
+    .box { fill: #161b22; stroke: #30363d; stroke-width: 1; }
+    .okbox { fill: #0d1117; stroke: #7ee787; stroke-width: 2; }
+    .badbox { fill: #0d1117; stroke: #ff7b72; stroke-width: 2; }
+    .ring { fill: #0d1117; stroke: #79c0ff; stroke-width: 1.5; }
+    .rule { stroke: #30363d; stroke-width: 1; }
+  </style>
+  <rect x="0" y="0" width="640" height="1158" rx="12" fill="#0d1117"/>
+  <text class="sans h" x="24" y="42">How to check a receipt without the server</text>
+  <text class="sans txt" x="24" y="70">Mount Fuji, one recall: 3539.04 m elevation</text>
+  <rect class="box" x="40" y="96" width="560" height="368" rx="8"/>
+  <circle class="ring" cx="64" cy="126" r="15"/>
+  <text class="sans num" x="64" y="132" text-anchor="middle">1</text>
+  <text class="sans term" x="92" y="133">Rebuild the signed bytes</text>
+  <text class="sans term2" x="56" y="174">header</text>
+  <text class="mono ex" x="190" y="174">"receipt" domain</text>
+  <text class="sans txt" x="584" y="174" text-anchor="end">28 B</text>
+  <text class="sans term2" x="56" y="206">request_id</text>
+  <text class="mono ex" x="190" y="206">01M6V0KKX4VNYH02KB9QWT0YTS</text>
+  <text class="sans txt" x="584" y="206" text-anchor="end">31 B</text>
+  <text class="sans term2" x="56" y="238">served_at</text>
+  <text class="mono ex" x="190" y="238">2026-11-07T12:44:18Z</text>
+  <text class="sans txt" x="584" y="238" text-anchor="end">25 B</text>
+  <text class="sans term2" x="56" y="270">manifest</text>
+  <text class="mono ex" x="190" y="270">blake3 of 4 ids</text>
+  <text class="sans txt" x="584" y="270" text-anchor="end">69 B</text>
+  <text class="sans term2" x="56" y="302">primitive</text>
+  <text class="mono ex" x="190" y="302">emem.recall</text>
+  <text class="sans txt" x="584" y="302" text-anchor="end">16 B</text>
+  <text class="sans term2" x="56" y="334">cells</text>
+  <text class="mono ex" x="190" y="334">defi.zb592.nUkO.zEzE</text>
+  <text class="sans txt" x="584" y="334" text-anchor="end">29 B</text>
+  <text class="sans term2" x="56" y="366">fact_cids</text>
+  <text class="mono ex" x="190" y="366">qejpz7cg...</text>
+  <text class="sans txt" x="584" y="366" text-anchor="end">61 B</text>
+  <text class="sans term2" x="56" y="398">merkle</text>
+  <text class="mono ex" x="190" y="398">proof, hashed</text>
+  <text class="sans txt" x="584" y="398" text-anchor="end">69 B</text>
+  <line class="rule" x1="56" y1="410" x2="584" y2="410"/>
+  <text class="sans term2" x="56" y="436">preimage</text>
+  <text class="sans term2" x="584" y="436" text-anchor="end">328 B</text>
+  <rect class="box" x="40" y="486" width="560" height="246" rx="8"/>
+  <circle class="ring" cx="64" cy="516" r="15"/>
+  <text class="sans num" x="64" y="522" text-anchor="middle">2</text>
+  <text class="sans term" x="92" y="523">Hash it, check the signature</text>
+  <text class="sans txt" x="56" y="560">digest = blake3(preimage)</text>
+  <text class="mono ex" x="56" y="588">c965e13b33d01ba3...b92f170a</text>
+  <text class="sans txt" x="56" y="626">key from /.well-known/emem.json</text>
+  <text class="mono ex" x="56" y="654">777er3yi...womvka</text>
+  <rect class="okbox" x="56" y="672" width="528" height="44" rx="6"/>
+  <text class="sans ok" x="72" y="701">ed25519 verify: VALID</text>
+  <rect class="box" x="40" y="754" width="560" height="246" rx="8"/>
+  <circle class="ring" cx="64" cy="784" r="15"/>
+  <text class="sans num" x="64" y="790" text-anchor="middle">3</text>
+  <text class="sans term" x="92" y="791">Change one character: it fails</text>
+  <text class="sans txt" x="56" y="828">served_at</text>
+  <text class="mono ex" x="56" y="856">2026-11-07T12:44:<tspan class="badtxt">19</tspan>Z <tspan class="same">(was 18)</tspan></text>
+  <text class="sans txt" x="56" y="894">new digest</text>
+  <text class="mono bad2" x="56" y="922">309488c7c53ef28e...d25f83e3</text>
+  <rect class="badbox" x="56" y="940" width="528" height="44" rx="6"/>
+  <text class="sans badtxt" x="72" y="969">same signature: INVALID</text>
+  <text class="sans foot" x="24" y="1034">Read from emem.dev on 7 November 2026 at 12:44 UTC.</text>
+  <text class="sans foot" x="24" y="1058">Checked offline with the verify.py of the</text>
+  <text class="sans foot" x="24" y="1082">emem-verify-receipt skill, BLAKE3 and Ed25519 in</text>
+  <text class="sans foot" x="24" y="1106">plain Python. A VALID check shows which key signed</text>
+  <text class="sans foot" x="24" y="1130">these fact ids. It does not show the value is true.</text>
+</svg>
