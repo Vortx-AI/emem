@@ -3,12 +3,12 @@
 An emem error is a JSON object with a stable `code`. Programs branch on that
 code. The `message` is for people and can change.
 
-There are three layers of codes:
+A REST route can send codes from three layers:
 
 - 27 protocol codes. These are the `ErrorCode` enum in
   `crates/emem-core/src/error.rs`. Each has a fixed MCP error number.
-- A few codes that the router and the load layer send. They are not in the
-  enum.
+- Three codes that the router and the load layer send: `not_found`,
+  `method_not_allowed` and `overloaded`. They are not in the enum.
 - Route codes in `details.code`. A route uses them to say which of its own
   checks refused the request. The top-level `code` is then one of the 27.
 
@@ -21,6 +21,24 @@ The live catalogue is `GET /v1/errors` (schema `emem.errors.v1`). It lists the
 27 protocol codes with their MCP numbers, meanings and recovery steps. We
 checked this page against that endpoint and against the code on 7 November
 2026. When this page and the live endpoint disagree, trust the live endpoint.
+
+On this page:
+
+| Section | Use it to |
+|---|---|
+| [The error envelope](#the-error-envelope) | Read the shape of an `emem.error.v1` body. |
+| [How to branch on an error](#how-to-branch-on-an-error) | Write the client logic in the correct order. |
+| [Examples from emem.dev](#examples-from-ememdev) | Cause each common error with one command. |
+| [Protocol codes (27)](#protocol-codes-27) | Find a top-level `code` and its MCP number. |
+| [Codes from the router and the load layer](#codes-from-the-router-and-the-load-layer) | Handle 404, 405 and 503 before a handler runs. |
+| [Memory and entity write refusals](#memory-and-entity-write-refusals) | Fix a refused signed write. |
+| [Derivation refusals](#derivation-refusals-post-v1derive) | Fix a refused `POST /v1/derive`. |
+| [Other route codes](#other-route-codes) | Find a `details.code` from another route. |
+| [JSON-RPC errors](#json-rpc-errors-from-mcp-and-a2atasks) | Handle errors from `/mcp` and `/a2a/tasks`. |
+| [Responses that are not `emem.error.v1`](#responses-that-are-not-ememerrorv1) | Handle quota, plain-text and proxy bodies. |
+| [Routes that only a self-hosted node answers](#routes-that-only-a-self-hosted-node-answers) | Understand a 501 from emem.dev. |
+| [Deny codes from the guard](#deny-codes-from-the-guard) | Act on a guard `deny`. |
+| [Endpoints that help you recover](#endpoints-that-help-you-recover) | Find the live catalogues. |
 
 ## The error envelope
 
@@ -219,7 +237,7 @@ codes. The next subsection names them and says what you get instead.
 | `source_format_mismatch` | -20 | The fetched bytes do not match the declared format. | Report it; the provider may have changed format. |
 | `compute_timeout` | -21 | The request ran past the transport budget (default 40 s, `EMEM_TIMEOUT_SECS`). HTTP 504; `details.budget_secs` gives the budget. Over MCP the same cause reads `exceeded the <N>s call budget`, with the budget in seconds. | Send a smaller input, or retry. A band read that passes the 14 s dispatch cap keeps running. A retry often finds the value ready. |
 | `compute_quota_exceeded` | -22 | You used all of a per-key, per-day compute quota. | No route sends this code today (see [Codes that no route sends](#codes-that-no-route-sends)). |
-| `rate_limited` | -23 | Too many requests. Per IP the default is 600 per minute with a burst of 120. Memory writes also have a per-attester backstop (`details.code: write_rate_limited`). | Honour `Retry-After` (seconds) or `details.retry_after_s`. |
+| `rate_limited` | -23 | Too many requests. Per IP the default is 600 per minute with a burst of 120 (`EMEM_RATE_LIMIT_RPS`, `EMEM_RATE_LIMIT_BURST`). Memory writes also have a per-attester backstop (`details.code: write_rate_limited`). | Honour `Retry-After` (seconds) or `details.retry_after_s`. |
 | `cache_error` | -24 | The responder's store returned an internal error. | Retry once. |
 | `invalid_argument` | -25 | A field is syntactically valid but semantically wrong, or the body did not match the route's schema (`details.deserializer_error` names the field). Also the top-level code for most route refusals below. | Read `message` and `details`; the request shape is in `/openapi.json`. |
 | `internal` | -26 | A responder bug. Receipts already signed stay valid. | File the request and response at [github.com/Vortx-AI/emem/issues](https://github.com/Vortx-AI/emem/issues). |
