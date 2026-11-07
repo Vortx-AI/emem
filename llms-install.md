@@ -169,7 +169,8 @@ caller-signed memory writes.
 - GitHub: https://github.com/Vortx-AI/emem
 - MCP endpoint: https://emem.dev/mcp
 - GitHub MCP Registry: https://github.com/mcp/Vortx-AI/emem
-- Official MCP Registry: `io.github.Vortx-AI/emem`
+- Official MCP Registry: `io.github.Vortx-AI/emem`, latest version 2.4.4 on 7 November 2026
+  (https://registry.modelcontextprotocol.io/v0/servers?search=io.github.Vortx-AI/emem&version=latest)
 - Glama: https://glama.ai/mcp/servers/Vortx-AI/emem
 - Smithery registry entry: https://registry.smithery.ai/servers/vortxai/emem (the web page `smithery.ai/servers/vortxai/emem` returned 404 on 7 November 2026)
 - Container: `ghcr.io/vortx-ai/emem:latest`
