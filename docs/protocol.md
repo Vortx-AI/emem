@@ -2984,8 +2984,12 @@ what it measured. None of these routes stores anything. None of their
 outputs is a fact. Each receipt says which bytes, url, engine or model
 went together. It never says that the content is true. All use the
 same PreimageV1 construction as the STH (§9.6), under the responder
-key. `/v1/verifier_spec` lists every segment. In each domain, the
-first segment has tag 1, and each next segment adds 1 to the tag.
+key. In each domain, the first segment has tag 1, and each next
+segment adds 1 to the tag. `GET /v1/verifier_spec` lists the segments
+of four domains under `other_signed_objects`. It does not list
+`emem.doc_parse.v1`. For that domain, use this table, the
+`receipt.preimage` text in each parse response, or `doc_tag` in
+`crates/emem-api-rest/src/reader.rs`.
 
 | domain | route | segments, in tag order |
 |---|---|---|
@@ -3113,7 +3117,10 @@ print("signature: VALID")
 
 On 7 November 2026 at 07:35 UTC, `python3 check_range.py range.json`
 printed `bytes match: True` and `signature: VALID`. Both leaf fields
-matched the §9.8 leaf rule at the same time. A bad signature
+matched the §9.8 leaf rule at the same time. At 07:37 UTC, the same
+stream rule with the six `emem.doc_parse.v1` segments verified a
+`POST /v1/lab_report_parse` receipt. The `result` object, serialised
+as compact JSON with sorted keys, hashed to `result_blake3_b32`. A bad signature
 raises `InvalidSignature`. Each IP has a daily quota on this route.
 Over it, the route returns `429` with `code: range_hash_quota` (see
 [errors.md](errors.md)).
