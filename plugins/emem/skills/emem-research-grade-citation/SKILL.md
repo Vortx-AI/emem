@@ -49,7 +49,8 @@ The elevation line for this Bengaluru cell on 7 November 2026:
 ```
 
 This value and token were the same on 28 September 2026. The DEM is a
-static layer, so the fact does not change.
+static layer, so the fact does not change. The WorldCover line gives
+the value 10 (`lccs_class`, observed 2022-10-28) from tile `N12E075`.
 
 | Field | What it tells you |
 |---|---|
@@ -158,12 +159,16 @@ values:
 | `observed.embedding.change` | 0.096, over 8 vintages |
 | `terms` | `encoder`, `env`, `geo`, `noise`, `sensor` |
 | `split` | `null` |
+| `ledger_fact.token` | `emem:fact:defi.zb493.zezo.zcb35:ssd2ueqbvtnpfya4qhy6fsl4bamj5qap3mm5ll4vkirmwsd2m5jq` |
 
 The call attributes change by evidence, not by size. Each term gives
 its evidence and its fact ids. No term gets a share of the delta, so do
 not report one. The `attribution_note` field says that the numeric
 split is roadmap work. The ledger is a fact with its own token
 (`ledger_fact.token`), so you can cite the evidence that you used.
+A second call with the same inputs gave the same token. The token
+resolves through `POST /v1/memory_token/resolve` to a fact with the
+band `change_attribution.ledger`.
 
 ## Step 6: write the methods and data-availability text
 
