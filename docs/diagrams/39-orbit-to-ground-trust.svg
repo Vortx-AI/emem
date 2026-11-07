@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1040" width="1600" height="1040" role="img" aria-label="How satellites become a source of truth for multi-agent systems and robotic fleets on the ground: two admission rules in orbit, one trust gate, one shared memory, and ground consumers who verify alone. Gaps are labeled coming soon.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1040" width="1600" height="1040" role="img" lang="en" aria-labelledby="title"><title id="title">Three columns. Orbit: the open archive, admitted because anyone can recompute it, and operator satellites, admitted only with a signed execution trace. emem: a trust gate with eighteen substrate profiles and seventeen named refusal codes, and the shared memory of cells, signed facts and tokens. Ground: robot fleets, agent swarms and a later auditor. A panel lists the gaps that do not ship yet.</title>
 <defs>
 <radialGradient id="paper" cx="50%" cy="50%" r="72%"><stop offset="0%" stop-color="#f3eee2"/><stop offset="100%" stop-color="#ebe4d3"/></radialGradient>
 <filter id="blur" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="7"/></filter>
