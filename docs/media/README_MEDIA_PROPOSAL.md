@@ -91,6 +91,48 @@ Markup for line 266:
 <br><sub>Contains modified Copernicus Sentinel data 2024.</sub>
 ```
 
+## Diagrams for a phone screen
+
+These four SVG files are 640 units wide, with text of 16 px or more. Each answers one question with values
+from live reads of emem.dev on 7 November 2026. They add an image where README.md has none today.
+
+| README line (7 November 2026) | Proposed | Why |
+|---|---|---|
+| 47, after the table in "What crosses, and what stays" | `docs/media/diagrams/data-flow.svg` (6,251 bytes) | The last table row says that a signed fact names its source bytes. The diagram follows one value from a 43.4 MB open file to a fact id. Then it changes one byte and shows that the id changes. |
+| 221, after the paragraph that ends with `/v1/verifier_spec` | `docs/media/diagrams/receipt-check.svg` (6,376 bytes) | The paragraph says that a reader can re-check any receipt. The diagram does it for one live receipt: 8 fields, 328 bytes, a BLAKE3 digest and an Ed25519 check. One changed character makes the check fail. |
+| 308, after the paragraph that ends with "the exact digest to sign" | `docs/media/diagrams/agent-loop.svg` (6,220 bytes) | The paragraph says where an agent uses emem and how it writes. The diagram shows one turn: ask, recall, cite, act, then write back a note signed with the agent's own key. |
+| 312, after "The hosted node runs the binary in this repo" and its `docker run` block | `docs/media/diagrams/architecture.svg` (8,484 bytes) | The section says that one binary runs the node. The diagram shows what that binary does when a call comes in: find, fetch on a miss, hash, sign, log, answer. |
+
+`docs/media/diagrams/address.svg` (what a `cell64` tells you about a place) is not on this list. README.md does
+not name `cell64`, so the diagram has no sentence to support there. PR #32 can embed it in `docs/protocol.md`.
+
+The log size in `architecture.svg` (3,250,469 entries at 12:22 UTC) is newer than the size in README.md
+(2,811,200 on 10 October 2026). Each is true for its date.
+
+Markup for line 47:
+
+```html
+<img src="docs/media/diagrams/data-flow.svg" alt="How one value becomes a fact, from live emem.dev bytes on 7 November 2026. emem reads 64 KiB and one tile of a 43.4 MB Copernicus DEM file with HTTP Range. A stateless connector samples 3539.04 m at Mount Fuji. Canonical CBOR makes 743 bytes; their BLAKE3 hash is the fact_cid qejpz7cg...2jjbplq, the same when hashed again on another machine. The responder signs a Merkle root over fact ids, and each read gets a signed receipt. One changed byte gives 3539.0420 m and a different id." width="540">
+```
+
+Markup for line 221:
+
+```html
+<img src="docs/media/diagrams/receipt-check.svg" alt="One live recall receipt at Mount Fuji, 3539.04 m, checked offline on 7 November 2026. Eight fields make a 328-byte preimage. Its BLAKE3 digest verifies with Ed25519 against the key from /.well-known/emem.json: VALID. Change served_at by one character and the digest changes: INVALID. A valid check shows which key signed these fact ids, not that the value is true." width="540">
+```
+
+Markup for line 308:
+
+```html
+<img src="docs/media/diagrams/agent-loop.svg" alt="One agent turn with emem, from a live ask on 7 November 2026. 1 Ask: what is the elevation of Mount Fuji? 2 Recall: copdem30m.elevation_mean 3539.04 m at cell defi.zb592.nUkO.zEzE, receipt valid. 3 Cite: put the emem:fact token next to the number. 4 Act: the agent uses the number; emem has no part in this step. 5 Write back: a note under /memories/by_attester/ and the first 8 characters of the agent's key, signed with that key. A signature shows who wrote a note, not that it is true." width="540">
+```
+
+Markup for line 312, after the `docker run` block:
+
+```html
+<img src="docs/media/diagrams/architecture.svg" alt="What answers when an agent calls emem.dev, from live reads on 7 November 2026 at 12:22 UTC. REST (183 paths under /v1) and MCP (116 tools) reach the same handlers in one Rust binary, emem-server 2.4.4. It looks up a redb fact store, fetches from 46 registered open-data sources on a miss, hashes canonical CBOR with BLAKE3 into a fact id, signs with one Ed25519 key, and appends to an RFC 6962 log of 3,250,469 entries. Anyone checks the receipt offline with the public key at /.well-known/emem.json." width="540">
+```
+
 ## Orbit GIFs of the 3D worlds
 
 README.md does not use the six `docs/media/world-*.gif` files (5.4 to 17.0 MB each). Only
