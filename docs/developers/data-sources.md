@@ -204,11 +204,13 @@ of a Sentinel-2 scene moves a few hundred KB, not the whole scene.
 | Supported | Not supported |
 |---|---|
 | Standard TIFF and BigTIFF | Big-endian TIFF |
-| Deflate (8) and LZW (5) | JPEG2000 and other codecs |
-| Predictor 1, 2, and 3 (3 for 32-bit float only) | Planar layouts |
+| Deflate (8), LZW (5) and Zstandard (50000) | JPEG2000 and other codecs |
+| Samples of 8, 16 or 32 bits, and unsigned packed samples below 8 bits | Other sample sizes |
+| Predictor 1, 2, and 3 (3 for 32-bit float only, 1 for packed samples) | Planar layouts in a multi-band read |
 | Strip TIFFs, read as one-row tiles | |
 
-An unsupported file gives an error. The sampler does not guess.
+An unsupported file gives an error. The sampler does not guess. The checks are in
+`crates/emem-fetch/src/cog.rs` (code on 7 November 2026).
 
 ### stac.rs: scene search
 
