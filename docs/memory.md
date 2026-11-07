@@ -1462,9 +1462,16 @@ the v1 form, with no `base`:
 sig = ed25519(blake3("emem.memory_write|derive|/v1/derive|" || body_hash))
 ```
 
-`body_hash` covers the first ten fields in the table below, in that
-order. The 401 response shows the exact encoding in
-`details.how_to_sign`.
+`body_hash` is the BLAKE3 of one CBOR map. The map holds the first ten
+fields in the table below, in that order. The order is not the sorted
+key order of RFC 8949. `confidence` is a float32. The 401 response
+shows the exact encoding in `details.how_to_sign`.
+
+The responder trims spaces from `fn_key`, `cell`, `band`, `op` and
+`provenance_class` before it makes the digest. It does not trim the
+`inputs` tokens or `code_cid`. It puts floats in `value` into canonical
+form first. Sign the digest from the refusal, not a digest of your raw
+JSON.
 
 | Field | Required | Rule |
 |---|---|---|
