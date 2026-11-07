@@ -12,7 +12,7 @@ python -c 'from ememdev import Client; print(Client().locate("Mount Fuji")["cell
 ```
 
 The second line prints the cell64 address of Mount Fuji (`defi.zb592.nUkO.zEzE`
-on 6 November 2026). For the protocol itself, read
+on 7 November 2026). For the protocol itself, read
 [docs/quickstart.md](https://github.com/Vortx-AI/emem/blob/main/docs/quickstart.md)
 and [docs/agents.md](https://github.com/Vortx-AI/emem/blob/main/docs/agents.md).
 
@@ -46,8 +46,9 @@ pip install -e sdks/emem-py
 ```
 
 The client needs Python 3.9 or later. Its only runtime dependency is
-[`httpx`](https://www.python-httpx.org/). To sign memory writes, add the
-`signing` extra. It installs `blake3` and `cryptography`:
+[`httpx`](https://www.python-httpx.org/). To sign memory writes or verify
+receipts offline, add the `signing` extra. It installs `blake3` and
+`cryptography`:
 
 ```bash
 pip install "ememdev[signing]"
@@ -64,7 +65,7 @@ with Client() as em:
     print(facts["facts"][0]["value"])
 ```
 
-On 6 November 2026 this printed `3539.042236328125` (metres). If no fact
+On 7 November 2026 this printed `3539.042236328125` (metres). If no fact
 is in memory for the cell, `recall` fetches the source first. That first
 read can take tens of seconds; the client timeout is 180 seconds.
 
@@ -151,10 +152,31 @@ fields:
 - `fact_cids[]`: the BLAKE3 CIDs of all facts in the response.
 
 To cite an answer, quote `receipt.fact_cids[0]` and the responder pubkey.
-Anyone can verify the signature offline against the public key in
-`https://emem.dev/.well-known/emem.json`, field
-`federation.node.responder_pubkey_b32`. The check needs no call to the
-responder.
+Anyone can verify the signature offline. With the `signing` extra installed,
+`ememdev.verify` does the check in your process:
+
+```python
+from ememdev import Client
+from ememdev.verify import verify_receipt_offline
+
+with Client() as em:
+    cell = em.locate("Mount Fuji")["cell64"]
+    resp = em.recall(cell, bands=["copdem30m.elevation_mean"])
+    v = verify_receipt_offline(resp["receipt"])
+    print(v.ok, v.state, v.signer_b32)
+```
+
+On 7 November 2026 this printed `True verified 777er3yi...` with
+`preimage_version` 2. The function checks the signature against the key in
+the receipt. Compare `v.signer_b32` with the key you trust, for example
+`federation.node.responder_pubkey_b32` in
+`https://emem.dev/.well-known/emem.json`. On 7 November 2026 the two keys
+were the same. The function does not raise and does not use the network.
+If no check ran, `v.ok` is `False` and `v.state` gives the cause.
+Without the extra, the state is `crypto_unavailable`. If the local encoders
+disagree with the Rust test vectors, the state is `self_test_failed`.
+`Client.verify_receipt()` is different: it asks the
+responder to do the check.
 
 Keep and forward the receipt whole. `ememdev` returns it without changes;
 store it and pass it on the same way. From `preimage_version: 2`, the

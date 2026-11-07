@@ -17,12 +17,13 @@ console.log(loc.cell64);
 ```
 
 The snippet is TypeScript and uses top-level `await`, so it must run as an
-ES module. Save it as `fuji.mts` and run `npx tsx fuji.mts`. It prints the
-cell64 address of Mount Fuji (`defi.zb592.nUkO.zEzE` on 7 November 2026). For the protocol itself, read
+ES module. Save it as `fuji.mts` and run `npx tsx fuji.mts`. It prints
+the cell64 address of Mount Fuji (`defi.zb592.nUkO.zEzE` on 7 November
+2026). For the protocol itself, read
 [docs/quickstart.md](https://github.com/Vortx-AI/emem/blob/main/docs/quickstart.md)
 and [docs/agents.md](https://github.com/Vortx-AI/emem/blob/main/docs/agents.md).
 
-> We did not run the TypeScript snippets in this README on 6 November 2026,
+> We did not run the TypeScript snippets in this README on 7 November 2026,
 > because the test host has no Node.js. On that day we sent the same HTTP
 > requests with `curl`. The outputs shown come from those requests.
 
@@ -44,7 +45,7 @@ read, as the examples here do.
 npm install @vortxai/emem
 ```
 
-The npm package is `@vortxai/emem`, version 2.4.4 on 6 November 2026. npm
+The npm package is `@vortxai/emem`, version 2.4.4 on 7 November 2026. npm
 refuses the name `ememdev`, so the package has the `@vortxai` scope. The
 Python client has the name `ememdev` on PyPI.
 
@@ -78,7 +79,7 @@ console.log(res.facts[0].value);    // 3539.042236328125
 console.log(res.facts[0].fact_cid); // qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq
 ```
 
-The values in the comments came from `curl` on 6 November 2026. A recall
+The values in the comments came from `curl` on 7 November 2026. A recall
 on a cell that has no fact yet fetches the source data first. That first
 call can take tens of seconds.
 
@@ -112,7 +113,7 @@ the `AbortError` of the platform.
 ## Keep the receipt
 
 Every response from a read primitive (for example `recall`) has a `receipt`
-object. On 6 November 2026 a recall receipt had these fields, among others:
+object. On 7 November 2026 a recall receipt had these fields, among others:
 
 | Field | Content |
 |---|---|
@@ -125,8 +126,15 @@ object. On 6 November 2026 a recall receipt had these fields, among others:
 To cite a fact, give `receipt.fact_cids[0]` and the responder public key.
 The responder also publishes the key at
 [`/.well-known/emem.json`](https://emem.dev/.well-known/emem.json), field
-`federation.node.responder_pubkey_b32`. To verify a receipt, read section 7
-of [docs/protocol.md](https://github.com/Vortx-AI/emem/blob/main/docs/protocol.md#7-receipt).
+`federation.node.responder_pubkey_b32`.
+
+This package has no offline verifier. To verify a receipt, use one of these:
+
+- The browser verifier at [emem.dev/verify](https://emem.dev/verify). Its
+  code is [`web/emem-verify-core.js`](https://github.com/Vortx-AI/emem/blob/main/web/emem-verify-core.js).
+- `verify_receipt_offline` in the Python client `ememdev`.
+- The rules in section 7 of
+  [docs/protocol.md](https://github.com/Vortx-AI/emem/blob/main/docs/protocol.md#7-receipt).
 
 Keep the receipt object exactly as the responder sent it. From
 `preimage_version: 2`, the signature also covers the inclusion proof. This
