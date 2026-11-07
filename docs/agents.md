@@ -499,13 +499,14 @@ curl -s -X POST https://emem.dev/v1/memory_contradictions \
   -d '{"limit":3}'
 ```
 
-On 7 November 2026 the scan read 44,705 keys and returned 3 contradictions.
+On 7 November 2026 the scan listed 44,705 keys (`corpus_scanned`) and
+returned 3 contradictions.
 All 3 were `same_attester_provider_substitution`, because the default scan
 counts disagreement inside one attester too. Send
 `"include_same_attester_sources": false` to count only different attesters.
-Its time budget stopped it before the end of the corpus
-(`scan_truncated: true`). Send the `resume_after` value back to continue
-the scan. The `agent_hint` text says `(whole corpus)`. That means that you
+Its time budget stopped it before it examined all the listed keys
+(`scan_truncated: true`). Thus `corpus_scanned` is not the number of keys
+examined. Send the `resume_after` value back to continue the scan. The `agent_hint` text says `(whole corpus)`. That means that you
 sent no filter. It does not mean that the scan is complete. Read
 `scan_truncated`. Add `cell_prefix` or `band` to narrow the scan. Each
 contradiction has a `severity` from 0 to 1. Its
