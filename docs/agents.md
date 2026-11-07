@@ -287,7 +287,7 @@ numbers gives HTTP 400 `invalid_argument`. See
 [Two forms of bbox](#two-forms-of-bbox).
 
 Over MCP on 7 November 2026, the 4-cell answer was about 18,900 bytes on the
-wire. Three calls gave 18,929 to 18,943 bytes. It had no
+wire. Four calls gave 18,922 to 18,943 bytes. It had no
 `structuredContent`, so read it from the text. With `"max_cells": 16`, the
 MCP answer omitted `by_cell`, which holds the facts and the receipt of each
 cell. Its `fetch` body kept only `place`. For more than a
