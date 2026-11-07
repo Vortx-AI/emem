@@ -76,7 +76,7 @@ so an extended tool also works on `/mcp`.
 | [Turn a place name into an address](#job-turn-a-place-name-into-an-address) | `emem_locate` | `POST /v1/locate` | core | no |
 | [Read signed facts at one place](#job-read-signed-facts-at-one-place) | `emem_recall` | `POST /v1/recall` | core | no |
 | [Read facts over an area](#job-read-facts-over-an-area) | `emem_recall_polygon` | `POST /v1/recall_polygon` | extended | no |
-| [See how a value changed](#job-see-how-a-value-changed) | `emem_trajectory`, then `emem_diff` | `POST /v1/trajectory`, `POST /v1/diff` | extended | no |
+| [See how a value changed](#job-see-how-a-value-changed) | `emem_trajectory`, then `emem_diff` or `emem_compare_same_doy` | `POST /v1/trajectory`, `POST /v1/diff`, `POST /v1/compare_same_doy` | extended | no |
 | [Read facts as they were on a date](#job-read-facts-as-they-were-on-a-date) | `emem_recall` with `as_of_tslot` or `as_of_signed_at` | `POST /v1/recall` | core | no |
 | [Check a yes or no claim about a place](#job-check-a-yes-or-no-claim-about-a-place) | `emem_verify` | `POST /v1/verify` | extended | no |
 | [Cite one fact for another agent](#job-cite-one-fact-for-another-agent) | `emem_memory_token` | `POST /v1/memory_token` | core | no |
@@ -236,6 +236,30 @@ curl -s -X POST https://emem.dev/v1/diff \
 Read `delta_fact.value` and `delta_fact.parents`, the two facts behind the
 delta. `emem_intent` with `"type": "did_change"` does the same job. It also
 needs `window`, two tslots such as `[20484, 20754]`, not dates.
+
+The diff answer also has a `phenology` block. For the call above, on
+7 November 2026, it said that the two readings were 95 days apart in the
+seasonal cycle. Thus the delta mixes the season with real change. To
+measure change from one year to the next, compare one day of the year
+across years:
+
+```json
+{"name": "emem_compare_same_doy", "arguments": {"cell": "defi.zb592.nUkO.zEzE", "band": "indices.ndvi", "doy": 301, "years": [2025, 2026]}}
+```
+
+```bash
+curl -s -X POST https://emem.dev/v1/compare_same_doy \
+  -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb592.nUkO.zEzE","band":"indices.ndvi","doy":301,"years":[2025,2026]}'
+```
+
+Each year in `included` has `method: "exact"` when a fact exists on that
+day. It has `method: "interpolated"` when the value comes from the facts
+before and after that day. An interpolated value is not a signed fact.
+Get the facts around it with `emem_trajectory`. The responder puts a year
+that it cannot bracket in `excluded` and does not extrapolate. The
+`phenology` text calls this tool roadmap, but the tool ran on emem.dev on
+7 November 2026.
 
 ### Job: read facts as they were on a date
 
@@ -1307,7 +1331,9 @@ curl -s -X POST https://emem.dev/v1/diff \
 
 The response has a `delta_fact` and a `receipt`. The difference is a signed
 fact with `op: "delta"` and the two source facts in `parents`. Cite the
-difference. Do not calculate it again.
+difference. Do not calculate it again. These two tslots are 120 days apart
+in the season, so read the `phenology` block. See
+[See how a value changed](#job-see-how-a-value-changed).
 
 When one of the tslots has no fact, the response is HTTP 404:
 
