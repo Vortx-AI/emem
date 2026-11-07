@@ -972,7 +972,7 @@ value and found none. `reason_cid` names the reason. Defined in
 ```rust
 struct NegativeFact {
     cell: String, band: String, tslot: u64,
-    reason_cid: ReasonCid,              // base32 of BLAKE3(reason text)[0..16]
+    reason_cid: ReasonCid,              // lowercase base32, no padding, of BLAKE3(reason text)[0..16]
     confidence: f32,
     sources: Vec<Source>,               // ≥1
     schema_cid: SchemaCid,
@@ -2772,7 +2772,7 @@ For this reason `GET /v1/log/witnesses` puts each witness key in a tier:
 | tier | meaning |
 |---|---|
 | `key_only` | The signature verifies. emem knows nothing more. |
-| `org_vouched` | DNS TXT or well-known evidence under a domain, less than 30 days old, from `GET /v1/enlist`. |
+| `org_vouched` | DNS TXT or well-known evidence under a domain from a passing check less than 30 days old, from `GET /v1/enlist`. |
 | `self_operator` | The key of this node, or a key that its own domains vouch for. |
 
 `independent_operator_count` counts distinct `org_vouched` domains, not
@@ -2958,7 +2958,7 @@ entry later, because a late entry would record the time of logging, not
 the time of writing.
 
 `GET /v1/log/entries` takes a half-open range `start` (default 0) and
-`end`. One call returns 256 entries at most (`max_per_call`). If `end`
+`end` (default `start + 256`). One call returns 256 entries at most (`max_per_call`). If `end`
 is not more than `start`, the call returns 400 `invalid_argument`. Each
 response gives `end_exclusive`: resume the next call from there.
 `truncated: true` means that the cap or the end of the log cut the
@@ -3596,7 +3596,7 @@ When there is no observation, emem gives one of two answers. A plain
 | Case | Answer |
 |---|---|
 | The responder looked and found nothing | a signed absence with a typed reason (§5.3). You can cite it like any other fact |
-| The responder could not look, for example an upstream failed or coverage does not reach the cell | an entry in `materialize_notes[]` with `status: "skipped"`, a `reason`, a `reason_class`, a `retryable` flag and `absence: false`. The responder does not sign it |
+| The responder could not look, for example an upstream failed or coverage does not reach the cell | an unsigned entry in `materialize_notes[]`. A per-band entry has `status: "skipped"`, a `reason`, a `reason_class`, a `retryable` flag and `absence: false`. Two entries have other shapes. A retired band gives `bands[]` in place of `band` and has no `absence`. A band past the cold-band cap gives `status: "deferred"` with only `band` and `reason` |
 
 The responder does not sign "I could not look", because that would
 read as "I looked and found nothing". An unknown never appears as a

@@ -300,7 +300,7 @@ The `details.reason` field names the ownership rule that failed.
 | `vault_owner_mismatch` | Another key wrote this vault entry. Only that key can change or delete it. |
 | `open_namespace_owner_mismatch` | Another key created this file in the open namespace. |
 | `open_namespace_unowned_record` | The file is older than stored authorship, so it has no owner. It stays frozen while the operator requires signed writes. Copy it into your own namespace. |
-| `source_namespace` | A rename moves a file out of the namespace of another key. |
+| `source_namespace` | A rename moves a file out of the namespace of another key. `details.expected_short` gives your own prefix. |
 | `root_directory_delete` | A directory delete named `/memories/` itself. |
 | `directory_holds_foreign_files` | A directory delete covers files that your key does not own. `details.foreign_files` gives the count and `details.example` one path. |
 
@@ -364,7 +364,7 @@ These routes also put a route code in `details.code`. The top-level code is
 | `GET /v1/tree/{file_cid}` | `row_not_found` | 404 | No row has that index or label. `details.rows` gives the row count. |
 | `GET /v1/tree/{file_cid}` | `path_self_check_failed` | 500 | Top-level `internal`. The computed path did not fold to the root. Report it. |
 | `GET /v1/tree/{file_cid}` | none | 503 | Top-level `cache_error`, no `details`. The responder runs without a durable store, so it holds no notes. |
-| `POST /v1/tree/path` | `invalid_argument` | 400 | The body must have exactly one of `leaves` and `chunks`. Each hash must be base32 of 32 bytes. `index` must be in range, with at most 1048576 leaves. The message says which check failed. |
+| `POST /v1/tree/path` | `invalid_argument` | 400 | The body must have exactly one of `leaves` and `chunks`. Each hash must be 52 lowercase base32 characters (32 bytes). `index` must be in range, with at most 1048576 leaves. The message says which check failed. A body that is not JSON gets a [plain-text refusal](#plain-text-refusals-of-a-bad-request-body). |
 | `/v1/inferences` | `inferences_index_unavailable` | 503 | Top-level `cache_error`. The responder has no durable store, so it has no place index. Resolve derivations by token. |
 | `/v1/device_publish` | `device_key_malformed`, `device_key_invalid`, `signature_malformed`, `signature_invalid` | 400 | The device key or the device signature is bad. Only the device can sign its own listing decision. |
 | `/v1/a2a/tasks` | `a2a_skill_required`, `a2a_skill_unknown` | 400 | The `skill` field is empty, or it names no skill on the agent card. |
