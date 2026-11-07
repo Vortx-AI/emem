@@ -1970,6 +1970,14 @@ PNG. It does not use GDAL. The image is 256 by 256 pixels, about 2.56 km
 by 2.56 km at the 10 m pitch of Sentinel-2. For tropical or cloudy places,
 set `max_cloud` to 60 to 80.
 
+More headers give the image bounds and the stretch. `x-emem-scene-bbox-crs`
+gives the bounds in the coordinates of `x-emem-scene-epsg`. On 7 November
+2026 it was `780090.000,1434180.000,782650.000,1436740.000`, a 2,560 m square.
+`x-emem-scene-stretch-r`, `-g` and `-b` give the 2nd and 98th percentile
+of each channel, for example `1501-10053`. The stretch changes with each
+scene. Thus do not compare the brightness of two pictures. Undo the stretch
+first, or compare band values.
+
 ### 6. Pre-screen a plot for EUDR
 
 ```bash
@@ -2036,9 +2044,9 @@ curl -s -X POST https://emem.dev/v1/inferences \
   -d '{"lat":30.9015,"lng":75.802,"radius_m":5000}'
 ```
 
-Each item in `inferences` is an `emem:fact:` token with `fn_key` (the recipe, for example
-`outlook@1`), `value`, `confidence` and `distance_m`. It also gives the key,
-tier and nick of the attester. `parents` lists the signed measurements that
+Each item in `inferences` has a `token` (an `emem:fact:` token), `fn_key`
+(the recipe, for example `outlook@1`), `value`, `confidence` and
+`distance_m`. It also gives the key, tier and nick of the attester. `parents` lists the signed measurements that
 the value came from.
 On 7 November 2026 this call returned 8 items.
 
