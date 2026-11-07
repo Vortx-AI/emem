@@ -248,6 +248,11 @@ These routes also put a route code in `details.code`. The top-level code is
 |---|---|---|---|
 | `/v1/memory_token/resolve` and the other token readers | `fact_cid_malformed_length` | 400 | The fact cid is not 52 characters. Something cut the token in transit. A retry does not help. Read the token again from its source. A value with no cid shape at all gets `invalid_argument` with no `details.code`. |
 | `/v1/log/witness` | `witness_root_mismatch` | 409 | The `root_b32` you co-signed is not the root this responder computes at that `tree_size`. |
+| `GET /v1/tree/{file_cid}` | `cid_not_found` | 404 | Top-level `cid_not_found`. The responder holds no note with that `file_cid`. |
+| `GET /v1/tree/{file_cid}` | `not_a_tree`, `no_rows` | 422 | The note is not `pointer.v1` or `directory.v1`, or no table row parsed. |
+| `GET /v1/tree/{file_cid}` | `root_mismatch` | 409 | The root that the note states does not match the tree over its rows. The route gives no path. |
+| `GET /v1/tree/{file_cid}` | `row_not_found` | 404 | No row has that index or label. `details.rows` gives the row count. |
+| `GET /v1/tree/{file_cid}` | `path_self_check_failed` | 500 | Top-level `internal`. The computed path did not fold to the root. Report it. |
 | `/v1/inferences` | `inferences_index_unavailable` | 503 | Top-level `cache_error`. The responder has no durable store, so it has no place index. Resolve derivations by token. |
 | `/v1/device_publish` | `device_key_malformed`, `device_key_invalid`, `signature_malformed`, `signature_invalid` | 400 | The device key or the device signature is bad. Only the device can sign its own listing decision. |
 | `/v1/a2a/tasks` | `a2a_skill_required`, `a2a_skill_unknown` | 400 | The `skill` field is empty, or it names no skill on the agent card. |

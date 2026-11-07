@@ -35,6 +35,7 @@ read the sections it names.
 | Sign a memory write | [§7.5 Signed memory writes](#75-capability-binding-for-memory-writes) |
 | Check who wrote a memory note | The steps in [§7.5.1](#751-check-a-notes-authorship-by-hand) |
 | Check what the responder read from a url or a file range | [§9.7](#97-signed-readings-of-things-emem-did-not-measure), then the steps in [§9.7.1](#971-check-a-range_hash-receipt-by-hand) |
+| Prove that one chunk or file is in a pointer or directory note | [§9.8](#98-merkle-trees-inside-notes-ememtree) |
 | Test your own encoder or verifier | [§12 Conformance gates](#12-conformance-gates-the-four-cids), [§13 Test vectors](#13-test-vectors) |
 
 To check a receipt, a note or a log proof with no code of your own, use a
@@ -2314,7 +2315,8 @@ log (§9.1), in append order. The code is in
 `crates/emem-attest/src/translog.rs`. RFC 6962 §2.1 requires SHA-256.
 Thus this log is **not RFC 6962 conformant**, and no Certificate
 Transparency client, auditor or monitor can read it. emem uses only the
-construction. For this reason the STH says `"hash": "blake3-256"`.
+construction. For this reason the STH field `algorithm.hash` says
+`"blake3-256"`.
 
 This tree is **different from the batch-root tree** in §6.1. Here a lone
 node goes up to its parent unchanged (promotion). The batch-root tree
@@ -2334,7 +2336,9 @@ do not have to trust the responder, because each proof verifies offline.
 - `GET /v1/log/sth` returns a **Signed Tree Head** (STH) inside `sth`.
   A `note` and a `spec` link come next to it: `{sth: {tree_size, root_b32,
   signed_at, responder_pubkey_b32, signature_b32, log_id, algorithm},
-  note, spec}`. Read `d.sth.tree_size`, not `d.tree_size`. The
+  note, spec}`. Read `d.sth.tree_size`, not `d.tree_size`.
+  `algorithm` is an object that states the hash, leaf, node, tree and
+  STH preimage rules in text. `log_id` is the responder key. The
   signature is ed25519 over `PreimageV1("emem.translog.sth.v1")` with
   segments `1:u64_be(tree_size), 2:root, 3:signed_at, 4:responder_pubkey`
   (the same preimage rules as receipts, §7.1).
@@ -2489,6 +2493,10 @@ A memory entry is a CBOR map. Its keys are in length-then-bytewise order:
 
 The entry does not copy the note's bytes. It names them by
 `content_blake3`. Its leaf is `blake3(entry_cbor)`, as for all entries.
+A write without an attester key holds CBOR `null` in
+`attester_pubkey_b32`, `sig_b32`, `body_hash_hex`, `preimage_version`
+and `base`. The supersede and delete entries below use the same key
+order, and also hold `null` in the attester fields when no key signed.
 
 A supersede entry holds its full reason. The author signed the reason,
 so nobody must be able to change its words:
@@ -2535,14 +2543,15 @@ bytes:
 | Entry | Fields in the summary row |
 |---|---|
 | every entry | `leaf_index`, `entry_kind`, `entry_hash_b32`, `entry_bytes` |
-| attestation, also | `facts`, the first fact's `band` and `cell`, a `centre` rounded to 3 decimals, `attested_at` |
-| memory write, also | `path`, `verb`, `signed_at` |
+| attestation, also | `facts`, `attested_at`, the first fact's `band` and `cell`, and a `centre` rounded to 3 decimals when that cell decodes |
+| memory entry, also | `path`, plus `verb` and `signed_at` when the entry has them. A supersede has no `verb`. A delete has neither. |
 
-On 2026-11-05 we measured the last 256 full entries, as served. The
-median was 5.4 KB, the mean 277 KB and the maximum 2.6 MB. The bytes come
-twice in base32, once under each name. So a live feed on a phone reads
-summaries. Only `entry_hash_b32`
-is checkable: fetch the full entry to re-hash it against the leaf.
+On 5 November 2026 we measured the last 256 full entries, as served.
+The median size was 5.4 KB, the mean 277 KB and the maximum 2.6 MB. A full entry
+carries its bytes twice in base32, once under each name. Thus a client
+that follows the log, for example on a phone, should read summaries. In
+a summary row you can check only `entry_hash_b32`. To check it, fetch
+the full entry and hash its bytes again.
 
 
 ### 9.7 Signed readings of things emem did not measure
@@ -2671,11 +2680,22 @@ raises `InvalidSignature`. Each IP has a daily quota on this route.
 Over it, the route returns `429` with `code: range_hash_quota` (see
 [errors.md](errors.md)).
 
-#### emem:tree
+<a id="emem-tree"></a>
+### 9.8 Merkle trees inside notes (emem:tree)
 
-`GET /v1/tree/{file_cid}?row=` returns the audit path from one row of a
-`pointer.v1` or `directory.v1` note's table to the root the note states.
-It is the tree that those notes commit to:
+In short: a `pointer.v1` or `directory.v1` note lists rows (file chunks
+or files) and states one Merkle root over them. You can prove that one
+row is under that root with about log2(n) hashes. You do not have to
+fetch the whole table. This tree is not the transparency log, and the
+responder does not sign it. The root is part of the note's bytes. Thus
+when an author signs the note (§7.5), that signature also covers the
+root.
+
+`GET /v1/tree/{file_cid}?row=` returns the audit path from one row of
+the note's table to the root that the note states. `row` is a row index
+or the row label (a pointer's chunk label, a directory's path). Without
+`row`, the route returns the row count and the root. The token form is
+`emem:tree:<file_cid>#row=<index>`. The tree rules are:
 
 - `leaf = blake3(url || u64_be offset || u64_be length || hash)`
 - `node = blake3(left || right)`
@@ -2684,10 +2704,11 @@ It is the tree that those notes commit to:
 - a directory row's `hash` is `blake3(path "\n" size "\n" publisher_hash)`
   over `(url, 0, size)`
 
-Unlike §9.6 this tree has no
-leaf/node domain separation. A note whose stated root does not match its
-rows gets `root_mismatch` and no path. `POST /v1/tree/path` computes the same
-path over leaves or chunks the caller holds.
+Unlike §9.6, this tree has no leaf and node domain separation. When the
+root that a note states does not match its rows, the route refuses with
+`root_mismatch` and gives no path. A note of another kind gets
+`not_a_tree`. `POST /v1/tree/path` computes the same path over leaves or
+chunks that the caller holds.
 
 ---
 
