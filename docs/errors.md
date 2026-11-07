@@ -164,27 +164,8 @@ curl -s -X POST https://emem.dev/mcp \
 ## Protocol codes (27)
 
 These are all the variants of `ErrorCode`. The MCP number is the enum
-discriminant, negated.
-
-`/v1/errors` lists all 27 codes, but routes do not send all of them. On
-7 November 2026, no route constructs 12 of the codes. The code maps each
-of them to an HTTP status, but no handler or store error produces it:
-
-| Code | What you get instead |
-|---|---|
-| `invalid_resolution`, `tslot_mismatch` | Address errors come back as `invalid_cell` or `invalid_argument`. |
-| `function_not_in_registry` | The store has a `StorageError::UnknownFunction` variant, but no code path creates it. `/v1/derive` does not check `fn_key` against a registry. |
-| `source_scheme_unknown`, `source_format_mismatch` | Upstream problems come back as `source_fetch_failed`, or as a `materialize_notes` entry on a 200. |
-| `registry_cid_unknown`, `schema_cid_unknown` | No route reads a caller's registry or schema CID. |
-| `privacy_refused` | The responder does not enforce privacy classes ([protocol §10](protocol.md#10-privacy-classes)). |
-| `attester_revoked` | The responder has no revocation check on writes. |
-| `unauthorized` | An unsigned write gets HTTP 401 with top-level `invalid_argument` and `details.code` such as `memory_attestation_required` or `derive_attestation_required`. A signature that does not verify gets HTTP 401 with `bad_signature`. |
-| `claim_undecidable` | `/v1/verify` answers HTTP 200 with a verdict ([protocol §11](protocol.md#11-claim-algebra)). |
-| `bad_merkle_proof` | No route accepts a caller's proof. Check proofs yourself ([protocol §9.6.1](protocol.md#961-check-an-inclusion-proof-by-hand)). |
-| `compute_quota_exceeded` | The quotas that exist answer with their own bodies (see [Responses that are not `emem.error.v1`](#responses-that-are-not-ememerrorv1)). |
-
-Write your client to handle these codes anyway. A later release or
-another node can send them.
+discriminant, negated. On 7 November 2026, no route sends 12 of these
+codes. The next subsection names them and says what you get instead.
 
 | Code | MCP | Meaning | First thing to try |
 |---|---|---|---|
@@ -215,6 +196,27 @@ another node can send them.
 | `cache_error` | -24 | The responder's store returned an internal error. | Retry once. |
 | `invalid_argument` | -25 | A field is syntactically valid but semantically wrong, or the body did not match the route's schema (`details.deserializer_error` names the field). Also the top-level code for most route refusals below. | Read `message` and `details`; the request shape is in `/openapi.json`. |
 | `internal` | -26 | A responder bug. Receipts already signed stay valid. | File the request and response at [github.com/Vortx-AI/emem/issues](https://github.com/Vortx-AI/emem/issues). |
+
+### Codes that no route sends
+
+`/v1/errors` lists all 27 codes. The code maps each of these 12 codes to
+an HTTP status, but no handler or store error produces it:
+
+| Code | What you get instead |
+|---|---|
+| `invalid_resolution`, `tslot_mismatch` | Address errors come back as `invalid_cell` or `invalid_argument`. |
+| `function_not_in_registry` | The store has a `StorageError::UnknownFunction` variant, but no code path creates it. `/v1/derive` does not check `fn_key` against a registry. |
+| `source_scheme_unknown`, `source_format_mismatch` | Upstream problems come back as `source_fetch_failed`, or as a `materialize_notes` entry on a 200. |
+| `registry_cid_unknown`, `schema_cid_unknown` | No route reads a caller's registry or schema CID. |
+| `privacy_refused` | The responder does not enforce privacy classes ([protocol §10](protocol.md#10-privacy-classes)). |
+| `attester_revoked` | The responder has no revocation check on writes. |
+| `unauthorized` | An unsigned write gets HTTP 401 with top-level `invalid_argument` and `details.code` such as `memory_attestation_required` or `derive_attestation_required`. A signature that does not verify gets HTTP 401 with `bad_signature`. |
+| `claim_undecidable` | `/v1/verify` answers HTTP 200 with a verdict ([protocol §11](protocol.md#11-claim-algebra)). |
+| `bad_merkle_proof` | No route accepts a caller's proof. Check proofs yourself ([protocol §9.6.1](protocol.md#961-check-an-inclusion-proof-by-hand)). |
+| `compute_quota_exceeded` | The quotas that exist answer with their own bodies (see [Responses that are not `emem.error.v1`](#responses-that-are-not-ememerrorv1)). |
+
+Write your client to handle these codes anyway. A later release or
+another node can send them.
 
 ## Codes from the router and the load layer
 
