@@ -58,10 +58,14 @@ Each pass has three steps.
      different attesters, and one attester that answered the same address
      from two different upstreams. A triple with a severity equal to or more than
      `EMEM_SLEEP_AGENT_MIN_SEVERITY` (default 0.3) is a candidate. A higher severity ranks the candidate
-     higher. The agent sends no `cell_prefix`, so the scan covers the
-     whole corpus. It asks for at most `EMEM_SLEEP_AGENT_TOPN` or 8
+     higher. The agent sends no `cell_prefix`, so it asks for the whole
+     corpus. It asks for at most `EMEM_SLEEP_AGENT_TOPN` or 8
      triples, whichever is larger. The server returns the highest
-     severities first (`client.rs`, `candidates.rs`).
+     severities first (`client.rs`, `candidates.rs`). The agent does not
+     read `resume_after`. On a large corpus the scan stops at its time
+     budget, and the agent sees only the keys scanned before that point.
+     On 7 November 2026, this request to emem.dev scanned 44,705 keys in
+     8.0 s and returned `scan_truncated: true`.
    - Churn. The agent lists the notes of the configured kinds
      (`emem_memory_list_by_kind`). It groups them by a normalized path stem.
      The stem keeps the parent path. It cuts the last path part at its
@@ -210,7 +214,8 @@ spend above the cap.
 
 One failed LLM call or one refused write stops the whole pass
 (`run_pass` in `lib.rs` returns the error with `?`). The agent does not
-skip to the next candidate.
+skip to the next candidate. A failed contradiction scan also stops the
+pass, in a dry run too. A failed list or view does not (see step 1).
 
 - Merges that the pass wrote before the error stay written.
 - The agent prints the error, not the `PassSummary`. The message starts
