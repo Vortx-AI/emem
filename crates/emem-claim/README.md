@@ -30,9 +30,10 @@ curl -s https://emem.dev/v1/verify -H 'Content-Type: application/json' \
 ```
 
 It needs `curl` and `jq`, and no key. `cell` takes a cell64, or a place name
-that the responder geocodes. `evidence` lists every fact id at the cell for that
-band and time scope. The claim was tested against these facts. The full response also holds a signed receipt. With `"op":"lt"` the
-verdict is `false`. The command ran on 7 November 2026.
+that the responder geocodes. `evidence` lists every fact id at the cell for
+that band and time scope. The claim was tested against these facts. The full
+response also holds a signed receipt. With `"op":"lt"` the verdict is
+`false`. The command ran on 7 November 2026.
 
 ## The claim shape
 

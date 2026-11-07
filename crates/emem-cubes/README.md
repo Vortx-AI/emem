@@ -42,9 +42,9 @@ and no network.
 
 The value of `n_pixels` is an estimate. It is correct only for an
 uncompressed float16 array with no header. A real `.npz` file is a ZIP
-archive with headers, and its entries can use compression. The module comment says
-that v1 cubes use float32. For those files the estimate is two times too
-large.
+archive with headers, and its entries can use compression. The module
+comment says that v1 cubes use float32. For those files the estimate is two
+times too large.
 
 ## Where the text and the code do not agree
 

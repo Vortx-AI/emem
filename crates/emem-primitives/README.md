@@ -65,11 +65,11 @@ receipt.
 | `find_similar` | `POST /v1/find_similar` | the nearest cells by cosine over an embedding band |
 | `edges_recall` | `POST /v1/edges/recall` | the signed temporal edges that start at a fact |
 
-The primitives read only facts that storage already holds. They do not
-fetch from upstream. `verify` in `Resolve` mode calls `materialize_many`,
-which also does not fetch. A miss gives `MaterializeMiss`. The fetch on a `recall` miss happens in
-`emem-api-rest` (`recall_with_auto_materialize`), before it calls
-`recall`.
+The primitives read only facts that storage already holds. They do not fetch
+from upstream. `verify` in `Resolve` mode calls `materialize_many`, which
+also does not fetch. A miss gives `MaterializeMiss`. The fetch on a `recall`
+miss happens in `emem-api-rest` (`recall_with_auto_materialize`), before it
+calls `recall`.
 
 `trajectory` needs a window. A request without `window` or
 `from_date` and `to_date` gets HTTP 400 `invalid_argument`.

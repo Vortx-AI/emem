@@ -6,8 +6,9 @@ test-time learning, long-range recall and conflict handling. It also gives one
 LongMemEval-S style topline, and writes the result as JSON.
 
 You need this tool when you change how emem stores or finds memory notes, and
-you want a number before and after. You do not need it to use emem. The tool
-does not score Earth-observation facts.
+you want a number before and after. You do not need it to use emem. Live mode
+scores memory notes, not Earth-observation facts. The self-test fixture uses
+cell and band keys, but it grades a stub in memory.
 
 | | |
 |---|---|
@@ -40,7 +41,7 @@ JSON. A self-test number is a check of the scoring code, not a benchmark result.
 | Graded against | `StubResponder`, in memory | a running responder at `--url` |
 | Corpus | the fixture in `src/fixture.rs` | a JSON Lines file from `--dataset` |
 | Network | none | HTTP to the responder |
-| Writes | none | one memory note per item, through `memory_create` |
+| Writes to the responder | none | one memory note per item, through `memory_create` |
 | Receipt in output | none | one receipt, from `memory_view` on the first note |
 | Output file | `scorecard-self-test.json` | `scorecard-live.json` |
 
@@ -57,8 +58,8 @@ The URL comes from `--url`, then from `EMEM_URL`, then from the default
 Live mode writes to the responder. Use a local responder that you can discard.
 Do not point it at `https://emem.dev`.
 
-A release build refuses unattested memory writes by default. The tool sends its
-writes with no `attester` block. Thus, start the responder with
+A normal build of `emem-server`, debug or release, refuses unattested memory
+writes by default. The tool sends its writes with no `attester` block. Thus, start the responder with
 `EMEM_MEMORY_OPEN=1` (see `memory_write_policy` in
 `crates/emem-api-rest/src/lib.rs`).
 
@@ -169,6 +170,8 @@ These limits come from the code in `src/live.rs` and `src/score.rs`.
   method name it writes is `stored_distinct_fallback`.
 - docs/benchmarks.md says the tool emits a "signed JSON scorecard" and that the
   self-test runs in CI. Neither is true of the code on 7 November 2026.
+- The module comment in `src/responder.rs` names an `HttpResponder` type. No
+  such type exists in the crate. Live mode uses `LiveDriver` in `src/live.rs`.
 
 ## The zstd-0.13-compat folder
 

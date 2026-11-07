@@ -76,10 +76,10 @@ next to it, at `<dir>/facts.redb`.
 
 Older nodes kept the first four tables in sled. When the redb file is new,
 the node copies those sled rows into it in the background. A read that
-misses in redb also looks in sled until the node finishes the copy of the fact index.
-After that, the node reads the fact index only from redb. When redb has
-no body for a fact id, the node reads it once from sled and copies it into
-redb.
+misses in redb also looks in sled until the node finishes the copy of the
+fact index. After that, the node reads the fact index only from redb. When
+redb has no body for a fact id, the node reads it once from sled and copies
+it into redb.
 
 A derivative fact has no `(cell, band, tslot)` address. The node stores its
 bytes under its fact id, but it adds no row to the index.

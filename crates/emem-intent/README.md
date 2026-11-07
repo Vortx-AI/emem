@@ -40,6 +40,10 @@ The full response has three fields:
 | `results` | One entry for each call: `primitive`, `args`, `ok`, and `result` or `error` |
 | `composite_suggestions` | Algorithms from `/v1/algorithms` that fit this intent type. For `where_is` the list `applicable` is empty. |
 
+The MCP tool `emem_intent` returns only `plan` and `results`. When the
+result is larger than the host budget, MCP leaves out `results` and names
+`POST /v1/intent` in `_emem_truncation`.
+
 A failed call does not stop the plan. Its entry has `ok: false` and an
 `error` with `code` and `message`.
 
@@ -51,7 +55,7 @@ The JSON field `type` selects the variant. These are all the variants in
 | `type` | Fields (optional in brackets) | Calls that `plan` makes |
 |---|---|---|
 | `where_is` | `description` | `emem_locate` with `place` = `description` |
-| `what_is_here` | `cell`, or `place`, [`description`] | `emem_recall` if the request has `cell`. Else `emem_ask`. |
+| `what_is_here` | [`cell`, `place`, `description`]. All optional. | `emem_recall` if the request has `cell`. Else `emem_ask`. |
 | `ask` | `description`, [`place`, `cell`, `lat`, `lng`] | `emem_ask` with `q` = `description` |
 | `is_like` | `a`, `b` | `emem_recall` of band `geotessera` at `a`, the same at `b`, then `emem_compare` |
 | `did_change` | `cell`, `band`, `window` | `emem_diff` with `tslot_a` and `tslot_b` from `window` |
@@ -92,6 +96,7 @@ We checked these points in the code on 7 November 2026:
 | A new variant degrades through `unknown_intent_type` (doc comment on `Intent`) | No code emits `unknown_intent_type`. See the table above for what happens. |
 | The test `plan_args_round_trip_into_their_primitives` checks every variant's args (comment on `did_change_args`) | No test with that name exists in the workspace. Only `did_change` has a test of argument types. |
 | "learned planner deferred to v0.1" (`Cargo.toml` description) | Only the heuristic planner exists. No learned planner ships. |
+| The `also` hint in the `/v1/ask` response lists the valid types | It lists seven. `area_over_time` is not in the list. |
 
 Three helpers drop data with no error. If `filter` or `claim` does not
 convert to CBOR, the call goes out without that field. If the
@@ -119,7 +124,7 @@ this page. The test count comes from the `#[test]` lines in `src/lib.rs`.
 |---|---|
 | Eight intent types and a fixed mapping to primitives | A learned planner |
 | Plan and run in one call through `/v1/intent` and `emem_intent` | A plan-only mode. The responder always runs the plan. |
-| Algorithm hints in `composite_suggestions` | A run of those algorithms. The agent applies them. |
+| Algorithm hints in `composite_suggestions` (HTTP path only) | A run of those algorithms. The agent applies them. |
 
 ## Read more
 

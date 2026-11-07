@@ -1,10 +1,11 @@
 # emem-api-rest
 
 `emem-api-rest` is the HTTP surface of the emem responder. It builds one
-axum `Router`. The router serves the REST API under `/v1/` and MCP
-JSON-RPC at `/mcp` and `/mcp/full`. It also serves the OpenAPI document,
-the `.well-known` files and the web pages in `web/`. It also holds most of the inline materializers,
-which fetch, compute and sign a fact when a recall misses.
+axum `Router`. The router serves the REST API under `/v1/` and MCP JSON-RPC
+at `/mcp` and `/mcp/full`. It also serves the OpenAPI document, the
+`.well-known` files and the web pages in `web/`. It also holds most of the
+inline materializers, which fetch, compute and sign a fact when a recall
+misses.
 
 You need this crate when you add or change a route, an MCP tool handler, a
 materializer or a limit of the server. To only call emem, you do not need
@@ -110,7 +111,8 @@ OpenAPI document.
 The other shared layers add security headers and CORS, catch a panic as a
 typed 500, write the access log and compress responses with gzip. The
 concurrency limit does not apply to `/health`, `/v1/health`,
-`/a2a/tasks/health`, `/live`, `/ping` and `/metrics`, so a probe always gets an answer.
+`/a2a/tasks/health`, `/live`, `/ping` and `/metrics`, so a probe always gets
+an answer.
 
 The source reads 167 distinct `EMEM_*` variables. The operator guide
 describes the ones an operator sets. See

@@ -67,8 +67,8 @@ toolchain. The test counts come from the `#[test]` lines in the source.
 in a Rust `struct` is the key order in the bytes. For a primary fact, the
 order is `kind`, `cell`, `band`, `tslot`, `value`, `unit`, `confidence`,
 `uncertainty` (optional), `sources`, `derivation`, `privacy_class`,
-`schema_cid`, `signer`, `signed_at`, `served_via` (optional). The encoder leaves out an empty optional field. It does not
-write null for it.
+`schema_cid`, `signer`, `signed_at`, `served_via` (optional). The encoder
+leaves out an empty optional field. It does not write null for it.
 
 A fact id is the full 32-byte hash, written as 52 lower-case base32
 characters. The function that makes it is `fact_cid_of` in
