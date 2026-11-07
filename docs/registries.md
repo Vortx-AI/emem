@@ -14,8 +14,8 @@ before the binary uses it.
 - Nine JSON manifests are in `crates/emem-core/data/`. Two more registries
   live in code: the land-cover taxonomy and the cell64 alphabet.
 - `GET /v1/manifests` returns the CID of the nine JSON manifests, plus
-  `registry_cid`. On 7 November 2026 `registry_cid` was equal to
-  `functions_cid`.
+  `registry_cid`. `registry_cid` is the CID of the functions manifest
+  (`emem-server.rs` sets it from `functions_cid`), so the two are equal.
 - Each receipt carries four of these CIDs in `source_versions`:
   `bands_cid`, `registry_cid`, `schema_cid` and `sources_cid`.
 - The `emem-server` binary embeds the JSON files at compile time. To change a
@@ -606,11 +606,38 @@ constants in the same file. A change to this file changes every cell64.
 | `emem-sources` | 46 schemes | no duplicate schemes |
 | `emem-topics` | 27 topics | no duplicate keys; description not empty; bands or algorithms not both empty |
 | `emem-schema` | 8 fragments | `hash == "blake3"`; `signature == "ed25519"`; fragments not empty |
-| `emem-substrates` | 18 profiles | see `substrates.rs` |
-| `emem-device-platforms` | 17 platforms | see `device_platforms.rs` |
-| `emem-trace-encodings` | 8 encodings | see `trace_encodings.rs` |
+| `emem-substrates` | 18 profiles | see the list below the table |
+| `emem-device-platforms` | 17 platforms | see the list below the table |
+| `emem-trace-encodings` | 8 encodings | no duplicate ids; at least one layer; toolchain not empty |
 | `emem-lcv1` | 64 leaves | 8 families x 8 leaves; `u8` encoding (Rust enum, no validator) |
 | `emem-cell64-alphabet` | 65 536 | built in code, deterministic |
+
+The substrate validator (`substrates.rs`) refuses a manifest that breaks one
+of these rules:
+
+- Each profile id is unique.
+- A profile states its grain one way only: `grain_min_m` and `grain_max_m`,
+  or `grain` with a unit. In both forms, 0 < min <= max.
+- This build knows the address space and the provenance class.
+- An `active` profile declares bands and has a write path in this build.
+- Only an `os_trace_required` profile names trace layers. It names at least
+  one.
+- A trace-admitted or custodial profile is not a drift anchor.
+- A custodial profile does not use the `direct_sensor` provenance class.
+- At least one `active` profile is a drift anchor.
+
+The device platform validator (`device_platforms.rs`) refuses a manifest that
+breaks one of these rules:
+
+- Each family id and each platform id is unique. Each platform names a known
+  family.
+- A platform serves one or more contributor classes and recognises one or
+  more encodings.
+- A platform does not use the `raw_ed25519` key kind.
+- A platform has a trust anchor, unless its root of trust is `software_only`.
+  A `software_only` platform is never `active`.
+- A non-provisional anchor is a 32-byte digest.
+- An `active` platform has one or more non-provisional anchors.
 
 ## Publishing a new manifest
 
@@ -640,7 +667,8 @@ This ran on 7 November 2026. It returned ten digests: `algorithms_cid`,
 `bands_cid`, `device_platforms_cid`, `functions_cid`, `registry_cid`,
 `schema_cid`, `sources_cid`, `substrates_cid`, `topics_cid` and
 `trace_encodings_cid`. It also returned a `covers` object with entry counts.
-`registry_cid` had the same value as `functions_cid`.
+`registry_cid` had the same value as `functions_cid`, as the server code
+sets it.
 
 Each receipt pins four of these in `source_versions`: `bands_cid`,
 `registry_cid`, `schema_cid` and `sources_cid`. The signature covers them

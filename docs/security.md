@@ -440,12 +440,15 @@ the operator cannot read, encrypt on the client first.
 
 You can check all of the above from outside:
 
-1. Hash the bytes of a fact with BLAKE3 and compare the result to its CID.
-2. Verify the Ed25519 signature against the attester key, offline.
-3. Pin an STH. Later, get a consistency proof and fold it yourself.
+1. Hash the canonical CBOR bytes of a fact with BLAKE3. Compare the result
+   to its `fact_cid` ([protocol §3.2](./protocol.md#32-factcid)).
+2. Verify the Ed25519 signature against the attester key, offline
+   ([protocol §7.4](./protocol.md#74-offline-verification-python)).
+3. Pin an STH. Later, get a consistency proof and fold it yourself
+   ([protocol §9.6](./protocol.md#transparency-log)).
 4. Read `/v1/log/entries` and check what else is in the tree.
 5. Check an organisation attestation again with `dig` or `curl` against the
-   domain, without us.
+   domain, without us. The DNS form is in [section 6](#6-organisation-verification-and-why-not-oauth).
 
 If a check disagrees with what this responder told you, the responder is
 wrong, and the evidence is yours. That is the design.
