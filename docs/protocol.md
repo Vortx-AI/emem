@@ -2984,7 +2984,8 @@ what it measured. None of these routes stores anything. None of their
 outputs is a fact. Each receipt says which bytes, url, engine or model
 went together. It never says that the content is true. All use the
 same PreimageV1 construction as the STH (§9.6), under the responder
-key. `/v1/verifier_spec` lists every segment.
+key. `/v1/verifier_spec` lists every segment. In each domain, the
+first segment has tag 1, and each next segment adds 1 to the tag.
 
 | domain | route | segments, in tag order |
 |---|---|---|
@@ -3053,7 +3054,11 @@ signature = ed25519(digest)            under the responder key
 
    The response carries `blake3_b32`, `etag`, `fetched_at`,
    `fetched_url` and a `receipt` block with `domain`,
-   `responder_pubkey_b32` and `signature_b32`.
+   `responder_pubkey_b32` and `signature_b32`. It also carries
+   `content_total`, the full size of the file in bytes. `leaf_b32` is
+   the §9.8 tree leaf for this range with the url. `leaf_at_source_b32`
+   is the same leaf with an empty url. The signature does not cover
+   these three fields.
 
 2. Fetch the same range yourself and hash it with BLAKE3. The digest
    must equal `blake3_b32`. A different digest means the file changed
@@ -3106,8 +3111,9 @@ Ed25519PublicKey.from_public_bytes(pub).verify(b32(rc["signature_b32"]), digest)
 print("signature: VALID")
 ```
 
-On 7 November 2026 at 07:07 UTC, `python3 check_range.py range.json`
-printed `bytes match: True` and `signature: VALID`. A bad signature
+On 7 November 2026 at 07:35 UTC, `python3 check_range.py range.json`
+printed `bytes match: True` and `signature: VALID`. Both leaf fields
+matched the §9.8 leaf rule at the same time. A bad signature
 raises `InvalidSignature`. Each IP has a daily quota on this route.
 Over it, the route returns `429` with `code: range_hash_quota` (see
 [errors.md](errors.md)).
