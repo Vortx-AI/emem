@@ -383,6 +383,13 @@ The endpoint stores the reads that finished, and a later request for the same pl
 If the upstream reads are slow, the block can need more than one more request.
 The 280 s default stays below the client and edge cut of about 300 s.
 Thus a call that cannot finish gets a clear 504 response before the connection closes.
+The 504 body has `code: "source_fetch_failed"` and gives the plot count and the budget in seconds.
+
+The two field routes do not have the 280 s budget.
+Their only limit is the route timeout: `EMEM_EUDR_TIMEOUT_SECS` plus 10 s, which is 610 s when no operator sets the variable.
+That is above the edge cut of about 300 s, so the edge can close a slow field call before the responder sends a 504.
+A route timeout gives a 504 with `code: "compute_timeout"`.
+The deploy unit `deploy/systemd/emem-server.service` does not set `EMEM_EUDR_TIMEOUT_SECS`, so emem.dev uses these defaults.
 
 ## Compliance position
 
