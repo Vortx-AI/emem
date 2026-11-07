@@ -5,7 +5,7 @@ Run from the repository root:  python3 docs/media/stills/src/check_media.py
 1. Sizes: a still or a poster is 300 KB or less, a film file is 2 MB or less.
 2. Every still and film in docs/media/ has a row in visual-language.md.
 3. Each number of 3 or more digits in a still's alt text occurs in the saved
-   responses or the scripts in stills/src/, after rounding to the places the
+   responses (the JSON in ../../src-packs/) or the scripts in stills/src/, after rounding to the places the
    alt text shows. Commas and signs are ignored.
 4. A paragraph that links a film and says "N seconds" agrees with the film
    length from ffprobe, rounded. Skipped when ffprobe is not installed.
@@ -40,7 +40,7 @@ fails = []
 
 def check_sizes():
     limits = [("stills/*.webp", 300_000), ("films/*.webp", 300_000),
-              ("films/*.mp4", 2_000_000), ("films/*.webm", 2_000_000)]
+              ("films/*.mp4", 2_000_000)]
     for pattern, limit in limits:
         for path in sorted(MEDIA.glob(pattern)):
             size = path.stat().st_size
@@ -76,8 +76,11 @@ COMPUTED = {
 
 
 def saved_numbers():
-    text = ""
-    for path in list(SRC.rglob("*.json")) + list(SRC.glob("*.py")):
+    sys.path.insert(0, str(MEDIA))
+    import src_data
+
+    text = "".join(data.decode(errors="ignore") for path, data in src_data.members() if path.suffix == ".json")
+    for path in SRC.glob("*.py"):
         text += path.read_text(errors="ignore")
     rounded = set()
     for token in re.findall(r"\d+(?:\.\d+)?(?:[eE][-+]?\d+)?", text.replace(",", "")):

@@ -136,8 +136,7 @@ involved; any locally generated keypair works. Keep the seed: the key
 owns its namespace, and a write can only be unpublished by that key.
 
 A silent film of 35 seconds shows one `create` from refusal to storage.
-Select the picture to play the MP4, or get the
-[WebM](media/films/emem-note-write.webm). The digest and the signature
+Select the picture to play the MP4. The digest and the signature
 are real, made offline with a throwaway key. The refusal and the stored
 result have the shapes in the server code. The film wrote nothing to
 emem.dev.

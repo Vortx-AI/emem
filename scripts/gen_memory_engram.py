@@ -6,7 +6,7 @@ Cells are engram nodes, edges are synapses (relates / supersedes / disagrees),
 and recall pathways converge on a central consolidation lotus. Deterministic:
 a fixed seed places the field, so re-running produces the same image.
 
-Output: docs/diagrams/memory-engram.png  (1600x1040, supersampled 4x)
+Output: docs/diagrams/memory-engram.webp  (1600x1040, supersampled 4x, WebP quality 90)
 """
 import math, random
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
@@ -352,5 +352,5 @@ out = base.convert("RGBA")
 out = Image.alpha_composite(out, glow_b)
 out = Image.alpha_composite(out, ink)
 out = out.convert("RGB").resize((W, H), Image.LANCZOS)
-out.save("docs/diagrams/memory-engram.png")
-print("wrote docs/diagrams/memory-engram.png", out.size)
+out.save("docs/diagrams/memory-engram.webp", "WEBP", quality=90, method=6)
+print("wrote docs/diagrams/memory-engram.webp", out.size)

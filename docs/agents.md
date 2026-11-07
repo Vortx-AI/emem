@@ -650,8 +650,7 @@ computed the series. It does not show which crop grew there.
 [`stills/src/ndvi_season.py`](media/stills/src/ndvi_season.py) draws it
 from the saved responses. Contains modified Copernicus Sentinel data
 2024-2025. The same answer is also a film, one scene at a time:
-[MP4](media/films/emem-ndvi-season.mp4),
-[WebM](media/films/emem-ndvi-season.webm). It is silent and 32 seconds
+[MP4](media/films/emem-ndvi-season.mp4). It is silent and 32 seconds
 long.
 
 ```sh

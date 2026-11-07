@@ -63,9 +63,10 @@ Do not use colour as the only signal. Write the word too, for example `valid` or
 - Silent. Each scene shows its sentence on screen, so no sound is necessary.
 - Render frame by frame from an HTML page with `window.film.seek(t)`. Do not record a screen. The pages and the
   renderer are in [films/src/](films/src/). Run `python film.py --help` there for the commands.
-- Ship an MP4 (H.264) and a WebM (VP9), each 2 MB or less, and a WebP poster of 300 KB or less.
+- Ship one MP4 (H.264) of 2 MB or less and a WebP poster of 300 KB or less. Do not add a WebM copy unless a page
+  needs it. One format keeps the repository small.
   The films are 1080 by 960 px. A poster is 1080 or 720 px wide. On a phone, a 720 px poster and a 1080 px poster both fill the screen width.
-- On a docs page, show the poster and link it to the MP4. Give the WebM link next to it.
+- On a docs page, show the poster and link it to the MP4.
   When a still of the same data is directly above, give text links only, so the page does not show the
   same picture twice. `agents.md` does this for `emem-ndvi-season.mp4`.
 
@@ -164,8 +165,12 @@ pages, so the PRs can merge without a conflict. The description of PR #34 gives 
 | `stills/citation-cost.webp` | How many characters does it cost to carry N facts as values, tokens or one bundle? | `paper-section-statistics-and-threats.md`, section 1 | `stills/src/citation_cost.py` (checks each token against its grammar and that the descriptor token resolves), reads from `fetch_cost.py` in `data/cost/`, `data/glossary/` and `data/bundle/` (7 November 2026) |
 | `stills/wired-bands.webp` | What can emem fetch for a new place, and how far back? | `intro.md`, section "Earth memory" | `stills/src/wired_bands.py` (asserts that each of the 113 rows falls in one group), reads from `fetch_wired.py` in `data/bands/` (7 November 2026 18:20 UTC) |
 
-Each film also has a WebM copy and a `-poster.webp` file with the same name. The `fetch_*.py` scripts in
-`stills/src/` make the live reads. The drawing scripts read only the saved responses in `stills/src/data/`.
+Each film also has a `-poster.webp` file with the same name. The `fetch_*.py` scripts in
+`stills/src/` make the live reads. The drawing scripts read only the saved responses in `stills/src/data/`,
+`films/src/data/` and `diagrams/src/data/`. Git does not keep these folders. It keeps one gzip archive per
+folder in [`src-packs/`](src-packs/). With the scene list, that is 339 KB. The archives do not hold the
+Sentinel-2 scene PNGs. [`src-packs/scenes.json`](src-packs/scenes.json) gives the emem.dev URL and SHA-256 of
+each of the 31 scenes.
 
 On 7 November 2026 at about 11:30 UTC, new live reads gave the same numbers as five stills:
 
@@ -186,8 +191,18 @@ before you reuse a number.
 
 ## Draw an image again
 
-You need Python 3 with Playwright (Chromium) and Pillow, `ffmpeg` with libx264 and libvpx-vp9, and `xvfb-run` for
+You need Python 3 with Playwright (Chromium) and Pillow, `ffmpeg` with libx264, and `xvfb-run` for
 films. `recall_cell.py` and `hero.py` also need `pyproj`. Run these commands from the repository root.
+
+First put the saved responses back in the `data/` folders. Then get the scene PNGs again from emem.dev.
+The second command makes 31 read-only GET calls and compares each PNG with its SHA-256 in `scenes.json`:
+
+    python3 docs/media/src_data.py unpack
+    python3 docs/media/src_data.py scenes
+
+On 7 November 2026 at about 18:55 UTC, in a clean copy of this branch, all 31 scenes had the saved SHA-256.
+Eleven stills drawn there were byte-identical to the committed files, and so were two diagrams and two film
+data files.
 
 Draw a still from its saved data. The output is byte-identical to the committed file, for example for
 `guard-check.webp` on 7 November 2026:
@@ -218,7 +233,7 @@ The season film reads `films/src/season-data.js`. `fetch_season.py` gets one tru
 saved `field_series` answer. It does not save a crop from another scene. `season_data.py` (needs `pyproj`) writes the
 data file from the saved responses.
 
-Remove `--stills 25` and add `--poster 25.5` to render the MP4, the WebM and the poster. A full render takes about
+Remove `--stills 25` and add `--poster 25.5` to render the MP4 and the poster. Add `--webm` for a WebM copy. A full render takes about
 8 minutes on a GPU host. Check the text of a diagram:
 
     python docs/media/diagrams/src/check_text.py docs/media/diagrams/fact-chain.svg

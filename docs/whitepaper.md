@@ -644,8 +644,7 @@ is a per-implementation opinion.
 
 [![Film poster. A grid of 743 squares, one for each byte of the Mount Fuji elevation fact. The band name, the cell64 and the 4 value bytes are in colour, and one value byte is red. A card shows the value bytes 45 5d 30 ad change to 45 5d 30 ac, and 3539.0422 m change to 3539.0420 m.](media/films/emem-one-byte-poster.webp)](media/films/emem-one-byte.mp4)
 
-*Silent, 33 seconds. Select the picture to play the MP4, or get the
-[WebM](media/films/emem-one-byte.webm). The film shows the 743 bytes of
+*Silent, 33 seconds. Select the picture to play the MP4. The film shows the 743 bytes of
 the Mount Fuji elevation fact. BLAKE3 of all the bytes gives its id,
 `qejpz7cg…`. We changed one bit of the 4-byte value offline: 3539.0422 m
 becomes 3539.0420 m, and both round to 3539.04 m. The changed bytes hash
@@ -1062,8 +1061,7 @@ minutes after a restart.
 
 [![Film poster. The audit path of the Mount Fuji entry, hash 17 of 22: a bar shows 424,992 entries around the entry, the 131,072 entries covered so far in blue and the next block of 131,072 entries in purple. A list shows hashes 14 to 18, with the size of each block, its side and the new hash.](media/films/emem-log-climb-poster.webp)](media/films/emem-log-climb.mp4)
 
-*Silent, 38 seconds. Select the picture to play the MP4, or get the
-[WebM](media/films/emem-log-climb.webm). The film shows the Fuji entry
+*Silent, 38 seconds. Select the picture to play the MP4. The film shows the Fuji entry
 climb 22 hashes to the root of the signed head of size 3,248,898. One
 changed character in hash 10 gives another root, and inclusion is
 invalid. A 14-hash consistency proof links the head of size 3,248,892 to

@@ -37,7 +37,7 @@ film above after line 219. To keep one film, use the one above.
 
 ```html
 <a href="docs/media/films/emem-one-byte.mp4"><img src="docs/media/films/emem-one-byte-poster.webp" alt="Film, 33 seconds, silent. A grid of 743 squares, one for each byte of the Mount Fuji elevation fact, hashes with BLAKE3 to the id qejpz7cg. One changed bit in the 4-byte value turns 3539.0422 m into 3539.0420 m; both round to 3539.04 m. The new bytes hash to 26zhvwvf, and 49 of the 52 characters differ. On emem.dev the old id returns the same 743 bytes and the new id returns 404 cid_not_found. Live reads on 7 November 2026." width="540"></a>
-<br><sub>Silent, 33 seconds. <a href="docs/media/films/emem-one-byte.webm">WebM</a>.</sub>
+<br><sub>Silent, 33 seconds.</sub>
 ```
 
 ## Markup for the swap at line 225
@@ -113,7 +113,7 @@ character breaks the proof, and a second proof shows that the log only grew. Use
 
 ```html
 <a href="docs/media/films/emem-log-climb.mp4"><img src="docs/media/films/emem-log-climb-poster.webp" alt="Film, 38 seconds, silent, from live emem.dev reads on 7 November 2026. The Mount Fuji elevation fact sits in entry 2,463,431 of 3,248,898 in emem's log. The poster shows hash 17 of 22 in its audit path: a bar of 424,992 entries around the entry, 131,072 entries covered so far and the next block of 131,072. The film ends at the signed root, then shows one changed character giving inclusion invalid and a 14-hash consistency proof." width="540"></a>
-<br><sub>Silent, 38 seconds. <a href="docs/media/films/emem-log-climb.webm">WebM</a>.</sub>
+<br><sub>Silent, 38 seconds.</sub>
 ```
 
 Markup for line 291:
@@ -129,7 +129,7 @@ on a growing chart. It ends on the one token and `verify_receipt` valid. Use the
 
 ```html
 <a href="docs/media/films/emem-ndvi-season.mp4"><img src="docs/media/films/emem-ndvi-season-poster.webp" alt="Film, 32 seconds, silent, from live emem.dev reads on 7 November 2026. A farm box near Ames, Iowa, scene by scene. The poster shows 1 August 2024: a Sentinel-2 true-colour crop, all 36 blocks green, and median NDVI 0.88 with all 2,200 pixels clear. The film steps through 17 clear scenes from February 2024 to November 2025, marks the 8 dates with too few clear pixels, and ends on the one token for the series and verify_receipt valid." width="540"></a>
-<br><sub>Silent, 32 seconds. <a href="docs/media/films/emem-ndvi-season.webm">WebM</a>. Contains modified Copernicus Sentinel data 2024-2025.</sub>
+<br><sub>Silent, 32 seconds. Contains modified Copernicus Sentinel data 2024-2025.</sub>
 ```
 
 Markup for line 90:
@@ -197,6 +197,6 @@ Markup for line 312, after the `docker run` block:
 ## Orbit GIFs of the 3D worlds
 
 README.md does not use the six `docs/media/world-*.gif` files (5.4 to 17.0 MB each). Only
-`examples/3d-worlds/README.md` and `capture.mjs` name them. This branch adds MP4 and WebM copies of
-166 to 439 KB, with posters, in `docs/media/worlds/`. `examples/3d-worlds/README.md` now shows the posters.
+`examples/3d-worlds/README.md` and `capture.mjs` name them. This branch adds MP4 copies of
+192 to 278 KB, with posters, in `docs/media/worlds/`. `examples/3d-worlds/README.md` now shows the posters.
 `capture.mjs` writes only GIFs, and changing that is a code change. So this branch keeps the GIFs.

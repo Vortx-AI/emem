@@ -48,7 +48,7 @@ Yes. The id is the BLAKE3 hash of the canonical CBOR bytes of the fact.
 
 [![Film poster. A grid of 743 squares, one for each byte of the Mount Fuji elevation fact. The band name, the cell64 and the 4 value bytes are in colour, and one value byte is red. A card shows the value bytes 45 5d 30 ad change to 45 5d 30 ac, and 3539.0422 m change to 3539.0420 m.](films/emem-one-byte-poster.webp)](films/emem-one-byte.mp4)
 
-Silent film, 33 seconds. Select the picture to play the MP4, or get the [WebM](films/emem-one-byte.webm).
+Silent film, 33 seconds. Select the picture to play the MP4.
 More: [whitepaper.md](../whitepaper.md), section 5.
 
 ## What bytes does a receipt signature cover?
@@ -65,7 +65,7 @@ Yes. It resolves the token and checks the receipt offline. It does not have to t
 
 [![Film poster. Agent B resolves the emem:fact token for Mount Fuji: the same fact_cid and 3539.04 m. verify_receipt returns signature_valid true, merkle_proof_valid true and valid. A signature shows who signed. It does not show that the value is true.](films/emem-fact-to-check-poster.webp)](films/emem-fact-to-check.mp4)
 
-Silent film, 33 seconds. Select the picture to play the MP4, or get the [WebM](films/emem-fact-to-check.webm).
+Silent film, 33 seconds. Select the picture to play the MP4.
 More: [start-here.md](../start-here.md).
 
 ## Is this fact in the log, and does the log only grow?
@@ -93,7 +93,7 @@ the write again.
 
 [![Film poster. The agent builds the digest itself: BLAKE3 over "emem.memory_write.v2|create|", the path, the BLAKE3 of file_text and "absent" gives 2ced569b3e75145a6d1ee66eed2c2a6d8ddeaf512b84e29157107eb3a9e7aada, the same digest as the refusal.](films/emem-note-write-poster.webp)](films/emem-note-write.mp4)
 
-Silent film, 35 seconds. Select the picture to play the MP4, or get the [WebM](films/emem-note-write.webm).
+Silent film, 35 seconds. Select the picture to play the MP4.
 The film wrote nothing to emem.dev. More: [memory.md](../memory.md).
 
 ## When does the guard deny a draft?
