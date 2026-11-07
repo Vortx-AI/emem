@@ -217,8 +217,8 @@ answer from a healthy catalogue means there is no scene.
 The two catalogues give different DNs for the same scene. Element84 removed ESA's
 `BOA_ADD_OFFSET`, and Planetary Computer did not. Reflectance is `(DN + offset) * 1e-4`. The
 offset is -1000 for Planetary Computer scenes from processing baseline 04.00. For Element84 it is
-usually 0. Baseline 04.00 items acquired from 2022-01-25 to 2022-02-26 still have -1000. For items of
-2022-02-27 and 2022-02-28 the offset is not known, so the node refuses them
+usually 0. Baseline 04.00 items acquired from 2022-01-25 to 2022-02-26 still have -1000. The code does not
+know the offset for items of 2022-02-27 and 2022-02-28, so the node refuses them
 (`element84_dn_offset` in `stac.rs`). The node also refuses a scene that states no baseline when it
 needs one. Each fact's `derivation.args` ends with the catalogue
 and the offset.
@@ -227,8 +227,9 @@ A single cell searches with `intersects: Point`, not `bbox`. A bbox search can m
 tile in an MGRS overlap zone. A read over many cells searches once for their bbox. It then keeps,
 for each cell, the items whose footprint holds the point.
 
-Planetary Computer asset URLs need a free anonymous SAS token. The connector caches each token
-until 5 minutes before its `msft:expiry`.
+Planetary Computer asset URLs need a free anonymous SAS token. The connector caches one token for
+each collection until 5 minutes before its `msft:expiry`. The cache time is at least 1 minute and
+at most 55 minutes. When `msft:expiry` is missing, the cache time is 30 minutes (`stac.rs`).
 
 ### overture.rs: Parquet on S3
 
@@ -379,8 +380,8 @@ in `crates/emem-api-rest/src/lib.rs`. Line numbers in `lib.rs` change often, so 
 9. Optional: declare the scheme in `crates/emem-core/data/sources-v0.json` and the function in
    `crates/emem-core/data/functions-v0.json` (`kind: primary`, `deterministic: true`). The node
    publishes these files at `/v1/sources` and `/v1/functions`, but no read or write path checks a
-   fact against them. On 7 November 2026, 5 of the 39 `fn_key` values in `lib.rs` are in
-   `functions-v0.json`, and `sources-v0.json` has no WDPA scheme.
+   fact against them. On 7 November 2026, `lib.rs` had 40 `fn_key` values outside its tests.
+   Only 6 were in `functions-v0.json`, and `sources-v0.json` had no WDPA scheme.
 10. Test offline with `cargo test -p emem-fetch <name>`. Give the parser bytes that the test
     builds or records, as the `dmsp_ols.rs` tests build a small TIFF. The network tests are in
     `crates/emem-fetch/tests/live_cog_fetch.rs` and run with
