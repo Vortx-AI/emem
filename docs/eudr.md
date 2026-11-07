@@ -178,6 +178,25 @@ curl -s -o scene.png -D - \
   | grep -iE '^x-emem-scene-(datetime|cloud-cover)'
 ```
 
+### Dates to cite in a statement
+
+The block has one entry for each year in `years`.
+The field `anchor_unix` in each entry is the July-1 date that the request asked for.
+It is not the date of a satellite pass. Do not cite it as an evidence date.
+
+Cite these fields instead:
+
+| Field | What it holds |
+|---|---|
+| `ndvi_observed_date_range` | `from` and `to`: the earliest and latest Sentinel-2 `captured_at` in the plot cells for that year |
+| `s1_observed_date_range` | The same range for the Sentinel-1 facts |
+| `x-emem-scene-datetime` header | The date of the scene in one `scene.png` image |
+
+Each range is `null` when no cell has a fact with a number and a date for that year.
+The block repeats this rule in its `date_correctness_note` field.
+Its `anchor_policy` field names a ±30, 60 and 90 day ladder.
+That ladder is the Sentinel-2 ladder only. Radar uses ±15, 30 and 60 days.
+
 ### Verdict thresholds
 
 Operators can change both thresholds with environment variables.
