@@ -1663,8 +1663,8 @@ window. Run it, then read again.
 
 With `strict: true`, `/v1/locate` answers 404 `no_geocoder_match` when the
 name matched only weakly. The error names the weak candidate. On
-7 November 2026, "Qwzxv Mountain Lake" gave this 404. `strict` has no effect on
-coordinates. For `model` on `/v1/ask`, see
+7 November 2026, "Qwzxv Mountain Lake" gave this 404. `strict` has no
+effect on coordinates. For `model` on `/v1/ask`, see
 [Ask a model to read the signed answer](#ask-a-model-to-read-the-signed-answer).
 
 `/v1/ask` gives short summaries by default. `include` adds full sections,
@@ -1694,8 +1694,8 @@ area series. If `type` is missing, REST answers 400 `invalid_argument`
 with "missing field `type`". If `type` has a wrong value, the 400 error
 names the eight types. In both cases, the MCP tool `emem_intent` answers
 without an error: `status: needs_intent_type`, and `valid_types` with the
-fields that each type needs. This `confirm` call
-checks a claim at one cell:
+fields that each type needs. This `confirm` call checks a claim at one
+cell:
 
 ```bash
 curl -s -X POST https://emem.dev/v1/intent \
@@ -1759,8 +1759,8 @@ route computes the result and signs it.
 
 All four routes are `POST`. The second half of the deforestation alert
 compares two GeoTessera vintages (`geotessera.multi_year`). emem.dev
-no longer makes that band (see [Algorithms](#algorithms)), so the second half
-needs vectors that emem stored before the retirement. On 7 November 2026
+no longer makes that band (see [Algorithms](#algorithms)), so the second
+half needs vectors that emem stored before the retirement. On 7 November 2026
 the registry gave this algorithm `here.status: "stored_only"` and
 `use_instead: ["deforestation_alert_ndvi_drop@1"]`.
 
