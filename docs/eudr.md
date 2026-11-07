@@ -349,6 +349,8 @@ The two signals use different years:
 - S1 VV breaches only when the latest year drops from the 2020 median by the threshold.
 
 The block reports the values it used in `thresholds`.
+The `thresholds.rationale` text does not change. It always names the defaults.
+If an operator changed a threshold, read the numbers, not that text.
 `metrics.ndvi_max_drop_vs_baseline` gives the largest NDVI drop.
 `metrics.ndvi_worst_year_over_year_drop` gives the largest drop from one year to the next.
 That second value is for information only; the verdict does not use it.
@@ -358,21 +360,28 @@ The block carries its own `verdict`:
 | Visual verdict | When |
 |---|---|
 | `visual_deforestation_suspected` | One or both signals reach the threshold |
-| `no_visual_deforestation` | Both signals stay below the threshold |
-| `indeterminate_no_baseline` | The plot has no 2020 baseline data; the block does not pass it silently |
+| `no_visual_deforestation` | No signal reaches the threshold, and the plot has at least one 2020 median |
+| `indeterminate_no_baseline` | The plot has no 2020 median for NDVI and none for S1 VV; the block does not pass it silently |
 | `incomplete` | The visual time budget ran out before the timeline was complete |
 
 The schema enum for this `verdict` lists only the first three values.
 On 7 November 2026 it did not list `incomplete`, but the endpoint can return it.
 If you validate responses against the schema, allow `incomplete` in your validator.
+An `incomplete` block has only `schema`, `verdict`, `complete: false`, `budget_secs` and `reason`.
+It has no `years`, `thresholds` or `verdict_basis`.
 
 The block evaluates S1 VV only when the plot has a 2020 median and a latest-year reading.
-It evaluates NDVI when the plot has a 2020 median and a drop in any year, or a latest-year reading.
+It evaluates NDVI when the plot has a 2020 median and also one of these:
+
+- a drop from the 2020 median in any year
+- a latest-year NDVI median.
 `verdict_basis` names the signals that the verdict uses: `ndvi_and_s1_vv`, `ndvi_only`,
 `s1_vv_only` or `neither`.
 `signals.s1_vv.why_not` gives the reason when the block did not evaluate S1 VV.
 Read `verdict_basis` before you quote `no_visual_deforestation`.
 With `ndvi_only`, only NDVI cleared the plot, because S1 VV did not run.
+With `neither`, no signal ran, but the verdict can still be `no_visual_deforestation`.
+This occurs when a 2020 median exists but the latest year has no reading and no year shows a drop.
 
 ### Receipts
 
