@@ -634,7 +634,24 @@ struct DerivativeFact {
 }
 ```
 
-Worked example (90-day NDVI mean over three monthly composites):
+The comment on `op` lists five names, but `op` is free text. The
+responder itself signs derivatives with these `op` and `fn_key` values
+(from the code on 7 November 2026):
+
+| `op` | `fn_key` | made by |
+|---|---|---|
+| `attribution_ledger` | `change_attribution@1` | `change_attribution.rs` (the change ledger) |
+| `delta` | `nd.delta@1` | `emem-primitives/src/diff.rs` |
+| `index_series` | the series recipe | `field_series.rs` |
+| `rain_series` | the series recipe | `rain_series.rs` |
+| `band_raster`, `dem_raster`, `forest_raster`, `embedding_raster`, `raster_bundle`, `band_cube`, `median_composite` | `<op>@1`, except `s2_median_composite@1` | `band_raster.rs` |
+| `histogram` | `lossyear_histogram@1` | `lib.rs` (forest loss by year) |
+
+A caller-registered derivative (`POST /v1/derive`, below) carries the
+`op` and `fn_key` that the caller sent.
+
+The example below shows the shape only. It is not a stored fact, and
+`agg.mean@1` is not a registered recipe:
 
 ```jsonc
 {
@@ -651,6 +668,29 @@ Worked example (90-day NDVI mean over three monthly composites):
   "signed_at": "2024-04-01T03:11:00Z"
 }
 ```
+
+A real derivative from emem.dev, read on 7 November 2026, is the change
+ledger at Mount Fuji. Its fields other than `value` are:
+
+```jsonc
+{
+  "kind": "derivative",
+  "cell": "defi.zb592.nUkO.zEzE",
+  "band": "change_attribution.ledger",
+  "tslot_window": [20649, 20754],
+  "op": "attribution_ledger",
+  "parents": ["anecibzr6k66...", "gxg3wspuquah...", /* 5 parents in all */],
+  "confidence": 1.0,
+  "derivation": { "fn_key": "change_attribution@1" },
+  "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+  "signer": [255, 254, 72, /* 32 bytes */],
+  "signed_at": "2026-11-07T00:36:24Z"
+}
+```
+
+Its token is
+`emem:fact:defi.zb592.nUkO.zEzE:tu734ucbc2asymi4l6gwtcnd4r64ejxpzy45yr7r3tr7bt3nw6qa`.
+§5.5 recomputes its `fact_cid` from this JSON.
 
 The `signed_at` of a derivative is part of its CID. Thus a responder
 derivative that must stay the same across calls takes `signed_at` from
