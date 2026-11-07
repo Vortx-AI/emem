@@ -386,8 +386,9 @@ The TTL pass (`EMEM_MEMORY_TTL_ENABLED=1`) runs every hour
 (`EMEM_MEMORY_TTL_INTERVAL_SECS`). It moves expired files from
 `memory_files` to `memory_files_expired`. The blob stays in
 `memory_file_blobs`, which is content-addressed and never deletes.
-The pass also adds `expired` to the path history and sends an `expired`
-event. It skips a file with no recorded `signed_at`.
+The pass also adds the text `expired` to the path history and sends an
+`expired` event. The history view then shows a version with
+`file_cid` `expired` and null `signed_at`, `verb` and attester fields. It skips a file with no recorded `signed_at`.
 An expired file also leaves the kind index, so
 `emem_memory_list_by_kind` no longer lists it.
 To change the TTL for one kind, set
@@ -1408,7 +1409,7 @@ memory trees did not move.
 | `emem.memory_files_by_kind` | `kind\|path` | `file_cid` |
 | `emem.memory_files_expired` | path | `file_cid` |
 | `emem.memory_file_blobs` | `file_cid` | raw bytes, stored once for all paths that hold them |
-| `emem.memory_file_history` | path | CBOR `Vec<file_cid>`, oldest first |
+| `emem.memory_file_history` | path | CBOR list of `file_cid` strings, oldest first. The TTL pass adds the text `expired` as an item |
 | `emem.memory_file_meta` | `file_cid` | CBOR `MemoryFileMeta` (`file_cid`, `path`, `signed_at`, `signed_at_unix_s`, `size_bytes`, `verb`, `kind`, `attester_pubkey_b32`, `attester_sig_b32`, `attester_body_hash_hex`, `attester_preimage_version`, `attester_base`, `log_entry_hash_b32`, `superseded_by`, `supersede`, `receipt`). An offline authorship check needs `attester_base` for a v2 signature. The record stays with the first writer while that path still holds these bytes |
 | `emem.memory_file_meta_by_path` | path | the `MemoryFileMeta` of the write at that path |
 | `emem.memory_meta_repair` | `v1` | a marker. The responder writes it when it completes the one-time repair of per-path records from the transparency log |
