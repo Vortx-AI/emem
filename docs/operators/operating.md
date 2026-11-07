@@ -337,7 +337,7 @@ area that one call covers depends on the request field:
 | Field | Cells | Area |
 |---|---|---|
 | `bbox`, an array `[west, south, east, north]` | A sample. By default, 64 to 1024 cells, from the area. `max_cells` sets 1 to 1024. | Any size |
-| `geometry: "bbox:..."` | Every cell in the box, 4096 at most | About 0.55 km by 0.55 km |
+| `geometry: "bbox:..."` | Every cell in the box, 4096 at most | About 0.6 km by 0.6 km |
 | `geometry: "cells:..."` | The listed cells, 4096 at most | The listed cells |
 
 The cell pitch is about 9.55 m. On 7 November 2026, emem.dev accepted a `bbox:` geometry of 0.005 degrees on each
@@ -475,7 +475,7 @@ it on a node that other people use.
 | `emem-connect-demo` | console and exit code | Runs [connect and evolve](https://github.com/Vortx-AI/emem/blob/main/examples/connect-and-evolve.md): two keys sign facts that disagree, then it reads the edges and the contradiction |
 | `emem-ask-eval` | console and exit code | A check of `/v1/ask` routing. No CI job runs it. |
 | `emem-demo-device` | enrolls a device and posts a trace | Needs an operator endorser key and a root ftrace capture. The default node is `https://emem.dev`, so set `--base` to your node. `--dry-run` sends nothing. |
-| `emem-purge-fnkey` | changes the store (dry run by default) | Removes facts by `derivation.fn_key`. Stop the node first. |
+| `emem-purge-fnkey` | changes the store (dry run by default) | Removes facts by `derivation.fn_key` from `cache.sled/` only, so it acts only with `EMEM_HOT_BACKEND=sled`. Stop the node first. |
 | `emem-sled-slim` | changes the store | Removes old fact trees from `cache.sled/`. Stop the node first. |
 
 The node serves saved runs at `GET /v1/demos`, `GET /v1/demos/:run` and `GET /v1/demos/:run/:file`.

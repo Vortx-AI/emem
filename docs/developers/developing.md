@@ -101,7 +101,7 @@ Outside the workspace:
 | `emem-connect-demo` | Runs the "connect and evolve" loop from `examples/connect-and-evolve.md` |
 | `emem-demo-device` | Enrols this host as a labelled demo device and publishes a trace |
 | `emem-ask-eval` | Checks how `/v1/ask` routes a fixed set of questions |
-| `emem-purge-fnkey` | Admin: removes cached facts by `derivation.fn_key`. Stop the server first, because sled holds an exclusive lock. |
+| `emem-purge-fnkey` | Admin: removes cached facts by `derivation.fn_key` from `cache.sled/` only. It has no effect on the default redb store; use it with `EMEM_HOT_BACKEND=sled`. Stop the server first, because sled holds an exclusive lock. |
 | `emem-sled-slim` | Admin: copies the live sled trees into a new store. Stop the server first. |
 
 Other crates build `emem-guard`, `emem-airgap`, `emem-encode`,
@@ -200,22 +200,27 @@ rebuilds the preimage and checks the Ed25519 signature in the tab.
 
 ## Add a band
 
-1. Add the entry to `crates/emem-core/data/bands-v0.json`. Each band has
-   `key`, `offset`, `dims`, `tempo`, `privacy` and descriptive fields.
-   The `dims` of all bands must add up to 1792. Each `offset` must equal
-   the `offset` plus `dims` of the band before it, so a gap also fails.
-2. Run `cargo test -p emem-core bands`. The registry tests find overlaps,
-   gaps and a wrong total.
+1. Choose the band key. A dotted key, such as `copdem30m.elevation_mean`,
+   needs no change to `crates/emem-core/data/bands-v0.json`. Only a new
+   cube slot changes that file. Each slot has `key`, `offset`, `dims`,
+   `tempo`, `privacy` and descriptive fields. The `dims` of all slots must
+   add up to 1792. Each `offset` must equal the `offset` plus `dims` of
+   the slot before it, so a gap also fails.
+2. If you changed `bands-v0.json`, run `cargo test -p emem-core bands`.
+   The registry tests find overlaps, gaps and a wrong total.
 3. If the band comes from other bands, add a recipe to
    `crates/emem-core/data/functions-v0.json`.
 4. Connect a materializer. Inline materializers are in
-   `crates/emem-api-rest/src/lib.rs` (search for `async fn materialize_`).
+   `crates/emem-api-rest/src/lib.rs` (search for `fn materialize_`).
    A larger connector gets its own module in `crates/emem-fetch/src/`.
-5. Add the band to `band_materializer_meta` in the same file, so that
+5. Add the band key to `all_materializable_bands` in the same file. If
+   the key is not there, `/v1/bands`, `/v1/materializers` and
+   `/v1/data_availability` do not show the band.
+6. Add the band to `band_materializer_meta` in the same file, so that
    `/v1/data_availability` reports the true history window and tempo.
    A null history bound is correct for static climatology and for
    nowcast-only sources.
-6. Run `cargo test -p emem-api-rest`.
+7. Run `cargo test -p emem-api-rest`.
 
 ## Add a connector
 
@@ -230,7 +235,7 @@ rebuilds the preimage and checks the Ed25519 signature in the tab.
 5. Add a row for the module to the connector table in
    [data-sources.md](data-sources.md).
 
-[data-sources.md](data-sources.md#add-a-connector) gives all eight steps,
+[data-sources.md](data-sources.md#add-a-connector) gives all ten steps,
 with the band, materializer and function registry entries.
 
 ## Add a primitive

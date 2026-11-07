@@ -75,7 +75,15 @@ curl -s https://emem.dev/v1/heat_solve \
 ```
 
 That call gave `initial_condition_k` 305.04, `forecast_k` 305.025 and
-`delta_k` -0.015.
+`delta_k` -0.015. The 8 neighbours all read 289.58 K. The `neighborhood_signed_at`
+field shows why. The centre fact was signed on 28 May 2026, and the
+neighbour facts on 7 November 2026. Thus the 15.46 K range in the stencil
+is a difference in time, not in space.
+
+The solver reads the newest cached fact at each of the 9 cells
+(`tslot` not set). It does not check that the 9 facts come from the same
+8-day composite. Compare the dates in `neighborhood_signed_at` before you
+use `delta_k`.
 
 ## `/v1/wave_solve`: 1D shallow water
 
@@ -95,7 +103,7 @@ That call gave `initial_condition_k` 305.04, `forecast_k` 305.025 and
 The solver rejects a profile as land-locked unless both of these are
 true:
 
-- The offshore boundary cell is at least 5 m deep.
+- The offshore boundary cell is more than 5 m deep.
 - At least 50 % of the profile cells are more than 1 m deep.
 
 A land-locked profile returns HTTP 422 with `code: invalid_argument`.
@@ -109,14 +117,20 @@ at the first cell that is on land again, and gives that cell a depth
 of 0 m. Thus a profile can have fewer cells than `n_offshore_cells`.
 Near shallow coasts the walk often does not reach 5 m of water.
 
+The profile must have at least 3 cells. A shorter profile returns HTTP 422
+with `code: source_fetch_failed` and the message "returned only N
+cells; need at least 3 for the wave solver". A cell on the walk with no
+usable GMRT value gives the same code, with the message "no usable
+`gmrt.topobathy_mean` primary fact at cell ...". Read the message to know
+which case you have.
+
 On success, `arrival_height_m` is the largest wave height at the
 coast. `arrival_time_s` is the time it first reaches
 `arrival_threshold_m`, which is 5 % of `offshore_height_m`. It is null
 when the wave does not reach the threshold. On 7 November 2026, every coastal
-cell tried on emem.dev returned 422. A cell near Waikiki, with
-`n_offshore_cells: 64`, gave the land-locked rejection. Bondi Beach and
-Nazare gave `source_fetch_failed`, because a profile cell had no usable
-GMRT value.
+cell tried on emem.dev returned 422. Cells near Waikiki, Bondi Beach and
+Nazare (from `/v1/locate`), with `n_offshore_cells: 64`, all gave the
+land-locked rejection. At Bondi and Nazare the offshore end cell had 0 m depth.
 
 This request runs, and shows the 422 rejection with its details. On
 7 November 2026 its profile had 44 cells, not 64. The offshore end cell had

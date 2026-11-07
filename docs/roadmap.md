@@ -26,8 +26,9 @@ Plan around the limits below.
 There is no read federation, no global routing and no SOC 2 report. One
 responder, emem.dev, holds the corpus and signs it.
 
-Since 2026-09-02 a second node, `geo.qa`, co-signs the emem.dev log, and
-emem.dev co-signs the `geo.qa` log. This is federation phase 0. It makes
+A second node, `geo.qa`, co-signs the emem.dev log, and emem.dev
+co-signs the `geo.qa` log. This started on 2026-09-02 and first worked
+in both directions on 2026-09-05. This is federation phase 0. It makes
 a split view detectable. It does not change where reads resolve.
 
 Since 2.4.0 a third party can join with no help from the maintainers:
@@ -69,7 +70,7 @@ temperature band takes about 30 seconds per cell (its entry in
 `crates/emem-api-rest/src/lib.rs`). The default per-upstream timeout is
 14 seconds (`EMEM_MATERIALIZER_TIMEOUT_SECS`). So a cold read of that
 band can stop at the timeout with a `skipped` note. A hunter sweep reads
-that band at 8 cells or fewer (`EMEM_HUNTER_SLOW_BAND_CAP`, 1 to 32).
+that band at 8 cells by default (`EMEM_HUNTER_SLOW_BAND_CAP`, 1 to 32).
 
 ### The fact corpus is for places, and memory notes are not private
 
@@ -101,6 +102,8 @@ hold the key. Do not put secrets in any hosted namespace.
 
 ### Place ids are compact, but not yet token-optimal
 
+A `cell64` costs a mean of 12.5 BPE tokens today (`cl100k_base`, 14 live
+cells; see [Grid cost against other grids](#grid-cost-against-other-grids)).
 The codec design targets 4 tokens or fewer per `cell64`
 (`crates/emem-codec/src/lib.rs`). The id format expects an alphabet tuned
 to the tokenizer. The shipped alphabet does not reach that target
@@ -111,8 +114,10 @@ yet.
 Gazetteer labels come back in the local script. So `Munich` against
 `München`, and `Osaka` against `大阪市`, once scored zero against the
 confidence floor, and locate refused them. The floor now also checks the
-alternate names of a place. On 7 November 2026, `Munich` resolved to
-Munich, Bavaria, and `Osaka` resolved to Osaka, Japan.
+alternate names of a place. On 7 November 2026 these ten names all
+resolved to the correct city with `is_high_confidence` true: `Munich`,
+`Osaka`, `Nuremberg`, `Florence`, `Gothenburg`, `Kazan`, `Copenhagen`,
+`Thessaloniki`, `Bruges` and `Chengdu`.
 
 Two fixes for that refusal caused a worse failure: a confident answer
 about the wrong place, with a signed receipt. This surface exists to
@@ -162,7 +167,8 @@ for disagreement between sources, and an offline refinement loop.
 
 | Step | Status on 7 November 2026 |
 |---|---|
-| 1. Receipts that name their log leaf, and heads gossiped between responders | ships |
+| 1a. Receipts that name their log leaf | ships |
+| 1b. Heads gossiped between responders and clients | partly ships (see [A2A item 2](#2-governed-witnesses-and-client-gossip-partly-ships)) |
 | 2. Signed absence proofs that a reader can check | not built |
 | 3. A public attester spec | not built |
 | 4. Quorum reads across responders | design only |
@@ -171,12 +177,15 @@ for disagreement between sources, and an offline refinement loop.
    shipped on 2026-07-10 under `/v1/log/*`. It has signed tree heads,
    consistency and inclusion proofs, entry enumeration and witness
    co-signing. A receipt's `merkle_proof` names the `log_entry_hash` of
-   its attestation, and `/v1/log/inclusion` proves that entry (see
+   its attestation, and `/v1/log/inclusion` proves that entry. The
+   receipt signature does not cover that field (see
    [A2A item 1](#1-chain-the-receipt-to-the-transparency-log-ships)).
    Heads also go between responders, so that a split view cannot
    survive. `emem-witness.timer` co-signs the head of a peer every 15
    minutes. It spot-checks four sampled leaves under that head
-   (`EMEM_WITNESS_SAMPLES`, default 4). An independent witness also
+   (`EMEM_WITNESS_SAMPLES`, default 4). For an origin listed in
+   `entries_private.json`, the job checks inclusion only and does not
+   read the entries. `geo.qa` asked for this on 2026-11-06. An independent witness also
    co-signs the emem.dev head. On 7 November 2026 at 02:29 UTC, one
    independent operator (`eudr.dev`) witnessed it. Its newest co-signed
    head was 5 entries behind the current head, so
@@ -512,8 +521,9 @@ sentence that cites it.
 
 #### Grid cost against other grids
 
-The maintainers measured the token cost of a `cell64` on 2026-08-13 (see
-`docs/collaboration-log.md`). Over 14 live cells:
+The token cost of a `cell64` was measured on 2026-08-11 and recorded in
+the whitepaper on 2026-08-13 (see `docs/collaboration-log.md`). Over 14
+live cells:
 
 | Address | BPE tokens (`cl100k_base`) |
 |---|---|
@@ -525,6 +535,13 @@ The maintainers measured the token cost of a `cell64` on 2026-08-13 (see
 So `cell64` costs the most tokens of the four. Earlier drafts of the
 whitepaper said the opposite. The maintainers corrected that sentence.
 
+A later partner measurement (same record, 2026-08-13 section) found that
+the cost depends on the address form. Each hex component adds tokens. An
+address with no hex component, such as `vifa.dowe.gaga.teca`, costs
+8 tokens, less than the 8.5 of H3. Every cell that `emem_locate` returns
+has at least one hex component. Thus 12.5 is the cost of the addresses
+that this responder makes, not a limit of the grammar.
+
 These measurements are still open:
 
 - Encode and decode cost against the same three grids.
@@ -532,7 +549,8 @@ These measurements are still open:
 - Area distortion as a number for each latitude, not a description.
 - Whether the grid changes recall latency at all.
 
-Today `cell64` loses to H3 on equal area and on token cost. In exchange, a
+Today `cell64` loses to H3 on equal area, and on token cost for the
+addresses that this responder makes. In exchange, a
 reader can compare two addresses by prefix without a decode step.
 
 #### Per-encoder calibration for the change gate
@@ -912,7 +930,8 @@ one new thing: the signed receipt. `emem-langmem` signs its writes.
 | LangChain | `pip install emem-langmem` | `emem_langmem` |
 
 Do not run `pip install emem`. That PyPI name belongs to an unrelated
-package. Nobody has published the unscoped npm name `ememdev`.
+package. The npm package is scoped, because npm refuses the name
+`ememdev` as too similar to `okemdev`. The unscoped name stays unpublished.
 
 The Python package has a CLI, `ememdev`, with three commands: `whoami`,
 `sign` and `write`. Install `ememdev[signing]` to use it. The default key
@@ -940,6 +959,7 @@ retry logic.
 Example configs ship in `examples/` for LangChain, LlamaIndex, CrewAI,
 Agno, AutoGen, Mastra and Semantic Kernel. The plan is one SDK with a
 thin adapter per framework, not hand-kept integrations against raw MCP.
+The targets also include the Claude Agent SDK and the OpenAI Agents SDK.
 This work starts after the SDK is stable.
 
 #### Native stdio MCP transport: not built
@@ -1079,7 +1099,8 @@ The numbers below come from the timer file and the 2026-08-18 log entry:
 | 38,950 versions | 526 cleared in fourteen minutes, then it raced a write |
 | 1,669 versions | 1,551 cleared in 0.9 seconds, with the responder live |
 
-The first full pass took `var/emem/lance` from 13 GB to 388 MB. The plan
+The first full pass took `var/emem/lance` from 13 GB to 388 MB. Every
+dataset went from thousands of versions down to one or two. The plan
 before this was a rebuild-and-swap, because the tool looked too slow. That
 plan came from one measurement at the largest backlog. A second
 measurement against a small backlog showed that the backlog was the cost,
@@ -1091,7 +1112,8 @@ The memory text dataset has no index. `ds.list_indices()` returns nothing,
 so each semantic search scans all stored vectors. A comment in
 `crates/emem-primitives/src/memory_search/mod.rs` records 18,269 vectors
 and 2.2 s for one scan. The response field `via` says `lance_scan` for this
-path, not `ann`. The `find_similar` cell-embedding partitions do have a
+path, or `lance_chunks` when the chunked partition is loaded. Neither one
+is `ann`. The `find_similar` cell-embedding partitions do have a
 vector index (`lance_index.rs`). Cost grows with the corpus.
 
 #### Supersede: an author can now mark a note as replaced
@@ -1154,7 +1176,7 @@ What ships, from `crates/emem-api-rest/src/band_raster.rs`:
 
 | surface | what it does |
 |---|---|
-| `POST /v1/band_raster` | one field, up to 512 px per side; returns `emem:raster:<aoi_cid>:<band>:<tslot>` |
+| `POST /v1/band_raster` | one field, up to 512 px per side (1024 for a forest layer); returns `emem:raster:<aoi_cid>:<band>:<tslot>` |
 | `POST /v1/raster/resolve` | binds each token claim to the signed record; a mismatch is a typed 409 |
 | `spot_check: true` on resolve | reads each anchor's pixel and compares it with the anchor's signed fact |
 | `POST /v1/band_cube` | an `emem:cube:` manifest over one raster per date (`band_cube@1`) |
@@ -1229,8 +1251,9 @@ of them use this rule. Three of them had their own pipe-delimited
 preimages before: `corpus_state_stats`, `operator_attestation` and
 `stream_tick`. They now use `preimage_v1`.
 
-The spec also lists three objects that a caller signs and the responder
-verifies:
+The spec also lists three objects under `caller_signed_objects`. The
+responder verifies them but does not sign them. Only `memory_write` is
+signed by the caller itself:
 
 | object | who signs | rule |
 |---|---|---|
@@ -1346,7 +1369,8 @@ layouts it points to v2 sections 3 and 6.
 
 These calls ship:
 
-- `emem_memory_create` writes a note to a private memory for each agent.
+- `emem_memory_create` writes a note to the agent's own namespace.
+  Everybody can read it, and only its key can write it.
 - `emem_memory_search` reads it back.
 - `emem_memory_token` makes the `emem:fact:` handle.
 - `emem_verify_receipt` checks the result offline.
@@ -1357,7 +1381,7 @@ only new thing that a caller must learn.
 
 The second is a published benchmark result. `emem-scorecard` already runs
 a LongMemEval-S style test against a running responder. The repository
-has only a sample of about 15 items
+has only a sample of 16 items
 (`crates/emem-scorecard/data/sample-longmemeval.jsonl`).
 [benchmarks.md](benchmarks.md) says that a sample score is not the
 published result. The project has published no full LongMemEval or LoCoMo result.
@@ -1670,7 +1694,7 @@ The items are in the order of build priority.
 | # | Item | Status on 7 November 2026 |
 |---|---|---|
 | 1 | Chain the receipt to the transparency log | Ships |
-| 2 | Governed witnesses and client gossip | Partly ships: independent witnesses co-sign the head |
+| 2 | Governed witnesses and client gossip | Partly ships: witnesses of one independent operator co-sign the head |
 | 3 | `emem:a2a-envelope:v1`, one verifiable message object | Not built |
 | 4 | Signed conversation structure | Not built |
 | 5 | Edge authority, separate from edge authorship | Not built |
@@ -1701,9 +1725,11 @@ the proof. Receipts written before the field existed do not have it. See
 
 #### 2. Governed witnesses and client gossip: partly ships
 
-The log proves that this responder's tree grew consistently. Independent
-witnesses co-sign the emem.dev head, and they have done this since
-2026-09-02. These parts are still missing:
+The log proves that this responder's tree grew consistently. Witnesses
+of one independent operator (`independent_operator_count` 1 on
+7 November 2026) co-sign the emem.dev head. Cross-witnessing with
+`geo.qa` started on 2026-09-02 and first worked in both directions on
+2026-09-05. These parts are still missing:
 
 - The head, the inclusion proofs and the witness list all come from this
   responder.

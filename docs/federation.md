@@ -620,7 +620,7 @@ the shell or from a `.env` file.
 | Variable | Compose default | What to set |
 |---|---|---|
 | `EMEM_PUBLIC_URL` | `http://localhost:5051` | the public `https://` name of the node; `did.json` and the `federation` block use it |
-| `EMEM_PEERS` | `https://emem.dev` | the origins whose heads your witness job co-signs |
+| `EMEM_PEERS` | `https://emem.dev` | the peers this node declares in `/.well-known/emem.json`; give the witness job the same list |
 | `EMEM_CONTACT` | empty | a role address; the node publishes it |
 
 The compose file publishes port 5051 on `127.0.0.1` only. Put your TLS proxy

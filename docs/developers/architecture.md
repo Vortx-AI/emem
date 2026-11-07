@@ -411,7 +411,7 @@ of truth.
 primitives sign every read as cached, find_similar included. The REST
 recall handler sets it to `false` when a requested band missed the
 cache (`lib.rs`, after the materialize step). `cost` is not part of the
-signed preimage, so this change does not break the signature.
+signed preimage, so the value does not change the signature.
 
 ### In-browser verification
 

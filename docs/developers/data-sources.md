@@ -84,7 +84,7 @@ The others hold shared tools and embedded gazetteers.
 |---|---|---|---|
 | `chirps.rs` | UCSB CHC CHIRPS 2.0 | Range read on a daily or monthly COG | `chirps.precip_daily_mm` |
 | `copernicus_dem.rs` | Copernicus DEM GLO-30 on AWS Open Data | URL helpers for the COG sampler | `copdem30m.elevation_mean` |
-| `dmsp_ols.rs` | NOAA NCEI DMSP-OLS V4 | TAR header, then a gzipped TIFF, cached | `nightlights.*`, retired on emem.dev |
+| `dmsp_ols.rs` | NOAA NCEI DMSP-OLS V4 | TAR header, then a gzipped TIFF, cached | `nightlights.*`, retired in the code |
 | `esa_cci_biomass.rs` | ESA CCI Biomass v7.0 on CEDA | GeoTIFF range read, 10 degree tiles | `esa_cci_biomass` |
 | `esa_worldcover.rs` | ESA WorldCover 2021 v200 on S3 | URL helpers for the COG sampler | `esa_worldcover.lc_2021` |
 | `firms.rs` | NASA FIRMS bulk CSV | HTTPS GET, cached for 60 minutes | `firms.active_fires` |
@@ -131,7 +131,7 @@ signs an Absence instead of a guess.
 ## Materializers in emem-api-rest
 
 Some upstreams have no module in `emem-fetch`. The materializer in `crates/emem-api-rest/src/lib.rs`
-calls the JSON API itself. To find them all, search that file for `async fn materialize_`.
+calls the JSON API itself. To find them all, search that file for `fn materialize_`. Most are `async`; `materialize_algorithm_band` is not.
 
 | Function | Upstream | Bands |
 |---|---|---|
@@ -210,8 +210,11 @@ answer from a healthy catalogue means there is no scene.
 
 The two catalogues give different DNs for the same scene. Element84 removed ESA's
 `BOA_ADD_OFFSET`, and Planetary Computer did not. Reflectance is `(DN + offset) * 1e-4`. The
-offset is 0 for Element84 and -1000 for Planetary Computer scenes from processing baseline 04.00.
-The node refuses a scene that states no baseline. Each fact's `derivation.args` ends with the catalogue
+offset is -1000 for Planetary Computer scenes from processing baseline 04.00. For Element84 it is
+usually 0. Baseline 04.00 items acquired from 2022-01-25 to 2022-02-26 still have -1000. For items of
+2022-02-27 and 2022-02-28 the offset is not known, so the node refuses them
+(`element84_dn_offset` in `stac.rs`). The node also refuses a scene that states no baseline when it
+needs one. Each fact's `derivation.args` ends with the catalogue
 and the offset.
 
 A single cell searches with `intersects: Point`, not `bbox`. A bbox search can match the next
