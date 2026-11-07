@@ -167,7 +167,7 @@ The ledger is a stored fact, signed {d(signed)} at {signed:%H:%M} UTC. Resolved 
 <div class="tick" style="left:0">{lo:.2f}</div><div class="tick" style="left:50%">NDVI</div>
 <div class="tick" style="left:100%">{hi:.2f}</div></div>
 <table><tr><th>index</th><th>{d(day_prev)}</th><th>{d(day_now)}</th><th>change</th></tr>{''.join(rows)}</table>
-<div class="lab" style="margin-top:10px">Embedding change, latest year against the year before (1 minus cosine,
+<div class="lab" style="margin-top:10px">Embedding change between the two newest yearly vintages (1 minus cosine,
 {emb['covered_vintages']} annual vintages): <span class="m">{emb['change']:.3f}</span></div>
 </div>
 
