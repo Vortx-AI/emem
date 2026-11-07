@@ -1,4 +1,4 @@
-# Contributing to emem
+# Contribute to emem
 
 emem is a Cargo workspace. Rust 1.91, edition 2021, 19 crates, one binary
 (`emem-server`) at the centre. The agent-facing surface is a single axum
@@ -56,10 +56,12 @@ a feature. Every number in prose must trace to a registry or a
 measurement. `python3 scripts/sync_counts.py` checks the known ones.
 Every claim must agree with the code as written. Record a withdrawn
 claim; do not silently delete it. Section 18 of
-[docs/whitepaper.md](docs/whitepaper.md) shows the pattern. `scripts/doc_lint.py` enforces the mechanical parts in CI
-(dashes, buzzwords, links). `scripts/ste_lint.py` checks sentence length and
-plain words; run it on your changed lines. [docs/writing-docs.md](docs/writing-docs.md)
-gives the rules and both commands.
+[docs/whitepaper.md](docs/whitepaper.md) shows the pattern.
+`scripts/doc_lint.py` enforces the mechanical parts in CI (dashes,
+buzzwords, links). `scripts/ste_lint.py` checks sentence length and plain
+words; run it on your changed lines.
+[docs/writing-docs.md](docs/writing-docs.md) gives the rules and both
+commands.
 
 ## Add a data source
 
