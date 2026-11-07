@@ -34,7 +34,6 @@ FAMILIES = [INDIGO, LEAF, TEAL, TURMERIC, LAC, VERMIL]
 FAM_NAME = ["elevation", "forest", "water", "climate", "embedding", "hazard"]
 
 FONT_SERIF = "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"
-FONT_SERIF_IT = "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf"
 FONT_MONO  = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 
 def font(path, px):
@@ -312,21 +311,22 @@ lotus(CX, CY, 96)
 
 for i, (x, y, r, fam) in enumerate(nodes):
     node(x, y, r, FAMILIES[fam],
-         signed=(i % 3 == 0), petal=(i % 5 == 0), fish=(i % 2 == 0))
+         signed=False, petal=(i % 5 == 0), fish=(i % 2 == 0))
 
 # ============================== type ==============================
 f_title = font(FONT_SERIF, 30)
 f_sub   = font(FONT_MONO, 12)
 f_lab   = font(FONT_MONO, 11)
-f_cap   = font(FONT_SERIF_IT, 14)
 
-di.text((S(56), S(50)), "An engram of Earth", font=f_title, fill=rgba(INK, 255))
-di.text((S(58), S(86)), "every cell a memory · every edge a synapse · every fact signed",
+di.text((S(88), S(52)), "An engram of Earth", font=f_title, fill=rgba(INK, 255))
+di.text((S(90), S(88)), "each cell is one place · each edge is a typed link · every fact is signed",
         font=f_sub, fill=rgba(INK_SOFT, 255))
 
 # centre label under lotus
 clab = "consolidation"
 tw = di.textlength(clab, font=f_sub)
+pw = max(tw, di.textlength("the shared memory", font=f_lab)) / SS / 2 + 8
+di.rounded_rectangle([S(CX - pw), S(CY + 92), S(CX + pw), S(CY + 130)], radius=S(4), fill=rgba(PAPER, 245))
 di.text((S(CX) - tw / 2, S(CY + 96)), clab, font=f_sub, fill=rgba(INK, 255))
 clab2 = "the shared memory"
 tw2 = di.textlength(clab2, font=f_lab)
@@ -339,13 +339,12 @@ def legend_dot(x, y, col, label):
     circle(di, x, y, 7, outline=INK, fill=col, w=1.4)
     di.text((S(x + 14), S(y - 7)), label, font=f_lab, fill=rgba(INK, 255))
     return x + 16 + di.textlength(label, font=f_lab) / SS + 30
-lx = legend_dot(lx, ly, INDIGO, "cell  (engram)")
+lx = legend_dot(lx + 14, ly, INDIGO, "cell  (engram)")
 # edge legend
 line(di, (lx, ly), (lx + 26, ly), INK_SOFT, 1.0); di.text((S(lx + 32), S(ly - 7)), "relates", font=f_lab, fill=rgba(INK,255)); lx += 32 + di.textlength("relates", font=f_lab)/SS + 28
 line(di, (lx, ly), (lx + 26, ly), LAC, 1.6); di.text((S(lx + 32), S(ly - 7)), "supersedes", font=f_lab, fill=rgba(INK,255)); lx += 32 + di.textlength("supersedes", font=f_lab)/SS + 28
 line(di, (lx, ly), (lx + 26, ly), VERMIL, 1.5); di.text((S(lx + 32), S(ly - 7)), "disagrees", font=f_lab, fill=rgba(INK,255)); lx += 32 + di.textlength("disagrees", font=f_lab)/SS + 28
 line(di, (lx, ly), (lx + 26, ly), LEAF, 1.6); di.text((S(lx + 32), S(ly - 7)), "recall → consolidation", font=f_lab, fill=rgba(INK,255)); lx += 32 + di.textlength("recall → consolidation", font=f_lab)/SS + 28
-seal(lx + 6, ly, 6.2); di.text((S(lx + 18), S(ly - 7)), "signed", font=f_lab, fill=rgba(INK,255))
 
 # ============================== flatten ==============================
 glow_b = glow.filter(ImageFilter.GaussianBlur(SS * 5))
