@@ -86,7 +86,7 @@ with emem
   turn 41   the line resolves to 915.07 m, and the signature still checks
 ```
 
-On 6 November 2026, `POST /v1/memory_token/resolve` with that token returned
+On 7 November 2026, `POST /v1/memory_token/resolve` with that token returned
 `value` 915.0712280273438 and `unit` `m`.
 
 The emem team had the first problem. Two agents reviewed one page for six
@@ -108,7 +108,7 @@ satellite. `scripts/example_check.py` runs them again on each CI pass.
 
 [`/.well-known/agent-card.json`](https://emem.dev/.well-known/agent-card.json)
 is a standard [A2A](https://a2a-protocol.org) agent card, and it needs no
-authentication. On 6 November 2026 the card listed 18 skills.
+authentication. On 7 November 2026 the card listed 18 skills.
 [`/v1/a2a/skills?q=`](https://emem.dev/v1/a2a/skills?q=verify) searches all
 116 MCP tools as skills.
 
@@ -165,7 +165,7 @@ The live list, with install steps for each host, is on
 The [device-platform registry](https://emem.dev/v1/device_platforms) names
 the platforms that can enrol a key. For each one it names the evidence that
 the device must present. A laptop that sends a platform name does not
-qualify. On 6 November 2026 the registry had 17 platforms, all with status
+qualify. On 7 November 2026 the registry had 17 platforms, all with status
 `candidate`:
 
 - NVIDIA Jetson Orin, Jetson Thor and DRIVE Orin
@@ -201,7 +201,7 @@ ran, never through its own statement. The rules are at
 address space that this build cannot use as a fact key, the server refuses
 the profile at load.
 
-On 6 November 2026 `/v1/substrates` listed 18 contributor profiles. One was
+On 7 November 2026 `/v1/substrates` listed 18 contributor profiles. One was
 `active`: `earth.satellite.v0`. The other 17 were `candidate`, and the server
 enforces that status. Six profiles address subjects that are not places. They
 use `entity.cid` addresses:
@@ -257,7 +257,7 @@ curl -s https://emem.dev/.well-known/agent-card.json
 
 | Field | What it tells you |
 |---|---|
-| `skills` | The callable skills, with tags. A skill with the tag `rest` is on REST only, not through `tools/call`. |
+| `skills` | The 18 core skills, with tags. `GET /extendedAgentCard` lists all 119: the 116 MCP tools and 3 perception skills. The perception skills have the tag `rest`. They run on REST only, not through `tools/call`. |
 | `additionalInterfaces` | A2A JSON-RPC, async tasks, skill query, MCP, the full OpenAPI and the short action schema |
 | `capabilities` | `streaming: true`. `message/stream` returns SSE. |
 | `emem.authentication` | Reads need no authentication. The card states this. |
@@ -339,7 +339,7 @@ cell64 grid did not change. See [CHANGELOG.md](../CHANGELOG.md).
   log head of this node, and this node co-signs the head of the second node.
   This makes a split view detectable. It does nothing else. Reads do not
   resolve across nodes.
-- The corpus is small. On 6 November 2026 `GET /v1/coverage` reported
+- The corpus is small. On 7 November 2026 `GET /v1/coverage` reported
   `total_cells` 2,424. The first read of a new place can take tens of
   seconds.
 - The device gate admits no real hardware yet. The platform list and the
