@@ -2,7 +2,7 @@
 //! knowledge-graph edges originating at a fact, bi-temporally filtered.
 //!
 //! Edges are signed, content-addressed relations `subj --pred--> obj`
-//! valid over `[valid_from, valid_to)` (Zep / Graphiti edge model). They
+//! valid over the closed `[valid_from, valid_to]` (Zep / Graphiti edge model). They
 //! are written additively inside an [`emem_fact::Attestation`] (the edge
 //! leaves are folded into the merkle root so the signature commits to
 //! them) and indexed in the `emem.edge_spo` sled tree for ascending
