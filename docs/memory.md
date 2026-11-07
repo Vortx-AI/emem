@@ -1528,7 +1528,8 @@ What the substrate gives you:
 
 - Under the default write policy, the author signs each memory write.
   The responder signs each receipt.
-- The main read primitives take a bi-temporal filter (see
+- `recall` and most other read primitives take a bi-temporal filter.
+  `recall_many` does not (see
   [Time filters on reads](#time-filters-on-reads-bi-temporal)).
 - Each note and each fact has a content address.
 - An `emem:fact:` token names the full 32-byte hash of the signed body.
@@ -1538,7 +1539,9 @@ What the substrate gives you:
   cids carry the full strength.
 - An `emem:entity:` token is 16 bytes of a hash over the identity
   anchor. It is a shared reference, not a hash of the whole record.
-- The responder keeps disagreements between attesters as evidence.
+- The responder keeps each signed fact when sources disagree at one
+  address. The contradiction scan reports the disagreement (see
+  [Contradiction detection](#contradiction-detection)).
 - Receipts verify offline with ed25519.
 
 ## See also
