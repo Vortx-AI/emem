@@ -188,5 +188,5 @@ if __name__ == "__main__":
     print("\n-- handoff across the vendor boundary: "
           f"{len(handoff)} lines, {sum(len(t) for t in handoff)} characters --")
     robot_b(handoff, receipt)
-    print("\nDone. The map entry outlives both robots, both sessions, and "
-          "both vendors; any third fleet can repeat robot B's half verbatim.")
+    print("\nDone. A third fleet can run robot B's half with the same "
+          "three tokens.")

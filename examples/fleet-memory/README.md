@@ -49,8 +49,12 @@ resolved          : emem:fact:defi.zb64f.fOxa.zb6f2:h2oeyiebg7td... -> surface_w
 receipt valid     : True (server-side check)
 offline verify    : VALID (recomputed locally, no trust in the responder)
 
-Done. The map entry outlives both robots, both sessions, and both vendors; any third fleet can repeat robot B's half verbatim.
+Done. A third fleet can run robot B's half with the same three tokens.
 ```
+
+The run took less than 1 second on 7 November 2026, because every fact was
+already signed. A cell with no stored facts takes longer: the responder
+fetches and signs the bands first.
 
 The words `already named` and `already linked` mean that `resolve` found
 records from an earlier signed run. The script did not write them.
