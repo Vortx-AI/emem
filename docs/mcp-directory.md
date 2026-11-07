@@ -147,6 +147,16 @@ The tier only changes the list. `tools/call` ignores the tier at both endpoints,
   - `{"name":"emem_ndvi"}` returns one input schema and an example that runs (about 8 KB, versus about 346 KB for the full list).
 - `emem_ask` and `emem_intent` take a question in free text. The server then calls the data tools for you.
 
+This command finds `emem_ndvi`, an extended tool that `/mcp` does not list. It prints the example
+arguments. On 7 November 2026 it printed `{"place":"Yellowstone National Park"}`.
+
+```sh
+curl -s https://emem.dev/mcp -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"emem_tools","arguments":{"name":"emem_ndvi"}}}' \
+  | jq -c '.result.structuredContent.tool.example_args'
+```
+
 ### Filter tools by shape and bundle
 
 Each tool has two labels in the MCP-standard `_meta` field: `dev.emem/shape` and `dev.emem/bundles`. A host
@@ -161,7 +171,15 @@ about the form of the answer, not the topic. For example, `scalar` is one number
 | `scalar`, `timeseries`, `raster`, `geometry`, `vector`, `prose`, `reading`, `identity`, `token`, `proof`, `plan`, `file`, `catalog` | `tokenisation`, `verification`, `agent_to_agent`, `long_horizon`, `robotics`, `satellites`, `agriculture`, `forestry`, `climate_risk` |
 
 A bundle groups tools by job, and bundles overlap. You can filter `emem_tools` by shape or bundle.
-`tools/list` also accepts a bundle: `{"bundle":"robotics"}` returns only the tools in that bundle.
+`tools/list` also accepts a bundle: `{"bundle":"robotics"}` returns only the tools in that bundle. On
+7 November 2026 this command printed `15`, in one page:
+
+```sh
+curl -s https://emem.dev/mcp -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"bundle":"robotics"}}' \
+  | jq '.result.tools | length'
+```
 
 ## Example questions
 
@@ -243,8 +261,8 @@ The same log shows a second line. This line is not fatal:
 Error: unsafe tar path "."
 ```
 
-`crane export` skips a `.` entry when it extracts the image. `&&` joins the steps and the pip step
-ran, so `install -Dm755` found the binary and the extraction worked.
+`crane export` skips a `.` entry when it extracts the image. The extraction still worked. `&&` joins the
+steps, the later pip step ran, and `install -Dm755` found the binary.
 
 The build spec is in the Glama dashboard, not in this repository. `glama.json` holds only the schema
 reference and the list of maintainers. The fix goes into the dashboard. This section records it here because
