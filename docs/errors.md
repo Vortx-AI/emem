@@ -14,6 +14,8 @@ There are three layers of codes:
 
 The JSON-RPC endpoints `/mcp` and `/a2a/tasks` also send JSON-RPC error
 numbers. See [JSON-RPC errors](#json-rpc-errors-from-mcp-and-a2atasks).
+A guard verdict uses its own deny codes. See
+[Deny codes from the guard](#deny-codes-from-the-guard).
 
 The live catalogue is `GET /v1/errors` (schema `emem.errors.v1`). It lists the
 27 protocol codes with their MCP numbers, meanings and recovery steps. We
@@ -22,7 +24,10 @@ checked this page against that endpoint and against the code on 7 November
 
 ## The error envelope
 
-Every error from a REST route is an `emem.error.v1` object:
+Almost every error from a REST route is an `emem.error.v1` object. A few
+routes send other bodies. See
+[Responses that are not `emem.error.v1`](#responses-that-are-not-ememerrorv1).
+This is the shape:
 
 ```json
 {
@@ -412,6 +417,27 @@ sometimes `error` in place of `message`.
 | `/postcard` | `painting` | 202 | Not an error. The picture is still in progress. Ask again later. |
 | `/postcard` | `upstream_unavailable`, `upstream_error` | 502 or upstream status | The service that makes the picture is down, or it failed with no reason. |
 
+### Plain-text refusals of a bad request body
+
+Most POST routes catch a bad JSON body and send `400 invalid_argument` with
+`details.deserializer_error`. The routes below do not. They use the plain
+`axum` JSON extractor, so a bad body gets a `text/plain` answer with no
+`code`. Branch on the HTTP status.
+
+| HTTP | When | Text starts with |
+|---|---|---|
+| 400 | The body is not valid JSON. | `Failed to parse the request body as JSON:` |
+| 415 | The `content-type` header is not `application/json`. | `` Expected request with `Content-Type: application/json` `` |
+| 422 | The JSON is valid, but a field has the wrong type or is missing. | `Failed to deserialize the JSON body into the target type:` |
+
+The routes are `/v1/locate`, `/v1/guard/verdict`, `/verdict` and its six
+shape routes, `/v1/tree/path`, `/v1/trace_verify`, `/v1/enroll_verify`,
+`/v1/trace_resolve`, `/v1/attest_traced`, `/v1/enroll_attested`,
+`/v1/log/witness` and `/v1/benchmark/grade`. The list comes from the handlers
+that take `Json<..>` in place of `EmemJson<..>` in `crates/emem-api-rest/src/`.
+On 7 November 2026, `/v1/locate` gave all three statuses. `/v1/tree/path`,
+`/v1/trace_verify` and `/verdict/mcp` gave the 400.
+
 ### Errors from the perception proxy
 
 `/v1/perception/<path>` forwards requests to a separate camera service.
@@ -439,6 +465,74 @@ emem.dev on 7 November 2026.
 | `POST /verdict/anthropic-hook`, `POST /verdict/claude-code` | `requires_your_own_node` |
 | `GET /log/head`, `GET /log/entries`, `GET /log/entry/<leaf>` | `no_verdict_log_here` |
 | `GET /modules` | `no_modules_here` |
+
+## Deny codes from the guard
+
+A guard verdict is not an error. The guard answers HTTP 200 with
+`action: "allow"` or `action: "deny"`, also when it denies. A deny has a
+`code` in capital letters and a `fix` in lower case. Branch on `fix` to
+decide what to do next. The `reason` line has a fixed grammar:
+
+```text
+EMEM-GUARD DENY <code> token=<token or -> fix=<fix> leaf=<leaf id or ->
+```
+
+Two servers send these codes. `POST /v1/guard/verdict` on emem.dev is
+advisory and blocks nothing. The `emem-guard` binary is a checkpoint that you
+run yourself. The codes and fixes are in `crates/emem-guard/src/policy.rs`,
+and `GET /v1/guard/capabilities` lists them. The rules run in the order of
+this table, and the first match wins.
+
+| `code` | Meaning | `fix` | Sent by emem.dev |
+|---|---|---|---|
+| `PROV_SIG` | The signature of a cited token did not verify. | `refresh_token` | No. See the note below the table. |
+| `PROV_BYTES` | A cited fact token names a different cell than the fact it resolves to. | `remove_reference` | Yes |
+| `PROV_VALUE` | A sentence states a number that does not agree with the one fact that it cites. | `correct_value` | Yes |
+| `POLICY_MODULE` | A detection module that the operator loaded denied. The verdict names the module. | Set by the module, for example `redact_and_retry` | No. Self-hosted, with `--module` or `--signed-module`. |
+| `PROV_DRIFT` | A cited reading drifted past the threshold of its band. | `refresh_token` | No. See the note below the table. |
+| `GEO_ZONE` | A cited cell is in a zone that the operator restricted. | `contact_admin` | No. Self-hosted, with `--restrict-cell`. |
+| `CLAIM_UNGROUNDED` | A measurable claim about a place has no citation that resolved. | `cite_observation` | Only with `claim_gating: true`. Self-hosted, with `--claim-gating`. |
+
+No resolver in the code sets the token states that give `PROV_SIG` or
+`PROV_DRIFT`. Only unit tests make them. The two codes are in the published
+list, but no shipped server sends them on 7 November 2026.
+
+A citation that the responder does not hold is never a deny. In the
+`citations` array of an emem.dev verdict, its `state` is `not_held_here`.
+In shadow mode (`--shadow`), a self-hosted guard answers `allow` with
+`shadowed: true` and keeps the `code` that it would have sent.
+
+The guard does not refuse a bad request. The `emem-guard` webhook routes
+answer `allow` when they cannot parse the body. On emem.dev, a body that is
+not JSON gets a plain-text 400 (see
+[Plain-text refusals](#plain-text-refusals-of-a-bad-request-body)). A JSON
+object with no text in it gets `allow` with `checked: 0`. Two routes of the
+`emem-guard` binary send a small error body:
+
+| Route | HTTP | Body |
+|---|---|---|
+| `GET /log/entry/<leaf>`, leaf is not `leaf_<n>` or `<n>` | 400 | `{"error": "leaf must be leaf_<n> or <n>"}` |
+| `GET /log/entry/<leaf>`, no such entry | 404 | `{"error": "no such leaf", "leaf": "<leaf>"}` |
+
+On 7 November 2026, `POST /v1/guard/verdict` on emem.dev gave these results:
+
+| Text sent | `action` | `code` | `fix` |
+|---|---|---|---|
+| `Elevation in Leh is 3500 m.` with `"claim_gating": true` | `deny` | `CLAIM_UNGROUNDED` | `cite_observation` |
+| `Mount Fuji mean elevation is 3539 m per <token>.` | `allow` | none | none |
+| The same sentence with `2100 m` | `deny` | `PROV_VALUE` | `correct_value` |
+| `<token>` with the cell changed to `defi.zb493.xuqA.zcb5f` | `deny` | `PROV_BYTES` | `remove_reference` |
+| A token with a cid that the responder does not hold | `allow` | none | none |
+
+The token was
+`emem:fact:defi.zb592.nUkO.zEzE:qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq`,
+the `copdem30m.elevation_mean` fact at Mount Fuji (value 3539.04 m). This is
+the request for the first row:
+
+```sh
+curl -s https://emem.dev/v1/guard/verdict -H 'content-type: application/json' \
+  -d '{"texts":["Elevation in Leh is 3500 m."],"claim_gating":true}'
+```
 
 ## Endpoints that help you recover
 
