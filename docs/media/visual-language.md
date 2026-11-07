@@ -88,6 +88,7 @@ Each row gives the question the image answers and the page that shows it. Paths 
 | `diagrams/two-layers.svg` | Who may write a fact, and who may write a note? | `intro.md` | Hand-written SVG |
 | `diagrams/signed-note-write.svg` | What happens to an unsigned note write? | `intro.md` | Hand-written SVG |
 | `diagrams/time-filters.svg` | Which time filter selects which fact? | `intro.md` | Hand-written SVG |
+| `diagrams/agent-loop.svg` | What does an agent do with emem, step by step? | `agents.md` | Hand-written SVG, values from one live ask |
 | `films/emem-fact-to-check.mp4` | Can another agent check a fact from a token, and does one changed character fail? | `start-here.md` | `films/src/emem-fact-to-check.html` |
 | `films/emem-note-write.mp4` | How does a refused note write become an accepted one? | `memory.md` | `films/src/emem-note-write.html` |
 | `stills/recall-one-cell.webp` | What does one recall return at one cell? | `agents.md` | `stills/src/recall_cell.py` |
