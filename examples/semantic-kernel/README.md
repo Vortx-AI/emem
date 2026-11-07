@@ -57,9 +57,9 @@ We also made the emem calls that the model needs, on the same day:
 | call | result on 7 November 2026 |
 |---|---|
 | `emem_locate` with `South Mumbai` | `cell64` `defi.zb4d7.zb8ec.zf21e`, `place_label` "South Mumbai (precinct of the city of Mumbai)" |
-| `emem_recall` on that cell, band `copdem30m.elevation_mean` | `facts[0].value` 6.563 (metres) |
+| `emem_recall` on that cell, band `copdem30m.elevation_mean` | `facts[0].value` is 6.56 m |
 | `POST /v1/verify_receipt` with that receipt | `signature_valid: true`, `merkle_proof_valid: true` |
-| `emem_recall` with the place name | error `no_geocoder_match`: the name is ambiguous |
+| `emem_recall` with the place name | tool error `no_geocoder_match`: the name is ambiguous. Over REST it is HTTP 400 with `code` `no_geocoder_match` |
 
 If the model sends the place name to `emem_recall`, emem refuses to guess.
 The model must use the cell from `emem_locate`. The prompt tells the model to

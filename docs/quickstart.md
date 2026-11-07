@@ -218,10 +218,10 @@ with Client() as em:
 # {'valid': True, 'state': 'verified', ..., 'verified_locally': True}
 ```
 
-This check uses the key that is in the receipt. It proves that the holder of that key signed the receipt. To
-know that emem.dev signed it, compare `signer_pubkey_b32` with a key that you keep. emem.dev publishes its key
-at `responder.pubkey_b32` in [`/.well-known/emem.json`](https://emem.dev/.well-known/emem.json). Read it one
-time and put it in your config.
+This check uses the key that is in the receipt. It proves that the holder of that key signed the receipt. The
+offline check ignores the `pubkey_b32` argument. To know that emem.dev signed the receipt, compare
+`signer_pubkey_b32` with a key that you keep. emem.dev publishes its key at `responder.pubkey_b32` in
+[`/.well-known/emem.json`](https://emem.dev/.well-known/emem.json). Read it one time and put it in your config.
 
 ```python
 EMEM_KEY = "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka"   # on 7 November 2026, key_epoch 0
