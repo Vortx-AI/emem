@@ -239,7 +239,7 @@ codes. The next subsection names them and says what you get instead.
 | `registry_cid_unknown` | -8 | 404 | The responder does not know the bound `registry_cid`. | `GET /v1/manifests`. |
 | `schema_cid_unknown` | -9 | 404 | The responder has not loaded the fact's `schema_cid`. | `GET /v1/manifests`. |
 | `privacy_refused` | -10 | 403 | The band's privacy class blocks this query at this resolution. On 7 November 2026 no route returns it: the responder does not enforce privacy classes ([protocol §10](protocol.md#10-privacy-classes)). | Query a coarser cell; see `privacy.class` for the band in `/v1/bands`. |
-| `level_too_low` | -11 | 403 | The operation needs a higher tier. The fact plane refuses any attestation from a key that is not the responder's materialiser, an enrolled device, or an operator-listed writer. | `GET /v1/enlist` for what each tier can write. |
+| `level_too_low` | -11 | 403 | The operation needs a higher tier. The fact plane refuses any attestation from a key that is not the responder's materializer, an enrolled device, or an operator-listed writer. | `GET /v1/enlist` for what each tier can write. |
 | `attester_revoked` | -12 | 401 | The operator revoked the attester key. | Sign with a current key. |
 | `unauthorized` | -13 | 401 | A write has no attester signature, or the signature is not valid. | Sign again. The refusal says what the responder expected. |
 | `claim_undecidable` | -14 | 400 | The claim cannot resolve to true or false (a missing value, NaN, a type mismatch). | Recall the fact and check its value and type. |
@@ -286,7 +286,7 @@ Their codes are not in the enum.
 |---|---|---|
 | `not_found` | 404 | No route matches the path. `did_you_mean` suggests near paths. With no `Accept` header, or an `Accept` header that contains `text/html`, the body is an HTML page with no `code`. curl sends `Accept: */*` by default, so curl gets JSON. |
 | `method_not_allowed` | 405 | The path exists but not for that method. The `allow` header and body field list the methods it answers. With an `Accept` header that contains `text/html`, the body is an HTML page. With no `Accept` header, the body is JSON. |
-| `overloaded` | 503 | The server is at its cap of requests in flight: `EMEM_MAX_INFLIGHT`, default 128, limits 8 to 4096. It refused the request at once and did not queue it. `Retry-After: 1`. |
+| `overloaded` | 503 | The responder is at its cap of requests in flight: `EMEM_MAX_INFLIGHT`, default 128, limits 8 to 4096. It refused the request at once and did not queue it. `Retry-After: 1`. |
 | `overloaded` | 503 | Only `POST /v1/eudr_dds`, `/v1/field_burn_scar` and `/v1/field_actual_et`. These routes run 3 requests at a time (`EMEM_EUDR_MAX_INFLIGHT`, limits 1 to 64). Up to 4 times that number wait for a slot. A request gets this 503 when the wait is full, or when no slot frees in 30 s (`EMEM_EUDR_QUEUE_SECS`, at most 120). `Retry-After: 1`. |
 
 ## Memory and entity write refusals

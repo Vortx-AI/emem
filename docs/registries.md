@@ -766,7 +766,7 @@ This ran on 7 November 2026. It returned ten digests: `algorithms_cid`,
 `bands_cid`, `device_platforms_cid`, `functions_cid`, `registry_cid`,
 `schema_cid`, `sources_cid`, `substrates_cid`, `topics_cid` and
 `trace_encodings_cid`. It also returned a `covers` object with entry counts.
-`registry_cid` had the same value as `functions_cid`, as the server code
+`registry_cid` had the same value as `functions_cid`, as the responder code
 sets it.
 
 Each receipt pins four of these in `source_versions`: `bands_cid`,
@@ -801,7 +801,7 @@ for name, cid in recall["receipt"]["source_versions"].items():
 On 7 November 2026 all four lines said `same`. A `DIFFERENT` line does not
 make the receipt invalid. It tells you that the manifest changed after the
 responder signed. To replay the result, use the manifest JSON from the commit
-that gave the pinned CID. The server has no route that returns an old
+that gave the pinned CID. The responder has no route that returns an old
 manifest. The signature check itself is in
 [protocol §7.4](protocol.md#74-offline-verification-python).
 

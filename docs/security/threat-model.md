@@ -55,7 +55,7 @@ The sections below give the details and the tests for each row.
   gets.
 - Before: the last writer won. The test asserted `canonical == cids_b` as the
   correct result.
-- Now: the address stays with the key that holds it. The server stores a
+- Now: the address stays with the key that holds it. The responder stores a
   fact from a different signer and indexes it under multi-attester. The
   contradiction scan can see it. It does not take the slot.
 - Test: `put_attestation_populates_multi_attester_index`, with its assertion
@@ -115,7 +115,7 @@ The sections below give the details and the tests for each row.
   attribution, ranking and dispute steps that come after the gate.
 - `emem_entity_resolve("Trafalgar Square")` returned 3 distinct objects,
   `contested: true`, none attributed. That was the state before the fix.
-  A reader now sees it, and the server does not silently pick the first
+  A reader now sees it, and the responder does not silently pick the first
   append. On 7 November 2026 (07:30 UTC) `POST /v1/entity/resolve` with
   `{"text":"Trafalgar Square"}` still returned 3 candidates,
   `contested: true`, each with `independent_attesters: 0`.
@@ -133,13 +133,13 @@ The sections below give the details and the tests for each row.
   index in a redb file (`facts.redb`). A background job copies the old sled
   rows across.
   `EMEM_HOT_BACKEND=sled` rolls this back. The header of `emem-sled-slim` has
-  the measurement. The server still opens the sled store at boot. The cold
+  the measurement. The responder still opens the sled store at boot. The cold
   open stays until both backfills finish and an operator slims the store.
 - Legacy alias rows stay unattributed. There were 251 such rows on
   14 September 2026. They rank below any attributed row and carry a label. An
   operator can assert the true ones again under the responder key to remove
   the label.
-- A dispute does not lower a rank. This is by design. The server shows a dispute
+- A dispute does not lower a rank. This is by design. The responder shows a dispute
   but does not subtract it. One hostile key must not be able to demote a
   binding that ten honest keys made. The next step is a score that counts
   asserts minus disputes, once per key. It needs a written Sybil analysis
@@ -147,10 +147,10 @@ The sections below give the details and the tests for each row.
 - T3 means "callable at a declared endpoint". One such key is still one
   vote in the shared space. A count of independent keys raises the cost of an
   attack from one key to N endpoints. It does not make the cost infinite.
-  T4 and T5 are the real limit. On 7 November 2026 (07:30 UTC) the server computed T4 on
+  T4 and T5 are the real limit. On 7 November 2026 (07:30 UTC) the responder computed T4 on
   demand and did not compute T5. In `GET /v1/enlist`, the field
   `computed_here.T5_corroborated` is `false`.
 - The boot panic (`PathAndQuery::from_static`, right after the ACME
   cached-cert event) did not have a backtrace. The production unit
-  (`deploy/systemd/emem-server.service`) runs the server in a container. It
+  (`deploy/systemd/emem-server.service`) runs the responder in a container. It
   now passes `RUST_BACKTRACE=1` to that container, so the next panic logs one.
