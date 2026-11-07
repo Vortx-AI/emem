@@ -72,6 +72,8 @@ Without `--user`, the uid 65532 process cannot write to a directory that your ow
 (`EMEM_DATA=/data`). It declares `https://emem.dev` as its peer unless you set `EMEM_PEERS`. The declaration
 only lists the peer. The witness job does the co-signing (see [Federation](federation.md#8e-what-each-new-node-must-publish-before-it-counts-as-joined)).
 
+Run these commands from the root of a clone of the repository:
+
 ```bash
 docker compose up -d
 python3 scripts/verify_node.py http://localhost:5051
@@ -193,7 +195,7 @@ Each default below comes from the code on 7 November 2026.
 | `EMEM_PUBLIC_URL` | unset | The origin that a reader types. It names the `did:web` at `/.well-known/did.json`. If unset, the node uses the first TLS domain. |
 | `EMEM_PEERS` | unset | Comma-separated origins that this node witnesses. See [Federation](federation.md) and `scripts/witness_peers.py`. |
 | `EMEM_WITNESS_PUBKEY_B32` | unset | The key that your witness job signs with. The node publishes it in `did.json`. |
-| `EMEM_AGENTS_WELL_KNOWN` | `config/emem-agents.json`, then `$EMEM_DATA/emem-agents.json` | The keys that you vouch for, served at `/.well-known/emem-agents.json`. |
+| `EMEM_AGENTS_WELL_KNOWN` | `config/emem-agents.json`, then `$EMEM_DATA/emem-agents.json` (`/var/emem/emem-agents.json` when `EMEM_DATA` is unset) | The keys that you vouch for, served at `/.well-known/emem-agents.json`. |
 | `EMEM_ENLISTMENT_ENFORCE` | on | Refuses shared-entity-space writes below tier T3. `0`, `off`, `false` or `shadow` accepts them and reports the tier. |
 | `EMEM_FACT_PLANE_WRITERS` | unset | Comma-separated base32 public keys that may also write facts. The responder key and enrolled devices can always write them. |
 | `EMEM_FACT_PLANE_OPEN` | unset | `1` lets any signing key write facts. Use it only on a test node or a closed network. |
