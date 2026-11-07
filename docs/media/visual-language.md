@@ -103,6 +103,19 @@ Each row gives the question the image answers and the page that shows it. Paths 
 Each film also has a WebM copy and a `-poster.webp` file with the same name. The `fetch_*.py` scripts in
 `stills/src/` make the live reads. The drawing scripts read only the saved responses in `stills/src/data/`.
 
+On 7 November 2026 at about 11:30 UTC, new live reads gave the same numbers as five stills:
+
+| Still | Live read | Result |
+|---|---|---|
+| `recall-one-cell.webp` | `POST /v1/recall` at `defi.zb610.tAhU.hejI` | Same 8 facts, values and dates |
+| `similar-places.webp` | `POST /v1/find_similar`, key Dubai, k 8 | Same 7 scores, 0.81 to 0.77 |
+| `ndvi-two-seasons.webp` | `POST /v1/memory_token/resolve` on the series token | Same 17 clear scenes, 8 left out, 2200 pixels |
+| `guard-check.webp` | `POST /v1/memory_token/resolve` on the cited fact | Same elevation, 1069.01 m |
+| `ask-trail.webp` | `POST /v1/ask`, NDVI in Central Park | Same answer, 0.79, and the same 3 fact ids |
+
+Values that come from weather or new scenes can change after this date. Run the `fetch_*.py` script again
+before you reuse a number.
+
 ## Draw an image again
 
 You need Python 3 with Playwright (Chromium) and Pillow, `ffmpeg` with libx264 and libvpx-vp9, and `xvfb-run` for
