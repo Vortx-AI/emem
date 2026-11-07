@@ -656,7 +656,7 @@ segment rule. `POST /v1/perception/health` gave the 405 of the service.
 | The responder cannot read the file. | 404 | `{"code":"not_found","message":"read error"}`. No `schema`. |
 | The `Range` header asks for bytes after the end of the file. | 416 | Empty. The `content-range` header is `bytes */<file length>`. |
 | `POST` to a path other than `api/gemma`. | 404 | `{"code":"not_found","message":"not found"}`. |
-| `POST /splats/api/gemma` and the local model bridge does not answer in time, or its body cannot be read. | 502 | Empty. |
+| `POST /splats/api/gemma` and the local model bridge does not answer in time, or the responder cannot read its body. | 502 | Empty. |
 
 The responder does not refuse every bad `Range` header. A header with more
 than one range, or a header that does not parse, gets the whole file with 200.
