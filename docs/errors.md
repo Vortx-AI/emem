@@ -220,38 +220,41 @@ curl -s -X POST https://emem.dev/mcp \
 ## Protocol codes (27)
 
 These are all the variants of `ErrorCode`. The MCP number is the enum
-discriminant, negated. On 7 November 2026, no route sends 13 of these
+discriminant, negated. The first HTTP status is the default. It comes from
+the store error map in `crates/emem-api-rest/src/lib.rs`
+(`impl From<StorageError> for ApiError`). The other statuses come from
+handlers that set their own. On 7 November 2026, no route sends 13 of these
 codes. The next subsection names them and says what you get instead.
 
-| Code | MCP | Meaning | First thing to try |
-|---|---|---|---|
-| `invalid_cell` | -27 | The cell64 string did not parse. The responder does not geocode a string with a `.` in it as a place. So it refuses a mistyped cell and does not send it somewhere random. | Re-derive it with `POST /v1/locate`. |
-| `invalid_resolution` | -1 | Resolution out of range. | Use the cell64 `/v1/locate` returns; see `/v1/grid_info`. |
-| `tslot_mismatch` | -2 | The tslot does not sit on the band's tempo grid. | Read the band's `tempo` in `/v1/bands`. |
-| `band_not_in_registry` | -3 | The band key is not in the active manifest. For a band family, `details.did_you_mean` names its wired keys. | `GET /v1/bands`. Band keys have a namespace: `copdem30m.elevation_mean`, not `elevation_mean`. |
-| `function_not_in_registry` | -4 | No registry entry matches the derivation `fn_key`. | `GET /v1/functions`. |
-| `source_scheme_unknown` | -5 | `source.scheme` is not in `/v1/sources`. | `GET /v1/sources`. |
-| `cid_not_found` | -6 | This responder holds nothing under that content id. Memory reads say whether a tombstone exists. So you can tell "never written" from "written then removed". | Check the cid came from this responder (`responder_pubkey_b32` against `/health`). |
-| `no_geocoder_match` | -7 | Every geocoder answered and none knows the place (HTTP 404). Or the name was too ambiguous to pick one: HTTP 400 with `details.code: ambiguous_place`. | Add a region or country, or pass `lat` and `lng`. |
-| `registry_cid_unknown` | -8 | The responder does not know the bound `registry_cid`. | `GET /v1/manifests`. |
-| `schema_cid_unknown` | -9 | The responder has not loaded the fact's `schema_cid`. | `GET /v1/manifests`. |
-| `privacy_refused` | -10 | The band's privacy class blocks this query at this resolution. On 7 November 2026 no route returns it: the responder does not enforce privacy classes ([protocol §10](protocol.md#10-privacy-classes)). | Query a coarser cell; see `privacy.class` for the band in `/v1/bands`. |
-| `level_too_low` | -11 | The operation needs a higher tier. The fact plane refuses any attestation from a key that is not the responder's materialiser, an enrolled device, or an operator-listed writer. | `GET /v1/enlist` for what each tier can write. |
-| `attester_revoked` | -12 | The operator revoked the attester key. | Sign with a current key. |
-| `unauthorized` | -13 | A write has no attester signature, or the signature is not valid. | Sign again. The refusal says what the responder expected. |
-| `claim_undecidable` | -14 | The claim cannot resolve to true or false (a missing value, NaN, a type mismatch). | Recall the fact and check its value and type. |
-| `bad_signature` | -15 | An ed25519 signature did not verify. | For receipts, `/v1/verify_receipt` returns `preimage_blake3_hex` to compare with your own. For writes, see the tables below. |
-| `unaddressable_subject` | -16 | A fact's subject is neither a cell64 nor an `emem:entity:` identity. The responder refuses the write before the log. Your signature is not the problem. | Send a cell64 or an entity id as the subject. |
-| `bad_merkle_proof` | -17 | An inclusion proof has a bad shape, or it does not reach its root. | Rebuild it from the canonical leaf order; check `leaf_index`. |
-| `canonical_encoding_divergence` | -18 | The CBOR sent is not deterministic per RFC 8949 section 4.2.1. | Encode with sorted map keys and shortest-form integers. |
-| `source_fetch_failed` | -19 | An upstream fetch failed at the transport (non-2xx, DNS, timeout, bad JSON) before the upstream gave an answer. On a place lookup this means the geocoder is down, not that the place is absent. | Retry with backoff. |
-| `source_format_mismatch` | -20 | The fetched bytes do not match the declared format. | Report it; the provider may have changed format. |
-| `compute_timeout` | -21 | The request ran past the transport budget (default 40 s, `EMEM_TIMEOUT_SECS`). HTTP 504; `details.budget_secs` gives the budget. Over MCP the same cause reads `exceeded the <N>s call budget`, with the budget in seconds. | Send a smaller input, or retry. A band read that passes the 14 s dispatch cap keeps running. A retry often finds the value ready. |
-| `compute_quota_exceeded` | -22 | You used all of a per-key, per-day compute quota. | No route sends this code today (see [Codes that no route sends](#codes-that-no-route-sends)). |
-| `rate_limited` | -23 | Too many requests. Per IP the default is 600 per minute with a burst of 120 (`EMEM_RATE_LIMIT_RPS`, `EMEM_RATE_LIMIT_BURST`). Memory writes also have a per-attester backstop (`details.code: write_rate_limited`). | Honour `Retry-After` (seconds) or `details.retry_after_s`. |
-| `cache_error` | -24 | The responder's store returned an internal error. | Retry once. |
-| `invalid_argument` | -25 | A field is syntactically valid but semantically wrong, or the body did not match the route's schema (`details.deserializer_error` names the field). Also the top-level code for most route refusals below. | Read `message` and `details`; the request shape is in `/openapi.json`. |
-| `internal` | -26 | A responder bug. Receipts already signed stay valid. | File the request and response at [github.com/Vortx-AI/emem/issues](https://github.com/Vortx-AI/emem/issues). |
+| Code | MCP | HTTP | Meaning | First thing to try |
+|---|---|---|---|---|
+| `invalid_cell` | -27 | 400 | The cell64 string did not parse. The responder does not geocode a string with a `.` in it as a place. So it refuses a mistyped cell and does not send it somewhere random. | Re-derive it with `POST /v1/locate`. |
+| `invalid_resolution` | -1 | 400 | Resolution out of range. | Use the cell64 `/v1/locate` returns; see `/v1/grid_info`. |
+| `tslot_mismatch` | -2 | 400 | The tslot does not sit on the band's tempo grid. | Read the band's `tempo` in `/v1/bands`. |
+| `band_not_in_registry` | -3 | 404; 400 from `/v1/recall` when it knows none of the bands | The band key is not in the active manifest. For a band family, `details.did_you_mean` names its wired keys. | `GET /v1/bands`. Band keys have a namespace: `copdem30m.elevation_mean`, not `elevation_mean`. |
+| `function_not_in_registry` | -4 | 404 | No registry entry matches the derivation `fn_key`. | `GET /v1/functions`. |
+| `source_scheme_unknown` | -5 | 400 | `source.scheme` is not in `/v1/sources`. | `GET /v1/sources`. |
+| `cid_not_found` | -6 | 404 | This responder holds nothing under that content id. Memory reads say whether a tombstone exists. So you can tell "never written" from "written then removed". | Check the cid came from this responder (`responder_pubkey_b32` against `/health`). |
+| `no_geocoder_match` | -7 | 404; 400 (`ambiguous_place`); 504 when an entity anchor lookup passes 12 s | Every geocoder answered and none knows the place (HTTP 404). Or the name was too ambiguous to pick one: HTTP 400 with `details.code: ambiguous_place`. | Add a region or country, or pass `lat` and `lng`. |
+| `registry_cid_unknown` | -8 | 404 | The responder does not know the bound `registry_cid`. | `GET /v1/manifests`. |
+| `schema_cid_unknown` | -9 | 404 | The responder has not loaded the fact's `schema_cid`. | `GET /v1/manifests`. |
+| `privacy_refused` | -10 | 403 | The band's privacy class blocks this query at this resolution. On 7 November 2026 no route returns it: the responder does not enforce privacy classes ([protocol §10](protocol.md#10-privacy-classes)). | Query a coarser cell; see `privacy.class` for the band in `/v1/bands`. |
+| `level_too_low` | -11 | 403 | The operation needs a higher tier. The fact plane refuses any attestation from a key that is not the responder's materialiser, an enrolled device, or an operator-listed writer. | `GET /v1/enlist` for what each tier can write. |
+| `attester_revoked` | -12 | 401 | The operator revoked the attester key. | Sign with a current key. |
+| `unauthorized` | -13 | 401 | A write has no attester signature, or the signature is not valid. | Sign again. The refusal says what the responder expected. |
+| `claim_undecidable` | -14 | 400 | The claim cannot resolve to true or false (a missing value, NaN, a type mismatch). | Recall the fact and check its value and type. |
+| `bad_signature` | -15 | 422 (also a bad key in `/v1/verify_receipt`); 401 on memory, derive and witness writes; 403 when a `vault_capability` does not verify | An ed25519 signature did not verify. | For receipts, `/v1/verify_receipt` returns `preimage_blake3_hex` to compare with your own. For writes, see the tables below. |
+| `unaddressable_subject` | -16 | 400 | A fact's subject is neither a cell64 nor an `emem:entity:` identity. The responder refuses the write before the log. Your signature is not the problem. | Send a cell64 or an entity id as the subject. |
+| `bad_merkle_proof` | -17 | 422 | An inclusion proof has a bad shape, or it does not reach its root. | Rebuild it from the canonical leaf order; check `leaf_index`. |
+| `canonical_encoding_divergence` | -18 | 500; 400 | HTTP 400: an attestation body did not decode (`/v1/attest_cbor`, `/v1/attest_traced`). HTTP 500: the responder could not encode or decode its own stored CBOR. No route compares your bytes with a canonical encoding. | On a 400, check the body against [protocol §6](protocol.md#6-attestation-envelope). On a 500, report it. |
+| `source_fetch_failed` | -19 | 502; 504 when a fan-out passes its budget; 422 from the physics routes | An upstream fetch failed at the transport (non-2xx, DNS, timeout, bad JSON) before the upstream gave an answer. On a place lookup this means the geocoder is down, not that the place is absent. | Retry with backoff. |
+| `source_format_mismatch` | -20 | 502 | The fetched bytes do not match the declared format. | Report it; the provider may have changed format. |
+| `compute_timeout` | -21 | 504 | The request ran past the transport budget (default 40 s, `EMEM_TIMEOUT_SECS`). `details.budget_secs` gives the budget. Over MCP the same cause reads `exceeded the <N>s call budget`, with the budget in seconds. | Send a smaller input, or retry. A band read that passes the 14 s dispatch cap keeps running. A retry often finds the value ready. |
+| `compute_quota_exceeded` | -22 | 402 | You used all of a per-key, per-day compute quota. | No route sends this code today (see [Codes that no route sends](#codes-that-no-route-sends)). |
+| `rate_limited` | -23 | 429; 503 when the memory SSE subscriber cap is full | Too many requests. Per IP the default is 600 per minute with a burst of 120 (`EMEM_RATE_LIMIT_RPS`, `EMEM_RATE_LIMIT_BURST`). Memory writes also have a per-attester backstop (`details.code: write_rate_limited`). | Honour `Retry-After` (seconds) or `details.retry_after_s`. |
+| `cache_error` | -24 | 500; 503 when the node has no durable store | The responder's store returned an internal error. | Retry once. |
+| `invalid_argument` | -25 | 400 on most routes; the route tables below give the others | A field is syntactically valid but semantically wrong, or the body did not match the route's schema (`details.deserializer_error` names the field). Also the top-level code for most route refusals below. | Read `message` and `details`; the request shape is in `/openapi.json`. |
+| `internal` | -26 | 500; 503 or 501 on some routes | A responder bug. Receipts already signed stay valid. | File the request and response at [github.com/Vortx-AI/emem/issues](https://github.com/Vortx-AI/emem/issues). |
 
 ### Codes that no route sends
 
