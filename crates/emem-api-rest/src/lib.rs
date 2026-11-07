@@ -8557,33 +8557,45 @@ async fn serve_agents_txt() -> Response {
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
+/// MCP tool names that still dispatch (see the `"emem_memory_*" |
+/// "memory_*"` arms of the tools/call match) but are not advertised, with
+/// the release that announced the removal. CHANGELOG 2.1.0 names seven of
+/// them and says 3.0 removes them. `memory_supersede` is an alias that was
+/// never advertised (`emem_memory_supersede` came in 2.2.0 under its prefixed
+/// name), so no release announced it; it is listed so all eight bare names
+/// carry one removal date. The list was empty, so a caller polling the
+/// route was told nothing would go away.
+const DEPRECATED_MCP_TOOL_NAMES: [(&str, &str, Option<&str>); 8] = [
+    ("memory_view", "emem_memory_view", Some("2.1.0")),
+    ("memory_create", "emem_memory_create", Some("2.1.0")),
+    (
+        "memory_str_replace",
+        "emem_memory_str_replace",
+        Some("2.1.0"),
+    ),
+    ("memory_insert", "emem_memory_insert", Some("2.1.0")),
+    ("memory_delete", "emem_memory_delete", Some("2.1.0")),
+    ("memory_supersede", "emem_memory_supersede", None),
+    ("memory_rename", "emem_memory_rename", Some("2.1.0")),
+    (
+        "memory_list_by_kind",
+        "emem_memory_list_by_kind",
+        Some("2.1.0"),
+    ),
+];
+
 /// `GET /v1/deprecations`, the deprecated surfaces with the policy.
 /// ClaudeBot polls this; returning a typed stable list (instead of
 /// 404) tells a crawler the surface exists.
-/// MCP tool names that still dispatch (see the `"emem_memory_*" |
-/// "memory_*"` arms of the tools/call match) but are no longer advertised.
-/// CHANGELOG 2.1.0 names seven of them and says 3.0 removes them; the
-/// dispatch also keeps a bare `memory_supersede`. The list was
-/// empty, so a caller polling this route was told nothing would go away.
-const DEPRECATED_MCP_TOOL_NAMES: [(&str, &str); 8] = [
-    ("memory_view", "emem_memory_view"),
-    ("memory_create", "emem_memory_create"),
-    ("memory_str_replace", "emem_memory_str_replace"),
-    ("memory_insert", "emem_memory_insert"),
-    ("memory_delete", "emem_memory_delete"),
-    ("memory_supersede", "emem_memory_supersede"),
-    ("memory_rename", "emem_memory_rename"),
-    ("memory_list_by_kind", "emem_memory_list_by_kind"),
-];
-
 async fn serve_deprecations() -> Json<JsonValue> {
     let deprecated: Vec<JsonValue> = DEPRECATED_MCP_TOOL_NAMES
         .iter()
-        .map(|(old, new)| {
+        .map(|(old, new, announced)| {
             json!({
                 "surface": "mcp_tool",
                 "path": format!("tools/call name={old}"),
                 "replacement": format!("tools/call name={new}"),
+                "announced_in": announced,
                 "removed_in": "3.0",
             })
         })
@@ -35072,7 +35084,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/tools":             {"get":{"summary":"MCP tool descriptors with schemas","operationId":"emem_tools","parameters":[
                 {"name":"tier","in":"query","required":false,"schema":{"type":"string","default":"all"},"description":"Tool tier, for example `core`. Default `all`."},
                 {"name":"name","in":"query","required":false,"schema":{"type":"string"},"description":"Exact tool name, for example `emem_recall`. Returns that tool only."},
-                {"name":"q","in":"query","required":false,"schema":{"type":"string"},"description":"Case-insensitive text that the tool name, title or description must contain."}
+                {"name":"q","in":"query","required":false,"schema":{"type":"string"},"description":"Case-insensitive text that the tool name, title or description must contain. MCP emem_tools also searches trigger text; this route does not."}
             ],"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}":    {"get":{"summary":"recall facts at a cell","operationId":"emem_recall_cell_get","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/recall":            {"post":{"summary":"recall facts (algebra: ensure; reuses what exists, materializes what is missing)","operationId":"emem_recall","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/RecallReq"}}}},"responses":{"200":json_ok}}},
@@ -98764,7 +98776,7 @@ mod tests {
 
     #[test]
     fn deprecated_tool_names_are_hidden_and_their_replacements_listed() {
-        for (old, new) in DEPRECATED_MCP_TOOL_NAMES {
+        for (old, new, _) in DEPRECATED_MCP_TOOL_NAMES {
             assert!(emem_mcp::TOOLS.iter().all(|t| t.name != old), "{old}");
             assert!(emem_mcp::TOOLS.iter().any(|t| t.name == new), "{new}");
         }

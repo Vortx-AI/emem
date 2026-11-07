@@ -279,6 +279,8 @@ class EmemStore(BaseStore[_K, _V]):
         return self._delete_base(view) or BASE_ABSENT
 
     def mset(self, key_value_pairs: Sequence[tuple[_K, _V]]) -> None:
+        """Write each pair. A signed store first reads each key's current
+        file_cid to sign as the v2 base, so it makes two calls per key."""
         for k, v in key_value_pairs:
             # Anthropic memory-tool spec field name is `file_text`, not
             # `content`, confirmed against the emem responder which
