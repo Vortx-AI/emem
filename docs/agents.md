@@ -1481,7 +1481,7 @@ another fact's cid and confirm it fails.
 If your downstream relies on "the user asked X and the responder
 agreed", echo the original query alongside the receipt. The trust chain
 attests the responder's claim, not the resolution decision. Branch on
-[`selected.is_high_confidence`](#-v1-locate) from `/v1/locate` before
+[`selected.is_high_confidence`](start-here.md#use-the-right-field-name) from `/v1/locate` before
 trusting a place-anchored answer.
 
    ### Three kinds of fact, and which surfaces carry which
