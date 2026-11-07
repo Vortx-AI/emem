@@ -269,7 +269,7 @@ digest in the refusal.
 | Memory token resolve, batch | `POST /v1/memory_token/resolve_many` | `{tokens}` (1 to 256) | one resolved item per token |
 | Memory bundle | `POST /v1/memory_bundle` | `{triples}` or `{fact_cids}`, plus `purpose?`, `scope?` | signed envelope + `emem:bundle:<bundle_cid>` |
 | Memory bundle resolve | `GET /v1/memory_bundle/<token>` | path param | same envelope |
-| Memory file write | MCP `emem_memory_create` | `{path, file_text, kind?, attester}` | `file_cid` + signed receipt |
+| Memory file write | MCP `emem_memory_create` | `{path, file_text, kind?, attester}` | `file_cid` + signed receipt; a `vault` write returns neither ([kinds](#the-kinds)) |
 | Memory file edit | MCP `emem_memory_str_replace`, `emem_memory_insert` | `{path, old_str, new_str, kind?, attester}` for `str_replace`; `{path, insert_line, new_str, kind?, attester}` for `insert`. Without `kind`, the file keeps its kind. | new `file_cid` + receipt |
 | Memory file supersede | MCP `emem_memory_supersede` | `{path, superseded_by, reason?, attester}` | readers of `path` get `superseded_by` and a `_superseded` banner; the bytes stay |
 | Memory file read | MCP `emem_memory_view` | `{path}` or `{file_cid}`, plus `view_range?`, `view?`, `offset?`, `kind?`, `vault_capability?` | content with its `authorship` block, or a directory listing. With `view_range`, `window` gives `total_lines` and the lines served; a window past the end is empty, with `past_end` true |
@@ -318,13 +318,23 @@ stores an unknown `kind` as `resource` and returns no error.
 | `vault` | An AEAD-sealed entry, stored encrypted in its own tree and never indexed by search or the contradiction scan. Of the memory tools, only `emem_memory_create` lists it in its `kind` enum. | infinite |
 | `core` | A persona block, listed first by `emem_memory_view`. | infinite |
 
+A `vault` create returns `sealed: true`, `nonce_b32`, `plaintext_len`
+and `sealed_at`. It returns no `file_cid` and no `receipt`.
+
 A `vault` entry reads back as ciphertext unless the caller sends a
 `vault_capability`. This is an ed25519 signature over
-`blake3("emem.vault_open|" + path + "|" + nonce)` that verifies under
-the responder's key. The responder makes the seal key from its own
-secret. A vault therefore hides the bytes from other callers and from anyone
-who copies the database file. It does not hide them from the operator.
-If the operator must not read an entry, encrypt it on your side first.
+`blake3("emem.vault_open|" + path + "|" + nonce)`. Here `nonce` is the
+12 raw bytes that `nonce_b32` encodes. The signature must verify under
+the responder's key, not under the key that wrote the entry. Thus only
+the holder of the responder secret can open an entry. On emem.dev, the
+writer also gets only ciphertext back. A `vault_capability` that does not verify
+gets 403 `bad_signature`, with `details.code` `vault_capability_invalid`
+(`crates/emem-api-rest/src/vault.rs`, `open`).
+
+The responder makes the seal key from its own secret. A vault therefore
+hides the bytes from other callers and from anyone who copies the
+database file. It does not hide them from the operator. If the operator
+must not read an entry, encrypt it on your side first.
 
 The TTL pass (`EMEM_MEMORY_TTL_ENABLED=1`) runs every hour
 (`EMEM_MEMORY_TTL_INTERVAL_SECS`). It moves expired files from
@@ -333,8 +343,10 @@ The TTL pass (`EMEM_MEMORY_TTL_ENABLED=1`) runs every hour
 The pass also adds `expired` to the path history and sends an `expired`
 event. It skips a file with no recorded `signed_at`.
 To change the TTL for one kind, set
-`EMEM_MEMORY_TTL_{CORE,RESOURCE,EPISODIC,SEMANTIC,PROCEDURAL,VAULT}_DAYS`
-(0 means infinite).
+`EMEM_MEMORY_TTL_{CORE,RESOURCE,EPISODIC,SEMANTIC,PROCEDURAL}_DAYS`
+(0 means infinite). The pass reads only `memory_files`, and a `vault`
+entry is not in that tree. Thus a `vault` entry does not expire, and
+`EMEM_MEMORY_TTL_VAULT_DAYS` has no effect.
 
 The merge pass (`EMEM_MEMORY_CONSOLIDATION_ENABLED=1`) runs every 24
 hours (`EMEM_MEMORY_CONSOLIDATION_INTERVAL_SECS`). It groups files by
@@ -351,7 +363,8 @@ pass does three things:
    in that directory. The responder signs this file with its own key. The
    file has no `attester` block, so it is not your signed note.
 3. It writes `superseded_by: <consolidated_cid>` into the metadata of
-   each original file.
+   each original file. The history of each path gets a `supersede` entry
+   with the reason `consolidated`.
 
 The original bytes do not change. To list the versions of a path, call
 `emem_memory_view` with `{"path": ..., "view": "history"}`. To read one
