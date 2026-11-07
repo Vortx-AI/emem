@@ -675,6 +675,37 @@ Each receipt pins four of these in `source_versions`: `bands_cid`,
 through the `0x06` segment ([protocol §7](protocol.md#7-receipt)). The
 receipt does not pin `algorithms_cid`.
 
+### Compare a receipt with the live manifests
+
+Use this check to see if the responder signed a receipt against the manifests
+that are in force now. Save a recall response and the manifests:
+
+```sh
+curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb592.nUkO.zEzE","bands":["dem"]}' -o recall.json
+curl -s https://emem.dev/v1/manifests -o manifests.json
+```
+
+The cell is Mount Fuji, from `POST /v1/locate {"place":"Mount Fuji"}`. Then
+compare the four pinned CIDs:
+
+```python
+import json
+
+recall = json.load(open("recall.json"))
+live = json.load(open("manifests.json"))
+for name, cid in recall["receipt"]["source_versions"].items():
+    state = "same" if live.get(name) == cid else "DIFFERENT"
+    print(f"{name:13} {state:9} {cid}")
+```
+
+On 7 November 2026 all four lines said `same`. A `DIFFERENT` line does not
+make the receipt invalid. It tells you that the manifest changed after the
+responder signed. To replay the result, use the manifest JSON from the commit
+that gave the pinned CID. The server has no route that returns an old
+manifest. The signature check itself is in
+[protocol §7.4](protocol.md#74-offline-verification-python).
+
 A receipt that cites an algorithm and its input fact CIDs gives a third party
 what they need to repeat the result. With the same algorithm manifest, they
 read the algorithm's `parameters`, walk the `evaluation` AST (or read
