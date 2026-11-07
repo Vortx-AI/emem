@@ -4,8 +4,9 @@ Each picture on this page answers one question about emem. The values come from 
 7 November 2026, or from the code. Read the pictures in order. They follow one fact from a place name to a check
 by a second agent, then show notes, the guard and `/v1/ask`. Each section links to the page that explains it.
 
-The rules for these pictures are in [visual-language.md](visual-language.md). The scripts and the saved
-responses are in [stills/src/](stills/src/) and [films/src/](films/src/).
+The rules for these pictures are in [visual-language.md](visual-language.md). The scripts are in
+[stills/src/](stills/src/) and [films/src/](films/src/). The saved responses are in [src-packs/](src-packs/), one
+archive per picture.
 
 ## What is emem, in one live fact?
 

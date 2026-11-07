@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Check that the facts and the log head drawn in the stills still hold on emem.dev.
 
-    python docs/media/stills/src/recheck.py [--out DIR]
+    python3 docs/media/stills/src/recheck.py [--out DIR]
+
+When the data/ folders are absent (a fresh checkout), it first unpacks
+docs/media/src-packs/ with src_data.py.
 
 1. Finds every emem:fact: and emem:bundle: token in the saved data of the
    stills and films, resolves each one (read-only), and compares the live
@@ -186,6 +189,11 @@ def main():
     sys.stdout.reconfigure(line_buffering=True)
     out = a.out or pathlib.Path(tempfile.mkdtemp(prefix="emem-recheck-"))
     out.mkdir(parents=True, exist_ok=True)
+    if not LOG_HEAD.exists():
+        # A fresh checkout has only the packs; a local refetch must not be overwritten.
+        sys.path.insert(0, str(ROOT / "docs/media"))
+        import src_data
+        src_data.unpack()
     ok = check_tokens()
     ok = check_crosses() and ok
     ok = check_bytes() and ok
