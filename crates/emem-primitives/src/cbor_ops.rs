@@ -115,11 +115,12 @@ pub fn f32_to_cbor(x: f32) -> ciborium::Value {
 
 /// Strict RFC 3339 / ISO 8601 validator used for `as_of_signed_at`.
 ///
-/// We do not need to convert to a calendrical type — every comparison
-/// the bi-temporal filter performs is lexicographic against another
-/// RFC 3339 string (`fact.signed_at`). What we DO need is to reject
-/// malformed input with a clear error so an agent passing the wrong
-/// format gets a 400, not a silent always-empty result.
+/// This only validates. The bi-temporal filter
+/// (`emem_storage::AsOfBound::fact_passes`) converts the bound and
+/// `fact.signed_at` to instants, so any offset compares correctly. What
+/// we DO need here is to reject malformed input with a clear error so
+/// an agent passing the wrong format gets a 400, not a silent
+/// always-empty result.
 ///
 /// Accepted shape: `YYYY-MM-DDTHH:MM:SS(.fff)?(Z|±HH:MM)`. The check
 /// is deliberately permissive on the fractional-second precision so a
