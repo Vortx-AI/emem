@@ -10,9 +10,10 @@
 > /v1/device_publish`). Every shipped trust anchor is provisional, so
 > self-service enrollment refuses every call today. Still open: a first
 > production anchor and the drift-anchor wiring (step 4, with the Copernicus
-> checksum). Also open: traces in the transparency log, an `emem trace verify`
-> CLI subcommand, and an os-trace section in `docs/protocol.md`. The current summary is the substrates
-> section of [docs/roadmap.md](../roadmap.md).
+> checksum). Also open: traces in the transparency log, an `emem trace
+> verify` CLI subcommand, and an os-trace section in `docs/protocol.md`.
+> The current summary is the substrates section of
+> [docs/roadmap.md](../roadmap.md).
 
 Status: registry, schema, verifier, write-path gate (storage side),
 trace tokens, and the first committed conformance vectors shipped as
