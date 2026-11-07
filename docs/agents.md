@@ -1009,7 +1009,7 @@ the same body again with `"attester": {"pubkey_b32": ..., "sig_b32": ...}`.
 The responder checks the body before it stores it. The table gives the HTTP
 status and `details.code`. The top-level `code` is `cid_not_found` for the
 404 and `invalid_argument` for the others. On 7 November 2026 unsigned
-calls gave all three refusals, and nothing was stored.
+calls gave all three refusals, and the responder stored nothing.
 
 | Status and `details.code` | Cause |
 |---|---|
