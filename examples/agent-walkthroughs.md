@@ -54,8 +54,9 @@ curl -s -X POST https://emem.dev/v1/recall \
 
 `recall` accepts a `place`. The name resolves to one cell of about 10 m. If
 the name is ambiguous, `recall` does not guess. It returns HTTP 400 with the
-error code `no_geocoder_match`. The best candidate is in
-`details.best_candidate`, and the next step is in `details.remedy`. On
+error code `no_geocoder_match`. The inner `details.code` is
+`ambiguous_place`. The best candidate is in `details.best_candidate`, and
+the next step is in `details.remedy`. On
 7 November 2026, `"Everest Base Camp"` and `"Springfield"` both gave this
 error. For `"Springfield"`, `details.best_candidate` was
 `"Springfield, Missouri, United States"`. Then call `/v1/locate`, choose the
