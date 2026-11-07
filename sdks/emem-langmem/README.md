@@ -138,8 +138,25 @@ print(body["file_cid"], body["receipt"]["primitive"])
 ```
 
 On 7 November 2026, emem.dev sent the tool result as JSON text in
-`result.content[0].text`, with no `structuredContent`. To check a
-receipt offline, use the [verify page](https://emem.dev/verify).
+`result.content[0].text`, with no `structuredContent`.
+
+To check the receipt offline, use the emem Python client
+(`pip install "ememdev[signing]"`):
+
+```python
+from ememdev.verify import verify_receipt_offline
+
+v = verify_receipt_offline(body["receipt"])
+print(v.ok, v.state, v.signer_b32[:8])
+# True verified 777er3yi
+```
+
+We ran this on 7 November 2026. The receipt had `preimage_version` 2.
+The function checks the signature against the key in the receipt. Compare
+`v.signer_b32` with `federation.node.responder_pubkey_b32` in
+[/.well-known/emem.json](https://emem.dev/.well-known/emem.json).
+You can also paste the receipt into the
+[verify page](https://emem.dev/verify).
 
 ## License
 
