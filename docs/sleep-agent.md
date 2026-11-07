@@ -87,7 +87,9 @@ the plan lines.
 ## Configure the LLM route
 
 The merge call goes to a real model. The agent never fakes it. You can
-configure one of two routes.
+configure one of two routes. When you set both, the `/v1/ask` route wins
+(`config.rs`, `resolve_llm_route`). When you set neither, the agent runs
+dry.
 
 ### OpenAI-compatible chat completions
 
@@ -96,6 +98,10 @@ export EMEM_SLEEP_AGENT_LLM_URL=https://api.openai.com/v1/chat/completions
 export EMEM_SLEEP_AGENT_LLM_MODEL=gpt-4o-mini
 export OPENAI_API_KEY=sk-...            # or EMEM_SLEEP_AGENT_LLM_API_KEY
 ```
+
+This route needs all three values: the URL, the model and a key. An empty
+value counts as not set. If `OPENAI_API_KEY` and
+`EMEM_SLEEP_AGENT_LLM_API_KEY` both exist, the agent uses `OPENAI_API_KEY`.
 
 The transport sends a standard `messages` body and reads
 `choices[0].message.content`. The agent estimates the cost from the `usage`
@@ -108,6 +114,8 @@ tokens. Only the budget cap uses this estimate. It never changes the text.
 ```bash
 export EMEM_SLEEP_AGENT_USE_ASK=1
 ```
+
+The agent also accepts `true`, in any letter case.
 
 The agent sends the merge prompt to the `/v1/ask` endpoint of the
 responder. The operator's responder configuration then chooses the model,
@@ -132,6 +140,17 @@ merged text before you trust this route.
 | `EMEM_SLEEP_AGENT_CHURN_THRESHOLD` | 3 | Version count that makes a path high-churn (minimum 2). |
 | `EMEM_SLEEP_AGENT_CHURN_KINDS` | `semantic,episodic,resource` | Note kinds that the churn scan reads. |
 | `EMEM_SLEEP_AGENT_ATTESTER` | `sleep_agent_v1` | The agent reads this value into its config. It does not send the value with any write, and it signs nothing. |
+
+The agent does not report a value that it cannot parse. It uses the
+default for that variable. For example, `EMEM_SLEEP_AGENT_TOPN=eight` gives
+8 candidates.
+
+Before the first pass, the agent sends `GET` to `/v1/health`, then
+`/health`, then `/`. If no probe returns a success status, the agent exits
+with code 2. In single-pass mode, a failed pass exits with code 1 and a
+completed pass exits with code 0. In loop mode, the agent logs a failed
+pass and tries again at the next interval. Only a configuration error
+stops the loop, with code 1.
 
 Before each LLM call, the agent compares the spend of the pass with the
 cap. When the spend is equal to or more than the cap, the pass stops and
