@@ -155,7 +155,7 @@ def verdict_path():
     stages = [
         ("scan", "emem: tokens", INDIGO, "0 ms"),
         ("resolve", "warm only", TEAL, "≤400 ms"),
-        ("modules", "fast only", TURMERIC, "≤50 ms ea"),
+        ("modules", "fast only", TURMERIC, "50 ms budget"),
         ("evaluate", "first match", LEAF, "µs"),
         ("sign", "ed25519", LAC, ""),
         ("append", "chain · fsync", VERMIL, ""),
