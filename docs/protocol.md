@@ -3412,12 +3412,19 @@ working.
 
 ## The tokenverse
 
-This part is for a reader who cites emem in text. It sums up the token
-kinds that emem issues. §9.8 defines `emem:tree`. The table names a
-resolver for each of the other kinds. A token is a short text name for
-one thing that emem holds. It fits in a sentence, and any party can
-resolve it. The kinds do not bind equally
-much. Read the Strength column before you cite one.
+A token is a short text name for one thing that emem holds. It fits in
+a sentence, and any party can resolve it. This part is for a reader
+who cites emem in text. The table names each token kind and the route
+that resolves it. §9.8 defines `emem:tree`.
+
+The kinds do not bind equally much. Read the Strength column before
+you cite one. It uses three levels:
+
+| Strength | Meaning |
+|---|---|
+| Full | The token holds a digest of the whole record. A changed byte makes the resolver refuse it |
+| Anchor | The token holds a digest of an anchor, not of each body. Two parties share a name, not bytes |
+| Address | The token names a place. It holds no digest |
 
 | Token | Names | Strength | Resolve at |
 |---|---|---|---|
@@ -3426,7 +3433,7 @@ much. Read the Strength column before you cite one.
 | `emem:entity:<cid>` | an object two agents co-refer to | Anchor, truncated. A shared name, not shared bytes | `GET /v1/entity/{token}` |
 | `emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid>` | a field over an area, at native resolution | Full, over the artifact. The resolver refuses a token whose area, band or tslot differs from the signed record | `POST /v1/raster/resolve` |
 | `emem:cube:<aoi_cid>:<band>:<tslot_lo>..<tslot_hi>:<derivation_cid>` | a field over an area over time | Full, over the artifact. The resolver recomputes `cube_cid` from the members and refuses a mismatch | `POST /v1/cube/resolve` |
-| `emem:cell:<cell64>` | a patch of ground, about 9.55 m | An address, not a digest. It names a place, not a record | `GET /v1/cells/{cell64}` returns the signed facts at the cell, with a receipt |
+| `emem:cell:<cell64>` | a patch of ground, about 9.55 m on a side at the equator | Address. It names a place, not a record | `GET /v1/cells/{cell64}` returns the signed facts at the cell, with a receipt |
 | `emem:state:<cid>` | one stage of an `/v1/ask` answer's reasoning | Full. The cid is the whole 32-byte blake3 of the state's canonical CBOR. Each state commits to the stage before it | `GET /v1/state/{cid}` |
 | `emem:tree:<file_cid>#row=<index>` | one row of a note's Merkle table | Full over the row: an audit path from the row to the note's signed root ([§9.8](#98-merkle-trees-inside-notes-ememtree)) | `GET /v1/tree/{file_cid}?row=<index>` |
 | `emem:rasterset:<bundle_cid>:<derivation_cid>` | a set of `emem:raster:` layers | Full over the signed manifest. The resolver recomputes `bundle_cid` from the members and refuses a mismatch | `POST /v1/raster_bundle/resolve` |
