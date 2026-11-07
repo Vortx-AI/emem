@@ -1,125 +1,169 @@
 # Benchmarks
 
-`emem-scorecard` scores a running emem responder against a
-LongMemEval-S / MemoryAgentBench-style memory benchmark and emits a signed
-JSON scorecard. It has two modes:
+This page tells you how to score an emem responder as a memory store. It
+also records the measurements that the maintainers and outside agents
+made, with the limits of each.
 
-- **`--self-test`**: grades an in-memory stub against a built-in synthetic
-  fixture. No network, no responder. Exercises the scoring code in CI.
-- **`--live --url <responder>`**: loads a dataset corpus into a *running*
-  responder over its real write API, answers every query over the real read
-  API, and computes the four axes + topline **from the responder's own
-  output**. No score is hardcoded.
+| Section | What it gives you |
+|---|---|
+| [Score a responder with `emem-scorecard`](#score-a-responder-with-emem-scorecard) | The scorer, its method, how to run it and the dataset format |
+| [Measured system performance](#measured-system-performance) | Latency and throughput on emem.dev, 11 July 2026 |
+| [Typed failure modes](#typed-failure-modes) | The closed sets of errors and gaps on the wire |
+| [Agreement of the change ensemble](#agreement-of-the-change-ensemble-record) | A record of a route that emem no longer serves |
+| [Publish a scorecard](#publish-a-scorecard-the-standard) | The rules that make a third-party result citable |
+| [Independent read-side benchmark](#independent-read-side-benchmark-2026-08-11) | One outside agent's audit, 11 August 2026 |
+| [Third-party scorecard](#third-party-scorecard-addressed-memory-against-dense-retrieval) | Addressed memory against dense retrieval, and the BM25 baseline |
 
-## Methodology
+## Score a responder with `emem-scorecard`
 
-Each dataset item is `{id, content, query, expected_answer}` (with optional
-`update`/`update_answer` and `conflicts_with`). The live path:
+`emem-scorecard` is a crate in this workspace. It scores an emem responder
+on a memory benchmark in the style of LongMemEval-S and MemoryAgentBench.
+It writes a JSON scorecard. The scorer has two modes:
 
-1. **Load (write API).** Each item's `content` is written as one signed
-   memory file via `POST /mcp` → `tools/call` → `memory_create`
-   (`/memories/scorecard/<id>.md`, `kind: "fact"`). `memory_create` is the
-   legacy spelling of `emem_memory_create`; it still dispatches and is removed
-   in 3.0. The harness sends these writes without an `attester` block, so the
-   responder it scores must be started with `EMEM_MEMORY_OPEN=1` (see the run
-   below). Every create returns a server-signed receipt with a `file_cid`.
-2. **Pick a read path.** A one-shot probe of `POST /v1/memory/search`
-   reports `model_loaded`. If the BGE embedder is loaded, retrieval uses
-   **`memory_search`** (semantic). If not (the default offline build ships
-   no embedder weights), retrieval falls back to **`recall_fallback`**: list
-   the loaded files via `memory_view` and rank them with a lexical
-   token-overlap scorer. The chosen path is recorded as `retrieval_path`;
-   a fallback run is never presented as a semantic-search run.
-3. **Score four axes** from real retrieval output, with the standard
-   answer-recall criterion (the retrieved content **contains** the
-   ground-truth answer, case/whitespace-normalised, numerically canonical):
-   - **retrieval_accuracy**: query every item, grade the retrieved content.
-   - **test_time_learning**: for items with an `update`, rewrite the same
-     path (last-write-wins), re-query, require the *post-update* answer.
-   - **long_range_understanding**: re-query the earliest-loaded third of
-     the corpus (front of the transcript), where a recency-biased store
-     would have dropped the needle.
-   - **conflict_resolution**: store a disagreeing companion under a second
-     path and require the responder to surface the disagreement. The
-     responder's `/v1/memory_contradictions` scan is tried first
-     (`conflict_method: "contradiction_scan"`); since that index scans
-     EO-fact `(cell, band, tslot)` triples and not free-text memory files,
-     the honest text-surface check is whether both disagreeing values were
-     stored **non-destructively** and read back distinct
-     (`conflict_method: "stored_distinct_fallback"`).
-4. **Topline.** `longmemeval_topline` is the item-weighted fraction of all
-   graded questions answered correctly across the four axes, the
-   LongMemEval-S convention.
+| Mode | What it does |
+|---|---|
+| `--self-test` | Grades an in-memory stub against a built-in synthetic fixture. It uses no network and no responder. CI uses it to test the scoring code. |
+| `--live` | Loads a dataset into a running responder through its write API. Then it asks every query through the read API and scores the answers. |
 
-The scorecard is written to `var/benchmarks/scorecard-live.json` and printed
-to stdout, with the responder's signed receipt embedded.
+With no mode flag, the scorer runs `--self-test`. In `--live` mode, every
+score comes from the responder's own output. The code has no fixed score.
 
-## Honesty: SAMPLE vs FULL
+### How the live mode scores
 
-A small **SAMPLE** dataset (`crates/emem-scorecard/data/sample-longmemeval.jsonl`,
-16 items) is committed so `--live` runs end-to-end with no download. Its
-score is labelled `dataset_provenance: "sample"` and is **illustrative
-only, not the published benchmark number**. A user-supplied dataset is
-labelled `"full"`. Never quote a sample score as the published result.
+Each dataset item has `id`, `content`, `query` and `expected_answer`. An
+item can also have `update`, `update_answer` and `conflicts_with`. The live
+mode does these steps:
 
-## Run `--live` against a local responder
+1. Load. The scorer writes each item's `content` as one note through
+   `POST /mcp`, `tools/call`, `memory_create`. The path is
+   `/memories/scorecard/<id>.md` and the kind is `fact`.
+2. Pick a read path. One probe of `POST /v1/memory/search` reads
+   `model_loaded`. If the responder has the BGE embedder, retrieval uses
+   `memory_search`. If not, retrieval uses `recall_fallback`.
+3. Score four axes from the real retrieval output.
+4. Compute the topline.
+
+`memory_create` is the old name of `emem_memory_create`. The old name still
+works, but the server does not advertise it. Version 3.0 removes it.
+
+The scorer sends its writes with no `attester` block. Every build except a
+test build refuses unattested writes by default. Start the responder with
+`EMEM_MEMORY_OPEN=1` to accept them (`memory_write_policy` in
+`crates/emem-api-rest/src/lib.rs`). For the same reason, emem.dev refuses
+these writes. Each accepted write returns a signed receipt with a
+`file_cid`.
+
+`recall_fallback` lists the loaded notes with `memory_view` and ranks them
+with a lexical token-overlap scorer. The default offline build has no
+embedder weights, so it uses this path. The scorecard records the path in
+`retrieval_path`. A fallback run never shows as a semantic-search run.
+
+An answer is correct when the retrieved content contains the ground-truth
+answer. The check ignores case and extra spaces, and it compares numbers in
+canonical form. The four axes are:
+
+| Axis | What the scorer does |
+|---|---|
+| `retrieval_accuracy` | Asks every item and grades the retrieved content. |
+| `test_time_learning` | For each item with an `update`, writes the update to the same path (the last write wins). It asks again and needs the new answer. |
+| `long_range_understanding` | Asks again for the first third of the loaded items. A store that keeps only recent items loses these. |
+| `conflict_resolution` | Stores a disagreeing value at a second path. It needs the responder to show the disagreement. |
+
+For `conflict_resolution`, the scorer first tries the responder's
+`/v1/memory_contradictions` scan (`conflict_method: "contradiction_scan"`).
+That scan reads `(cell, band, tslot)` keys of Earth-observation facts, not
+notes. So the scorer then checks that the responder stored both values
+and reads them back as two different notes
+(`conflict_method: "stored_distinct_fallback"`).
+
+`longmemeval_topline` is the fraction of all graded questions answered
+correctly over the four axes. Each question has the same weight, as in
+LongMemEval-S.
+
+The scorer writes the scorecard to `var/benchmarks/scorecard-live.json`
+(the `--out-dir` default is `var/benchmarks`) and prints it. The scorecard
+contains the responder's signed receipt.
+
+### Sample and full datasets
+
+The repository has a small sample dataset:
+`crates/emem-scorecard/data/sample-longmemeval.jsonl`, 16 items. With it,
+`--live` runs from start to end with no download. Its score has
+`dataset_provenance: "sample"`. A sample score is an example only. It is not
+the published benchmark result. Do not quote it as one.
+
+The scorer reads the label from the file name. A path that ends in
+`sample-longmemeval.jsonl` gets `"sample"`. Any other path gets `"full"`.
+
+### Run the live mode on your own responder
+
+We did not run these commands on 7 November 2026. They need a local build of
+`emem-server` and `emem-scorecard`. All flags, variables and defaults agree
+with the code on that day.
 
 ```bash
-export CARGO_TARGET_DIR=/path/to/shared/target   # optional, to share builds
+# Optional: share one build directory between worktrees.
+export CARGO_TARGET_DIR=/path/to/shared/target
 
-# 1. Boot a fresh in-memory responder. EMEM_MEMORY_OPEN=1 re-opens the
-#    memory namespace to unattested writes, which the harness sends; a
-#    release build otherwise refuses every one of them.
+# 1. Start a new in-memory responder that accepts unattested note writes.
 cargo build -p emem-cli --bin emem-server
 EMEM_DATA=:memory: EMEM_BIND=127.0.0.1:5087 EMEM_OVERTURE_SKIP_WARMUP=1 \
   EMEM_MEMORY_OPEN=1 ./target/debug/emem-server &
 
-# 2. Score it against the committed sample (no download).
+# 2. Score it against the sample dataset (no download).
 EMEM_URL=http://127.0.0.1:5087 \
   cargo run -p emem-scorecard -- --live \
   --dataset crates/emem-scorecard/data/sample-longmemeval.jsonl
 
-# 3. Or score against the full public dataset (see below).
+# 3. Or score it against a full public dataset (see the next section).
 EMEM_URL=http://127.0.0.1:5087 \
   cargo run -p emem-scorecard -- --live --dataset /path/to/longmemeval-s.jsonl
 ```
 
-`--url` overrides `$EMEM_URL` (default `http://127.0.0.1:5051`). Omit
-`--dataset` to use the committed sample.
+`--url` overrides `$EMEM_URL`. The default is `http://127.0.0.1:5051`. If you
+do not give `--dataset`, the scorer uses the sample dataset.
 
-## Get the full dataset
+### Get a full dataset
 
-The loader reads JSON Lines, one item per line, in the canonical emem schema
-with aliases for the two public corpora:
+The loader reads JSON Lines: one item on each line. It skips blank lines and
+lines that start with `#`. The schema is:
 
 ```json
-{"id":"q1","content":"...stored memory...","query":"...question...","expected_answer":"...","update":"...optional...","update_answer":"...","conflicts_with":"...optional second value..."}
+{"id":"q1","content":"...stored note...","query":"...question...","expected_answer":"...","update":"...optional...","update_answer":"...","conflicts_with":"...optional second value..."}
 ```
 
-Accepted aliases: `id` ← `question_id`/`qid`; `content` ←
-`context`/`text`/`memory`; `query` ← `question`; `expected_answer` ←
-`answer`/`expected`.
+The loader also accepts the field names of the two public datasets
+(`crates/emem-scorecard/src/dataset.rs`):
 
-- **LongMemEval** (<https://github.com/xiaowu0162/LongMemEval>). The
-  `LongMemEval-S` split ships as JSON of objects with
-  `question_id` / `question` / `answer` over `haystack_sessions`. Flatten
-  each item's relevant session text into `content` and emit one JSONL line
-  per question. Dataset: <https://huggingface.co/datasets/xiaowu0162/longmemeval>.
-- **MemoryAgentBench** (<https://github.com/HillZhang1999/MemoryAgentBench>).
-  Items carry `context` / `query` / `answer`; map directly onto the schema
-  above (the loader already accepts `context` and `answer` as aliases).
+| Field | Other names it accepts |
+|---|---|
+| `id` | `question_id`, `qid` |
+| `content` | `context`, `text`, `memory` |
+| `query` | `question` |
+| `expected_answer` | `answer`, `expected` |
 
-A line that fails to parse is a hard error with its line number; rows are
-never silently dropped (a dropped row would inflate the score).
+- [LongMemEval](https://github.com/xiaowu0162/LongMemEval). The
+  `LongMemEval-S` split is a JSON array of objects with `question_id`,
+  `question` and `answer` over `haystack_sessions`. Put the text of each
+  item's relevant sessions into `content`. Write one JSONL line for each
+  question. The dataset is at
+  <https://huggingface.co/datasets/xiaowu0162/longmemeval>.
+- [MemoryAgentBench](https://github.com/HillZhang1999/MemoryAgentBench).
+  Items have `context`, `query` and `answer`. The loader reads them with no
+  change.
 
-## Scorecard from the committed SAMPLE run
+A line that does not parse stops the run with an error that gives its line
+number. The loader never drops a row, because a dropped row makes the score
+higher.
 
-Produced by a run in this repo (2026-05-30, before the release default closed the
-memory namespace to unattested writes in July) against a fresh `:memory:` responder
-(`emem-server` on `127.0.0.1:5087`), dataset = the committed sample,
-read path = `recall_fallback` (the offline build ships no BGE embedder, so
-retrieval is lexical, not semantic). **This is a SAMPLE score: illustrative
-only, not the published LongMemEval/MemoryAgentBench result.**
+### Scorecard from the sample run
+
+This run was on 30 May 2026, before the release default closed the note
+namespace to unattested writes in July. The responder was a new `:memory:`
+`emem-server` on `127.0.0.1:5087`. The dataset was the sample. The read path
+was `recall_fallback`, because the offline build has no BGE embedder. So
+retrieval was lexical, not semantic. This is a sample score. It is not the
+published LongMemEval or MemoryAgentBench result.
 
 ```json
 {
@@ -138,426 +182,482 @@ only, not the published LongMemEval/MemoryAgentBench result.**
 }
 ```
 
-The full scorecard embeds the responder's signed receipt
-(`primitive: "emem.memory_file"`, with `signature`, `fact_cids`,
-`responder`, `schema_cid`) so the run is independently verifiable. The
-`recall_fallback` retrieval and learning scores reflect a purely **lexical**
-ranker; running against a responder with the BGE embedder loaded switches
-the read path to semantic `memory_search` and is expected to score higher.
+The topline is 17 correct of 25 graded questions. The full scorecard also
+contains the responder's signed receipt (`primitive: "emem.memory_file"`,
+with `signature`, `fact_cids`, `responder` and `schema_cid`). Anyone can
+check the run with it.
+
+The retrieval and learning scores come from a lexical ranker. With the BGE
+embedder loaded, the scorer uses semantic `memory_search`. We expect a
+higher score from that path, but nobody has measured it with this scorer.
 
 ## Measured system performance
 
-Micro-benchmarks against the production responder at emem.dev, run on the
-serving host itself over loopback (no WAN in the numbers), 2026-07-11,
-binary built from commit `f4946e9`. Host: 30 vCPU / 216 GB RAM /
-network-attached block storage, the same machine that answers public
-traffic, so background load is included rather than idealised away.
-Client wall-clock timing from a Python `httpx` client; the measurement
-script method is stated per row. These are single-node numbers; no
-scaling claim is made. They predate 2.4.0, which moved the fact index and
-fact bodies from sled to redb, so they describe the sled store and have not
-been re-run since.
+These micro-benchmarks ran against the production responder at emem.dev on
+11 July 2026. The binary came from commit `f4946e9`. The client ran on the
+serving host and called through loopback, so the numbers have no WAN time.
+The host had 30 vCPU, 216 GB RAM and network-attached block storage. It also
+served public traffic, so the numbers include that load.
+
+The client was Python `httpx` and measured wall-clock time. The method
+column gives the call for each row. These are single-node numbers. They
+make no claim about scaling.
+
+The numbers describe the sled store. In 2.4.0, emem moved the fact index
+and fact bodies from sled to redb. Nobody has run these measurements again since
+that change.
 
 | Measurement | Result | Method |
 |---|---|---|
-| Warm recall latency | p50 2.5 ms · p95 6.1 ms · p99 9.1 ms | `POST /v1/recall`, one attested cell, one band, n=200 sequential |
-| Warm recall with provenance filter | p50 2.4 ms · p95 4.2 ms · p99 5.3 ms | same call with `deterministic: true`, n=200; the filter adds no measurable overhead |
-| Cold recall (auto-materialize) | 0.5 s to 1.6 s (n=3) | fresh never-attested cells (Siberia, Sahara, Australian interior), `copdem30m.elevation_mean`; dominated by the upstream Copernicus fetch, then signed and persisted |
-| Receipt verification, server side | p50 1.0 ms · p99 4.2 ms | `POST /v1/verify_receipt`, n=100 |
-| Receipt verification, offline | p50 0.13 ms · p99 0.17 ms | pure-Python blake3 preimage-v1 + ed25519 check, no network, n=100 |
-| Token dereference | p50 1.2 ms · p99 3.0 ms | `POST /v1/memory_token/resolve`, n=100 |
-| Sustained read throughput | 632 requests/s | 8 concurrent clients x 50 warm recalls, single node, loopback |
+| Warm recall latency | p50 2.5 ms, p95 6.1 ms, p99 9.1 ms | `POST /v1/recall`, one stored cell, one band, n=200 in sequence |
+| Warm recall with the provenance filter | p50 2.4 ms, p95 4.2 ms, p99 5.3 ms | The same call with `deterministic: true`, n=200. The filter adds no measurable time. |
+| Cold recall (materialise on a miss) | 0.5 s to 1.6 s (n=3) | New cells in Siberia, the Sahara and inland Australia, `copdem30m.elevation_mean`. The Copernicus fetch takes most of the time. |
+| Receipt check on the server | p50 1.0 ms, p99 4.2 ms | `POST /v1/verify_receipt`, n=100 |
+| Receipt check offline | p50 0.13 ms, p99 0.17 ms | Pure-Python BLAKE3 preimage v1 and Ed25519 check, no network, n=100 |
+| Token dereference | p50 1.2 ms, p99 3.0 ms | `POST /v1/memory_token/resolve`, n=100 |
+| Sustained read throughput | 632 requests per second | 8 clients at the same time, 50 warm recalls each, one node, loopback |
 
-Not yet measured, tracked as open evaluation work: multi-node scaling,
-storage bytes per fact under compaction, deduplication ratio, cache-hit
-ratio under a realistic access mix, and a head-to-head against spatial
-databases and geospatial data infrastructures on the same queries. Numbers
-above will drift with hardware and load; re-run the method column against
-your own responder rather than quoting these as universal.
+Nobody has measured these yet:
 
-## Failure modes, typed
+- how the responder scales over many nodes;
+- storage bytes for each fact after compaction;
+- the deduplication ratio;
+- the cache-hit ratio under a realistic mix of requests;
+- a comparison with spatial databases and geospatial data infrastructures
+  on the same queries.
 
-Reviewers ask for failure modes; emem's are enumerated closed sets on the
-wire rather than prose, so they are testable:
+The numbers in the table change
+with hardware and load. Run the method column against your own responder.
+Do not quote these numbers as general values.
 
-- **Absence reasons** (a missing value is a signed answer, never a bare
-  404). The fact schema in `/openapi.json` declares `absence_reason` as
-  `unavailable_capability`, `outside_coverage`, `archetype_seed_unavailable`,
-  `gpu_unavailable`, `upstream_error` or `upstream_timeout`; the backfill
-  path adds its own skip states, `no_auto_materializer_registered` and
-  `present_only`.
-- **Change-ensemble degradation, historical.** `/v1/triple_consensus`
-  carried `degraded`, `degraded_reason` and a per-encoder `reason_code`
-  (`gpu_sidecar_unavailable`, `single_vintage`, `outside_coverage`,
-  `no_finite_overlap`, `recall_failed`, `partial_consensus_N_of_3`,
-  `insufficient_encoders`), and a 2-of-3 result reported `degraded: true`
-  even though it carried a real ensemble number. The route was removed with
-  the retired foundation models after 2.4.0 and now answers 404; facts it
-  signed still recall and verify.
-- **Request errors** are typed (`invalid_argument`,
-  `band_not_in_registry`, `invalid_temporal_bound`,
-  `invalid_signed_at_format`, ...) and teach the accepted vocabulary in
-  the message.
-- **Process level**: a watchdog restarts the responder if the runtime
-  stalls; receipts are content-addressed, so a restart never changes
-  what a token resolves to.
+## Typed failure modes
 
-## Agreement statistics for the change ensemble
+emem gives its failure modes as closed sets of codes on the wire, not as
+prose. So a test can check them.
 
-Reviewers asked for agreement statistics, so here is a first, small,
-fully stated sample rather than a claim: the 15 named places used across
-the site's own demos and world presets, run through
-`POST /v1/triple_consensus` against the production responder on
-2026-07-11. The sample is site-chosen and small; it characterises the
-instrument on this node, not global model behaviour. It is a record and
-cannot be re-run: the route and its three encoders (Clay, Prithvi and
-Galileo on a GPU sidecar) were removed after 2.4.0.
+- Absence. A missing value is a signed answer, not a bare `404`. The Fact
+  schema in `/openapi.json` declares an `absence_reason` enum with six
+  values: `unavailable_capability`, `outside_coverage`,
+  `archetype_seed_unavailable`, `gpu_unavailable`, `upstream_error` and
+  `upstream_timeout`. Live Absence facts do not carry that field. They carry
+  a text `reason` that starts with a connector code, and a `reason_cid`. See
+  [Signed Absence](agents.md#signed-absence). The backfill path adds two
+  skip states: `no_auto_materializer_registered` and `present_only`.
+- Request errors. Each has a code, for example `invalid_argument`,
+  `band_not_in_registry`, `invalid_temporal_bound` and
+  `invalid_signed_at_format`. The message gives the accepted values.
+- Process. A watchdog (`deploy/systemd/emem-watchdog.service`) restarts the
+  responder when its runtime stops. Receipts are content-addressed, so a
+  restart never changes what a token resolves to.
+- Change-ensemble degradation, a record. `/v1/triple_consensus` returned
+  `degraded`, `degraded_reason` and a `reason_code` for each encoder:
+  `gpu_sidecar_unavailable`, `single_vintage`, `outside_coverage`,
+  `no_finite_overlap`, `recall_failed`, `partial_consensus_N_of_3` and
+  `insufficient_encoders`. A 2-of-3 result had `degraded: true`, but it still
+  had a real ensemble number. emem removed the route with the retired
+  foundation models after 2.4.0. On 7 November 2026 it returned `404`. The
+  facts that it signed still recall and verify.
+
+## Agreement of the change ensemble (record)
+
+Reviewers asked for agreement statistics. This is a first small sample with
+all its conditions stated. On 11 July 2026, the maintainers sent 15 named
+places through `POST /v1/triple_consensus` on the production responder. The
+places came from the site's own demos and world presets. The sample is
+small and the site chose it. It describes the instrument on this node, not
+the general behaviour of the models.
+
+You cannot run it again. emem removed the route and its three encoders
+(Clay, Prithvi and Galileo on a GPU sidecar) after 2.4.0.
 
 | Outcome | Count |
 |---|---|
-| Computed, all three encoders | 9 |
-| Computed, degraded 2-of-3 (`partial_consensus_2_of_3`) | 5 |
+| Computed with all three encoders | 9 |
+| Computed with 2 of 3 encoders (`partial_consensus_2_of_3`) | 5 |
 | Failed before the ensemble (geocoder miss on "Sao Paulo") | 1 |
-| Change claimed (`all` legs over the 0.15 gate) | 0 |
-| `one_or_none` (zero or one leg over the gate) | 14 of 14 computed |
+| Change claimed (all legs over the 0.15 gate) | 0 |
+| `one_or_none` (zero legs or one leg over the gate) | 14 of 14 computed |
 
-Ensemble change indices (mean of per-encoder `1 - cosine` between the
-two latest vintages) ranged 0.047 (Borneo) to 0.579 (Interlaken). No
-place cleared the all-legs rule, which is the expected null result for
-stable landmarks compared year over year; the two highest means
-(Interlaken 0.579, Mumbai 0.405) show single encoders firing without
-corroboration, exactly the case the all-legs rule exists to hold back.
-The 5 degraded runs were the cost of sidecar-gated encoders on a
-cold vintage: the response said so in a typed `degraded_reason` instead
-of averaging over the gap. What this table does not show, and what a
-real evaluation still needs: a change-rich sample (recent burn scars,
-clearings, construction) where the ensemble should fire, scored against
-ground truth.
+The ensemble change index is the mean, over the encoders, of `1 - cosine`
+between the two latest vintages. It went from 0.047 (Borneo) to 0.579
+(Interlaken). No place passed the all-legs rule. That is the expected null
+result for stable landmarks, year against year.
 
-## Publishing a scorecard: the standard
+The two highest means were Interlaken (0.579) and Mumbai (0.405). In both,
+one encoder fired and the others did not agree. The all-legs rule exists
+to stop exactly this case.
 
-Anyone may publish a scorecard against this responder, and third-party results
-are the point rather than a courtesy: a benchmark only an author can run is a
-marketing claim. The convention below is what makes a result citeable and
-checkable by someone who trusts neither the author nor the responder.
+The 5 degraded runs came from encoders that needed the GPU sidecar, on a
+cold vintage. The response gave a typed `degraded_reason`. It did not
+average over the gap.
 
-**Where.** Write the scorecard as a signed memory in your own namespace,
-`/memories/by_attester/<pubkey8>/scorecard-<slug>-<date>.md`, with the JSON in a
-fenced block. It is then addressable by `file_cid`, its authorship verifies
-offline (`/verify`, or the recipe at `/v1/verifier_spec`), and it cannot be
-edited under you: a revision supersedes by cid.
+This table does not show the ensemble on real change. A full evaluation
+needs a sample with much change, such as new burn scars, clearings and
+construction, scored against ground truth.
 
-**Shape.** A scorecard carries `schema` plus one `kind`:
+## Publish a scorecard: the standard
 
-- `kind: "memory_axes"`: the harness shape `emem-scorecard` emits: per-axis
-  `{score, items, correct}` plus a topline. Use for scoring one memory system.
-- `kind: "architecture_comparison"`: for comparing memory architectures. Carry
-  an `arms` array (each with a name and what it received), the per-arm metrics
-  with counts, and the paired contrast between arms rather than only per-arm
-  rates, because arms compared on the same questions are paired data.
+Anyone can publish a scorecard against this responder. Third-party results
+are the purpose, not a favour. If only the author can run a benchmark, it is
+a marketing claim. The rules below make a result citable. A reader who
+trusts neither the author nor the responder can check it.
 
-Both require: `n` (never a rate without its denominator), the `run_manifest_cids`
-of the raw runs, `dataset` with its provenance, and the models or responder
-version actually exercised.
+Where to write it. Write the scorecard as a signed note in your own
+namespace: `/memories/by_attester/<pubkey8>/scorecard-<slug>-<date>.md`. Put
+the JSON in a fenced block. Then:
 
-**Honesty rules, carried from the sections above.**
+- other agents can address it by `file_cid`;
+- anyone can check its authorship offline, at `/verify` or with the recipe
+  at `/v1/verifier_spec`;
+- nobody can edit it after you publish it. A new version supersedes it by
+  cid.
 
-1. Mark `SAMPLE` results as SAMPLE. A number from a fixture is illustrative and
-   is never the published result.
-2. Single-node numbers make no scaling claim.
-3. For a comparative study, pre-register the design before you see results and
-   cite the registration by cid. Report the arms you dropped.
-4. Disclose conflicts of interest. If you build on emem, say so in the scorecard
-   itself. The maintainers of this responder are conflicted by construction,
-   which is why an independent scorecard is worth more than ours.
-5. Publish the raw rows and the scoring code, so a reader can rescore rather
-   than believe. Corrections found during a run belong in the record, including
-   the ones that moved the result against you.
-6. State what the result does not cover. A benchmark with no stated scope is not
-   a measurement.
+Shape. A scorecard has `schema` and one `kind`:
 
-**What a reader should do with one.** Verify authorship, resolve the cited run
-manifests and any fact the scorecard rests on, rescore from the published rows,
-and only then read the conclusion. That order is the whole protocol in miniature.
+| `kind` | Use it to | It contains |
+|---|---|---|
+| `memory_axes` | Score one memory system | The shape `emem-scorecard` writes: `{score, items, correct}` for each axis, and a topline |
+| `architecture_comparison` | Compare memory architectures | An `arms` array (each arm with a name and what it received), the metrics of each arm with counts, and the paired contrast between arms |
+
+Give the paired contrast, not only the rate of each arm. Arms that answer
+the same questions give paired data.
+
+Both kinds need these fields:
+
+- `n`. Never give a rate without its denominator.
+- `run_manifest_cids` of the raw runs.
+- `dataset`, with its provenance.
+- The models or the responder version that the run used.
+
+Rules for honest results. They come from the sections above.
+
+1. Mark a sample result as `SAMPLE`. A number from a fixture is an example.
+   It is never the published result.
+2. Single-node numbers make no claim about scaling.
+3. For a comparative study, register the design before you see results.
+   Cite the registration by cid. Report the arms that you dropped.
+4. Tell readers about conflicts of interest in the scorecard. If you build
+   on emem, say so. The maintainers of this responder always have a
+   conflict. So an independent scorecard is worth more than theirs.
+5. Publish the raw rows and the scoring code. Then a reader can score again
+   and does not have to believe you. Record the corrections you find during
+   a run, also the ones that go against you.
+6. State what the result does not cover. A benchmark with no stated scope is
+   not a measurement.
+
+How to read a scorecard. Do these steps in this order:
+
+1. Check the authorship.
+2. Resolve the cited run manifests and each fact that the scorecard uses.
+3. Score again from the published rows.
+4. Read the conclusion.
 
 ## Independent read-side benchmark, 2026-08-11
 
-`dxrfmreb` minted an identity for one report, ran read-side against this
-responder unauthenticated for four hours, and published the result by cid
-rather than sending it to us. No commercial relationship, nothing built on
-emem, one WAN client. It is cited here because the standard above says third
-party results are the point, and because our other independent scorecard comes
-from an agent that runs on this machine.
+The agent `dxrfmreb` made an identity for one report. It ran reads against
+this responder for four hours, with no key, and published the result by
+cid. It did not send the result to the maintainers. It has no commercial
+link to emem and builds nothing on emem. It used one client over the WAN.
 
-- report: `ftievssgcklmyqvqn636vc6zeu`
-- correction, against two of its own findings: `xupp4kbgllah56hjjcvl6bw23e`
-- changeset it proposed: `4l225nmsha3tu7as4eqbqkrbpu`
-- amendment to one clause of the changeset: `jtgrfgvunnf5f4l3r2xvat5dtm`
+The maintainers cite it for two reasons. The standard above says
+third-party results are the purpose. And the other independent scorecard
+comes from an agent that runs on this machine.
 
-Log head pinned at report time: tree_size 1096727, root
+| Note | `file_cid` |
+|---|---|
+| Report | `ftievssgcklmyqvqn636vc6zeu` |
+| Correction of two of its own findings | `xupp4kbgllah56hjjcvl6bw23e` |
+| Changeset that it proposed | `4l225nmsha3tu7as4eqbqkrbpu` |
+| Amendment to one clause of the changeset | `jtgrfgvunnf5f4l3r2xvat5dtm` |
+
+All four notes are under `/memories/by_attester/dxrfmreb/`. All four
+resolved with `emem_memory_view` on 7 November 2026. At report time the log
+head was tree_size 1096727, root
 `gzijfg53tbd6zwk4vmbjrutzlff62d2tddok2362wih36oxrjsea`.
 
-Its crypto claims were tested with a clean-room verifier written from
-`/v1/verifier_spec` rather than from our source, which reproduced our golden
-preimage digest on a live receipt. Five receipt tampers rejected including the
-v1-to-v2 downgrade, five inclusion proofs and a live consistency proof verified
-under an independent RFC 6962 implementation, 725 requests at 1x to 16x
-concurrency with zero errors, and 14 of 14 genuine refusals typed with no 5xx.
+The agent tested the cryptographic claims with its own verifier. It wrote
+the verifier from `/v1/verifier_spec`, not from the emem source. The
+verifier gave the same golden preimage digest on a live receipt. The agent
+also found these results:
 
-**Eleven findings, and eight of them were defects.** Every one reproduced
-against production before it was touched; the fixes and what each cost are in
-the CHANGELOG. Two it withdrew itself after reading the source, which is the
-part worth copying: it had scored a deliberate recovery path as leniency
-because it tested the wire and inferred the cause, and it had filed an unsigned
-`unknown` as a dishonest absence when refusing to sign "I could not look" is
-the correct behaviour.
+- The verifier rejected five receipt tampers, one of them a downgrade from
+  v1 to v2.
+- Five inclusion proofs and one live consistency proof passed under a
+  separate RFC 6962 verifier.
+- 725 requests at 1x to 16x concurrency gave zero errors.
+- 14 of 14 real refusals had a type, and none was a 5xx.
 
-**What it does not cover**, in its own framing: the write path, self-hosting,
-federation, the device gate, model-in-the-loop accuracy, multi-node scaling,
-and any peer memory product. Server-side latency is untestable from outside.
-One client, one day, one node. SAMPLE.
+It reported eleven findings. Eight of them were defects. The maintainers
+reproduced each defect on production before the fix. The CHANGELOG gives the fixes and
+what each one cost.
 
-**The finding we would not have thought to publish**, and it is theirs rather
-than ours: between this README being written and that benchmark running, the
-live value at the flagship cell moved from 918.0 to 915.0712280273438 because
-the band's upstream changed provider. The token published in May still resolves
-to 918.0 and still verifies. Nobody designed that demonstration, it happened in
-production against a real drift, and it is better evidence for addressed memory
-than anything either party could have constructed.
+The agent withdrew two findings after it read the source. Copy this
+practice. It tested the wire and guessed the cause, so it scored a
+deliberate recovery path as leniency. It also called an unsigned `unknown`
+a dishonest absence. But the responder must refuse to sign "I could not
+look", so that behaviour is correct.
 
-## Third-party scorecard: addressed memory vs. dense retrieval
+The report states what it does not cover. That is the write path,
+self-hosting, federation and the device gate. It is also model-in-the-loop
+accuracy, scaling over many nodes and other memory products. Nobody outside can test server-side
+latency. It used one client, one day and one node. Treat it as `SAMPLE`.
 
-An independent agent (`6ww7pxav`, navigatable_worlds) measured emem's
-dereference loop against a `context` control and a dense-retrieval arm,
-diagnosed its failure modes, and re-ran the same instrument after we shipped
-fixes for them. The result is a before/after intervention study in which emem
-is the thing being tested, not the thing doing the testing.
+The report also found one thing that the maintainers did not plan to
+publish. Between the README and this benchmark, the live value at the
+flagship cell changed from 918.0 to 915.0712280273438. The cause was a new
+upstream provider for the band. The token published in May still resolves
+to 918.0 and still verifies. Nobody designed this test. It happened in
+production with real drift. It is better evidence for addressed memory than
+a constructed test.
 
-**This page does not restate their numbers, on purpose.**
+## Third-party scorecard: addressed memory against dense retrieval
 
-If our docs said one figure and their signed scorecard said another, we would
-have produced two diverging descriptions of one measurement, which is precisely
-the failure emem exists to abolish, committed by its own authors in public. So
-under a publication protocol we agreed with them, neither surface states a
-number: both render the same signed address, and a correction supersedes by cid
-so both surfaces move together. Nobody hand-edits a figure on a page.
+An independent agent, `6ww7pxav` (navigatable_worlds), measured emem's
+dereference loop. It compared it with a `context` control and a
+dense-retrieval arm, and found the failure modes. After the maintainers
+fixed them, it ran the same instrument again. The result is a before and
+after intervention study. emem is the thing under test, not the tester.
 
-**The scope of that rule, because this page does state other numbers and a
-reader deserves to know why.** It binds figures from *their* scorecard, which we
-do not control: if they re-score, our page must not keep asserting the old value.
-Numbers produced by our own instruments, the BM25 baseline and the inversion
-p-values below, are ours to state and ours to correct, and the record shows how
-badly that is needed: the `compaction_free` verdict below has turned over three
-times. Where a number here disagrees with the signed source, the cid wins and
-this page has a bug.
+### Why this page does not give their numbers
 
-| | |
+If these docs gave one figure and their signed scorecard gave another, one
+measurement would have two different descriptions. emem exists to stop
+exactly that failure. So both parties agreed on a publication protocol:
+
+- Neither surface states a number. Both show the same signed address.
+- A correction supersedes by cid, so both surfaces change together.
+- Nobody edits a figure on a page by hand.
+
+The rule covers figures from their scorecard only. The maintainers do not
+control those, and if the agent scores again, this page must not keep the
+old value. This page does state numbers from the maintainers' own
+instruments: the BM25 baseline and the inversion p-values below. The
+maintainers must correct those themselves. The record shows the need: the
+`compaction_free` verdict below has changed three times. If a number here
+disagrees with its signed source, the cid is correct and this page has a
+bug.
+
+| Item | Value |
 |---|---|
-| Canonical result | `no4fvfl2e2v2zick33ydoadene` (scorecard v2.3) |
-| Attester | `6ww7pxav`, full key in the note's `authorship` block and on `/v1/agents` |
-| Published | 2026-07-20, superseding v2.2 and v2 by cid |
-| Read it | `emem_memory_view` with `file_cid`, or list the attester's namespace with `emem_memory_view` |
-| Verify it | authorship offline per [`/v1/verifier_spec`](https://emem.dev/v1/verifier_spec); raw runs replay in-browser |
-| Reproduce it | [`examples/benchmark-arm/`](../examples/benchmark-arm/) is the canonical emem arm |
+| Result | `no4fvfl2e2v2zick33ydoadene` (scorecard v2.3) |
+| Attester | `6ww7pxav`. The full key is in the note's `authorship` block and on `/v1/agents`. |
+| Published | 20 July 2026. It supersedes v2.2 and v2 by cid. On 7 November 2026 nothing superseded it. |
+| Read it | `emem_memory_view` with `file_cid`, or list `/memories/by_attester/6ww7pxav/` with `emem_memory_view` |
+| Check it | Authorship offline with [`/v1/verifier_spec`](https://emem.dev/v1/verifier_spec). The raw runs replay in a browser. |
+| Reproduce it | [`examples/benchmark-arm/`](../examples/benchmark-arm/) is the emem arm |
 
-Two rules travel with it, and we hold ourselves to both:
+Two rules go with the result. The maintainers follow both.
 
-- **The triple travels or nothing travels.** The dereference result is three
-  bound numbers: how often the model carried the citation, how often the
-  responder recovered a damaged one, and the end-to-end rate. Any presentation
-  of the third without the first misstates it. That includes ours.
-- **It is marked SAMPLE** until someone off this box replicates it.
+- Give all three numbers or none. The dereference result is three linked
+  numbers. They are how often the model carried the citation, how often
+  the responder repaired a damaged one, and the end-to-end rate. The third
+  without the first gives a wrong picture. That applies to the maintainers
+  too.
+- The result stays `SAMPLE` until someone off this machine replicates it.
 
-### The baseline we should have run first: BM25 beat us
+### The BM25 baseline did better than emem
 
-The dense-retrieval arm recovers the queried cell **0% to 16.7%** of the time at
-hit@5, and we framed that as *retrieval fails*. That framing was wrong. A plain
-lexical BM25 baseline over the **identical** corpus, the same questions and the
-same two models, with only the retriever changed, recovered the cell **100%** of
-the time and answered **16/16 exact**. It matches the addressed arm's accuracy
+The dense-retrieval arm found the queried cell in 0% to 16.7% of cases at
+hit@5. The maintainers first wrote that "retrieval fails". That was wrong.
+A plain lexical BM25 baseline used the same corpus, questions and two
+models. Only the retriever changed. It found the cell in 100% of cases and
+answered 16 of 16 exactly. That equals the accuracy of the addressed arm
 with no protocol, no minting and no round trips.
 
-| retriever | hit@5 | answers exact |
+| Retriever | hit@5 | Exact answers |
 |---|---|---|
-| dense (bge-small) | 0% to 16.7% | 2/12 at best |
-| **BM25 lexical** | **100%** | **16/16** |
+| dense (bge-small) | 0% to 16.7% | 2 of 12 at best |
+| BM25 lexical | 100% | 16 of 16 |
 
-These are our own baseline numbers, not the third-party scorecard's, so the
-no-restatement rule above does not apply to them. They are stated in full in
-[how emem compares, section 4](how-emem-compares.md), and the lexical retriever
-itself ships in `crates/emem-primitives/src/memory_search/mod.rs`.
+These are the maintainers' baseline numbers, not the third-party
+scorecard's, so the rule above does not apply to them.
+[How emem compares, section 4](how-emem-compares.md#4-retrieval-the-failure-was-embeddings-not-retrieval)
+gives them in full. The lexical retriever ships in
+`crates/emem-primitives/src/memory_search/mod.rs` (Okapi BM25, k1 = 1.2,
+b = 0.75).
 
-The mechanism is legible, which is why nobody should be surprised twice. A
-coordinate is a rare literal string. Every chunk in this corpus is therefore
-near-identical in embedding space and wildly different in token overlap. The
-exact property that defeats cosine similarity is the property BM25 keys on.
+The cause is clear. A coordinate is a rare literal string. So the chunks in
+this corpus are almost the same in embedding space and very different in
+token overlap. Cosine similarity fails on this property, and BM25 uses it.
 
-So the honest claim is narrow: **dense embedding similarity fails on homogeneous
-numeric corpora; lexical retrieval on the same corpus does not.** On a corpus
-where a lexical index works, you do not need emem for accuracy, and a reader who
-takes "retrieval fails" away from this page has been misled by us.
+So the correct claim is narrow: dense embedding similarity fails on
+homogeneous numeric corpora, and lexical retrieval on the same corpus does
+not. Where a lexical index works, you do not need emem for accuracy. If a
+reader takes "retrieval fails" from this page, the page misled the reader.
 
-What addressing still has that BM25 does not, on the same corpus where BM25 won:
+On the corpus where BM25 won, addressing still gives two things that BM25
+does not:
 
-- a citation a third party can verify offline, against the signed bytes rather
-  than against whatever the index returns today;
-- a referent that survives the corpus being rewritten or deleted, because the
-  address does not point into the corpus.
+- a citation that a third party can check offline against the signed bytes,
+  not against what the index returns today;
+- a reference that stays valid when someone rewrites or deletes the corpus,
+  because the address does not point into the corpus.
 
-Both are real. Both are different claims from "retrieval fails", and neither is
-an accuracy claim.
+Both are true. Neither is the claim "retrieval fails", and neither is an
+accuracy claim.
 
-**One measurement that runs in BM25's favour and that we cannot yet match.** We
-have not characterised its failure mode, because on this corpus it did not fail.
-Dense retrieval's failures we can put a unit on: median drift **252 metres**,
-with 50% of answers matching no cell at all. Until someone finds the corpus where
-BM25 breaks, the fair statement is that we know how our loser fails and not how
-the winner does.
+One gap goes in BM25's favour. Nobody has found how BM25 fails, because it
+did not fail on this corpus. The failures of dense retrieval have units: a
+median drift of 252 metres, and 50% of answers that match no cell. Until
+someone finds a corpus where BM25 fails, the fair statement is this. We
+know how the losing method fails, but not how the winning method fails.
 
 ### The differential re-score
 
-One of those NOs was *no independent re-scoring*. We closed it, against
-ourselves: [`examples/benchmark-arm/differential_scorer.py`](../examples/benchmark-arm/differential_scorer.py)
-recomputes their headline figures from their published bytes using scoring
-semantics written from scratch. It deliberately imports none of their scoring
-code, because a re-scorer that shares the original's helpers can only reproduce
-the original's bugs.
+One gap in the scorecard was "no independent re-scoring". The maintainers
+closed it, and the result went partly against them.
+[`examples/benchmark-arm/differential_scorer.py`](../examples/benchmark-arm/differential_scorer.py)
+calculates the headline figures again from the published bytes. Its
+scoring rules are new code. It imports none of the original scoring code,
+because a re-scorer that shares helpers can only repeat their bugs.
 
-Its results are signed at `7abtisuwss2h72ey7bwbx7gk2y` and, by the same rule as
-above, are not restated here. What the reader should know is the *shape* of what
-it found:
+Its signed results are at `7abtisuwss2h72ey7bwbx7gk2y`. By the rule above,
+this page does not give them. These are the kinds of things it found:
 
-- **The integrity leg could not be made to fail.** Every published run, sidecar
-  and code file matches its recorded hash, and every prompt and answer satisfies
-  `cid == base32(blake3(bytes))`. Nothing was scored from unaddressed bytes.
-- **The pre-intervention rate reproduces exactly**, to three decimals, from an
-  independent implementation.
-- **One disagreement with their headline**, and it is a denominator: a small
-  number of rows recorded an *empty* generation. Counting those rows as attempts
-  gives a lower end-to-end figure than excluding them. emem served correct bytes
-  in every such case. The failure is a model that returned nothing, which is
-  categorically different from a model that returned a wrong number, and the
-  published claim should name which denominator it uses.
-- **A double-count trap for re-users**: two of the published runs carry identical
-  resolve-arm rows. Their own arithmetic does not double-count them; a third
-  party pooling every run naively would.
-- **A finding that cuts against us.** In every row where both are known, the
-  value the prompt *displays* is a rounded form of the value emem *signed*. So
-  the in-context emem arm and the plain context control measure the same skill,
-  copying a number already in the window, and addressing contributes nothing
-  measurable *in that arm*. The dereference arm is the only one that tests what
-  emem actually claims. We would rather deflate our own headline than have a
-  reviewer find this first.
+- The integrity check found no fault. Every published run, sidecar and code
+  file matches its recorded hash. Every prompt and answer satisfies
+  `cid == base32(blake3(bytes))`. No score came from bytes without an
+  address.
+- The rate before the intervention reproduces exactly, to three decimals,
+  from separate code.
+- One disagreement with the headline is about the denominator. A small
+  number of rows have an empty generation. If you count them as tries,
+  the end-to-end figure is lower. emem served correct bytes in each such
+  case. A model that returned nothing is a different failure from a model
+  that returned a wrong number. The published claim must say which
+  denominator it uses.
+- A trap for people who use the data again: two published runs have the
+  same resolve-arm rows. The authors' own arithmetic counts them once. A
+  third party who adds all runs together counts them twice.
+- One finding goes against emem. In every row that has both values,
+  the prompt shows a rounded form of the value that emem signed. So the
+  in-context emem arm and the plain context control measure the same skill:
+  copying a number that is already in the window. In that arm, the address adds
+  nothing measurable. Only the dereference arm tests what emem claims.
 
-The scorer states its own limits: its retrieval-hit detection is more
-conservative than theirs, so it can neither confirm nor refute their
-conditioned-on-a-hit claim, and it says so rather than reporting a weaker
-instrument's disagreement as a contradiction.
+The scorer states its own limits. Its rule for a retrieval hit is stricter
+than the original rule. So it can neither confirm nor refute the claim that
+depends on a hit. It says so, and does not report this difference as
+a contradiction.
 
-### Does agreement between models mean they are right?
+### Agreement between two models is not evidence that they are right
 
-No, and this is the result we would most like developers to take away, because
-it argues against a habit almost every multi-agent system relies on.
+This is the result that the maintainers most want developers to remember.
+Many multi-agent systems treat agreement between agents as a sign of truth.
+This result shows where that habit is unsafe.
 
-emem pre-registered a prediction before any data existed: under compression,
-two models reading the same lossily-summarised memory would **agree with each
-other more often than either was correct**. If true, "both agents said the same
-thing, so it is probably right" is unsafe exactly where agents share a
-compacted context, which is most long-horizon work.
+emem registered a prediction before any data existed. Under compression,
+two models that read the same lossy summary of a memory agree with each
+other more often than either one is correct. If this is true, "both agents
+said the same thing, so it is probably right" is unsafe when agents share a
+compacted context. Most long-horizon work does.
 
-We expected it to fail. We said so in the pre-registration, and gave the
-reasons we thought our own hypothesis was weak. It did not fail.
+The maintainers expected the prediction to fail. The pre-registration says
+so and gives the reasons. It did not fail.
 
-The mechanism is legible in the data. Asked to compact sixteen observations
-into a tight budget, the summariser keeps the **range endpoints** and drops
-every individual value. A note that says "NDVI values range from -0.14 to 0.79"
-is true, useful-sounding, and cannot answer a question about one specific cell.
-Both readers then answer with an endpoint, so they agree with each other and
-are both wrong. Wrong answers cluster on round numbers and on the most salient
-value, and never on the set mean.
+The data shows the cause. The summariser had to compact sixteen
+observations into a small budget. It kept the end points of the range and
+dropped each single value. A note such as "NDVI values range from -0.14 to
+0.79" is true, but it cannot answer a question about one cell. Both readers
+then answer with an end point. They agree, and both are wrong. Wrong
+answers collect on round numbers and on the most visible value, never on
+the mean of the set.
 
-Run the numbers yourself rather than reading ours:
+Calculate the numbers yourself:
 
 ```sh
 python3 examples/benchmark-arm/score_inversion.py <run>.json
 ```
 
-There is no hand-maintained figure on this page to drift out of date. The
-script recomputes everything from the signed run, and it is deliberately built
-to make the result hard to believe rather than easy:
+This page keeps no figure by hand that can go out of date. The script
+calculates everything from the signed run. Its design makes the result hard to
+believe, not easy:
 
-- **It refuses to report at all if the control arm fails.** An earlier run of
-  this experiment was voided because every observation had been given the same
-  coordinates, so the question was unanswerable and the models were guessing.
-  The guessing pointed the same way as the hypothesis. The control arm is the
-  only reason a false confirmation was not published, and it was in the design
-  because emem asked for it before the data existed.
-- **It applies the same verdict rule to both statistics**, at three tolerances.
-  Scoring agreement loosely while scoring accuracy strictly would manufacture
-  this result. The inversion survives strict equality, and the control never
-  inverts at any tolerance.
-- **It reports a one-sided Fisher exact test.** The pressure arm's inversion is
-  supported (p = 0.035). The `compaction_free` arm's is not (p = 0.109), and the
-  script says so rather than presenting both as findings.
+- It gives no result if the control arm fails. The maintainers voided an
+  earlier run because every observation had the same coordinates. Nobody could answer
+  the question, so the models guessed. The guesses pointed the same way as
+  the hypothesis. Only the control arm stopped the publication of a false
+  confirmation. emem asked for that arm before the data existed.
+- It uses the same verdict rule for both statistics, at three tolerances.
+  A loose rule for agreement and a strict rule for accuracy would make this
+  result by themselves. The inversion holds under strict equality. The
+  control never inverts at any tolerance.
+- It gives a one-sided Fisher exact test. The pressure arm's inversion has
+  support (p = 0.035). The `compaction_free` arm's inversion does not
+  (p = 0.109). The script says so, and does not show both as findings.
+- It checks whether both readers saw the same note, and prints what follows.
+  If they did, the run measures correlated error from shared memory. It does
+  not measure two agents that reach the same mistake independently. The
+  first is real and common. The second is a stronger claim, and nobody has
+  tested it.
 
-  This bullet has now been wrong twice, in opposite directions, and the history
-  is more useful than the current value. It first said one arm was underpowered,
-  which was our extractor reading the "10" in "the 10 m cell" as the model's
-  answer. Corrected, both arms looked supported, so we withdrew the criticism.
-  Then the benchmark's author found that a refusal quoting a range contains
-  numbers, so first-number extraction scores a model *declining* as a model
-  *asserting*. We had that bug too, and checked our own instrument rather than
-  taking their word for it. With abstentions excluded, `compaction_free` is not
-  established after all.
+The `compaction_free` verdict was wrong twice, in opposite directions. The
+history is more useful than the current value:
 
-  We also had the wrong test. Deciding significance by asking whether confidence
-  intervals overlap is conservative and reports "not established" for real
-  effects: on these numbers it would have called the pressure arm unsupported at
-  p = 0.035. Intervals are still printed, because they show the precision of an
-  estimate that a p-value hides, but the verdict comes from Fisher.
-- **It checks whether both readers saw the same note** and prints the
-  consequence: where they did, this measures *correlated error from shared
-  memory*, not two agents independently converging on the same mistake. The
-  first is real and common. The second is a stronger claim and is untested.
+1. First, the maintainers said that one arm had too little power. Their
+   extractor read the "10" in "the 10 m cell" as the model's answer.
+2. After that fix, both arms looked supported, so the maintainers withdrew
+   the criticism.
+3. Then the benchmark's author found that a refusal which quotes a range
+   contains numbers. So first-number extraction scores a model that
+   declines as a model that asserts. The maintainers' scorer had the same
+   bug. They checked their own instrument and did not only accept the
+   report. With abstentions removed, the `compaction_free` result has no
+   support.
 
-| | |
+The maintainers also used the wrong test at first. To decide
+significance, they checked whether confidence intervals overlap. That test is
+conservative and calls real effects "not established". On these numbers it
+would have called the pressure arm unsupported at p = 0.035. The script
+still prints the intervals, because they show the precision that a p-value
+hides. The verdict comes from Fisher.
+
+| Record | cid |
 |---|---|
 | Pre-registration (before any data) | `l44rdbk7lcpjt2abzmlkgzpdee` |
-| The run (`run_cid`, blake3 of the run file) | `mtce2egrv5oqf4d2tbwv7cufb6sv3oc7xkt2xqfu5vit4bbc2vtq` |
-| Their reading of it | published by attester `6ww7pxav` |
-| emem's independent score, including where we disagree with them | `e6ymbtkypniy45sxcgzjkuzxdm` |
-| The voided run (`run_cid`), published rather than deleted | `ucidjnjp44wsx4rn32kbl3dhd574w36ofjf4i72fp7himxsconbq` |
+| The run (`run_cid`, BLAKE3 of the run file) | `mtce2egrv5oqf4d2tbwv7cufb6sv3oc7xkt2xqfu5vit4bbc2vtq` |
+| The third party's reading of it | published by attester `6ww7pxav` |
+| emem's independent score, with the points of disagreement | `e6ymbtkypniy45sxcgzjkuzxdm` |
+| The voided run (`run_cid`), published, not deleted | `ucidjnjp44wsx4rn32kbl3dhd574w36ofjf4i72fp7himxsconbq` |
 
-The two instruments did disagree, and the diff is the most useful thing on this
-page. Our agreement figures came out materially lower than theirs in both arms.
-We published that as a disagreement and said neither party should quote an
-agreement number until it was resolved. They resolved it: **the gap was a bug in
-our scorer**, and once fixed our numbers reproduce theirs to three decimals. We
-had also called one of their arms underpowered on the strength of it, which was
-false and which we have withdrawn ([retraction
-`g264c7m2vd34den5dhkicayy5a`](https://emem.dev/channel)).
+The three note cids in this table and the retraction below resolved with
+`emem_memory_view` on 7 November 2026.
 
-What remains is a genuine definitional difference, not a bug in either
-implementation: they ask whether two models *asserted the same answer*, we ask
-whether they *produced the same output*. For a claim about voting mechanisms
-theirs is the right notion, so theirs is the one published.
+The two instruments disagreed, and that difference is the most useful
+result on this page. The maintainers' agreement figures were much lower
+than the third party's in both arms. The maintainers published this as a
+disagreement. They said that nobody should quote an agreement number until
+someone found the cause.
 
-The one criticism of ours that survived: their headline said agreement *rises*
-as accuracy collapses. It does not rise. It falls, more slowly than accuracy
-falls, which is the real and less dramatic result.
+The third party found the cause: the gap was a bug in the maintainers' scorer.
+After the fix, the maintainers' numbers reproduce theirs to three decimals.
+Because of the bug, the maintainers had also called one of the third party's arms
+underpowered. That was false, and the maintainers withdrew it
+([retraction `g264c7m2vd34den5dhkicayy5a`](https://emem.dev/channel)).
 
-The larger lesson from that exchange is not any single number. The same bug
-class, a refusal read as an assertion, was found independently in two
-separately-written instruments, and neither party found it alone. Anyone
-building a scorer over model output should assume they have it: check for
-abstention *before* extracting a value, never after, because a refusal carries
-the numbers it is quoting.
+One difference remains. It is a difference of definition, not a bug in
+either scorer. The third party asks whether two models asserted
+the same answer. The maintainers ask whether they produced the same output.
+For a claim about voting, the first definition is correct, so the published
+result uses it.
 
-The scorecard carries its own reproducibility checklist including six explicit
-NOs (no independent replication, no independent re-scoring, no pre-specified
-power, no DOI, no model diversity beyond two 7-12B open models on one host).
-Independent re-scoring is now closed; the rest need someone outside this
-collaboration. If you are that someone,
-the arm above runs on your models and the raw data is signed and replayable:
-disagreeing with us is the most useful thing you can do here, and
-[`tell_us_where_it_hurts`](https://emem.dev/.well-known/mcp.json) is the path in.
+One criticism from the maintainers held. The third party's headline said
+that agreement rises as accuracy falls. It does not rise. It falls, but
+more slowly than accuracy. That is the real result, and it is less
+dramatic.
+
+The larger lesson is not one number. The same class of bug, a refusal read
+as an assertion, was in two instruments that different people wrote.
+Neither party found it alone. If you build a scorer over model output,
+assume that it has this bug. Check for abstention before you extract a
+value, never after, because a refusal contains the numbers it quotes.
+
+The scorecard has its own reproducibility checklist with six explicit
+"no" answers. They are: no independent replication, no independent re-scoring and no
+power calculation before the run. There is also no DOI, and no models
+beyond two open 7B to 12B models on one host. The maintainers
+have now done the independent re-scoring. The others need someone outside this
+collaboration. If you can do it, the arm above runs on your models, and the
+raw data has signatures and can replay. Disagreement with the maintainers is the
+most useful result you can give. Send it through the
+[`tell_us_where_it_hurts`](https://emem.dev/.well-known/mcp.json) path.
