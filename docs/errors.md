@@ -375,14 +375,14 @@ These routes also put a route code in `details.code`. The top-level code is
 | `/v1/range_hash`, `/v1/read`, `/v1/ocr` | `client` | 500 | The responder could not build its HTTP client. Report it. |
 | `/v1/read` | `invalid_argument` | 400 | The body is over 8 KiB, or it has no `url`. |
 | `/v1/read` | `not_text` | 422 | The page is not text, HTML, JSON or XML. Use `/v1/ocr` for an image or `/v1/range_hash` for bytes. |
-| `/v1/ocr` | `invalid_argument` | 400 | `lang` is not a tesseract language code, `image_b64` does not decode, or the body does not have exactly one of `url` and `image_b64`. |
+| `/v1/ocr` | `invalid_argument` | 400 | `lang` is not a tesseract language code, `image_b64` does not decode, or the body does not have exactly one of `url` and `image_b64`. A body over 11188906 bytes also gets this code. That limit holds an 8 MiB image in base64. |
 | `/v1/ocr` | `too_large` | 400 | The uploaded image is over 8 MiB. |
 | `/v1/ocr` | `ocr_unavailable` | 501 | The node has no OCR engine. emem.dev has one on 7 November 2026. |
 | `/v1/ocr` | `not_an_image`, `ocr_failed` | 422 | The bytes are not PNG, JPEG, TIFF, WebP, GIF or BMP, or tesseract failed on them. |
 | `/v1/ocr` | `busy` | 503 | The responder closed its OCR pool. A normal request waits for one of 2 OCR slots. |
-| `/v1/lab_report_parse`, `/v1/land_record_parse` | `invalid_argument`, `too_large` | 400 | The body has none of `text`, `ocr`, `url` and `image_b64`. Or `ocr.text` is missing, or the text is too long. |
+| `/v1/lab_report_parse`, `/v1/land_record_parse` | `invalid_argument`, `too_large` | 400 | `invalid_argument`: the body has none of `text`, `ocr`, `url` and `image_b64`, `ocr.text` is missing, or the body is over 11188906 bytes. `too_large`: the text is over 800000 bytes of UTF-8. |
 | `/v1/lab_report_parse`, `/v1/land_record_parse` | `ocr_receipt_invalid`, `text_hash_mismatch` | 422 | The `ocr` object is not a receipt that this responder signed, or `ocr.text` does not hash to `ocr.text_blake3_b32`. |
-| `/v1/decide` | `invalid_argument` | 400 | The body is over 32 KiB, has no `state`, has 0 or more than 8 questions, or `state` is over 8000 characters. |
+| `/v1/decide` | `invalid_argument` | 400 | The body is over 32 KiB, has no `state`, has 0 or more than 8 questions, or `state` is over 8000 characters. A question can also be bad. Its `kind` must be `choice`, `bool` or `score`. A `choice` needs 2 to 8 `options`, and a `score` scale needs 2 to 8 steps. The message starts with `question <i>:`. |
 | `/v1/decide` | `busy`, `model_unavailable` | 503 | The responder closed its decision pool, or the model did not answer. |
 
 The fetch codes of `/v1/range_hash` (`url_refused`, `unresolvable`,
@@ -391,7 +391,8 @@ The fetch codes of `/v1/range_hash` (`url_refused`, `unresolvable`,
 `url`. These routes share one fetcher. `/v1/read`, `/v1/ocr` and the parse
 routes with a `url` add two 502 codes. `upstream_status` means the upstream
 did not send a 2xx status. `too_large` means it sent more than the cap:
-4 MiB for `/v1/read`, 8 MiB for `/v1/ocr`.
+4 MiB for `/v1/read`, 8 MiB for `/v1/ocr`. A parse route with `url` or
+`image_b64` runs OCR first, so it can also send every `/v1/ocr` code.
 
 The top-level code of all these routes follows one rule in `range_hash::refuse`.
 HTTP 502 gives `source_fetch_failed`. Every other status gives
