@@ -94,8 +94,8 @@ curl -s -X POST https://emem.dev/v1/recall \
 ```
 
 The call gave one fact: `value` 4.9, `unit` `ug/m^3`, `signed_at`
-`2026-09-28T11:05:40Z`. Send `as_of_signed_at` in UTC with a `Z`
-suffix.
+`2026-09-28T11:05:40Z`. Send `as_of_signed_at` in the form
+`YYYY-MM-DDTHH:MM:SSZ`.
 
 Send the receipt of the same read back to the responder to check it:
 
@@ -183,8 +183,11 @@ state_multi and each triple of memory_bundle. `recall_many` does not
 - `as_of_tslot` gives what was true on the ground at that time.
 - `as_of_signed_at` gives what the memory knew at that time.
 
-Send `as_of_signed_at` in UTC with a `Z` suffix. The responder compares
-it with `signed_at` as text and does not convert a UTC offset (see
+Send `as_of_signed_at` as `YYYY-MM-DDTHH:MM:SSZ`: UTC, an upper-case
+`T`, no fractional seconds. The responder compares it with `signed_at`
+as text and does not convert a UTC offset. A space in place of `T`
+drops the facts signed on that date. A fractional second drops the
+facts signed in that second (see
 [Time filters on reads](memory.md#time-filters-on-reads-bi-temporal)).
 
 Thus the read that ships today is `Recall(M, a, t)`: one place, and a
