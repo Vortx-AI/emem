@@ -1031,173 +1031,156 @@ Open: a check that parses every token example in the docs.
 
 ### What agents building on emem actually hit
 
-- **Lance version manifests grow without bound.** DONE 2026-08-18, by running
-  the prune hourly instead of heroically. The earlier reading of this was
-  wrong: cleanup_old_versions looked hopeless because it was measured against
-  a 38,950-version backlog, where it cleared 526 in fourteen minutes and then
-  raced a write. Against 1,669 versions it cleared 1,551 in 0.9 seconds with
-  the responder live. The backlog was the cost, not the tool. An hourly timer
-  (`emem-lance-compact.timer`) keeps it small, and the first full pass took
-  var/emem/lance from 13 GB to 388 MB, every dataset down from thousands of
-  versions to one or two. It fails if a pass leaves more than 20,000 behind,
-  which is the signal that the write rate outgrew an hourly sweep.
-  Worth keeping the shape of the wrong reading: this was written up as needing
-  a rebuild-and-swap because the tool was "not the answer at this scale", from
-  one measurement taken at the worst possible moment. Measuring the same tool
-  against a small backlog answered it in under a second. A number taken once,
-  under conditions nobody checked, produced a plan for work that was not
-  needed.
-- **No vector index on the memory text index.** `list_indices()` returns
-  nothing, so every semantic search scores all 18,000 rows. It is 0.07 s at
-  this size and does not need fixing yet, but it is O(corpus) and the corpus
-  grows. The `find_similar` cell-embedding partitions do carry `vector_idx`;
-  this one never did.
+Agents that built on emem reported these gaps. One agent built the 4D
+Gaussian-splat worlds at [/splats](https://emem.dev/splats) from signed
+facts. An independent outside measurement of the MCP endpoint gave more.
+Both found the same pattern: emem computed the right thing, then one
+function reduced it before the caller saw it.
 
-- **An author cannot supersede their own note.** OWED, and the sharpest
-  gap on this list, because it is a hole in the thing the substrate is
-  for. `5hetw5qj` found it while reading a spec whose supporting
-  correlation table had been retracted: the retraction existed, the
-  original resolved cleanly, and nothing connected them. They suggested
-  setting `superseded_by`. The spec's author cannot. The field exists on
-  the file metadata and is returned on read, but the only writer of it is
-  the automatic consolidation pass, which merges aged notes into a summary
-  on a timer. There is no verb for "this is superseded, read that
-  instead", and the field is absent from the OpenAPI document. So an agent
-  resolving a withdrawn claim today gets it with no indication it was
-  withdrawn, which is precisely the failure this substrate argues against.
-  The workaround, posting a correction that cites the superseded address,
-  only reaches a reader who finds the correction first, and the reader who
-  needs it most is the one who finds the original first. Needs an
-  attester-signed verb, namespace-scoped like every other write, and the
-  superseding link surfaced on read rather than buried in metadata.
+| item | status on 7 November 2026 |
+|---|---|
+| Lance version manifests grow without bound | fixed by an hourly prune |
+| No vector index on the memory text index | open, not urgent |
+| An author cannot supersede their own note | ships: `emem_memory_supersede` |
+| Tool discovery costs too much context | ships |
+| The write path explains itself | ships |
+| A native-resolution raster for an area | ships, two parts still open |
+| Partial results instead of a timeout | ships |
+| A memory preparer for an area across a window | ships, as the `cells` form of backfill |
 
-Reported by an agent that built the 4D Gaussian-splat worlds at
-[/splats](https://emem.dev/splats) from emem's signed facts, plus an
-independent outside measurement of the MCP endpoint. Both landed on the
-same shape of problem: emem computes the right thing and then collapses it
-one function before the caller sees it.
+#### Lance version manifests: an hourly prune
 
-- **Serialised tool discovery.** Ships today: `/mcp` advertises the
-  14-tool loop rather than the full catalog, `/mcp/full` serves all of it,
-  and `emem_tools` maps the whole surface on demand, returning any single
-  tool's schema and a runnable example. Connecting costs 38 KB of context
-  instead of 190 KB, with the map at 19 KB and one tool at about 2 KB,
-  fetched only when wanted. `tools/call` still dispatches every tool by
-  name at either endpoint, so narrowing discovery removes no capability.
-  This supersedes an earlier attempt that paged the catalog behind a
-  non-standard `nextCursor`, which hosts ignored.
-- **The write path explains itself.** Ships today: a refused memory write
-  returns the exact 32-byte digest to sign for that verb, path and body,
-  the base32 rules, how `body_hash` is defined per verb, how the namespace
-  shortcode is derived, and a worked example. None of it is secret, and an
-  agent can go from refusal to a signed write in one turn without reading
-  the source. MCP tool errors now carry their typed `details` too, which
-  they previously dropped, making every typed error in this codebase
-  invisible to exactly the callers that could not go and look it up.
-- **A native-resolution raster for an area of interest.** Open, and the
-  single change most likely to keep a world-model pipeline inside emem. A
-  world model is a field, not a set of points, and emem has no way to
-  return one: `build_cell_scene_rgb` reads only B04/B03/B02 and returns a
-  256x256 8-bit stretched PNG that is not invertible for science, and every
-  other route returns per-cell scalars. A 2 km area of interest holds
-  40,040 cells at 10 m against `recall_polygon`'s `max_cells` limit of
-  1024, so per-cell recall cannot express the query at all. The reporting
-  agent wrote its own STAC and COG reader against emem's own upstream and
-  got a clean 200x200 at 10.00 m/px, which means emem was cut out of its
-  own pipeline. The primitive already exists: `cog::sample_window` returns
-  a native-resolution row-major `Vec<f64>`, and all five of its call sites
-  destroy it (three crush it to 8-bit RGB, one discards it to warm a cache,
-  one collapses it to a single scalar per cell). The plumbing is not the
-  hard part. The open question is what the receipt attests when a response
-  is bulk bytes over a bounding box with no cell and no `fact_cid`, since
-  that is the first emem response that would not be a signed fact addressed
-  by cell. Worth answering deliberately rather than stapling a signature
-  onto a byte pipe. As of 2026-07-16 this is a committed item, not just a
-  reported gap. The shape is `POST /v1/band_raster` plus field tokens:
-  `emem:raster:<aoi_cid>:<band>:<tslot>` names one field and `emem:cube:`
-  names a stack of them across a window, where `aoi_cid`
-  content-addresses the geometry so the same area always yields the same
-  token. The receipt question above now has its deliberate answer written
-  down in [plans/field-tokens.md](plans/field-tokens.md): the receipt
-  attests a derivation, not an array; the artifact is content-addressed,
-  the signed object is a small derivation record with pinned sources and
-  sampled per-cell anchors bridging to the existing trust, and
-  verification has a spot-check tier and a full recompute tier. The
-  owner signed off on 2026-07-16 and the build began the same day:
-  the FIELD preimage segment, the evictable artifact store, the
-  canonical grid encoding, and the `POST /v1/band_raster` executor all
-  ship (six raw S2 bands, 512 px per side, best-effort anchors, the
-  derivation record persisted on the ledger envelope). The
-  `emem:raster:` resolve surface (`POST /v1/raster/resolve`, every
-  token claim bound to the signed record, mismatch a typed 409) and
-  the `emem_band_raster` plus `emem_raster_resolve` tools ship the
-  same day. As of 2026-07-18 the field-token pair is complete:
-  `emem:cube:` ships too (`POST /v1/band_cube`, `POST /v1/cube/resolve`,
-  the `emem_band_cube` plus `emem_cube_resolve` tools, algorithm
-  `band_cube@1`). A cube is a signed manifest over N independently
-  resolvable `emem:raster:` slices, one per date; `cube_cid` is the
-  blake3 of the ordered member derivation cids, resolve recomputes it
-  and refuses an altered membership, and lineage terminates in each
-  slice's pinned scene. A world model is a field over an area across
-  time, and both halves of the token that names one now exist and are
-  live. As of 2026-07-19 the field-token family is complete across five
-  shapes, all on the one `POST /v1/band_raster` surface plus the cube
-  endpoint: a raw band grid (`band_raster@1`), a cloud-free masked median
-  composite (`s2_median_composite@1`), static terrain elevation
-  (`dem_raster@1`, a Copernicus GLO-30 field with no scene selection), a
-  field over time (`band_cube@1`), and a foundation-encoder embedding
-  (`embedding_raster@1`, a multi-channel grid where each cell carries the
-  encoder's N-D vector, e.g. 128-D geotessera, and anchors to its own
-  signed per-cell fact). The grid encoding gained a channel dimension for
-  the embedding shape without moving a single existing artifact_cid: a
-  scalar grid still encodes byte-identically. The anchors spot-check tier
-  shipped 2026-07-19 as an opt-in on `/v1/raster/resolve` (`spot_check:
-  true`): it decodes the artifact grid, reads each anchor's value back out
-  at its pixel, and cross-checks it against the independently-signed
-  per-cell fact the anchor cites, so a field pixel that resolves to a
-  signed receipt whose value matches is the click-to-verify a regulator
-  wants. And `raster_bundle@1` binds any N field tokens into one signed
-  `emem:rasterset:` manifest a world or a report cites. Still open:
-  raising the embedding fan-out cap past one tile, and fp16 artifacts.
-- **Partial results instead of a timeout.** Open. A cold NDVI polygon
-  cannot finish inside the 40 s gateway: worst case is roughly 31
-  sequential upstream round trips for a single cell, and `recall_polygon`
-  runs 64 cells in waves. Bounding the S2 materializer and parallelising
-  the cloud-mask probe (both in flight) shrink the window but do not change
-  the shape. An agent handed 40 of 64 cells plus a list of what is still
-  materializing can proceed; a 504 teaches it to stop calling emem. That is
-  an API change and it deserves a design; the design is now written, in
-  [plans/partial-results.md](plans/partial-results.md): partiality as a
-  first-class 200 with a typed `pending[]` and monotone convergence by
-  identical-request retry, no job queue, because materialization
-  already persists and the store is the state. The owner signed off
-  the same day and step 1 ships: `recall_polygon` takes `budget_ms` and
-  answers partially with a typed `pending[]` and monotone
-  identical-request retry. All four steps ship: `recall_many` carries the same
-  contract, `emem_backfill` grew the preparer form (a `cells` list,
-  the same band and window, the same contract), and the densification
-  warmer loops the preparer on a schedule, off by default until the
-  operator declares a priority list.
+The Lance datasets kept every old version. The timer
+`deploy/systemd/emem-lance-compact.timer` runs `scripts/lance_compact.py`
+hourly (`OnCalendar=hourly`). The script alarms when more than 20,000
+versions stay after a pass (`ALARM_VERSIONS`). That signal means the write
+rate is too high for an hourly prune.
 
-  The same decision blocks a memory preparer: one call that says "warm this
-  area across this window" so an agent can build its memory before it needs
-  to reason over it. Nothing is missing from the read path, since
-  `emem_recall` already materializes on a miss, so this is throughput and
-  latency rather than capability. Two tools each cover half of it.
-  `emem_backfill` walks every tslot for one `(cell, band)` across a window;
-  `emem_recall_many` fans out over a list of up to 256 cells at one time
-  selection. Nothing composes them, so an area across a window is the
-  caller's own loop today. It also cannot simply be added: cells times
-  tslots is strictly larger than the cold polygon above that already does
-  not fit, so a synchronous preparer is impossible by construction rather
-  than by tuning, and building one before this question is settled would
-  ship a route whose honest answer is usually a 504. Settle partial results
-  first and the preparer is a cell list on `emem_backfill` rather than a new
-  tool. That ordering is also why none of the fetch verbs (`emem_backfill`,
-  `emem_fetch`, `emem_data_availability`, the coverage pair) need promoting
-  into the core 14 before then: the core loop already reads and
-  materializes, and a preparer that cannot finish is not worth the context
-  it costs to advertise.
+The numbers below come from the timer file and the 2026-08-18 log entry:
+
+| backlog | result of one pass |
+|---|---|
+| 38,950 versions | 526 cleared in fourteen minutes, then it raced a write |
+| 1,669 versions | 1,551 cleared in 0.9 seconds, with the responder live |
+
+The first full pass took `var/emem/lance` from 13 GB to 388 MB. The plan
+before this was a rebuild-and-swap, because the tool looked too slow. That
+plan came from one measurement at the largest backlog. A second
+measurement against a small backlog showed that the backlog was the cost,
+not the tool.
+
+#### Memory text index: no vector index
+
+The memory text dataset has no index. `ds.list_indices()` returns nothing,
+so each semantic search scans all stored vectors. A comment in
+`crates/emem-primitives/src/memory_search/mod.rs` records 18,269 vectors
+and 2.2 s for one scan. The response field `via` says `lance_scan` for this
+path, not `ann`. The `find_similar` cell-embedding partitions do have a
+vector index (`lance_index.rs`). Cost grows with the corpus.
+
+#### Supersede: an author can now mark a note as replaced
+
+`5hetw5qj` found this gap. A spec cited a correlation table that its author
+had retracted. The retraction existed, the original resolved cleanly, and
+nothing connected them. A reader of the original saw no sign of the
+withdrawal.
+
+`emem_memory_supersede` closes the gap. It is a signed write, bound to the
+attester and limited to the author's own namespace, like the other note
+writes. It sets `superseded_by` and records the reason, key and signature.
+The log records it as an `emem.memory_supersede.v1` entry.
+`/v1/memory/search` leaves superseded notes out by default.
+`include_superseded: true` returns them, each with `superseded_by`. Note
+writes, supersede included, are MCP only. The OpenAPI document says so
+in `x-emem-surface-asymmetry`.
+
+#### Tool discovery: a small default list
+
+Values measured on emem.dev on 7 November 2026:
+
+| request | tools | size |
+|---|---|---|
+| `tools/list` on `POST /mcp` | the 18 core tools, one page | about 75 KB |
+| `tools/list` on `POST /mcp/full` | all 116 tools, 8 pages | about 346 KB |
+| `emem_tools` with no arguments | the loop and a menu | about 13 KB |
+| `emem_tools` with `{"name":"emem_ndvi"}` | one schema and an example | about 8 KB |
+
+`tools/call` runs every tool by name at both endpoints. A smaller list
+removes no tool. An earlier version paged the catalog behind a
+non-standard `nextCursor`, and hosts ignored it.
+
+#### The write path explains itself
+
+A refused memory write returns the exact 32-byte digest to sign for that
+verb, path and body. It also gives the base32 rules, the definition of
+`body_hash` for each verb, the namespace shortcode rule, and a worked
+example. None of it is secret. An agent can go from the refusal to a
+signed write in one turn. MCP tool errors now carry their typed `details`.
+Before, they dropped them, so MCP callers could not see a typed error.
+
+#### Native-resolution rasters for an area
+
+A world model reads a field, not a set of points. Before this item, every
+route returned per-cell scalars, or a 256x256 8-bit stretched PNG from
+`build_cell_scene_rgb`. Science cannot invert that PNG.
+`recall_polygon` takes at most 1,024 cells (`max_cells`). A 2 km area holds
+about 40,000 cells at 10 m, so per-cell recall cannot express it. The
+reporting agent wrote its own STAC and COG reader against emem's upstream.
+It got a clean 200x200 grid at 10.00 m per pixel, outside emem.
+
+The design is in [plans/field-tokens.md](plans/field-tokens.md). The
+receipt attests a derivation, not an array. The artifact is
+content-addressed. The signed object is a small derivation record. It
+pins its sources and cites sampled per-cell anchors, which are existing
+signed facts. The owner approved it on 2026-07-16.
+
+What ships, from `crates/emem-api-rest/src/band_raster.rs`:
+
+| surface | what it does |
+|---|---|
+| `POST /v1/band_raster` | one field, up to 512 px per side; returns `emem:raster:<aoi_cid>:<band>:<tslot>` |
+| `POST /v1/raster/resolve` | binds each token claim to the signed record; a mismatch is a typed 409 |
+| `spot_check: true` on resolve | reads each anchor's pixel and compares it with the anchor's signed fact |
+| `POST /v1/band_cube` | an `emem:cube:` manifest over one raster per date (`band_cube@1`) |
+| `POST /v1/cube/resolve` | recomputes `cube_cid` and refuses a changed membership |
+| `raster_bundle@1` | binds N field tokens into one `emem:rasterset:` manifest |
+
+The `aoi_cid` content-addresses the geometry, so one area always gives one
+token. The raster algorithms are `band_raster@1`, `s2_median_composite@1`,
+`dem_raster@1`, `embedding_raster@1` and `forest_raster@1`. `dem_raster@1`
+reads one Copernicus GLO-30 tile. It refuses a bbox that crosses a 1 degree
+tile edge. `embedding_raster@1` reads geotessera, and emem.dev no
+longer fetches geotessera, so it returns only vectors already stored. Its fan-out stops at
+256 cells (`MAX_EMBEDDING_CELLS`).
+
+Still open: a larger embedding fan-out, and fp16 artifacts.
+
+#### Partial results instead of a timeout
+
+A cold NDVI polygon could not finish inside the 40 s gateway. The worst
+case was about 31 sequential upstream round trips for one cell. A 504
+teaches an agent to stop calling emem. An agent that gets 40 of 64 cells
+and a list of the rest can continue.
+
+The design is in [plans/partial-results.md](plans/partial-results.md). A
+partial answer is a 200 with a typed `pending[]`. The caller sends the
+same request again, and each retry returns at least as much. There is no
+job queue, because materialization already persists to the store.
+
+`recall_polygon` and `recall_many` take `budget_ms`. When the caller sends
+none, the budget is 75 percent of `EMEM_TIMEOUT_SECS` (default 40 s, so
+30 s). The response then carries `budget_ms_defaulted: true`.
+
+#### A memory preparer: the cells form of backfill
+
+An agent sometimes wants to warm an area across a window before it
+reasons over it. `emem_backfill` now takes a `cells` list with one band,
+one window and a `budget_ms`, under the same partial-results contract. The
+densification warmer runs this preparer on a schedule. It is off by
+default until the operator gives a priority list. "Scheduled
+densification" in "The supply side" above gives the emem.dev settings.
+The core list does not include `emem_backfill`. `tools/call` runs it by
+name.
 
 ### Protocol consistency
 
