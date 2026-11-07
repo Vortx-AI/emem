@@ -567,7 +567,7 @@ nobody can change either one later. The responder applies these rules:
 | `superseded_by` is the `file_cid` of the note at `path` | 400, "a note cannot supersede itself" |
 | No note on this responder has that `file_cid` | 404 `cid_not_found`. Write the replacement first. |
 | The note already points to the same target | 200 with `already_superseded: true`. A retry is safe. |
-| The note already points to a different target | 409. Supersede the newer note instead. |
+| The note already points to a different target | 409 `invalid_argument`. Supersede the newer note instead. |
 | The path is a `vault` note | 409, `details.code` `vault_immutable` |
 
 A chain of corrections can thus only grow at its end.
@@ -578,9 +578,14 @@ tombstone. The tombstone (`emem.tombstone.v1`) holds `path`,
 `log_entry_hash_b32` (the transparency log entry). A later read of that
 path returns a 404 that says the owner deleted it. The tombstone is in
 `details`. This 404 is different from the 404 for a path that nobody
-wrote. You can still get the blob by its `file_cid`, because issued
+wrote. That 404 has no `details` and its message says "no tombstone
+either". You can still get the blob by its `file_cid`, because issued
 receipts must continue to verify. A delete unpublishes a note. It does
 not erase it.
+
+A `vault` entry is different. It is only in the vault tree, so a delete
+erases the sealed entry. Its tombstone has `prior_file_cid` set to
+null.
 
 A path that ends in `/` deletes a directory. The responder first checks
 every file under it. If one file has a different owner, it removes
