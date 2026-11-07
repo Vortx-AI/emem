@@ -21,13 +21,20 @@ import pytest
 from ememdev import signing
 from ememdev.signing import EmemSigner, attester_preimage, body_hash
 
-# Seed 00 01 .. 1f, body "hello emem", create verb. Anchoring constant.
+# Seed 00 01 .. 1f, body "hello emem", create verb, base "absent" (v2).
+# Anchoring constant.
 FIXED_SEED = bytes(range(32))
 FIXED_BODY = b"hello emem"
 FIXED_PUBKEY_B32 = "aoqqpp7tzyil4hlq3umoos6atft6jvrqtosq2xy53sdgiesvgg4a"
 FIXED_PUBKEY_SHORT = "aoqqpp7t"
 FIXED_PATH = "/memories/by_attester/aoqqpp7t/note.md"
 FIXED_SIG_B32 = (
+    "kcpqxzsd3nduh6fibjpn5ejpotz3r4bmetqui26rx5wb3sg7rlswmhpcm3ewbfz3"
+    "dvscnamctjg23c3teq26iihx45zkji6augmtyaq"
+)
+# The same write under the retired v1 preimage. The responder refuses it,
+# so no block this signer emits may equal it.
+FIXED_V1_SIG_B32 = (
     "ftodl5jzxvp27xinfzwxbcp3hzloedjumbrlgsu745xvpfitls6jb7viuyz2fgcj"
     "6lnpfu233jga62vkd2zyzmvg2hmione3ch44kcy"
 )
@@ -41,6 +48,25 @@ def test_fixed_vector_pins_the_wire_signature() -> None:
     assert signer.namespace_root == f"/memories/by_attester/{FIXED_PUBKEY_SHORT}"
     block = signer.attester_block("create", FIXED_PATH, FIXED_BODY)
     assert block == {"pubkey_b32": FIXED_PUBKEY_B32, "sig_b32": FIXED_SIG_B32}
+
+
+def test_create_signs_v2_against_absent_never_v1() -> None:
+    """The responder refuses a v1 memory-write signature (v1_retired), so
+    a create with no base must sign v2 over BASE_ABSENT."""
+    signer = EmemSigner(FIXED_SEED)
+    block = signer.attester_block("create", FIXED_PATH, FIXED_BODY)
+    assert block["sig_b32"] != FIXED_V1_SIG_B32
+    explicit = signer.attester_block(
+        "create", FIXED_PATH, FIXED_BODY, base=signing.BASE_ABSENT
+    )
+    assert block == explicit
+
+
+def test_edit_verbs_need_a_base() -> None:
+    signer = EmemSigner(FIXED_SEED)
+    for verb in ("str_replace", "insert", "delete", "rename"):
+        with pytest.raises(ValueError, match="base="):
+            signer.attester_block(verb, FIXED_PATH, FIXED_BODY)
 
 
 def test_wire_field_lengths_match_the_responder() -> None:
@@ -119,9 +145,15 @@ def test_matches_the_langmem_mirror() -> None:
     langmem_signing = pytest.importorskip("emem_langmem.signing")
     theirs = langmem_signing.EmemSigner(FIXED_SEED)
     ours = EmemSigner(FIXED_SEED)
+    base = "3aytp566f6s4nvb64ex2pn5o5i"
+    assert ours.attester_block("create", FIXED_PATH, FIXED_BODY) == theirs.attester_block(
+        "create", FIXED_PATH, FIXED_BODY
+    ), "create block drifted from the langmem mirror"
     for verb in ("create", "str_replace", "insert", "delete"):
-        assert ours.attester_block(verb, FIXED_PATH, FIXED_BODY) == theirs.attester_block(
-            verb, FIXED_PATH, FIXED_BODY
+        assert ours.attester_block(
+            verb, FIXED_PATH, FIXED_BODY, base=base
+        ) == theirs.attester_block(
+            verb, FIXED_PATH, FIXED_BODY, base=base
         ), f"{verb} block drifted from the langmem mirror"
     assert ours.rename_attester_block(FIXED_PATH, FIXED_PATH + ".2") == (
         theirs.rename_attester_block(FIXED_PATH, FIXED_PATH + ".2")
@@ -229,6 +261,33 @@ def test_cli_sign_requires_a_body_for_create(monkeypatch) -> None:
     monkeypatch.setenv("EMEM_AGENT_KEY", FIXED_SEED.hex())
     with pytest.raises(SystemExit, match="needs a body"):
         main(["sign", "--verb", "create", "--path", FIXED_PATH])
+
+
+def test_cli_sign_edit_verb_without_base_exits_with_a_hint(monkeypatch) -> None:
+    from ememdev.__main__ import main
+
+    monkeypatch.setenv("EMEM_AGENT_KEY", FIXED_SEED.hex())
+    with pytest.raises(SystemExit, match="--base"):
+        main(["sign", "--verb", "str_replace", "--path", FIXED_PATH, "--body", "x"])
+
+
+def test_cli_write_signs_v2_and_passes_base(monkeypatch) -> None:
+    from ememdev import __main__ as cli
+
+    monkeypatch.setenv("EMEM_AGENT_KEY", FIXED_SEED.hex())
+    sent = []
+    monkeypatch.setattr(
+        cli,
+        "_post_memory_create",
+        lambda url, path, text, kind, att: sent.append(att) or {"ok": True},
+    )
+    assert cli.main(["write", "--path", FIXED_PATH, "--body", "hello emem"]) == 0
+    assert sent[-1]["sig_b32"] == FIXED_SIG_B32
+    base = "3aytp566f6s4nvb64ex2pn5o5i"
+    cli.main(["write", "--path", FIXED_PATH, "--body", "hello emem", "--base", base])
+    pre = signing.attester_preimage_v2("create", FIXED_PATH, body_hash(FIXED_BODY), base)
+    signer = EmemSigner(FIXED_SEED)
+    assert sent[-1]["sig_b32"] == signing.b32_nopad_lc(signer.sign_preimage(pre))
 
 
 def test_delete_needs_a_base_and_signs_v2() -> None:
