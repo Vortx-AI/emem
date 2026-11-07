@@ -906,10 +906,10 @@ many, and how fresh. For these, call the coverage routes directly.
 
 | Question | Route | Answer |
 |---|---|---|
-| Where do you have signed facts? | `GET /v1/coverage_map.svg` | A 1440 by 720 plate carrée SVG map of attested cells |
+| Where do you have signed facts? | `GET /v1/coverage_map.svg` | A plate carrée SVG map of attested cells (1440 by 720 map area, 1440 by 830 SVG) |
 | How many cells have facts? | `GET /v1/coverage` | `total_cells`, and the cell list in pages, with `fact_count` for each cell |
 | How dense is the corpus in a region? | `GET /v1/coverage` | The cell list. Filter it to the region's bbox on your side |
-| Which bands have facts, and how fresh are they? | `GET /v1/coverage_matrix` | One row per band: `facts_count`, `last_attested_at`, `has_materializer` |
+| Which bands have facts, and how fresh are they? | `GET /v1/coverage_matrix` | One row per band: `facts_count`, `last_attested_unix_s`, `has_materializer` |
 | Which bands can emem fetch on a miss? | `GET /v1/materializers` | The per-band fetch registry |
 | What does this responder know about? | `GET /v1/discover` | A typed start point that names every catalogue |
 
@@ -919,6 +919,11 @@ wordings. On 7 November 2026, "where do you have signed facts?" gave
 routes in the table above. "How many cells have facts?" gave
 `envelope_schema: "needs_location"`, because the geocoder read a company name
 as a place. Call the coverage routes directly.
+
+The `/v1/coverage_matrix` counts come from one scan of the storage index.
+The scan stops at `iter_index_limit` entries (50,000 by default, set with
+`EMEM_COVERAGE_MATRIX_LIMIT`). On 7 November 2026, `totals.total_facts` was
+50,000, equal to the limit. Thus read each `facts_count` as a lower bound.
 
 ### REST routes by group
 
@@ -1150,7 +1155,7 @@ All routes in this table are `GET`.
 | `/v1/cells/:cell64/recall_geojson` | A FeatureCollection of the recalled bands |
 | `/v1/cells/:cell64/scene.png` | A Sentinel-2 L2A RGB image, 256 by 256 pixels |
 | `/v1/cells/:cell64/scene.rgb` | The raw RGB bytes |
-| `/v1/coverage_map.svg` | The 1440 by 720 corpus density map |
+| `/v1/coverage_map.svg` | The corpus density map (1440 by 720 map area, 1440 by 830 SVG) |
 
 #### Backfill
 
@@ -1570,9 +1575,10 @@ The responder runs `eudr_compliance@1` for each cell. The 2020 legal
 baseline is JRC GFC2020 (V4 on 7 November 2026). The loss year after the
 cut-off comes from Hansen GFC v1.13. The responder applies the 0.5 ha floor
 of Article 2(4). It returns a statement in the shape of Annex II with a
-`dds_reference_number` and a receipt signed over the per-cell fact CIDs. On
-a large plot the receipt holds only part of the CIDs, and the response
-says so with `receipt_fact_cids_capped: true`.
+`dds_reference_number` and a receipt signed over the per-cell fact CIDs. The
+receipt holds at most 2,048 CIDs by default (`EMEM_EUDR_RECEIPT_MAX_FACTS`).
+On a larger plot the response adds `receipt_fact_cids_capped: true` and
+`receipt_fact_cids_total`.
 
 The response also has a `legality_disclaimer`. Earth observation cannot
 show legality under Article 9(1)(b). Thus the receipt proves the forest
@@ -1583,8 +1589,9 @@ each sampled cell, in the form `<cell>|<verdict>|<fact_cids joined by ,>\n`.
 The responder stores the facts of each sampled cell, so each fact CID
 resolves.
 
-- `per_cell_detail: "rows"` (the default) puts the rows in the response.
-  `"anchor"` leaves out the rows and keeps the CID.
+- `per_cell_detail: "rows"` (the default) puts the rows in
+  `per_cell_verdicts` of each plot. `"anchor"` leaves out the rows and keeps
+  the CID.
 - To page the rows, send `per_cell_offset`. Follow `per_cell_next_offset`
   until it is `null`.
 - For coverage, read `sampled_polygon_fraction`. Do not count rows.
@@ -1600,7 +1607,7 @@ curl -s -X POST https://emem.dev/v1/inferences \
   -d '{"lat":30.9015,"lng":75.802,"radius_m":5000}'
 ```
 
-Each item is an `emem:fact:` token with `fn_key` (the recipe, for example
+Each item in `inferences` is an `emem:fact:` token with `fn_key` (the recipe, for example
 `outlook@1`), `value`, `confidence` and `distance_m`. It also gives the key,
 tier and nick of the attester. `parents` lists the signed measurements that
 the value came from.
