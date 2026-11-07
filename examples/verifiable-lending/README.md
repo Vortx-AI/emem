@@ -119,8 +119,8 @@ this file.
 
 ## Limits
 
-- One cell is about 10 m by 10 m at the equator. The script reads one cell. A
-  claim about hectares needs many cells.
+- At the equator, one cell is about 9.5 m on each side (`GET /v1/grid_info`).
+  The script reads one cell. A claim about hectares needs many cells.
 - When a band does not materialise, the script prints its `reason_class`. A
   `no_materializer` or an `upstream_error` is silence, not an observation. Only
   a signed `Absence` means that the corpus looked and found nothing.
