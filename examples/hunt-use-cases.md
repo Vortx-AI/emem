@@ -7,7 +7,7 @@
 ## What you need
 
 - `curl` and `jq`. No key: hunts are reads.
-- An event key. There are twelve. Eleven have a registered algorithm: `algal_bloom`, `deforestation`, `flood_extent`, `wildfire`, `urban_heat_island`, `methane_plume`, `landslide`, `drought`, `soil_salinity`, `crop_stress`, `water_turbidity`. The twelfth, `oil_slick`, has no algorithm (see [Limits](#limits)). The hunt also accepts some aliases, for example `fire` or `wildfire_burn_severity` for `wildfire`. An unknown key returns `invalid_argument` with the list of the twelve keys.
+- An event key. There are twelve. Eleven have a registered algorithm: `algal_bloom`, `deforestation`, `flood_extent`, `wildfire`, `urban_heat_island`, `methane_plume`, `landslide`, `drought`, `soil_salinity`, `crop_stress`, `water_turbidity`. The twelfth, `oil_slick`, has no algorithm (see [Limits](#limits)). The hunt also accepts some aliases, for example `fire` or `wildfire_burn_severity` for `wildfire`. For all three, the response gives `event: "wildfire_burn_severity"`. An unknown key returns `invalid_argument` with the list of the twelve keys.
 - A region name, or an explicit `polygon_bbox` (`{min_lat, max_lat, min_lng, max_lng}`).
 
 ## What you get
