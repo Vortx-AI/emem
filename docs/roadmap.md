@@ -1184,64 +1184,130 @@ name.
 
 ### Protocol consistency
 
-- **One verifier spec, generated from code.** Ships today:
-  `GET /v1/verifier_spec` (also `/.well-known/emem-verifier.json`) emits
-  the receipt preimage segment table directly from the `emem-attest` tag
-  constants, so the offline-verification spec cannot drift from the signer
-  the way a hand-written doc does. The receipt preimage is the single
-  canonical, single-sourced construction: the signer and the
-  `/v1/verify_receipt` verifier both call one function. Every object the
-  responder signs now uses that one rule: the three bespoke
-  pipe-delimited preimages (`corpus_state_stats`, `operator_attestation`,
-  `stream.tick`) were folded onto the tagged `preimage_v1` family, and
-  the attestation, STH, and witness segment tags are named constants the
-  spec serializes rather than re-typed literals.
-- **The one construction left outside `preimage_v1`, and why.** The
-  memory-write attester binding
-  (`blake3("emem.memory_write|" || verb || "|" || path || "|" ||
-  body_hash)`) is signed by the *caller*, not the responder, and its
-  shape is pinned by the whitepaper and by every client that already
-  signs against it. Migrating it would break those clients to buy
-  consistency in a preimage that is already domain-separated and already
-  carries the verb, so a signature cannot cross verbs or paths. It stays
-  as it is, and `GET /v1/verifier_spec` lists it under
-  `caller_signed_objects` with its per-verb body rule rather than
-  omitting it. What it lacks against `preimage_v1` is explicit length
-  prefixes. That costs nothing at its current shape: the verb is supplied
-  by the responder from a closed set that contains no separator, and
-  `body_hash` is a fixed-length 32-byte digest at the tail, which leaves
-  the path as the only variable-length field and brackets it
-  unambiguously. A path may itself contain a `|` without collision. The
-  ambiguity length-prefixing exists to prevent needs two adjacent
-  variable-length fields, and there are none. Revisit if the binding ever
-  grows a second one.
+| item | status on 7 November 2026 |
+|---|---|
+| A verifier spec that the responder generates from its own code | Ships |
+| One preimage rule for every object the responder signs | Ships |
+| The memory-write binding on the same rule | Not planned; the caller signs it |
+
+#### The verifier spec comes from the code
+
+`GET /v1/verifier_spec` returns the spec for offline verification. The
+same document is at `/.well-known/emem-verifier.json`. The responder
+builds the segment tables from the compiled tag constants in
+`emem-attest`. So the spec cannot drift from the signer, as a hand-written
+document can.
+
+Each receipt version has one preimage function:
+`emem_attest::receipt_preimage_v2` and `receipt_preimage_v1`. The signer
+in `emem-storage`, the `POST /v1/verify_receipt` verifier and the
+`/verify` page use the same rule. The responder emits version 2. It still
+verifies version 1 and the legacy version 0.
+
+#### One rule for responder-signed objects
+
+The rule is Ed25519 over BLAKE3 of a domain-separated, tagged,
+length-prefixed segment stream (`preimage_v1`). On 7 November 2026 the
+live spec lists the receipt and 10 other responder-signed objects. All
+of them use this rule. Three of them had their own pipe-delimited
+preimages before: `corpus_state_stats`, `operator_attestation` and
+`stream_tick`. They now use `preimage_v1`.
+
+The spec also lists three objects that a caller signs and the responder
+verifies:
+
+| object | who signs | rule |
+|---|---|---|
+| `memory_write` | the writing agent | its own pipe-delimited rule, see below |
+| `os_trace` | a device | `preimage_v1` |
+| `platform_attestation` | an endorser on the trust-anchor list | `preimage_v1` |
+
+#### The memory-write binding stays outside the rule
+
+The writing agent signs this binding. The whitepaper and every client
+that signs against it fix its shape. A migration would
+break those clients. The spec lists it under `caller_signed_objects`
+with the body rule for each verb.
+
+The binding has two versions. Both are in
+`crates/emem-primitives/src/memory_acl.rs`:
+
+```text
+v2: blake3("emem.memory_write.v2|" || verb || "|" || path || "|" || body_hash || "|" || base)
+v1: blake3("emem.memory_write|" || verb || "|" || path || "|" || body_hash)
+```
+
+The responder accepts v2 for every verb. It accepts v1 for `create`,
+`str_replace` and `insert` only.
+
+`base` is the `file_cid` now at `path`, or `absent` for a new path. It
+stops a replay of an old signature over newer content. The responder
+tries v2 first.
+
+Both versions are domain-separated, and the verb is in the preimage. So a
+signature cannot move to a different verb or path. What the binding does
+not have is the explicit length prefixes of `preimage_v1`.
+
+For v1, this has no cost. The verb comes from a closed set with no
+separator. `body_hash` is a fixed 32-byte digest at the end. So `path` is
+the only field of variable length, and the fixed fields mark its two
+ends. A `|` inside a path does not cause a collision.
+
+v2 adds `base` after `body_hash`, so v2 has two fields of variable
+length. The fixed 32-byte `body_hash` sits between them. No written
+analysis of this case is in the repository. The open item is to write
+one, or to give the next binding version length prefixes.
 
 ### The paper: one canonical, submittable whitepaper
 
-Two whitepapers overlap today. v1 carries the protocol depth and is
-archived unedited as the DOI-cited record; v2 carries the framing and
-the honesty discipline. A submittable paper is one document, and what
-the prose still lacks is exactly the scaffolding a reviewer scans for.
+| item | status on 7 November 2026 |
+|---|---|
+| One paper that the site serves | Ships: whitepaper v3 |
+| One paper in the repository | Not done: two papers both say they replace v2 |
+| Definitions, figures, references, threat model | Ship in `whitepaper.md`, not in v3 |
+| A transparency-log figure | Not built |
+| LaTeX source for a preprint server | Not built; the repository has no `.tex` file |
 
-- **One canonical paper.** Done, at [whitepaper.md](whitepaper.md)
-  (2026-07-16): v2's spine (referential drift in both directions,
-  external identity) with v1's protocol depth folded into the design
-  sections, and the old files marked superseded in place, since v1 is
-  the frozen citation target behind the DOI.
-- **The scaffolding, mostly shipped with it.** Shipped: a definitions
-  and notation section (the address map, the cid rule, the tagged
-  preimage stream, the bi-temporal read predicate, the change
-  decomposition with reference stability stated formally); six figures
-  with captions; a reference list of 26 entries, every arXiv identifier
-  verified against the arXiv API before inclusion; an evaluation
-  section lifted verbatim from [benchmarks.md](benchmarks.md) keeping
-  its sample-versus-full honesty split; and the honest-limits list
-  restated as an adversary model (malicious sender, malicious
-  responder, network attacker, malicious writer, with split-view
-  equivocation and the first-contact baseline named). Still open: a
-  transparency-log figure, and the LaTeX source for the submission
-  itself, since the repo renders HTML today and preprint servers
-  compile LaTeX.
+#### Two papers replace v2
+
+The repository has four whitepapers:
+
+| file | date | status |
+|---|---|---|
+| [whitepaper-v1.md](whitepaper-v1.md) | 2026-06-14 | Archived. The DOI cites this version. |
+| [whitepaper-v2.md](whitepaper-v2.md) | 2026-07-16 | Archived. Says `whitepaper.md` supersedes it. |
+| [whitepaper.md](whitepaper.md) | 2026-07-16 | Calls itself "the one canonical paper". |
+| [whitepaper-v3.md](whitepaper-v3.md) | 2026-09-10 | Says it supersedes v2. The site serves it. |
+
+The responder embeds `whitepaper-v3.md` with `include_str!` in
+`crates/emem-api-rest/src/lib.rs`. On 7 November 2026,
+`https://emem.dev/whitepaper.md` returns v3. The `/whitepaper` page is
+also v3, although its source file is `web/whitepaper-v2.html`. The mdBook
+table of contents links v3. Neither `whitepaper.md` nor v3 names the other. The
+open item is to make one of them canonical and mark the other in place.
+
+The DOI [10.5281/zenodo.20706893](https://doi.org/10.5281/zenodo.20706893)
+resolves to the frozen copy of v1 on Zenodo. A new paper does not
+change it.
+
+#### What each paper has
+
+`whitepaper.md` has the parts a reviewer looks for:
+
+- A definitions and notation section: the address map, the cid rule, the
+  tagged preimage stream, the bi-temporal read predicate and the change
+  decomposition.
+- Six figures with captions.
+- A reference list of 26 entries. The authors checked each arXiv
+  identifier against the arXiv API before they added it.
+- An evaluation section from [benchmarks.md](benchmarks.md). It keeps the
+  split between sample results and full results.
+- A threat model: malicious sender, malicious responder, network attacker
+  and malicious writer, with split-view equivocation and the first-contact
+  baseline.
+
+v3 is 434 lines. It has no reference list and no figures. For the byte
+layouts it points to v2 sections 3 and 6.
 
 ### The substrate: trusted, portable, verifiable memory
 
