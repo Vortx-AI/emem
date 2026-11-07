@@ -362,12 +362,12 @@ def _cycle(name, seed, title, sub, stages, centre, signed_lab, bead, footer,
 
 def agent_loop():
     return _cycle("04-agent-loop", 4, "The agent loop",
-        "ask, recall, cite, act, and the memory is better for the next turn",
+        "ask, recall, cite, act, then leave a signed note for the next agent",
         [("ask", "free text", INDIGO), ("recall", "signed fact", TEAL),
          ("cite", "fact_cid", LEAF), ("act", "in the world", TURMERIC),
-         ("write back", "a new memory", LAC)],
-        ("the shared memory", "grows each turn"), "recall", LEAF,
-        "Every claim the agent makes carries a handle the next agent can re-check.")
+         ("write back", "a signed note", LAC)],
+        ("facts from emem", "notes from agents"), "recall", LEAF,
+        "A claim that cites a fact_cid is one the next agent can check.")
 
 
 def fact_to_reasoning():
