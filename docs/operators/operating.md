@@ -84,22 +84,23 @@ These facts come from the runtime stage of [`Dockerfile`](https://github.com/Vor
 ### How emem.dev runs
 
 emem.dev runs the image with `docker run` under the system unit
-[`deploy/systemd/emem-server.service`](https://github.com/Vortx-AI/emem/blob/main/deploy/systemd/emem-server.service). That unit runs
-`:latest` with `--network host` and `--user 1000:1000`. It sets `TimeoutStopSec=150`, mounts `config/` read-only, and
-turns on the warmer. It is for a store of about 98 GB. Read it for these settings, but do not copy it for a small
-node.
+[`deploy/systemd/emem-server.service`](https://github.com/Vortx-AI/emem/blob/main/deploy/systemd/emem-server.service).
+That unit runs `:latest` with `--network host` and `--user 1000:1000`. It sets `TimeoutStopSec=150`, mounts
+`config/` read-only, and turns on the warmer. It is for a store of about 98 GB. Read it for these settings, but do
+not copy it for a small node.
 
 The maintainers deploy emem.dev with `pending_deploy.sh` after the `publish` workflow passes. See
-[AGENTS.md](https://github.com/Vortx-AI/emem/blob/main/AGENTS.md#build). Do not use `scripts/redeploy.sh` on that host. That script builds on the host and
-restarts a user unit that production does not use.
+[AGENTS.md](https://github.com/Vortx-AI/emem/blob/main/AGENTS.md#build). Do not use `scripts/redeploy.sh` on that
+host. That script builds on the host and restarts a user unit that production does not use.
 
 ## Deploy the binary under systemd
 
 [Self-host](../self-host.md#run-the-binary-under-systemd) has a minimal user unit. The repository also has a longer
-example, [`ops/systemd/emem-server.service.example`](https://github.com/Vortx-AI/emem/blob/main/ops/systemd/emem-server.service.example). Its values are
-from one maintainer's host. Change `WorkingDirectory=`, `EMEM_DATA`, `EMEM_TLS_DOMAINS` and `EMEM_TLS_CONTACT` before
-you use it. Remove the `ORT_DYLIB_PATH`, `LD_LIBRARY_PATH` and `EMEM_GA_MEASUREMENT_ID` lines: the current binary does
-not use them to run.
+example,
+[`ops/systemd/emem-server.service.example`](https://github.com/Vortx-AI/emem/blob/main/ops/systemd/emem-server.service.example).
+Its values are from one maintainer's host. Change `WorkingDirectory=`, `EMEM_DATA`, `EMEM_TLS_DOMAINS` and
+`EMEM_TLS_CONTACT` before you use it. Remove the `ORT_DYLIB_PATH`, `LD_LIBRARY_PATH` and `EMEM_GA_MEASUREMENT_ID`
+lines: the current binary does not use them to run.
 
 ```bash
 cp ops/systemd/emem-server.service.example ~/.config/systemd/user/emem-server.service

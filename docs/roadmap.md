@@ -1629,9 +1629,10 @@ Two parts do not exist yet:
 
 #### A world that moves forward in time: not built
 
-Nothing makes a world move forward. `/v1/jepa_predict` is a closed-form NDVI AR(2) model for one cell and a horizon of one month
-(`forecast_horizon_months` 1; see [Inference](developers/inference.md)). The learned dynamics head that emem served before did not do better
-than persistence on real NDVI (skill -0.064), and emem removed it.
+Nothing makes a world move forward. `/v1/jepa_predict` is a closed-form NDVI AR(2) model for one cell and a
+horizon of one month (`forecast_horizon_months` 1; see [Inference](developers/inference.md)). The learned
+dynamics head that emem served before did not do better than persistence on real NDVI (skill -0.064), and emem
+removed it.
 
 The design: a predictor with real skill makes a sequence of scene frames. Each frame is a signed forecast. It
 says that it is a forecast, and it names the model id and the lags it read.

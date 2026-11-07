@@ -148,7 +148,8 @@ The tier only changes the list. `tools/call` ignores the tier at both endpoints,
 - `emem_tools` is a core tool and maps the whole catalog.
   - With no arguments, it returns the core loop in order and a menu of bundles and shapes.
   - `{"q":"ndvi"}` searches the catalog.
-  - `{"name":"emem_ndvi"}` returns one input schema and an example that runs (about 8 KB, versus about 346 KB for the full list).
+  - `{"name":"emem_ndvi"}` returns one input schema and an example that runs (about 8 KB, versus about 346 KB
+    for the full list).
 - `emem_ask` and `emem_intent` take a question in free text. The server then calls the data tools for you.
 
 This command finds `emem_ndvi`, an extended tool that `/mcp` does not list. It prints the example
