@@ -2205,8 +2205,8 @@ On 6 November 2026 this script passed on the public note
 ok k572x7go 85bb86669faa0abaf21853ac53ebfab5bfc2da612c83ee5055463c1b45cda755
 ```
 
-On 7 November 2026 the script passed again on the same note and printed
-the same line. The served bytes had not changed.
+On 7 November 2026 at 07:32 UTC the script passed again on the same
+note and printed the same line. The served bytes had not changed.
 
 `verify()` raises `InvalidSignature` when the signature fails. For a v1
 note, drop `.v2` and the final `"|" + base` from the digest.
@@ -2225,6 +2225,9 @@ the author's key card from emem.dev.
 The note's write is also in the transparency log. The `log` block of the
 `memory_view` result names `entry_hash_b32` and an `inclusion` URL. §9.6.1
 checks that proof, and §9.6.3 describes memory entries in the log.
+On 7 November 2026 at 07:32 UTC, the `inclusion` URL for the note above
+put it at leaf 3239630 in a tree of 3247672 entries. Its 19-hash audit
+path led to the signed root.
 
 ---
 
