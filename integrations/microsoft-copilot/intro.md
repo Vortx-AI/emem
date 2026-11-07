@@ -1,16 +1,16 @@
 # emem, verifiable memory for AI agents
 
 emem gives every place one address and every observation one signed fact.
-Ask about a place and the answer comes back as a measurement from a public
-Earth-observation source, with an Ed25519 receipt attached and a short
-`emem:fact:` token that resolves anywhere to the same signed bytes. Anyone can
-check the receipt at https://emem.dev/verify without trusting emem.
+Ask about a place, and the answer is a measurement from a public
+Earth-observation source. The answer has an Ed25519 receipt. It also has a
+short `emem:fact:` token, which resolves anywhere to the same signed bytes.
+Anyone can check the receipt at https://emem.dev/verify without trusting emem.
 
 ## Setup
 
-Add the connector URL `https://emem.dev/mcp`. Reading needs no key and no
-account. Reads are rate-limited per client; a client over the limit gets
-HTTP 429 with a `Retry-After` header.
+Add the connector URL `https://emem.dev/mcp`. Reads need no key and no
+account. emem limits the rate of reads for each client. A client over the
+limit gets HTTP 429 with a `Retry-After` header.
 
 ## Example prompts
 
@@ -20,32 +20,41 @@ HTTP 429 with a `Retry-After` header.
 
 ## What the tools do
 
-The connector serves emem's 18-tool core loop: name a thing (`emem_entity`),
-ground a place (`emem_locate`), read signed facts (`emem_recall`, `emem_ask`,
-`emem_intent`), cite them (`emem_memory_token`, `emem_memory_bundle`) and
-verify them (`emem_verify_receipt`). `emem_tools` lists the rest of the
-server's tools and runs any of them by name.
+The connector serves the 18 core tools of emem. They make a loop:
 
-Nine tools only look things up. Seven more (`emem_recall`, `emem_ask`,
-`emem_intent`, `emem_find_similar`, `emem_memory_bundle`, `search`, `fetch`)
-can measure and sign a new fact when the requested reading has not been made
-yet, which is why their `readOnlyHint` is false. What they write comes from
-public Earth-observation sources, never from what the user sent, and nothing is
-ever overwritten.
+| step | tools |
+|---|---|
+| Name a thing | `emem_entity` |
+| Find the address of a place | `emem_locate` |
+| Read signed facts | `emem_recall`, `emem_ask`, `emem_intent` |
+| Cite facts | `emem_memory_token`, `emem_memory_bundle` |
+| Verify facts | `emem_verify_receipt` |
+
+`emem_tools` lists the other tools of the server and runs any of them by name.
+
+Nine core tools only look up data. Seven more can measure and sign a new fact
+when nobody has made the reading yet: `emem_recall`, `emem_ask`,
+`emem_intent`, `emem_find_similar`, `emem_memory_bundle`, `search` and
+`fetch`. For this reason, their `readOnlyHint` is false. What they write comes
+from public Earth-observation sources, never from what the user sent. They
+never overwrite a fact.
 
 ## Authentication
 
-None for reads. The two tools that write shared identities (`emem_entity`,
-`emem_entity_link`) need an attester block signed with the caller's own
-Ed25519 key; without one they decline with a 403 that names the missing
-field. No user identity is sent or stored.
+Reads need no authentication. Two tools write shared identities:
+`emem_entity` and `emem_entity_link`. They need an attester block that the
+caller signs with their own Ed25519 key. Without that block, they refuse with
+HTTP 403, and the error names the missing field. The connector does not send
+or store a user identity.
 
 ## Known limitations
 
-- A cell is about 10 m across; finer queries resolve to the containing cell.
-- A reading that has not been made yet is fetched from its upstream on first
-  request and can take seconds; repeats are served from the signed store.
-- A missing upstream reading is returned as a signed absence, never as a value.
+- A cell is about 10 m across. A finer query resolves to the cell that contains it.
+- When nobody has made a reading yet, emem fetches it from its upstream source
+  on the first request. That can take some seconds. emem serves later requests
+  from its signed store.
+- When an upstream source has no reading, emem returns a signed absence, never
+  a value.
 
 ## Support
 
