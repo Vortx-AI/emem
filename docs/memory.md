@@ -1187,7 +1187,7 @@ parameters are optional filters:
 | Parameter | An event passes when |
 |---|---|
 | `path_prefix` | its path starts with this text. For `renamed`, the new path counts. For `consolidated`, the first path counts. |
-| `kind` | its `kind` is equal to this value |
+| `kind` | its `kind` is equal to this value. Use the lowercase name, for example `episodic`. The compare is case-sensitive, and the responder does not check the value, so `Episodic` gives a stream with no events |
 | `attester` | its `attester_pubkey_b32` is equal to this key. `expired` and `consolidated` events have no attester, so this filter removes them. It also removes events where `attester_pubkey_b32` is `null`. |
 
 This read ran on 7 November 2026 and stopped after 4 seconds:
@@ -1236,9 +1236,14 @@ Know these limits before you depend on the stream:
 - The stream is a live tail. It does not send events from before you
   connected, and events have no `id`, so `Last-Event-ID` cannot fill a
   gap. After a reconnect, read the notes again to find what you missed.
-- A client that reads too slowly gets
-  `{"type":"lag","reason":"subscriber too slow"}`. The client lost
-  events. Read the notes again.
+- The responder keeps a buffer of 1,024 events for all subscribers.
+  It applies your filters after the buffer, so events that your filter
+  removes also fill it. A client that falls more than 1,024 events
+  behind gets `{"type":"lag","reason":"subscriber too slow"}`. The
+  client lost events, and the stream continues with newer events.
+  Read the notes again.
+- The `retry:5000` line in the `ready` frame tells a browser
+  `EventSource` to reconnect after 5 seconds.
 - A comment frame every 15 seconds keeps an idle connection open.
 - One responder accepts 256 subscribers at a time (`EMEM_SSE_MAX_SUBS`).
   Above the cap, the request gets a 503 with code `rate_limited`.
