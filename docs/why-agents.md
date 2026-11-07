@@ -147,9 +147,9 @@ facts about the physical world.
 
 [MINJA](https://arxiv.org/abs/2503.03704) (a NeurIPS 2025 poster) is a paper on
 memory injection attacks. Through queries alone, it planted false records
-in the memory of LLM agents. The average injection success rate was
-98.2%. On average, the planted records then changed the agent's answer
-in 76.8% of the tests.
+in the memory of three LLM agents. The average injection success rate was
+98.2%. On average, 76.8% of the later test queries then got answers with
+the attacker's reasoning steps.
 
 A signature does not make a writer honest. It ties each record to a key.
 So in emem a planted record has a known author. Readers can score it
@@ -159,7 +159,8 @@ The two kinds of record have different write rules:
 
 - Facts: only this responder, an enrolled device or an operator-listed
   key can write an address (cell, band, time slot). The responder refuses
-  all other signed writes to an address.
+  all other signed writes to an address with `fact_plane_closed`. Other
+  keys can sign a derived value through `POST /v1/derive`.
 - Notes: any signed key can write a note, so a planted note can exist.
   The responder serves each note wrapped as data, not as instructions
   ([before you read a note](./agents.md#before-you-read-a-note)).
