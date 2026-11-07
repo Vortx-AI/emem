@@ -226,8 +226,10 @@ offline check ignores the `pubkey_b32` argument. To know that emem.dev signed th
 ```python
 EMEM_KEY = "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka"   # on 7 November 2026, key_epoch 0
 
-result = em.verify_receipt(facts["receipt"])
-print(result["valid"] and result["signer_pubkey_b32"] == EMEM_KEY)   # True
+with Client() as em:
+    facts = em.recall("defi.zb592.nUkO.zEzE", bands=["copdem30m.elevation_mean"])
+    result = em.verify_receipt(facts["receipt"])
+    print(result["valid"] and result["signer_pubkey_b32"] == EMEM_KEY)   # True
 ```
 
 The responder can also check the receipt for you. Use this to find problems. It is not an independent check, because

@@ -1,7 +1,7 @@
 """emem + Agno via MCP -- fast agent tool call: place to facts to answer.
 
 Connects to the live emem MCP server over Streamable HTTP, loads the
-18 core tools that /mcp lists, and runs an Agno Agent that checks
+core tools that /mcp lists (18 on 7 November 2026), and runs an Agno Agent that checks
 Helsinki Airport for elevation and surface-water/flood signals.
 For all tools, set EMEM_MCP_URL=https://emem.dev/mcp/full.
 
