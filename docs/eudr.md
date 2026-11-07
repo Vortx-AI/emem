@@ -1,4 +1,4 @@
-# EUDR: Due Diligence Statements + Visual Evidence
+# EUDR: Due Diligence Statements and visual evidence
 
 `POST /v1/eudr_dds` makes a signed Due Diligence Statement in the Annex II shape of
 [Regulation (EU) 2023/1115](https://eur-lex.europa.eu/eli/reg/2023/1115/oj).
@@ -18,7 +18,8 @@ The schema does not list every field in the response.
 On 7 November 2026 it did not list `loss_year_histogram`, `tmf_cross_check`,
 `sampled_polygon_fraction`, `degradation_disclaimer` or `regulation_status_note`.
 The schema does not set `additionalProperties`, so these extra fields pass validation.
-The visual `verdict` enum is different: see [Verdict thresholds](#verdict-thresholds).
+The schema enum for the visual `verdict` also lacks one value (see
+[Verdict thresholds](#verdict-thresholds)).
 
 ## Per-cell verdict
 
