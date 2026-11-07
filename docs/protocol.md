@@ -343,13 +343,15 @@ inputs clamp to `Tslot(0)`.
 
 Defined in `tslot.rs:23-43` (the enum) and `tslot.rs:49-62`
 (`slot_seconds`). The enum has seven variants. The table shows where each variant is in use on 7 November 2026. The
-"registry" column counts the band families in
-`crates/emem-core/data/bands-v0.json` that declare the variant. The
+"registry" column counts the entries of the `bands` list in
+`crates/emem-core/data/bands-v0.json` that declare the variant. The list
+has 43 entries. Each entry has a `key`. The `family` field is a different,
+larger group (13 values), and the table does not count it. The
 "materializer" column names bands whose `MaterializerMeta` in
 `crates/emem-api-rest/src/lib.rs` uses it. `GET /v1/data_availability`
 reports that tempo for each band.
 
-| Variant | Serde name | `slot_seconds()` | Cadence | Registry band families | Materializer examples |
+| Variant | Serde name | `slot_seconds()` | Cadence | Registry entries (`key`) | Materializer examples |
 |---------|------------|------------------|---------|------------------------|-----------------------|
 | `Static` | `static` | 0 | never changes | 12, for example `dem`, `koppen`, `admin` | `copdem30m.elevation_mean`, `koppen`, `terraclimate.*` |
 | `Slow` | `slow` | 31_536_000 | 365 d | 19, for example `geotessera`, `soilgrids`, `landcover` | `geotessera` vintages, `overture.*` |
@@ -359,7 +361,7 @@ reports that tempo for each band.
 | `Fast` | `fast` | 86_400 | 1 d | 10, for example `sentinel2_raw`, `indices`, `air_quality` | Sentinel-2 bands and indices, `sentinel1_raw`, `power.*` |
 | `UltraFast` | `ultra_fast` | 3_600 | 1 h | 0 | `weather.*`, `cams.*`, `era5.*`, `marine.*` |
 
-The two columns can disagree. For example, the `terraclimate` family is
+The two columns can disagree. For example, the `terraclimate` entry is
 `medium` in the registry, but `MaterializerMeta` gives `terraclimate.*`
 bands `Static`. The doc comments on the enum in `tslot.rs` name older
 sample bands. Use the table, not those comments.
@@ -434,8 +436,8 @@ Facts and manifests use BLAKE3 over canonical CBOR. The text form of the hash by
 | `entity_cid`, `bundle_cid` | 16 | 26 | `crates/emem-primitives/src/entity.rs:251` (`compute_entity_cid`), `crates/emem-primitives/src/memory_bundle.rs:159` (`compute_bundle_cid`) | a reference to an object, not a binding of its whole body ([§3.2](#32-factcid)) |
 | `FactCid`, manifest CID | 32 | 52 | `crates/emem-cache/src/sled_hot.rs:813-820` (`fact_cid_of`), `crates/emem-core/src/manifest.rs:111-119` | durable storage and signing |
 
-The code computes the full 32-byte hash of a fact once (`blake3_32`, cbor.rs:77-83).
-A `cid64` is the first 8 bytes of that hash. An `entity_cid` and a
+`fact_cid_of` hashes the fact's CBOR bytes once and keeps all 32 bytes.
+A `cid64` is the first 8 bytes of a 32-byte CID like this one. An `entity_cid` and a
 `bundle_cid` are not prefixes of any fact CID. Each hashes its own text
 preimage (`emem.entity.v1|...` or `emem.memory_bundle.v1|...`) and keeps the
 first 16 bytes.
