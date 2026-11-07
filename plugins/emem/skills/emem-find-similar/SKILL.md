@@ -116,6 +116,18 @@ jq 'if .code then {code, message}
 | 7 November 2026 | `defi.zb493.zezo.zcb35` (Bengaluru), `k: 5` | `returned_k` 4. All four neighbours are in Bengaluru. Top score 0.926 (`defi.zb493.wIxI.zcb34`). |
 | 7 November 2026 | 44.123 S, 120.456 W (open Pacific), cell `defi.zb209.zfa8a.xitO` | HTTP 404, `cid_not_found`, "no vector found for key". |
 
+At 02:50 UTC on 7 November 2026, both runs gave the same results
+again. The Bengaluru call answered in 0.13 s. To check the receipt
+without a local verifier, send it to the server:
+
+```sh
+jq -c '{receipt}' sim.json | curl -s -X POST https://emem.dev/v1/verify_receipt -H 'content-type: application/json' -d @-
+```
+
+That call returned `"valid": true`. The `cid_not_found` message also
+names `geotessera` in its list of bands for the cell. That list does
+not mean that a vector exists. The 404 is the answer.
+
 ## Options
 
 | Option | What it does |
