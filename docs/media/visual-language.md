@@ -150,6 +150,15 @@ Draw a still from its saved data. The output is byte-identical to the committed 
 
     python docs/media/stills/src/guard_check.py /tmp/guard-check.webp
 
+Check that the stills and films still match emem.dev. This command resolves every fact and bundle token in their
+saved data and compares each live value with the saved copies. Then it proves offline that the log head in
+`log-proof.webp` is a prefix of the current head. It uses only the standard library and makes read-only calls:
+
+    python3 docs/media/stills/src/recheck.py
+
+On 7 November 2026 at 14:57 UTC, 51 tokens resolved and 0 values differed. The head of 3,248,898 entries in
+`log-proof.webp` extended to the current head of 3,252,878 entries with an 18-hash consistency proof.
+
 Check one film frame before a full render. This command writes a PNG of the frame at 25 s:
 
     xvfb-run -a -s "-screen 0 1280x1280x24" python docs/media/films/src/film.py \
