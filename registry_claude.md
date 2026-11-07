@@ -41,7 +41,7 @@ Before the next demo submission, check each demo against the declined-PR feedbac
 
 ## Submission status
 
-The table shows the status on GitHub on 7 November 2026, 01:25 UTC.
+The table shows the status on GitHub on 7 November 2026, 08:58 UTC.
 "Last change" is the last update date of the PR or issue on GitHub.
 
 | Target | PR or issue | Status | Last change |
@@ -56,7 +56,7 @@ The table shows the status on GitHub on 7 November 2026, 01:25 UTC.
 | langchain-ai/langchain-mcp-adapters | Issue #511 | Closed as "not planned" on 2026-06-10, with no comment | 2026-06-10 |
 | crewAIInc/crewAI | none | Closed, the maintainer declined | |
 | mastra-ai/mastra | none | Closed, the maintainer declined | |
-| steven2358/awesome-generative-ai | PR #762 | Open, no activity (the repository has 1234 open PRs) | 2026-05-18 |
+| steven2358/awesome-generative-ai | PR #762 | Open, no activity (the repository has 1241 open PRs) | 2026-05-18 |
 | sshuair/awesome-gis | PR #212 | Open, no activity | 2026-05-18 |
 | acgeospatial/awesome-earthobservation-code | PR #39 | Open, no activity | 2026-05-18 |
 | run-llama/llama_index | Discussion #21699 | Open, no activity | 2026-05-18 |
@@ -102,7 +102,10 @@ Three points in that document change what this agent does:
 
 - Do not submit to hesreallyhim/awesome-claude-code from an agent. Its CONTRIBUTING forbids PRs and the `gh` CLI. It asks for recommendations from humans. Avijeet files it through the web issue form.
 - Do not submit to bh-rat/awesome-mcp-enterprise. It needs two of four enterprise-readiness proofs. The emem-guard README says that nobody has used emem-guard on a live organisation yet.
-- emem now meets the bar of rust-unofficial/awesome-rust. An earlier reading said it did not. The bar is 50 GitHub stars, or 2000 crates.io downloads, or an equal measure. A crates.io listing is optional, and applications count. emem had 52 stars, so a session filed the submission.
+- emem now meets the bar of rust-unofficial/awesome-rust. An earlier reading said it did not. The bar is 50 GitHub stars, or 2000 crates.io downloads, or an equal measure. A crates.io listing is optional, and applications count. emem had 52 stars then, and has 89 on 7 November 2026.
+  The listings document says that a session filed the submission.
+  On 7 November 2026, a GitHub search found no PR or issue in rust-unofficial/awesome-rust that names emem.
+  Find the session's result before you file again.
 
 Ten submissions started, with one sibling session for each target repository.
 They cover MCP security, AI security, Claude Code security, A2A, MCP catalogues, Rust and geospatial.
