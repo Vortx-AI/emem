@@ -348,6 +348,8 @@ These routes also put a route code in `details.code`. The top-level code is
 | `GET /v1/tree/{file_cid}` | `root_mismatch` | 409 | The root that the note states does not match the tree over its rows. The route gives no path. |
 | `GET /v1/tree/{file_cid}` | `row_not_found` | 404 | No row has that index or label. `details.rows` gives the row count. |
 | `GET /v1/tree/{file_cid}` | `path_self_check_failed` | 500 | Top-level `internal`. The computed path did not fold to the root. Report it. |
+| `GET /v1/tree/{file_cid}` | none | 503 | Top-level `cache_error`, no `details`. The responder runs without a durable store, so it holds no notes. |
+| `POST /v1/tree/path` | `invalid_argument` | 400 | The body must have exactly one of `leaves` and `chunks`. Each hash must be base32 of 32 bytes. `index` must be in range, with at most 1048576 leaves. The message says which check failed. |
 | `/v1/inferences` | `inferences_index_unavailable` | 503 | Top-level `cache_error`. The responder has no durable store, so it has no place index. Resolve derivations by token. |
 | `/v1/device_publish` | `device_key_malformed`, `device_key_invalid`, `signature_malformed`, `signature_invalid` | 400 | The device key or the device signature is bad. Only the device can sign its own listing decision. |
 | `/v1/a2a/tasks` | `a2a_skill_required`, `a2a_skill_unknown` | 400 | The `skill` field is empty, or it names no skill on the agent card. |
