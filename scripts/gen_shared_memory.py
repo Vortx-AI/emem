@@ -3,7 +3,7 @@
 the two-agent memt handoff, and the compaction-survival panel.
 
 Vector SVG into docs/diagrams/, plus the 1600x1040 PNG twins under
-docs/diagrams/png/ that the README embeds. Token and character counts in the
+docs/diagrams/png/ (no page embeds them on 7 November 2026). Token and character counts in the
 handoff panel are measured, not asserted: 79 chars via len(), 46-49 BPE
 tokens via tiktoken cl100k_base/o200k_base against the live token
 memt:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala
