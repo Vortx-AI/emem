@@ -191,9 +191,10 @@ This section applies when the responder accepts the write. An
   with `file_cid`) and replay it.
 
 The agent deletes nothing. The provenance trailer of the merged note names
-every source note, so an auditor can go back to the originals. This is the
-bi-temporal shadow that the plan asks for. The newer note wins for
-`as_of` now, and the originals stay replayable. The agent does not call
+every source note, so an auditor can go back to the originals. The plan
+(Change 6) asks that the originals stay readable behind the newer version.
+The path history does this. The newer note wins for `as_of` now, and the
+originals stay replayable. The agent does not call
 `emem_memory_supersede`. The source notes at other paths therefore carry no
 `superseded_by` pointer to the merge.
 
@@ -231,13 +232,14 @@ EMEM_URL=http://127.0.0.1:5088 \
 cargo test -p emem-sleep-agent
 ```
 
-- `merge::tests::mock_llm_merge_writes_superseding_memory` uses a mock
-  `LlmTransport` that returns fixed merged text. It runs a full pass
-  against a mock responder. It checks that the agent writes the merged
-  text and provenance to the canonical path, with the inherited kind. It
-  calls no real API.
-- `merge::tests::dry_run_selects_but_never_writes` checks that a dry run
-  selects a candidate but makes no LLM call and no write. This is true
-  even when a transport is available.
-- `candidates::tests::*` test candidate selection over a JSON fixture:
-  churn grouping, the severity floor, ranking and an empty corpus.
+The crate has 16 unit tests. None of them calls a real LLM or emem.dev.
+
+| Test | What it checks |
+|---|---|
+| `merge::tests::mock_llm_merge_writes_superseding_memory` | A full pass with a mock `LlmTransport` and a mock responder. The agent writes the merged text and the provenance trailer to the canonical path, with the inherited kind. |
+| `merge::tests::dry_run_selects_but_never_writes` | A dry run selects a candidate and prints a plan, but makes no LLM call and no write, even when a transport is available. |
+| `merge::tests::provenance_trailer_is_appended_not_replacing` | Only the cluster fixture (two members, first CID). It does not call `apply_merge`, so only the first test checks the trailer text. |
+| `candidates::tests::*` (4 tests) | Candidate selection over a JSON fixture: churn grouping, the severity floor, contradiction before churn, and an empty corpus. |
+| `lib::tests::*` (3 tests) | `normalize_stem`, the stem groups, and that the pass summary says `DRY-RUN`. |
+| `llm::tests::*` (4 tests) | The cost estimate from `usage`, and zero cost with no `usage`. No transport when the config names no LLM. The merge prompt holds every cluster entry. |
+| `config::tests::defaults_when_env_absent` | An explicit dry run and URL give a config with `top_n` of 1 or more and a budget above 0. |
