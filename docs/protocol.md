@@ -38,6 +38,7 @@ read the sections it names.
 | Check who wrote a memory note | The steps in [§7.5.1](#751-check-a-notes-authorship-by-hand) |
 | Check what the responder read from a url or a file range | [§9.7](#97-signed-readings-of-things-emem-did-not-measure), then the steps in [§9.7.1](#971-check-a-range_hash-receipt-by-hand) |
 | Prove that one chunk or file is in a pointer or directory note | [§9.8](#98-merkle-trees-inside-notes-ememtree) |
+| Choose which token to cite, and know what it binds | [The tokenverse](#the-tokenverse) |
 | Test your own encoder or verifier | [§12 Conformance gates](#12-conformance-gates-the-four-cids), [§13 Test vectors](#13-test-vectors) |
 
 To check a receipt, a note or a log proof with no code of your own, use a
@@ -3206,11 +3207,12 @@ working.
    the claim as `false` or use a default. §11 shows what emem.dev did
    on 7 November 2026.
 
-End of spec.
+---
 
 ## The tokenverse
 
-A token is a short text name for one thing that emem holds. It fits in
+This part is for a reader who cites emem in text. It sums up the token
+kinds that §1 to §9 define. A token is a short text name for one thing that emem holds. It fits in
 a sentence, and any party can resolve it. The kinds do not bind equally
 much. Read the Strength column before you cite one.
 
@@ -3221,7 +3223,7 @@ much. Read the Strength column before you cite one.
 | `emem:entity:<cid>` | an object two agents co-refer to | Anchor, truncated. A shared name, not shared bytes | `GET /v1/entity/{token}` |
 | `emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid>` | a field over an area, at native resolution | Full, over the artifact. The resolver refuses a token whose area, band or tslot differs from the signed record | `POST /v1/raster/resolve` |
 | `emem:cube:<aoi_cid>:<band>:<tslot_lo>..<tslot_hi>:<derivation_cid>` | a field over an area over time | Full, over the artifact. The resolver recomputes `cube_cid` from the members and refuses a mismatch | `POST /v1/cube/resolve` |
-| `emem:cell:<cell64>` | a patch of ground, about 9.55 m | An address. Nothing to dereference | `GET /v1/cells/{cell64}` describes the cell |
+| `emem:cell:<cell64>` | a patch of ground, about 9.55 m | An address, not a digest. It names a place, not a record | `GET /v1/cells/{cell64}` returns the signed facts at the cell, with a receipt |
 | `emem:state:<cid>` | one stage of an `/v1/ask` answer's reasoning | Full. The cid is the whole 32-byte blake3 of the state's canonical CBOR. Each state commits to the stage before it | `GET /v1/state/{cid}` |
 | `emem:tree:<file_cid>#row=<index>` | one row of a note's Merkle table | Full over the row: an audit path from the row to the note's signed root ([§9.8](#98-merkle-trees-inside-notes-ememtree)) | `GET /v1/tree/{file_cid}?row=<index>` |
 | `emem:rasterset:<bundle_cid>:<derivation_cid>` | a set of `emem:raster:` layers | Full over the signed manifest. The resolver recomputes `bundle_cid` from the members and refuses a mismatch | `POST /v1/raster_bundle/resolve` |
@@ -3247,7 +3249,7 @@ On 7 November 2026 the route gave these results for other inputs:
 |---|---|
 | `emem:entity:` token | HTTP 400 `invalid_argument` |
 | `emem:raster:` or `emem:cube:` token | HTTP 404 `cid_not_found`. The resolver takes the 52-character `aoi_cid` and looks it up as a fact CID |
-| a bare 52-character CID | the resolver treats it as a fact CID (degraded mode) |
+| a bare 52-character CID | HTTP 200. The resolver treats it as a fact CID and sets `degraded: true` |
 
 Use the route in the table for each kind.
 
@@ -3269,7 +3271,7 @@ The classes are `ProvenanceClass` in `crates/emem-core/src/bands.rs`.
 |---|---|
 | `direct_sensor` | measured, or read directly from the cited raw source |
 | `deterministic_index` | recomputed by this responder from the cited parents. Exact for ops that do not accumulate. `mean` and `sum` over more than two parents compare under a [stated 4-ULP window](how-emem-compares.md#5b-what-verification-cannot-promise). No party signed the sum, so the response gives the measured gap |
-| `estimator` | a fitted quantity. The same signed inputs, the same named estimator and the same seed give it again, so a third party can run it again. No band in `bands-v0.json` declared this class on 6 November 2026 |
+| `estimator` | a fitted quantity. The same signed inputs, the same named estimator and the same seed give it again, so a third party can run it again. No band in `bands-v0.json` declared this class on 7 November 2026 |
 | `attested_execution` | made inside a verified OS execution trace on an enrolled device, with the output digest bound in the trace. A third party cannot recompute it, so `deterministic: true` excludes it |
 | `model_output` | attributed, not checked. The responder signs that this attester claims value V through recipe R. It did not evaluate V |
 | `human_curated` | a person asserted it |
