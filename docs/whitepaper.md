@@ -375,7 +375,7 @@ equivalent in what dereferencing proves. There is one type per shape of
 memory: a point, a set, an object, a bare place, and, for a world model,
 a field and a field over time.
 
-![Agent A recalls a signed fact and gives agent B one line: an emem:fact: token of about 84 characters. Agent B resolves the token, gets the same bytes from any node, and checks the signature offline. Agent B does not trust agent A.](/docs/diagrams/35-two-agents-one-memory.svg)
+![Agent A recalls a signed fact and gives agent B one line: an emem:fact: token of about 84 characters. Agent B resolves the token, gets the same bytes from any node that holds the fact, and checks the signature offline. Agent B does not trust agent A.](/docs/diagrams/35-two-agents-one-memory.svg)
 *Figure 3: the token lifecycle. Recall returns a signed fact and its
 receipt; the token is the one-line citation; the receiver resolves it to
 the identical bytes and verifies the receipt offline.*

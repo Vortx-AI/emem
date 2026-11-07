@@ -30,7 +30,7 @@
 
   <path d="M 364 180 L 364 190 L 840 190 L 840 180" stroke="#888888" fill="none" stroke-width="1.5"/>
   <text x="602" y="210" font-size="12" fill="#666666" text-anchor="middle">recorded or pinned in signed metadata (&#916;_geo is not estimated yet)</text>
-  <text x="602" y="228" font-size="11" fill="#8a8a8a" text-anchor="middle">encoder checkpoint hash &#183; signed scene selection &#183; bi-temporal bounds &#183; cloud/QA class</text>
+  <text x="602" y="228" font-size="11" fill="#8a8a8a" text-anchor="middle">signed scene sources &#183; encoder recipe (fn_key) &#183; tslot window &#183; S2 cloud class (s2.scl)</text>
 
   <!-- footer -->
   <line x1="60" y1="252" x2="840" y2="252" stroke="#e0e0e0" stroke-width="1"/>
