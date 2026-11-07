@@ -165,9 +165,10 @@ Before the first pass, the agent sends `GET` to `/v1/health`, then
 `/health`, then `/`. If no probe returns a success status, the agent exits
 with code 2. In single-pass mode, a failed pass exits with code 1 and a
 completed pass exits with code 0. In loop mode, the agent logs a failed
-pass and tries again at the next interval. No code path stops the loop
-today. The loop stops only for a configuration error, and no code makes
-one.
+pass and tries again at the next interval. The loop never stops by
+itself. `run_loop` (`lib.rs`) stops only for a `SleepAgentError::Config`
+error, and no code in the crate makes that error today. To stop the
+loop, stop the process.
 
 Before each LLM call, the agent compares the spend of the pass with the
 cap. When the spend is equal to or more than the cap, the pass stops and
