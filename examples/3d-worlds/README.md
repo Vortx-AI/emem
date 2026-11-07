@@ -19,6 +19,9 @@ emem.dev. We also ran the JS selftest with Node 24.19.0. Chromium is not on
 our test host, so the commands that need it did not run. This page marks each
 of them.
 
+Each command block on this page starts with the same `cd` line. It works
+from any directory in your clone, and you can run it again with no error.
+
 These worlds are *sparse*: one splat for each signed cell, with no
 interpolation. The *dense* counterpart is the hosted demo at
 [emem.dev/splats](https://emem.dev/splats). It labels each splat `measured`,
@@ -41,7 +44,8 @@ Use the committed `scenes/semantic.scene.json` to see the world as baked.
 Serve the directory and open a template:
 
 ```bash
-python3 -m http.server -d examples/3d-worlds 8080
+cd "$(git rev-parse --show-toplevel)/examples/3d-worlds"
+python3 -m http.server 8080
 # then open http://localhost:8080/carbon-world.html
 ```
 
@@ -83,7 +87,7 @@ The math is in [`splat-math.js`](splat-math.js). The fixture
 and quaternions. The JS and the Python exporter must both match it to 1e-6:
 
 ```bash
-cd examples/3d-worlds
+cd "$(git rev-parse --show-toplevel)/examples/3d-worlds"
 python3 make_splats.py --selftest
 # selftest ok: 1213 checks
 node -e "console.log(require('./splat-math.js').selftest('./test/golden-scene.json'), 'checks')"
@@ -141,12 +145,16 @@ loader splits it in half and sends it again.
 [`make_splats.py`](make_splats.py) uses only the Python standard library. It
 does the same fetch and the same gaussian math, then writes files you can
 share. The presets are `canyon`, `interlaken`, `semantic` and `carbon`.
-Run all the commands in this section in `examples/3d-worlds`.
 
 ```bash
-cd examples/3d-worlds
-python3 make_splats.py --preset carbon --out out/rondonia --verify
+cd "$(git rev-parse --show-toplevel)/examples/3d-worlds"
+python3 make_splats.py --preset carbon --out out/rondonia
+# fetched 1024 cells, 2770 signed facts
+# wrote out/rondonia (.ply 33.5 KB, .splat 15.6 KB, 498 splats)
 ```
+
+On 7 November 2026 this run took 10 s. Only 498 of the 1,024 cells
+returned a biomass fact, so the world had 498 splats.
 
 The command writes four files:
 
@@ -163,15 +171,19 @@ receipt, so use it with care on a full world: carbon has more than 4,000
 receipts. For a small test, add `--max-cells 16`:
 
 ```bash
+cd "$(git rev-parse --show-toplevel)/examples/3d-worlds"
 python3 make_splats.py --preset canyon --max-cells 16 --out /tmp/canyon16 --verify
 # wrote /tmp/canyon16 (.ply 1.5 KB, .splat 0.5 KB, 16 splats)
 # verify_receipt: 17 valid, 0 invalid of 17
 ```
 
-There is one receipt for each cell and band, plus one for the `query_region`
-call. Canyon reads one band, so 16 cells give 16 + 1 = 17. Carbon reads four
-bands over 1,024 cells. Some cells return no value for a band, so
-`scenes/carbon.provenance.json` holds 4,057 receipts, not 4,097.
+There is one receipt for each cell and band that the responder answers, plus
+one for the `query_region` call. A cell with no value for a band still gets a
+receipt. Canyon reads one band, so 16 cells give 16 + 1 = 17. Carbon reads
+four bands over 1,024 cells. On 7 November 2026 the live carbon run above
+held 4,097 receipts (4 x 1,024 + 1). The committed
+`scenes/carbon.provenance.json` holds 4,057, because 40 cell and band pairs
+came back with no receipt at bake time.
 `/v1/verify_receipt` is the responder checking its own signature. For an
 independent check, verify offline (see
 [docs/tutorials/first-verified-memory.md](../../docs/tutorials/first-verified-memory.md)).
@@ -190,6 +202,7 @@ splats. The terrain then looks continuous, and each extra splat stays
 checkable:
 
 ```bash
+cd "$(git rev-parse --show-toplevel)/examples/3d-worlds"
 python3 make_splats.py --preset canyon --densify 3 --out out/canyon_dense
 # densified 3x: 1024 measured + 7812 derived = 8836 splats
 # derived re-derivation: 7812 band-checks, 0 mismatched
@@ -226,6 +239,7 @@ Two rules keep the derived values true:
 Check a v2 sidecar offline. You need only the file:
 
 ```bash
+cd "$(git rev-parse --show-toplevel)/examples/3d-worlds"
 python3 make_splats.py --check-derived out/canyon_dense.provenance.json
 # emem.splat_provenance.v2: 7812 derived splats, 7812 band-checks, 0 mismatched
 ```
@@ -250,8 +264,11 @@ for each preset:
 
 The committed receipts still verify. On 7 November 2026 we sent three
 receipts from `scenes/carbon.provenance.json` to `POST /v1/verify_receipt`,
-and all three returned `valid: true`. The carbon world has 848 splats from
-1,024 sampled cells, because the other cells have no biomass fact.
+and all three returned `valid: true`. The committed carbon world has 848
+splats from 1,024 sampled cells, because the other cells have no biomass
+fact. A live run on 7 November 2026 gave 498 splats (see
+[Export signed splats](#export-signed-splats)). The committed files stay as
+baked.
 
 ## Serve baked worlds
 
@@ -261,8 +278,8 @@ disk read.
 - [`scripts/bake_worlds.sh`](../../scripts/bake_worlds.sh) runs this
   exporter for each preset against the local responder. It uses small
   batches with `--sleep` between them, so the responder can still serve
-  other traffic. It verifies each receipt. It then swaps the finished files into
-  `EMEM_WORLDS_DIR` (default `var/worlds`) in one step.
+  other traffic. It verifies each receipt. It then swaps the finished files
+  into `EMEM_WORLDS_DIR` (default `var/worlds`) in one step.
 - [`scripts/stage_worlds.py`](../../scripts/stage_worlds.py) copies the
   committed `scenes/` files there instead. A fresh clone can then serve
   worlds with no upstream fetch.
@@ -301,11 +318,11 @@ captured GIFs stay byte-for-byte reproducible.
 
 The world GIFs in `docs/media/` come from these templates.
 [`capture.mjs`](capture.mjs) renders them in headless Chromium with no other
-dependencies. It needs Node 22 or later. These commands did not run on our test host, because it has no
-Chromium:
+dependencies. It needs Node 22 or later. These commands did not run on our
+test host, because it has no Chromium:
 
 ```bash
-cd examples/3d-worlds
+cd "$(git rev-parse --show-toplevel)/examples/3d-worlds"
 python3 make_splats.py --preset carbon --out out/rondonia
 node capture.mjs --template carbon-world.html --scene out/rondonia.scene.json \
      --frames 240 --size 1200x900 --gif ../../docs/media/world-rondonia.gif
