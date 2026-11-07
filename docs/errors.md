@@ -89,8 +89,8 @@ bands in the request:
 | Request | Answer |
 |---|---|
 | `POST /v1/recall`, no band in `bands` is in the registry | HTTP 400, `code: band_not_in_registry` |
-| `POST /v1/recall`, some bands are in the registry | HTTP 200 with the known facts. Each unknown band is in `materialize_notes` with `reason_class: unknown_band` and `retryable: false`. |
-| MCP `emem_recall`, any mix | No tool error. Unknown bands are in `materialize_notes`, as for REST. |
+| `POST /v1/recall`, some bands are in the registry | HTTP 200 with the known facts. Each unknown band is in `materialize_notes` with `reason_class: unknown_band` and `retryable: false`. The top-level `unknown_bands` array also lists them. |
+| MCP `emem_recall`, any mix | No tool error. Unknown bands are in `materialize_notes`, as for REST. The MCP result has no `unknown_bands` field. |
 
 This request has one unknown and one known band, so it returns HTTP 200:
 
@@ -98,6 +98,16 @@ This request has one unknown and one known band, so it returns HTTP 200:
 curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
   -d '{"cell":"defi.zb4d9.pefa.zf619","bands":["elevation_mean","copdem30m.elevation_mean"]}'
+```
+
+A fact token whose cid lost characters gives HTTP 400 with `code:
+invalid_argument` and `details.code: fact_cid_malformed_length`. This cid
+has 50 characters, not 52. `details.recoverable` is `false`:
+
+```sh
+curl -s -X POST https://emem.dev/v1/memory_token/resolve \
+  -H 'content-type: application/json' \
+  -d '{"token":"emem:fact:defi.zb4d9.pefa.zf619:4zstrktfkxaxm7hvdw5tuz2khxf53y5f55ucn5wk2rvjfxpam7"}'
 ```
 
 Over MCP, the malformed cell gives a result with `isError: true` and the
@@ -199,7 +209,7 @@ These routes also put a route code in `details.code`. The top-level code is
 
 | Route | `details.code` | HTTP | Meaning |
 |---|---|---|---|
-| `/v1/memory_token/resolve` and the other token readers | `fact_cid_malformed_length` | 400 | The fact cid is not 52 characters. Something cut the token in transit. A retry does not help. Read the token again from its source. |
+| `/v1/memory_token/resolve` and the other token readers | `fact_cid_malformed_length` | 400 | The fact cid is not 52 characters. Something cut the token in transit. A retry does not help. Read the token again from its source. A value with no cid shape at all gets `invalid_argument` with no `details.code`. |
 | `/v1/log/witness` | `witness_root_mismatch` | 409 | The `root_b32` you co-signed is not the root this responder computes at that `tree_size`. |
 | `/v1/inferences` | `inferences_index_unavailable` | 503 | Top-level `cache_error`. The responder has no durable store, so it has no place index. Resolve derivations by token. |
 | `/v1/device_publish` | `device_key_malformed`, `device_key_invalid`, `signature_malformed`, `signature_invalid` | 400 | The device key or the device signature is bad. Only the device can sign its own listing decision. |
