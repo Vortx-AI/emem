@@ -1560,7 +1560,7 @@ response tells which layer answered.
 
 | `via` | Source |
 |---|---|
-| `direct_latlng` | You sent coordinates, not a name |
+| `direct` | You sent coordinates, not a name |
 | `wide_bbox_table` | A curated table of large regions, for example the Sahara or the Amazon |
 | `country`, `admin1`, `admin2`, `admin3` | GeoNames administrative tables, in-process |
 | `embedded` | GeoNames cities1000 populated places, in-process |
@@ -1571,6 +1571,10 @@ response tells which layer answered.
 | `nominatim` | OSM Nominatim, the second network geocoder |
 | `overture_admin_fallback` | Overture `divisions/division_area`, when the network answer is a point of interest but the query names an administrative area |
 | `wikidata` | A Wikidata item replaced the cascade result |
+
+On 7 November 2026, `Sahara` came from `wide_bbox_table`, `France` from
+`country`, `Karnataka` from `admin1` and `Paris` from `embedded`.
+Coordinates (`{"lat":35.36,"lng":138.73}`) came back with `via: "direct"`.
 
 ---
 
