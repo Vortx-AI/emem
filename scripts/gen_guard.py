@@ -277,19 +277,19 @@ def dlp_chassis():
 
     # The bottom lane: the actual difference, drawn as two outcomes.
     s.line(196, 668, W - 196, 668, INK_SOFT, 0.8, op=0.4)
-    _card(s, 196, 698, 620, 152, INK_SOFT, "everyone's verdict path today",
+    _card(s, 196, 698, 620, 152, INK_SOFT, "a common verdict path today",
           ["detection → allow/deny → unsigned JSON → a mutable audit table",
            "",
            "the org's own database says what happened.",
-           "nobody can prove it later. that is testimony."])
+           "no one can prove it later. that is testimony."])
     _card(s, 856, 698, 620, 152, LEAF, "the same verdict, on this chassis",
           ["detection → allow/deny → ed25519 → append-only hash chain",
            "",
            "signatures prove each verdict genuine.",
-           "the chain proves none were removed. that is evidence."],
+           "a record removed mid-log breaks the chain. that is evidence."],
           badge="THE DIFFERENCE", badge_col=LEAF)
 
-    _footer(s, "We will never win a detection-accuracy race, and we do not need to: the half after the verdict is the half nobody ships.",
+    _footer(s, "emem-guard does not compete on detection accuracy. It signs and logs what happens after the verdict.",
             "an abstain is never a block · a sidecar's outage must not become the operator's")
     s.save(f"{OUT}/42-guard-dlp-chassis.svg")
     return "42-guard-dlp-chassis"
