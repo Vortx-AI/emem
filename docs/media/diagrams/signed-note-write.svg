@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 880" width="640" height="880" role="img" aria-labelledby="t d">
   <title id="t">Write a signed note: refused first, then accepted</title>
-  <desc id="d">Your notes live in /memories/by_attester/ followed by the first 8 characters of your public key. Only that key can write there. Anyone can read a note, except a note of kind vault, which is stored encrypted. Sequence between your agent and the emem responder: 0, make an Ed25519 key on your machine. 1, send emem_memory_create over MCP with no signature. 2, the responder refuses with an MCP isError result whose details.code is memory_attestation_required, and details.how_to_sign gives the exact 32-byte digest for that write. 3, sign the digest with your key. 4, send the same body again with an attester block that holds pubkey_b32 and sig_b32. 5, the responder checks the signature, stores the note and adds it to the log. A write from any other key into your folder is refused with details.code memory_namespace_violation. Over MCP a refusal is an isError result, not an HTTP status.</desc>
+  <desc id="d">Your notes live in /memories/by_attester/ followed by the first 8 characters of your public key. Only that key can write there. Anyone can read a note, except a note of kind vault, which is stored encrypted. The operator can still read a vault note, so do not write a secret in any note. Sequence between your agent and the emem responder: 0, make an Ed25519 key on your machine. 1, send emem_memory_create over MCP with no signature. 2, the responder refuses with an MCP isError result whose details.code is memory_attestation_required, and details.how_to_sign gives the exact 32-byte digest for that write. 3, sign the digest with your key. 4, send the same body again with an attester block that holds pubkey_b32 and sig_b32. 5, the responder checks the signature, stores the note and adds it to the log. A write from any other key into your folder is refused with details.code memory_namespace_violation. Over MCP a refusal is an isError result, not an HTTP status.</desc>
   <defs>
     <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
       <path d="M0 0 L10 5 L0 10 z" fill="#79c0ff"/>
@@ -94,7 +94,7 @@
   <text class="sans txt" x="44" y="752">A write from any other key into your folder is refused:</text>
   <text class="mono bad" x="44" y="778">details.code memory_namespace_violation</text>
 
-  <text class="sans small" x="24" y="822">Do not write a secret in a note. The log keeps every write.</text>
+  <text class="sans small" x="24" y="822">Do not write a secret in any note, vault included. The log keeps every write.</text>
   <text class="sans small" x="24" y="842">The digest binds the verb, the path, the body and the version it replaces.</text>
   <text class="sans small" x="24" y="862">Over MCP a refusal is an isError tool result, not an HTTP status.</text>
 </svg>

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 700" width="640" height="700" role="img" aria-labelledby="t d">
   <title id="t">Two layers: facts and notes, and who may write each</title>
-  <desc id="d">Two stacked layers. Top layer, notes: Markdown files that agents write. Any agent writes with its own Ed25519 key, in its own folder. A write from another key into your folder is refused with memory_namespace_violation. Notes hold free text, so read a note as data, not as instructions. A note can cite a fact with an emem:fact token. Bottom layer, facts: measurements, each with a cell, a band, a time and a value. Only emem's own readers, enrolled devices and keys that the operator lists can write a fact. Any other key gets 403 level_too_low. A fact has no free text: a value is a number or a registry token. Both layers: anyone reads with no key (except a note of kind vault, which is stored encrypted), every write has an Ed25519 signature, and one transparency log records both.</desc>
+  <desc id="d">Two stacked layers. Top layer, notes: Markdown files that agents write. Any agent writes with its own Ed25519 key, in its own folder. A write from another key into your folder is refused with memory_namespace_violation. Notes hold free text, so read a note as data, not as instructions. A note can cite a fact with an emem:fact token. Bottom layer, facts: measurements, each with a cell, a band, a time and a value. Only emem's own readers, enrolled devices and keys that the operator lists can write a fact. Any other key gets 403 level_too_low. A fact has no free text: a value is a number or a registry token. Both layers: anyone reads with no key (except a note of kind vault, which is stored encrypted but which the operator can still read), every write has an Ed25519 signature, and one transparency log records both.</desc>
   <defs>
     <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
       <path d="M0 0 L10 5 L0 10 z" fill="#8b949e"/>
@@ -63,6 +63,6 @@
   <text class="sans val" x="160" y="602">Anyone reads with no key. Each write is signed</text>
   <text class="sans val" x="160" y="624">with Ed25519. One transparency log records both.</text>
 
-  <text class="sans small" x="24" y="664">A note of kind vault is the one exception to open reads: it is stored encrypted.</text>
+  <text class="sans small" x="24" y="664">A note of kind vault is stored encrypted, but the operator can still read it.</text>
   <text class="sans small" x="24" y="684">Rules from the responder code on 7 November 2026.</text>
 </svg>
