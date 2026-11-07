@@ -22,6 +22,7 @@ pull request to `main` (`.github/workflows/ci.yml`).
 | Build tools | `g++`, `protoc` and the protobuf well-known types (`protobuf-compiler` and `libprotobuf-dev` on Debian), `mdbook` 0.5.2 |
 | glibc | 2.38 or later. `ort-sys` links symbols that glibc 2.36 does not have. The Docker image builds on `debian:trixie-slim` (glibc 2.41). |
 | Operating system | Linux or macOS. CI runs the tests on `ubuntu-latest` and `macos-latest`. |
+| Shell tools for the examples | `curl` and `jq` |
 
 Build the docs site before you build the code. The server embeds
 `docs/book/` with `include_dir!`, so `cargo build` fails when that
@@ -175,7 +176,8 @@ Save the receipt object to a file, then run the `emem` CLI:
 
 ```sh
 jq '.receipt' /tmp/recall.json > /tmp/receipt.json
-./target/release/emem verify /tmp/receipt.json --base-url http://127.0.0.1:5051
+cargo run --release --bin emem -- verify /tmp/receipt.json \
+  --base-url http://127.0.0.1:5051
 ```
 
 `emem verify` rebuilds the BLAKE3 preimage with the same code as
@@ -292,7 +294,15 @@ the `BAAI/bge-base-en-v1.5` model on the CPU.
 | `EMEM_TOPIC_MODEL_DIR` | The directory that holds `model.onnx` and `tokenizer.json` |
 
 Run `scripts/install-topic-model.sh` once to download the model (about
-435 MB) before the first `/v1/ask` call. After a routing change, run the
+435 MB) before the first `/v1/ask` call. The script writes it to
+`<EMEM_DATA>/models/bge-base-en-v1.5/`, the default model directory.
+
+If the `ort` model does not load, the server tries `model2vec`. That
+backend downloads `minishlab/potion-base-8M` from Hugging Face. If that
+also fails, the server uses `keyword`. The log shows a warning for each
+step (`topic_router.rs`).
+
+After a routing change, run the
 routing check by hand. No CI job runs it.
 
 ```sh
@@ -309,7 +319,7 @@ the topic that the router chose.
 are `http://localhost:5051` and `./var/demos/<UTC stamp>`.
 
 ```sh
-./target/release/emem-livedemo http://127.0.0.1:5051
+cargo run --release --bin emem-livedemo -- http://127.0.0.1:5051
 curl -s http://127.0.0.1:5051/v1/demos | jq -c 'keys'   # ["count","root","runs"]
 ```
 
