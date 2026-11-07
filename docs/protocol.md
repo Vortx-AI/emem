@@ -3476,16 +3476,27 @@ depends on its provenance class. If an audited decision rests on a
 fact, this difference can have legal weight.
 
 The classes are `ProvenanceClass` in `crates/emem-core/src/bands.rs`.
+Each fact in a read carries a `provenance` block with the class. This
+block came from `POST /v1/recall` for `elevation` at Mount Fuji on
+7 November 2026:
 
-| Provenance class | What the responder tells you |
-|---|---|
-| `direct_sensor` | measured, or read directly from the cited raw source |
-| `deterministic_index` | recomputed by this responder from the cited parents. Exact for ops that do not accumulate. `mean` and `sum` over more than two parents compare under a [stated 4-ULP window](how-emem-compares.md#5b-what-verification-cannot-promise). No party signed the sum, so the response gives the measured gap |
-| `estimator` | a fitted quantity. The same signed inputs, the same named estimator and the same seed give it again, so a third party can run it again. No band in `bands-v0.json` declared this class on 7 November 2026 |
-| `attested_execution` | made inside a verified OS execution trace on an enrolled device, with the output digest bound in the trace. A third party cannot recompute it, so `deterministic: true` excludes it |
-| `model_output` | attributed, not checked. The responder signs that this attester claims value V through recipe R. It did not evaluate V |
-| `human_curated` | a person asserted it |
-| `unclassified` | the default for a band with no class. Lowest trust. It never claims tamper evidence |
+```json
+{"class":"direct_sensor","deterministic":true,"tamper_evidence":"recomputable_from_source","trust_rank":5}
+```
+
+The `tamper_evidence` value tells you what a verifier relies on.
+The last column counts the 43 bands in `bands-v0.json` on
+7 November 2026.
+
+| Provenance class | What the responder tells you | `tamper_evidence` | Bands |
+|---|---|---|---|
+| `direct_sensor` | measured, or read directly from the cited raw source | `recomputable_from_source` | 6 |
+| `deterministic_index` | recomputed by this responder from the cited parents. Exact for ops that do not accumulate. `mean` and `sum` over more than two parents compare under a [stated 4-ULP window](how-emem-compares.md#5b-what-verification-cannot-promise). No party signed the sum, so the response gives the measured gap | `recomputable_from_source` | 7 |
+| `estimator` | a fitted quantity. The same signed inputs, the same named estimator and the same seed give it again, so a third party can run it again | `rerunnable_from_signed_inputs` | 0 |
+| `attested_execution` | made inside a verified OS execution trace on an enrolled device, with the output digest bound in the trace. A third party cannot recompute it, so `deterministic: true` excludes it | `verified_execution_trace` | 0 |
+| `model_output` | attributed, not checked. The responder signs that this attester claims value V through recipe R. It did not evaluate V | `signed_model_checkpoint` | 23 |
+| `human_curated` | a person asserted it | `attester_only` | 5 |
+| `unclassified` | the default for a band with no class. Lowest trust. It never claims tamper evidence | `attester_only` | 2 |
 
 Only `direct_sensor` and `deterministic_index` count as deterministic
 (`ProvenanceClass::is_deterministic`). Pass `deterministic: true` on a
@@ -3498,7 +3509,7 @@ When there is no observation, emem gives one of two answers. A plain
 | Case | Answer |
 |---|---|
 | The responder looked and found nothing | a signed absence with a typed reason (§5.3). You can cite it like any other fact |
-| The responder could not look, for example an upstream failed or coverage does not reach the cell | a typed note with `absence: false`. The responder does not sign it |
+| The responder could not look, for example an upstream failed or coverage does not reach the cell | an entry in `materialize_notes[]` with `status: "skipped"`, a `reason`, a `reason_class`, a `retryable` flag and `absence: false`. The responder does not sign it |
 
 The responder does not sign "I could not look", because that would
 read as "I looked and found nothing". An unknown never appears as a
