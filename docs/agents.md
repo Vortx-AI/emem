@@ -767,6 +767,13 @@ Then sign the digest with your key. Send the same arguments again, and add
 `"attester": {"pubkey_b32": "<52 characters>", "sig_b32": "<103 characters>"}`.
 Both values are lowercase RFC 4648 base32 with no padding.
 
+When the signature is good, the answer has `ok: true` and the `path`. It
+also has `file_cid`, the content id of the stored note. Keep it: a later
+edit signs over it as `base`. The answer also gives `attester_pubkey_b32`,
+`size_bytes`, `signed_at` and a `receipt`. These fields come from
+`memory_create_inner` in `crates/emem-api-rest/src/lib.rs`. We did not send
+a signed create to emem.dev.
+
 If another writer changes the note first, `base` changes. Your signature then
 fails. Read the note again and sign the new digest. A signature over the old
 v1 preimage gets `memory_attestation_invalid` with `reason` `v1_retired`,
