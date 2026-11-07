@@ -2392,7 +2392,10 @@ python3 fold_proof.py recall.json
 
 On 7 November 2026, a live elevation recall printed `MATCH version 1`.
 That proof had `leaf_count: 1` and an empty `path`, as in §8.3. A copy
-with one changed character in `fact_cids[0]` printed `MISMATCH`. The
+with one changed character in `fact_cids[0]` printed `MISMATCH`. At
+07:40 UTC the same day, a recall at Mount Fuji (`defi.zb592.nUkO.zEzE`)
+gave a proof with `leaf_count: 11`, `leaf_index: 0` and 4 path hashes,
+which is `ceil(log2(11))`. It also printed `MATCH version 1`. The
 same fold also matched every leaf of random trees of 1 to 7 leaves,
 built with the layer rule of `merkle_root_and_paths` and
 `merkle_root_and_paths_v1`.
