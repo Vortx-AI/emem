@@ -330,6 +330,7 @@ contract and what each tier protects.
 |---|---|
 | A write with no signature | 401. The answer tells you how to sign. |
 | A write outside your namespace | 403, `details.code` `memory_namespace_violation` |
+| A fact at an address (cell, band, tslot) from a key that the responder does not admit | 403 `level_too_low`. The message starts with `fact_plane_closed`. Use `POST /v1/derive` instead. |
 | More than 240 writes per minute from one attester (limit on 7 November 2026) | 429 `rate_limited`, with `details.code` `write_rate_limited` and `details.retry_after_s` |
 
 [`/v1/limits`](https://emem.dev/v1/limits) keeps enforced limits apart from
