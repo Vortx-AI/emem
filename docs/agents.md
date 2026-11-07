@@ -2148,7 +2148,7 @@ route reads five shapes:
 | `mcp` | a JSON-RPC `tools/call`, or a tool result | `{"allow":bool, ...}`. A deny adds `result`: the `CallToolResult` (with `isError`) to return instead of the tool output |
 | `openai` | a moderations or chat-completions body | a moderations-shaped result with `flagged` |
 | `cloudevent` | a CloudEvents 1.0 structured event | a CloudEvent with the verdict |
-| `policy` | `{"input":{...}}` | `{"result":{"allow":bool,"deny":[...]}}` |
+| `policy` | `{"input":{...}}` | `{"result":{"allow":bool,"deny":[...],"verdict":{...}}}`. `verdict` is the full native verdict |
 
 In the `openai` shape, branch on `flagged`, not on `categories`. Four
 `emem/*` categories map to four deny codes: `PROV_SIG`, `PROV_BYTES`,
