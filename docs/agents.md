@@ -1125,7 +1125,10 @@ has an `as_of` block. An auditor can replay the query later and get the same
 bytes. `edges/recall` takes `as_of_tslot` only. `diff`, `compare` and
 `verify` take no time bound. On 7 November 2026, the `/openapi.json` schemas
 showed the bounds only for recall, `recall_polygon` and `trajectory`. The MCP
-tool schemas at `/mcp/full` showed them for the first seven primitives.
+schemas showed them for the first seven primitives. `/mcp/full` lists names
+and descriptions only. Get one schema with `emem_tools` and `{"name": "emem_state"}`.
+No published schema shows the bounds in a `memory_bundle` triple
+(`BundleTriple` in `crates/emem-primitives/src/memory_bundle.rs`).
 
 ### Routes for operations from other memory libraries
 
