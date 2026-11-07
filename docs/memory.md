@@ -1457,7 +1457,28 @@ above. For such a key, an organisation vouched for it by DNS or
 `.well-known` within the last 30 days (`GET /v1/enlist`). Send
 `min_tier` to move that floor. Send `attesters` to admit only the keys
 that you name. `attesters` takes at most 64 keys. More keys get 400
-`inferences_too_many_attesters`.
+`inferences_too_many_attesters`. Send `attesters` as a JSON list, or
+as one string with commas between the keys. `min_tier` takes a full
+tier name such as `T4_affiliated`, or the short form `T4`. Case does
+not matter.
+
+These reads refuse a bad request with 400 and a `details.code`. On
+7 November 2026, each row below came back live from emem.dev.
+
+| `details.code` | Cause |
+|---|---|
+| `derived_attester_required` | `/v1/derived` got no `attester_pubkey_b32`. |
+| `derived_attester_malformed` | The key is not 52 characters of lowercase base32 for 32 bytes. |
+| `derived_band_needs_cell` | `/v1/derived` got `band` without `cell`. |
+| `inferences_place_required` | `/v1/inferences` got no `cell`, and no `lat` and `lng`. |
+| `inferences_invalid_cell` | `cell` is not a cell64. |
+| `inferences_invalid_coordinates` | Only one of `lat` and `lng`, or a value out of range. |
+| `inferences_cell_latlng_disagree` | `cell` and `lat`, `lng` name two different cells. Send one of them. |
+| `inferences_invalid_radius` | `radius_m` is outside 0 to 50000. |
+| `inferences_unknown_tier` | `min_tier` is not a tier. The message lists the six tiers, `T0` to `T5`. |
+| `inferences_attester_malformed` | An `attesters` entry is not a valid key. |
+| `inferences_too_many_attesters` | `attesters` names more than 64 keys. |
+| `inferences_radius_too_wide` | The circle touches more than 4,096 index tiles. |
 
 The response gives these items:
 
