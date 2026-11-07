@@ -1979,9 +1979,11 @@ plot. `statement_of_compliance_held_because` lists each cause:
 
 On 7 November 2026 the example plot gave the outcome `pass`, but the
 responder held the statement for `verdict_support_weak`. The point is 0.01 ha, and
-all its cells are within 2 points of the 10 % canopy threshold.
+all its cells are within 2 points of the 10 % canopy threshold. Its cell
+had the label `not_in_scope`: JRC showed no forest there in 2020.
 
-Each plot has `per_cell_rows_cid`. It is the BLAKE3 hex of one line for
+The response puts one item for each plot in `per_plot_results`. Each item
+has `verdict`, `verdict_support` and `per_cell_rows_cid`. It is the BLAKE3 hex of one line for
 each sampled cell, in the form `<cell>|<verdict>|<fact_cids joined by ,>\n`.
 The responder stores the facts of each sampled cell, so each fact CID
 resolves.
