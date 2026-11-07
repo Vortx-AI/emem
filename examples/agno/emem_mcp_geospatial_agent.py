@@ -1,15 +1,16 @@
 """emem + Agno via MCP -- fast agent tool call: place to facts to answer.
 
-Connects to the live emem MCP server over Streamable HTTP, auto-discovers
-all tools, and runs an Agno Agent that checks Helsinki Airport for
-elevation and surface-water/flood signals.
+Connects to the live emem MCP server over Streamable HTTP, loads the
+core tools that /mcp lists (18 on 7 November 2026), and runs an Agno Agent that checks
+Helsinki Airport for elevation and surface-water/flood signals.
+For all tools, set EMEM_MCP_URL=https://emem.dev/mcp/full.
 
 Install:
-    pip install agno openai
+    pip install 'agno[mcp]' openai
 
-Usage:
+Usage (from the root of the repository):
     export OPENAI_API_KEY="sk-..."
-    python emem_mcp_geospatial_agent.py
+    python examples/agno/emem_mcp_geospatial_agent.py
 
 The agent will check Helsinki Airport, Finland for elevation and
 surface-water/flood signals, returning only facts that emem can support.

@@ -13,8 +13,8 @@ reports, from the actual responses, what the guard did and did not catch.
 
 No API key. No account. Python 3 standard library only.
 
-    python3 run.py
-    python3 run.py --probe
+    python3 examples/verifiable-lending/run.py
+    python3 examples/verifiable-lending/run.py --probe
 """
 
 import argparse
@@ -522,8 +522,8 @@ def scenario(args):
     print("       grounded : %d == %s -> %s" % (gf, gc, gf == gc))
     print()
     print(wrap("What this run did NOT show is what the guard misses on citations "
-               "themselves. Run `python3 run.py --probe` for the four controlled "
-               "checks that isolate that."))
+               "themselves. Run this script again with `--probe` for the four "
+               "controlled checks that isolate that."))
     print()
 
 
