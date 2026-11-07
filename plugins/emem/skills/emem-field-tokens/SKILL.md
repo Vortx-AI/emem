@@ -74,17 +74,24 @@ jq '{raster: .tokens.raster, artifact: .artifact.url, cid: .artifact.artifact_ci
      grid: .grid, scene: .derivation.sources[0].id}' raster.json
 ```
 
-On 7 November 2026 this call returned in 0.6 s:
+On 7 November 2026 this call returned in 0.6 s at 00:56 UTC and in
+1.3 s at 02:56 UTC:
 
-| Field | Value |
-|---|---|
-| `grid` | 32 x 32 px, 10 m, EPSG:32643 |
-| `scene` | `S2A_MSIL2A_20261104T054241_R005_T43SFS_20261104T085202` |
-| `artifact_cid` | `77zgrf4hiv4cnzqblgkttrg4jssvh5sghhvdqjjq3wnj77nmgpma` |
-| `tokens.raster` | `emem:raster:tllufj6j...:s2.B04:20761:2w5daw7i...` |
+| Field | 00:56 UTC | 02:56 UTC |
+|---|---|---|
+| `grid` | 32 x 32 px, 10 m, EPSG:32643 | same |
+| `scene` | `S2A_MSIL2A_20261104T054241_R005_T43SFS_20261104T085202` | same |
+| `artifact_cid` | `77zgrf4hiv4cnzqblgkttrg4jssvh5sghhvdqjjq3wnj77nmgpma` | same |
+| `tokens.raster` | `emem:raster:tllufj6j...:s2.B04:20761:2w5daw7i...` | `emem:raster:tllufj6j...:s2.B04:20761:tsgxwzhu...` |
 
-Without a date, the responder picks a recent usable scene. The scene,
-the cid and the token change when a newer scene arrives.
+Each call signs and stores a new derivation record. The record
+contains its signing time, so each call gives a new `derivation_cid`
+and a new token. The `artifact_cid` stays the same while the scene
+stays the same. Both tokens resolve. To compare two rasters, compare
+their `artifact_cid` values, not their tokens.
+
+Without a date, the responder picks a recent usable scene. When a
+newer scene arrives, the `artifact_cid` changes too.
 
 ## Step 2: download the bytes and hash them again
 
@@ -237,7 +244,7 @@ no facts and returns no receipt.
 | Window larger than the cap | HTTP 400 with the size in pixels and the cap | Use a smaller bbox, or split it. |
 | DEM over open ocean | Refusal: the archive has no tile there | No elevation field exists there. |
 | Cold area under load | `compute_timeout` after the 40 s transport budget | Retry once. |
-| Artifact evicted from the store | The derivation record stays. It pins scene, recipe and area. | Send the same body again to rebuild the same bytes. |
+| Artifact evicted from the store | The derivation record stays. It pins scene, recipe and area. | Send the same body with the same `observed_on` again. You get the same bytes and a new token. |
 | Token parts do not match the record | HTTP 409 `invalid_argument` | Do not use the token. |
 
 To get NDVI from rasters, fetch `s2.B08` and `s2.B04` for the same
