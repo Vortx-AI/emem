@@ -169,9 +169,9 @@ applications compute over the memory, and they also read from it.
 | `explain(O)` | the receipt and the registry formula are the signed explanation. `/v1/ask` returns prose over signed reads. Its receipt signs the fact cids that it read, not the prose |
 | `evolve(M)` | attest; a later observation `supersedes` an older one and does not erase it; the refinement loop records `disagrees_with` edges from contradictions |
 | `resolve(name)` | token dereference: `emem:fact:` gives byte-identical bytes, `emem:bundle:` gives its signed envelope, `emem:entity:` gives the object record |
-| `ensure(M, a, B)` | ships for one step. A `POST /v1/recall` with a band list states the goal. The responder uses what exists (`was_cached`) and fetches and signs the rest (`materialize_notes`). The agent does not control the fetch |
+| `ensure(M, a, B)` | ships for one step. A `POST /v1/recall` with a band list states the goal. The responder uses what exists and fetches and signs the rest. `materialize_notes` gives the status of each band it tried (`materialized`, `skipped` or `deferred`). The agent does not control the fetch |
 | `valid(M, a)` | `POST /v1/temporal_route`: staleness Q(dt) for each band, from the physics decay kernel of the band. It splits bands into `cite_now` (fresh enough to cite) and `fetch_for_intent` (needs a new read) |
-| `attribute(M, a, t1, t2)` | `POST /v1/change_attribution` (`change_attribution@1`): the evidence for why the readout of one cell moved between two visits, term by term. Each item has its fact cids, under a signed receipt. emem does not compute the numeric split of the delta among the terms, so `split` is null and says why |
+| `attribute(M, a, t1, t2)` | `POST /v1/change_attribution` (`change_attribution@1`): the evidence for why the readout of one cell moved between two visits, term by term. The request has only `cell`. The responder uses the two latest visits of each band, so the caller does not choose `t1` and `t2`. Each item has its fact cids, under a signed receipt. emem does not compute the numeric split of the delta among the terms, so `split` is null and says why |
 
 `ensure` for targets that need more than one step is open work. See
 [The memory as a build graph](#the-memory-as-a-build-graph).
@@ -208,8 +208,8 @@ traffic today:
 - Output. The `fact_cid`, which is the BLAKE3 hash of the canonical
   bytes.
 - Build on demand. A recall on a miss reads, signs and stores the value.
-  This is a lazy build. The `was_cached` field of the receipt is cache
-  semantics on the wire.
+  This is a lazy build. `receipt.cost.was_cached` is true only when the
+  cache served the whole read. It is outside the signed preimage.
 - Hermeticity labels. The provenance classes are these labels.
 
 | Provenance class | Build role |
