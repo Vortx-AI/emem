@@ -31,16 +31,16 @@ python3 run.py --lat 19.0760 --lng 72.8777    # any coordinate
 ```
 
 On 7 November 2026 the first full walkthrough took about 9 seconds, because the
-responder fetched some bands from their sources. A second run took less than
-1 second, and so did the probe. The default parcel is lat 12.9352, lng 77.6245 (Koramangala,
-Bengaluru). Its cell is `defi.zb493.hufo.zccc6`.
+responder fetched some bands from their sources. Later runs took 1 to 2
+seconds. The probe took less than 1 second. The default parcel is lat 12.9352,
+lng 77.6245 (Koramangala, Bengaluru). Its cell is `defi.zb493.hufo.zccc6`.
 
 ## What the walkthrough does
 
 | step | call | result on 7 November 2026 |
 |---|---|---|
 | 1. Find the parcel address | `POST /v1/locate` with `lat`, `lng` | `cell64` `defi.zb493.hufo.zccc6` |
-| 2. Recall signed facts | `POST /v1/recall` with 14 bands | 14 of 14 bands materialized; the receipt lists 20 `fact_cids` |
+| 2. Recall signed facts | `POST /v1/recall` with 14 bands | 14 of 14 bands materialized; the receipt lists 23 `fact_cids` (this count grows with new weather readings) |
 | 3. Apply published algorithms | `GET /v1/algorithms/<key>` | `vegetation_class_from_ndvi@1` gives `bare`; `flood_risk@2` gives 0.0244 (low); both agree with the responder |
 | 4. Write two memos | none | a naive memo and a grounded memo with the same numbers |
 | 5. Get two verdicts | `POST /v1/guard/verdict?shape=native` | naive: `deny` `CLAIM_UNGROUNDED`; grounded: `allow`, 5 citations, 5 `fact_cids` |

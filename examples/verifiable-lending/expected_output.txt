@@ -37,12 +37,12 @@ STEP 2  RECALL SIGNED FACTS  (POST /v1/recall, 14 bands)
       emem:fact:defi.zb493.hufo.zccc6:fhdmpkknbgnjfcaqqn45pfvpxgvsw4z2dtoaqxo32arar6ltkepa
   sentinel1_raw                          -11.0522848392663        dB     0.85
       emem:fact:defi.zb493.hufo.zccc6:k6ffztew2hkuirzxbng5v4ggsoy5cqviv3jnkbuixmynimxjw5wa
-  weather.temperature_2m                 19.6                     degC   0.85
-      emem:fact:defi.zb493.hufo.zccc6:vmyxbzirfocuclylouqj4vtjgs7dctf3vhwqh3aotcggqy57yx6q
+  weather.temperature_2m                 19.3                     degC   0.85
+      emem:fact:defi.zb493.hufo.zccc6:m65fds33ktv6kemi4doi4omvykljvz7oqxwas6ipb5s67p3sknma
   weather.precipitation_mm               0.0                      mm     0.75
-      emem:fact:defi.zb493.hufo.zccc6:ixjecwpocmiwovspcj3tfiae2d3derteiyo7ab5ei3sk5f5s5pga
-  weather.cloud_cover                    100.0                    percent 0.80
-      emem:fact:defi.zb493.hufo.zccc6:5t3nsmqnzt6kn3bk5js4ut5nsiadn6yyjxqgb4rxopwdbogtmdoa
+      emem:fact:defi.zb493.hufo.zccc6:tyhl5r4jsf6sk4annf672copvozkeaqgge4n32zd3rcx2lctkk6q
+  weather.cloud_cover                    85.2                     percent 0.80
+      emem:fact:defi.zb493.hufo.zccc6:x6ycxqtirdny36k5r623l3mzc6yuczsn4loprbqfykpdpictaaaq
   overture.buildings.count               0                        -      0.95
       emem:fact:defi.zb493.hufo.zccc6:meprokriujybrb6l4pg4wqejdxqgzw2avusounl5fyrauwn3qe2q
   overture.places.count                  2                        -      0.90
@@ -59,11 +59,11 @@ STEP 2  RECALL SIGNED FACTS  (POST /v1/recall, 14 bands)
   14 of 14 bands materialized.
 
   RECEIPT
-    fact_cids            : 20
+    fact_cids            : 23
     merkle_proof         : present (leaf_index=0, path_len=0, root 32 bytes)
-    signature_b32        : ifvls5kvkzgfvvfv42boqjg6x3szyyo7zmbgf26yqhaspw234isy...
+    signature_b32        : lvmawybmu72aj2m6x2mm6nv5lqzxs6umcwkimebuaf6mtrxvyxy6...
     responder_pubkey_b32 : 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
-    served_at            : 2026-11-07T00:05:58Z
+    served_at            : 2026-11-07T01:25:27Z
 
   The receipt is signed by the responder's key. The signature covers the fact set, so a
   third party can check this recall offline without trusting the bank, the borrower, or
