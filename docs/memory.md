@@ -1330,7 +1330,7 @@ parameters are optional filters:
 
 | Parameter | An event passes when |
 |---|---|
-| `path_prefix` | its path starts with this text. For `renamed`, the new path counts. For `consolidated`, the first path counts. |
+| `path_prefix` | its path starts with this text. For `renamed`, the new path counts. For `consolidated`, the first path counts. The pass sorts the source notes oldest first, so this is the path of the oldest note. |
 | `kind` | its `kind` is equal to this value. Use the lowercase name, for example `episodic`. The compare is case-sensitive, and the responder does not check the value, so `Episodic` gives a stream with no events |
 | `attester` | its `attester_pubkey_b32` is equal to this key. `expired` and `consolidated` events have no attester, so this filter removes them. It also removes events where `attester_pubkey_b32` is `null`. |
 
@@ -1347,8 +1347,12 @@ of the stream (text shortened here):
 ```
 event: ready
 retry:5000
-data: {"type":"ready","stream":"emem.memory_event.v1","filters":{"attester":null,"kind":null,"path_prefix":"/memories/by_attester/"},"keepalive_s":15,"backfill":"none: this is a live tail. ...","resume":"none: events carry no id, ..."}
+data: {"backfill":"none: this is a live tail. ...","filters":{"attester":null,"kind":null,"path_prefix":"/memories/by_attester/"},"keepalive_s":15,"resume":"none: events carry no id, ...","stream":"emem.memory_event.v1","type":"ready"}
 ```
+
+Nobody wrote a note in those 4 seconds, so no other frame came. When
+`--max-time` stops the read, `curl` exits with code 28. This exit
+code is normal here. It is not an error from the responder.
 
 After the `ready` frame, each write sends one `data:` frame with a JSON
 object. The `type` field selects the other fields:
