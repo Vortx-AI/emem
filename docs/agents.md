@@ -649,12 +649,27 @@ It came from the call below on 7 November 2026. The signature shows who
 computed the series. It does not show which crop grew there.
 [`stills/src/ndvi_season.py`](media/stills/src/ndvi_season.py) draws it
 from the saved responses. Contains modified Copernicus Sentinel data
-2024-2025.
+2024-2025. The same answer is also a film, one scene at a time:
+[MP4](media/films/emem-ndvi-season.mp4),
+[WebM](media/films/emem-ndvi-season.webm). It is silent and 32 seconds
+long.
 
 ```sh
 curl -s -X POST https://emem.dev/v1/field_series -H 'content-type: application/json' \
   -d '{"bbox":[-93.700,42.000,-93.694,42.004],"start_date":"2024-01-01","end_date":"2025-12-31","index":"ndvi"}'
 ```
+
+<img src="media/stills/field-outlines.webp" alt="Still from live emem.dev calls on 7 November 2026. A Sentinel-2 true-colour image of a farm box near Ames, Iowa, on 22 June 2025, with 20 field outlines from field_boundaries. A chart gives the median NDVI of each field on 17 clear dates in 2025: 8 fields are at 0.8 or more on 22 June, and 12 are under 0.75. Cards show one polygon_cid that both answers carry, one field_series token for the 20 series, and verify_receipt valid." width="540">
+
+To read one series per field, first get the outlines. `field_boundaries`
+returned 139 outlines in the box above on 7 November 2026. The still uses
+the 20 outlines over 1 ha. They went to `field_series` as `fields`, with
+the first 8 characters of each `polygon_cid` as the `id`. Each field's
+summary carries the same `polygon_cid`, so the two answers join without
+coordinates. The outlines come from Fields of The World (CC-BY-4.0). A
+model drew them at 10 m, so check them against the scene. The fetch
+script is [`stills/src/fetch_fields.py`](media/stills/src/fetch_fields.py).
+Contains modified Copernicus Sentinel data 2025.
 
 - `index`: `ndvi` (default), `ndwi`, `ndmi` (alias `lswi`), `evi`, `nbr`,
   `ndti` or `ndsi` (alias `mndwi`) from Sentinel-2. NDSI is green against
