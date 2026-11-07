@@ -52,28 +52,31 @@ Each pass has three steps.
    - Contradictions. `POST /v1/memory_contradictions` returns
      `(cell, band, tslot)` triples where two or more attesters disagree.
      Each triple has a severity in `[0,1]`. [Contradiction detection](memory.md#contradiction-detection)
-     describes the scan. The agent does not send
-     `include_same_attester_sources`, so the server default (`true`)
-     applies. The scan reports two kinds of disagreement: two or more
+     describes the scan. The agent sends this request (`client.rs`,
+     `candidates.rs`):
+
+     | Field | What the agent sends | Effect |
+     |---|---|---|
+     | `min_severity` | `EMEM_SLEEP_AGENT_MIN_SEVERITY` (default 0.3) | A triple with this severity or more is a candidate. |
+     | `limit` | `EMEM_SLEEP_AGENT_TOPN` or 8, whichever is larger | The server returns the highest severities first. |
+     | `cell_prefix` | not sent | The scan starts at the start of the whole corpus. |
+     | `include_same_attester_sources` | not sent | The server default (`true`) applies. |
+     | `resume_after` | not sent, and not read from the response | The agent sees only the keys scanned before the time budget ends. |
+
+     Thus the scan reports two kinds of disagreement: two or more
      different attesters, and one attester that answered the same address
-     from two different upstreams. A triple with a severity equal to or more than
-     `EMEM_SLEEP_AGENT_MIN_SEVERITY` (default 0.3) is a candidate. A higher severity ranks the candidate
-     higher. The agent sends no `cell_prefix`, so it asks for the whole
-     corpus. It asks for at most `EMEM_SLEEP_AGENT_TOPN` or 8
-     triples, whichever is larger. The server returns the highest
-     severities first (`client.rs`, `candidates.rs`). The agent does not
-     read `resume_after`. On a large corpus the scan stops at its time
-     budget, and the agent sees only the keys scanned before that point.
-     On 7 November 2026, this request to emem.dev scanned 44,705 keys in
-     8.0 s and returned `scan_truncated: true`.
+     from two different upstreams. A higher severity ranks the candidate
+     higher. On 7 November 2026 at 08:15 UTC, this request to emem.dev
+     scanned 44,705 keys in 8.0 s and returned `scan_truncated: true`.
    - Churn. The agent lists the notes of the configured kinds
      (`emem_memory_list_by_kind`). It groups them by a normalized path stem.
      The stem keeps the parent path. It cuts the last path part at its
-     first dot. Then trailing
-     digits, trailing `-`, `_` or spaces, and a trailing `(copy)` come off
-     (`normalize_stem` in `lib.rs`). The first dot is not always the
-     extension: `notes/v1.2-final` becomes `notes/v`. Thus `notes/site-1`, `notes/site-2`
-     and `notes/site.md` all become `notes/site`. A group with two or more notes is a candidate. A group
+     first dot. Then trailing digits, trailing `-`, `_` or spaces, and a
+     trailing `(copy)` come off (`normalize_stem` in `lib.rs`). Thus
+     `notes/site-1`, `notes/site-2` and `notes/site.md` all become
+     `notes/site`. The first dot is not always the extension:
+     `notes/v1.2-final` becomes `notes/v`.
+     A group with two or more notes is a candidate. A group
      whose total version count reaches the churn threshold is also a
      candidate. The agent does not read the version history of a note. It
      counts each note as one version (`history_len: 1` in `candidates.rs`).
