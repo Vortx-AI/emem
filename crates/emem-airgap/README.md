@@ -8,7 +8,7 @@ second directory. It opens no socket and uses no database.
 | --- | --- |
 | Who needs it | Operators of hardware with no route out. Examples: a satellite payload, a robot, a field Jetson, a container on a host you do not own |
 | What ships | Two static binaries in one crate, `emem-airgap` (the decoder) and `emem-encode` (the optional trace encoder), and two container images |
-| Version | 2.4.4 (`crates/emem-airgap/Cargo.toml`) |
+| Version | 2.4.5 (the workspace version in the root `Cargo.toml`) |
 | Needs | Nothing on the node. Docker to use the images, or Rust 1.91 to build from source |
 
 ## Try it in one command

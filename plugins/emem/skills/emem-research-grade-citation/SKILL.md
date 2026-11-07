@@ -1,6 +1,6 @@
 ---
 name: emem-research-grade-citation
-description: Prepares emem facts for use in research, where a reviewer must know what a number is, how emem read it, and how to reproduce it. States the estimand that each fact leaves implicit (support, statistic, source pixel). Reads the unit, the valid range enforced at signing, the reader stamp and the pinned source. Explains the stated ULP window on derived means and sums, and what change_attribution splits and does not split. Writes a methods paragraph and a data-availability statement with verifiable tokens. Use when you cite emem values in a paper, report, thesis or dataset. Also use when a reviewer asks how you got a figure, or before you compare emem values with another dataset.
+description: Prepares emem facts for use in research. A reviewer must know what a number is, how emem read it, and how to reproduce it. States the estimand that each fact leaves implicit (support, statistic, source pixel). Reads the unit, the valid range enforced at signing, the reader stamp and the pinned source. Explains the stated ULP window on derived means and sums, and what change_attribution splits and does not split. Writes a methods paragraph and a data-availability statement with verifiable tokens. Use when you cite emem values in a paper, report, thesis or dataset. Also use when a reviewer asks how you got a figure, or before you compare emem values with another dataset.
 ---
 
 # emem-research-grade-citation

@@ -1,6 +1,6 @@
 ---
 name: emem-transparency-log
-description: Audits emem's append-only RFC 6962 transparency log offline. Verifies a signed tree head, proves a log entry or a memory note is committed under it, proves a later head extends an earlier one without rewriting history, and reads which independent witnesses countersigned. Use when the question is not "is this fact signed" but "could this responder have shown someone else a different history", when pinning evidence for an audit, or before relying on a note whose deletion or rewrite would matter. Ships a small Python verifier.
+description: Audits emem's append-only RFC 6962 transparency log offline. Verifies a signed tree head, and proves that a log entry or a memory note is committed under it. Proves that a later head extends an earlier one without rewriting history, and reads which independent witnesses countersigned. Use when the question is "could this responder have shown someone else a different history", not "is this fact signed". Also use when you pin evidence for an audit, or before you rely on a note whose deletion or rewrite would matter. Ships a small Python verifier.
 ---
 
 # emem-transparency-log

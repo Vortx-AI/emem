@@ -1,6 +1,6 @@
 ---
 name: emem-eudr-due-diligence
-description: Produces a signed, Annex II shaped Due Diligence Statement under the EU Deforestation Regulation (EU 2023/1115) for one or more production plots with emem, and says what it proves and what it leaves to the operator. It checks each plot against the JRC GFC2020 forest baseline and the Hansen Global Forest Change loss year at the 2020-12-31 cut-off. It cross-checks JRC TMF and grades how well the inputs support the verdict. Use when someone asks if a cocoa, coffee, soy, palm, rubber, cattle or wood plot is deforestation-free. Also use it for per-cell evidence for an Article 12 record.
+description: Produces a signed, Annex II shaped Due Diligence Statement under the EU Deforestation Regulation (EU 2023/1115) for one or more production plots. It says what it proves and what it leaves to the operator. It checks each plot against the JRC GFC2020 forest baseline and the Hansen Global Forest Change loss year at the 2020-12-31 cut-off. It cross-checks JRC TMF and grades how well the inputs support the verdict. Use when someone asks if a cocoa, coffee, soy, palm, rubber, cattle or wood plot is deforestation-free. Also use it for per-cell evidence for an Article 12 record.
 ---
 
 # emem-eudr-due-diligence

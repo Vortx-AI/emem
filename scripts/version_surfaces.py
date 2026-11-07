@@ -100,7 +100,31 @@ def surfaces(version: str, crates: int):
          "the crate count contributors are told to expect"),
         ("AGENTS.md", r"Rust workspace, ([0-9]+) crates", str(crates),
          "the crate count in the agent guide"),
+        # emem-airgap pinned its own version: 2.4.4 broke `cargo --locked` after the
+        # 2.4.5 bump, and its README kept saying 2.4.4. The crate now inherits the
+        # workspace version; member_versions() below catches any crate that pins one.
+        ("crates/emem-airgap/README.md", r"\|\s*Version\s*\|\s*([0-9]+\.[0-9]+\.[0-9]+)", version,
+         "the version row of the air-gapped node's README"),
     ]
+
+
+def member_versions(version: str) -> list[str]:
+    """A member crate that states its own version must state the workspace one.
+    `version = { workspace = true }` (or `version.workspace = true`) is always fine."""
+    text = (REPO / "Cargo.toml").read_text(encoding="utf-8")
+    members = re.search(r"members\s*=\s*\[(.*?)\]", text, re.S)
+    fails = []
+    for m in re.findall(r'"([^"]+)"', members.group(1) if members else ""):
+        manifest = REPO / m / "Cargo.toml"
+        if not manifest.exists():
+            fails.append(f"{m}/Cargo.toml is missing, so its version is not checked")
+            continue
+        pkg = re.search(r"^\[package\](.*?)(?=^\[|\Z)", manifest.read_text(encoding="utf-8"), re.M | re.S)
+        own = re.search(r'^\s*version\s*=\s*"([^"]+)"', pkg.group(1) if pkg else "", re.M)
+        if own and own.group(1) != version:
+            fails.append(f"{m}/Cargo.toml pins version {own.group(1)} where the workspace says {version}; "
+                         f"use version = {{ workspace = true }}")
+    return fails
 
 
 SELF_TEST = [
@@ -155,6 +179,7 @@ def main() -> int:
             fails.append(f"{fname} says {m.group(1)} where the workspace says {want} "
                          f"({what})")
 
+    fails += member_versions(version)
     print(f"version surfaces: workspace is {version} with {crates} crates; "
           f"{checked} surface(s) located")
     if fails:

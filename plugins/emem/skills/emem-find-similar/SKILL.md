@@ -1,6 +1,6 @@
 ---
 name: emem-find-similar
-description: Returns the top-K places most similar to a seed place by cosine over a stored 128-D surface-texture embedding (Sentinel-1 plus Sentinel-2, annual). Use when the user asks for analogues or look-alikes ("find places like Bangalore", "where else looks like the Sundarbans"). The embedding band is retired on emem.dev, so the index is frozen at what was already stored; the skill says how to tell "no analogue" from "this seed has no vector and cannot get one".
+description: Returns the top-K places most similar to a seed place by cosine over a stored 128-D surface-texture embedding (Sentinel-1 plus Sentinel-2, annual). Use when the user asks for analogues or look-alikes ("find places like Bangalore", "where else looks like the Sundarbans"). The embedding band is retired on emem.dev, so the index holds only what was already stored. The skill says how to tell "no analogue" from "this seed has no vector and cannot get one".
 ---
 
 # emem-find-similar
