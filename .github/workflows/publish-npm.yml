@@ -61,14 +61,14 @@ jobs:
       contents: read
       id-token: write   # REQUIRED for OIDC trusted publishing and provenance
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Node 22.14.0 is the floor npm documents for trusted publishing, but
       # it ships npm 10.9.2, and trusted publishing needs npm >= 11.5.1. The
       # setup-node action pins Node only, so npm is upgraded separately
       # below. registry-url writes the .npmrc that maps the registry and
       # wires NODE_AUTH_TOKEN for the token path.
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
