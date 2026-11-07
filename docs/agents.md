@@ -109,9 +109,9 @@ curl -s -X POST https://emem.dev/mcp \
 ```
 
 The tool answer is a JSON string in `result.content[0].text`. A large answer
-can come back cut. See [If an MCP answer is cut](#if-an-mcp-answer-is-cut).
+can come back cut. See [If emem cuts an MCP answer](#if-emem-cuts-an-mcp-answer).
 
-### If an MCP answer is cut
+### If emem cuts an MCP answer
 
 An MCP answer has a size limit of 24,000 bytes by default
 (`EMEM_MCP_RESPONSE_BUDGET_BYTES`). The limit covers the text and
