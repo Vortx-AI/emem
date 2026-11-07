@@ -210,7 +210,7 @@ Each default below comes from the code on 7 November 2026.
 | `EMEM_DISABLE_LANCE` | unset | `1` or `true` makes `find_similar` and memory search use a full scan. |
 | `EMEM_SSE_MAX_SUBS` | `256` | The maximum number of subscribers on `/v1/memory/sse`. More get HTTP 503. |
 | `EMEM_MEMORY_SEARCH_POLL_SECS` | `60` | How often the search indexer looks for new notes. |
-| `EMEM_MEMORY_SEARCH_MODEL_DIR` | `$EMEM_DATA/models/bge-base-en-v1.5` | The BGE model for memory search. `EMEM_TOPIC_MODEL_DIR` also works. |
+| `EMEM_MEMORY_SEARCH_MODEL_DIR` | `$EMEM_DATA/models/bge-base-en-v1.5` | The BGE model for memory search. `EMEM_TOPIC_MODEL_DIR` also works. The default applies only when you set `EMEM_DATA`, as the image does. |
 | `EMEM_MEMORY_TTL_ENABLED` | unset | `1` starts the TTL pass. Each value other than empty, `0`, `false` or `no` also starts it. |
 | `EMEM_MEMORY_TTL_INTERVAL_SECS` | `3600` | How often the TTL pass runs. |
 | `EMEM_MEMORY_TTL_RESOURCE_DAYS` | `90` | The TTL of a `resource` note. `0` means no expiry. |

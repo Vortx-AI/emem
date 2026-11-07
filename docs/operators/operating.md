@@ -256,7 +256,7 @@ upstreams and background work. Each default comes from the code.
 | `EMEM_SECRET_B32` | unset | The responder secret in base32. If unset, the node reads `$EMEM_DATA/identity.secret.b32`, or makes it. |
 | `EMEM_PUBLIC_URL` | the first TLS domain | The origin in `/.well-known/emem.json`, `did.json` and the outbound User-Agent. |
 | `EMEM_SECURITY_POLICY_URL` | unset | Adds a `Policy:` line to `/.well-known/security.txt`. |
-| `EMEM_TOPIC_MODEL_DIR` | `$EMEM_DATA/models/bge-base-en-v1.5` | The BGE model for the topic router and memory search. |
+| `EMEM_TOPIC_MODEL_DIR` | `$EMEM_DATA/models/bge-base-en-v1.5` | The BGE model for the topic router and memory search. The default applies only when you set `EMEM_DATA`, as the image does. With both unset, the router uses its keyword backend and logs a warning. |
 | `EMEM_TOPIC_THRESHOLD` | `0.35` | The cosine threshold for a topic match in `/v1/ask`. If unset, the node uses `_routing.threshold` in `topics-v0.json`, which is also `0.35`. |
 | `EMEM_DEMOS_DIR` | `var/demos`, from the working directory | The directory that `/v1/demos` serves. |
 | `EMEM_WORLDS_DIR` | `var/worlds`, from the working directory | The directory that `/v1/worlds` serves. The image starts in `/`, so set an absolute path there. |
