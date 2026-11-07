@@ -52,14 +52,56 @@ without the number.
 3. Do not treat a signed absence as an error. A `/v1/recall` fact with
    `kind: "absence"` and a `reason_cid` is a signed answer: this band has
    no data at this cell. A retry gives the same answer.
+4. Read `materialize_notes` on a successful recall. A band that the
+   responder skipped or could not fetch appears there, not in the error.
 
-To see a live envelope, request a path that does not exist:
+## Examples from emem.dev
+
+We ran these requests on 7 November 2026.
+
+A path that does not exist gives HTTP 404 with `code: not_found`:
 
 ```sh
 curl -s https://emem.dev/v1/no-such-route
 ```
 
-The answer is HTTP 404 with `code: not_found`.
+A malformed cell64 gives HTTP 400 with `code: invalid_cell`:
+
+```sh
+curl -s -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' \
+  -d '{"cell":"not.a.cell"}'
+```
+
+A body with a wrong field type gives HTTP 400 with `code:
+invalid_argument`. `details.deserializer_error` names the field (`cell:
+invalid type: integer`):
+
+```sh
+curl -s -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' \
+  -d '{"cell":5}'
+```
+
+An unknown band key needs care, because the answer depends on the other
+bands in the request:
+
+| Request | Answer |
+|---|---|
+| `POST /v1/recall`, no band in `bands` is in the registry | HTTP 400, `code: band_not_in_registry` |
+| `POST /v1/recall`, some bands are in the registry | HTTP 200 with the known facts. Each unknown band is in `materialize_notes` with `reason_class: unknown_band` and `retryable: false`. |
+| MCP `emem_recall`, any mix | No tool error. Unknown bands are in `materialize_notes`, as for REST. |
+
+This request has one unknown and one known band, so it returns HTTP 200:
+
+```sh
+curl -s -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb4d9.pefa.zf619","bands":["elevation_mean","copdem30m.elevation_mean"]}'
+```
+
+Over MCP, the malformed cell gives a result with `isError: true` and the
+text `tool error (-27): invalid_cell: ...`.
 
 ## Protocol codes (27)
 
