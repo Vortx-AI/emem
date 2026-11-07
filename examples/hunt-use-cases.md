@@ -92,7 +92,7 @@ A hunt with `region` returns `schema: "emem.ask.v1"`. A hunt with `polygon_bbox`
 
 How to read this result:
 
-- `region_resolution: "point_fallback_bbox"` means the geocoder gave a point, not a lake outline. The point was 42.25 N, 81.00 W. The hunt then sampled a square around it, 0.60 degrees wide. Each side is 0.30 degrees from the point (`EMEM_HUNT_FALLBACK_HALF_DEG`). That is why it sampled only 9 cells, all near 42.0 to 42.5 N, 80.8 to 81.2 W.
+- `region_resolution: "point_fallback_bbox"` means the geocoder gave a point, not a lake outline. The point was 42.25 N, 81.00 W (`place_resolved.selected.lat` and `.lng`). The hunt then sampled a square around it, 0.60 degrees wide. Each side is 0.30 degrees from the point (`EMEM_HUNT_FALLBACK_HALF_DEG`). That is why it sampled only 9 cells, all near 42.0 to 42.5 N, 80.8 to 81.2 W.
 - All eight hotspot NDVI values were between -0.333 and -0.216. The formula is `chl_a_mg_m3 = clip(70 * max(0, ndvi) - 5, 0, 200)`, so each cell scores 0 mg/m³. There was no chlorophyll signal in these facts.
 - The top value came from a scene observed on 14 September 2026. The same cell had newer NDVI facts up to 25 October 2026 (see [How a hunt ranks cells](#how-a-hunt-ranks-cells)).
 
