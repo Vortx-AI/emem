@@ -541,7 +541,12 @@ the map with already-sorted keys; emem does not re-sort silently.
 
 ### 4.1 emem CBOR tags
 
-`crates/emem-fact/src/cbor.rs:6-13`.
+`crates/emem-fact/src/cbor.rs:6-13` defines four tag numbers. On
+7 November 2026 no code writes these tags. A fact writes `cell` as a
+text string, `tslot` as a plain unsigned int, and each CID as a text
+string (`cid.rs`, `serde(transparent)` over `String`), with no tag.
+Do not add tags when you rebuild a fact, because the CID would change.
+The numbers are reserved:
 
 | Tag | Meaning | Tagged value |
 |-----|---------|--------------|
