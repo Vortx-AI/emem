@@ -65418,8 +65418,8 @@ fn chrono_iso8601_utc() -> String {
 
 /// `GET /v1/coverage`, JSON snapshot of where data lives. Returns a list
 /// of (cell64, lat, lng, fact_count) up to `limit` (default 1000, max
-/// 10000) so agents can cluster, sort, or inspect the actual data
-/// distribution programmatically.
+/// `EMEM_COVERAGE_MAX_CELLS`, default 200000) so agents can cluster, sort,
+/// or inspect the actual data distribution programmatically.
 async fn coverage_json(
     State(s): State<AppState>,
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
@@ -65438,52 +65438,126 @@ async fn coverage_json(
         .and_then(|v| v.parse().ok())
         .unwrap_or(1000)
         .min(max_cells);
-    let storage = s.storage.as_ref();
-    let entries = storage
-        .iter_index(Some(limit * 8))
+    // The scan window has a floor so that `total_cells` does not shrink with
+    // a small page: `?limit=1` used to scan 8 index entries and report
+    // total_cells 2 where `?limit=1000` reported 2424.
+    let scan_index_limit = coverage_scan_index_limit(limit);
+    let entries = s
+        .storage
+        .as_ref()
+        .iter_index(Some(scan_index_limit))
         .await
         .unwrap_or_default();
-    // Bin by cell64 and count facts per cell.
-    let mut by_cell: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
-    for (k, _) in &entries {
-        *by_cell.entry(k.cell.clone()).or_default() += 1;
+    Json(coverage_page(
+        entries.iter().map(|(k, _)| k.cell.as_str()),
+        limit,
+        scan_index_limit,
+    ))
+}
+
+const COVERAGE_MIN_PAGE_FOR_SCAN: usize = 1000;
+const COVERAGE_SCAN_ENTRIES_PER_CELL: usize = 8;
+
+fn coverage_scan_index_limit(limit: usize) -> usize {
+    limit
+        .max(COVERAGE_MIN_PAGE_FOR_SCAN)
+        .saturating_mul(COVERAGE_SCAN_ENTRIES_PER_CELL)
+}
+
+/// Builds the `/v1/coverage` body from the cell of each scanned index entry.
+/// Keys that do not decode as a cell64 (for example note namespaces) have no
+/// position, so they are left out of both `cells` and `total_cells`. Before,
+/// they were counted in the total and then dropped from the page, so
+/// `?limit=1` could return zero cells.
+fn coverage_page<'a>(
+    scanned_cells: impl Iterator<Item = &'a str>,
+    limit: usize,
+    scan_index_limit: usize,
+) -> JsonValue {
+    let mut facts_scanned: usize = 0;
+    let mut by_cell: std::collections::HashMap<&'a str, u64> = std::collections::HashMap::new();
+    for c in scanned_cells {
+        facts_scanned += 1;
+        *by_cell.entry(c).or_default() += 1;
     }
-    // Honest total: distinct cells seen in this scan window BEFORE the
-    // per-page `limit` truncation below. The field used to report the
-    // truncated `cells.len()`, so a client (e.g. the homepage map legend)
-    // could not tell a capped page from the whole corpus, it read
-    // "50,000 cells" when 133k existed. `returned` carries the page size.
-    let total_distinct = by_cell.len();
-    let mut cells: Vec<JsonValue> = by_cell
+    let scan_complete = facts_scanned < scan_index_limit;
+    // `total_cells` is counted before the `limit` truncation, so a client
+    // (e.g. the homepage map legend) can tell a capped page from the corpus.
+    let mut cells: Vec<(u64, JsonValue)> = by_cell
         .into_iter()
         .filter_map(|(c, n)| {
-            let info = emem_codec::latlng_from_cell64(&c).ok()?;
-            Some(json!({
-                "cell64": c,
-                "lat_deg": info.lat_deg,
-                "lng_deg": info.lng_deg,
-                "fact_count": n,
-            }))
+            let info = emem_codec::latlng_from_cell64(c).ok()?;
+            Some((
+                n,
+                json!({
+                    "cell64": c,
+                    "lat_deg": info.lat_deg,
+                    "lng_deg": info.lng_deg,
+                    "fact_count": n,
+                }),
+            ))
         })
         .collect();
+    let total_cells = cells.len();
     cells.sort_by(|a, b| {
-        b["fact_count"]
-            .as_u64()
-            .unwrap_or(0)
-            .cmp(&a["fact_count"].as_u64().unwrap_or(0))
+        b.0.cmp(&a.0)
+            .then_with(|| a.1["cell64"].as_str().cmp(&b.1["cell64"].as_str()))
     });
     cells.truncate(limit);
-    Json(json!({
+    let cells: Vec<JsonValue> = cells.into_iter().map(|(_, v)| v).collect();
+    json!({
         "schema": "emem.coverage.v1",
-        "total_cells": total_distinct,
+        "total_cells": total_cells,
         "returned": cells.len(),
         "limit": limit,
+        "facts_scanned": facts_scanned,
+        "scan_index_limit": scan_index_limit,
+        "scan_complete": scan_complete,
+        "note": "total_cells counts distinct cells with a position among the facts scanned. When scan_complete is false the scan stopped at scan_index_limit, so total_cells is a lower bound; GET /v1/health and /v1/coverage_matrix use their own caps.",
         "cells": cells,
         "next": [
             "GET /v1/coverage_map.svg , same data as a 1440×720 raster (multimodal agents)",
             "POST /v1/recall           , read facts at any cell64 listed here"
         ]
-    }))
+    })
+}
+
+#[cfg(test)]
+mod coverage_page_tests {
+    use super::*;
+
+    const FUJI: &str = "defi.zb592.nUkO.zEzE";
+
+    #[test]
+    fn scan_window_does_not_shrink_with_a_small_page() {
+        assert_eq!(
+            coverage_scan_index_limit(1),
+            coverage_scan_index_limit(1000)
+        );
+        assert_eq!(coverage_scan_index_limit(5000), 40_000);
+        assert_eq!(coverage_scan_index_limit(usize::MAX), usize::MAX);
+    }
+
+    #[test]
+    fn keys_without_a_position_are_not_counted_or_returned() {
+        let scanned = ["notes/agent-a", "notes/agent-a", FUJI, "notes/agent-b"];
+        let body = coverage_page(scanned.iter().copied(), 1, 8000);
+        assert_eq!(body["total_cells"], 1);
+        assert_eq!(body["returned"], 1);
+        assert_eq!(body["cells"][0]["cell64"], FUJI);
+        assert_eq!(body["cells"][0]["fact_count"], 1);
+        assert_eq!(body["facts_scanned"], 4);
+        assert_eq!(body["scan_complete"], true);
+    }
+
+    #[test]
+    fn a_full_scan_window_is_reported_as_incomplete() {
+        let scanned = [FUJI, FUJI];
+        let body = coverage_page(scanned.iter().copied(), 1000, 2);
+        assert_eq!(body["scan_complete"], false);
+        assert_eq!(body["total_cells"], 1);
+        assert_eq!(body["cells"][0]["fact_count"], 2);
+    }
 }
 
 /// `GET /v1/coverage_map.svg`, visual gym for multimodal agents.
