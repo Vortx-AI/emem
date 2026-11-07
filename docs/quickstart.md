@@ -127,7 +127,10 @@ func main() {
     })
     fmt.Println(facts["facts"].([]any)[0].(map[string]any)["value"])
 }
+// 3539.042236328125
 ```
+
+Save the code as `main.go`, then run `go run main.go`. The code needs Go 1.18 or later, because it uses `any`.
 
 ### Rust
 
@@ -147,13 +150,29 @@ async fn main() -> anyhow::Result<()> {
     println!("{}", facts["facts"][0]["value"]);
     Ok(())
 }
+// 3539.042236328125
 ```
 
-The Rust example needs the crates `reqwest` (with the `json` feature), `tokio`, `serde_json` and `anyhow`.
+To run the Rust example, make a new project and add four crates. `#[tokio::main]` needs the two `tokio`
+features in the command. Without them, the build stops with "cannot find `main` in `tokio`".
 
-On 7 November 2026 we ran the curl, Python and TypeScript examples on this page against emem.dev. The
-TypeScript run used Node 24.19.0 and `@vortxai/emem` 2.4.4, and `tsc` 7.0.2 with `--strict` accepted the code. We
-did not run the Go and Rust examples on that day. They send the same request bodies as the curl example.
+```bash
+cargo new emem-quick && cd emem-quick
+cargo add reqwest --features json
+cargo add tokio --features macros,rt-multi-thread
+cargo add serde_json anyhow
+# Put the code above in src/main.rs, then:
+cargo run
+```
+
+On 7 November 2026 we ran the curl, Python, TypeScript, Go and Rust examples on this page against emem.dev. Each
+printed the same value.
+
+| example | what we used |
+|---|---|
+| TypeScript | Node 24.19.0, `@vortxai/emem` 2.4.4. `tsc` 7.0.2 with `--strict` accepted the code. |
+| Go | Go 1.27.3. `go vet` reported no problems. |
+| Rust | rustc 1.99.1, `reqwest` 0.13.5, `tokio` 1.54.1, `serde_json` 1.0.154, `anyhow` 1.0.104. |
 
 ## What the two calls did
 
