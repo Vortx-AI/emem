@@ -2680,7 +2680,7 @@ raises `InvalidSignature`. Each IP has a daily quota on this route.
 Over it, the route returns `429` with `code: range_hash_quota` (see
 [errors.md](errors.md)).
 
-<a id="emem-tree"></a>
+<a id="ememtree"></a>
 ### 9.8 Merkle trees inside notes (emem:tree)
 
 In short: a `pointer.v1` or `directory.v1` note lists rows (file chunks
