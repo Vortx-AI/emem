@@ -20,7 +20,7 @@ code; the REST/MCP surface and drift-anchor wiring are open. Owner:
 protocol. First written 2026-07-26.
 
 The whole architecture on one page, gaps labeled:
-![Three bands. Orbit: the open archive (Sentinel-1, Sentinel-2, Cop-DEM, CHIRPS) and operator satellites that must ship a signed execution trace. emem: a trust gate that admits device output only inside a complete trace, and the shared memory of cells, signed facts and tokens. Ground: robot fleets, agent swarms and an auditor who verifies years later.](../diagrams/39-orbit-to-ground-trust.svg)
+![Three columns. Orbit: the open archive (Sentinel-1, Sentinel-2, Cop-DEM, CHIRPS), admitted because anyone can recompute it. Operator satellites must ship a signed execution trace. emem: a trust gate that admits device output only inside a complete trace, and the shared memory of cells, signed facts and tokens. Ground: robot fleets, agent swarms and an auditor who verifies years later. A panel lists the gaps that do not ship yet. The first is that enrollment refuses every call today.](../diagrams/39-orbit-to-ground-trust.svg)
 
 ## The one-sentence rule
 

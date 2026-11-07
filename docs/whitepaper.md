@@ -178,7 +178,7 @@ An attribution ledger ships (§10.3): per-term evidence under a signed
 receipt. Splitting a delta numerically among the terms is still open
 work; nothing in this build computes the split.
 
-![The change at one place is a sum of five terms: the world, the sensor, the geometry, the encoder, and noise. Only the first term is the world. The other terms are pinned or kept apart by signed metadata. Splitting one change into the terms is an open primitive, not shipped.](/docs/diagrams/37-change-decomposition.svg)
+![The change at one place is a sum of five terms: the world, the sensor, the geometry, the encoder, and noise. Only the first term is the world. Signed metadata records or pins the other terms. change_attribution@1 ships a signed ledger that lists the evidence for each term. The numeric split of one change among the terms does not ship.](/docs/diagrams/37-change-decomposition.svg)
 *Figure 2: the decomposition. Only Δ_env is about the world; the
 substrate pins or separates the other four by construction, and
 splitting a specific delta is the open primitive of §10.3.*
@@ -1166,7 +1166,7 @@ foundation embedding. Earlier versions also ran Clay, Prithvi and Galileo;
 facts they signed still verify. **172 algorithms** and **27 topics**
 are enumerated at `/v1/algorithms` and `/v1/topics`.
 
-![Sentinel-2, Sentinel-1, HLS, MODIS and DEM data go to the responder, which decodes them into spectral indices, SAR backscatter, terrain and surface temperature, and signs each value.](/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg)
+![Sentinel-2, Sentinel-1, HLS, MODIS and DEM data go to the responder. It decodes them into spectral indices, SAR backscatter, terrain and surface temperature. It signs each value.](/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg)
 *Figure 6: the responder decodes each open archive into typed values
 and signs each value. Four deterministic decoders read the same place,
 so a disagreement between them is information.*
