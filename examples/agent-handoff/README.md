@@ -79,13 +79,28 @@ The script prints each step and stops with an error if a check fails.
 - For an independent check, hash `content` on the client and compare it with `file_cid`.
   Then verify the receipt on the client with `em.verify_receipt` from the Python SDK
   (see [docs/quickstart.md](../../docs/quickstart.md)) or on the [`/verify`](https://emem.dev/verify) page.
-  On 7 November 2026 this Python matched `file_cid` for a note on emem.dev, and for the checkpoint above:
+  This Python reads a public note on emem.dev and does the hash check.
+  `blake3` comes with `ememdev[signing]`.
+  On 7 November 2026 it printed `citmouad4wp4gbcvharhifvsnm`.
+  The same two hash lines also matched the checkpoint above.
 
   ```python
-  import base64, blake3
+  import base64, json, urllib.request
+  import blake3
+
+  path = "/memories/by_attester/ye65e64r/task-add-cosmos-media-input-2026-08-22.md"
+  call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+          "params": {"name": "emem_memory_view", "arguments": {"path": path}}}
+  req = urllib.request.Request("https://emem.dev/mcp", data=json.dumps(call).encode(),
+                               headers={"content-type": "application/json"})
+  body = json.loads(json.load(urllib.request.urlopen(req))["result"]["content"][0]["text"])
+
   mine = base64.b32encode(blake3.blake3(body["content"].encode()).digest()[:16]).decode().rstrip("=").lower()
   assert mine == body["file_cid"]
+  print(mine)
   ```
+
+  For a local checkpoint, change the URL to your responder and `path` to the path that run 1 printed.
 
 - On the hosted node, anyone can read `/memories/by_attester/`. Only the attester can write there.
   So every agent can read a checkpoint on emem.dev. It is not private.
