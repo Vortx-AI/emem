@@ -5,7 +5,7 @@ term for one thing.
 
 The picture puts twelve of these terms on the parts of one live answer from emem.dev (7 November 2026, 16:03 UTC).
 
-<p align="center"><img src="media/stills/glossary-map.webp" width="420" alt="The glossary on one live answer: a recall of NDVI at the Mount Fuji cell. cell64 defi.zb592.nUkO.zEzE. tslot 20389, the day 28 October 2025. band indices.ndvi. fact value 0.0112. fact_cid banvya7hge...vqv6bq. provenance class deterministic_index. manifest bands_cid mesoyti3qc...5rpgra. responder emem.dev with key 777er3yi...mvka. receipt served_at 16:03:29 UTC, one signature over 19 facts. preimage BLAKE3 1d5ab7f0...0f2b, version 2. STH tree_size 3,253,178. token emem:fact for the same cell and fact_cid."></p>
+<p align="center"><img src="media/stills/glossary-map.webp" width="420" alt="The glossary on one live answer: a recall of NDVI at the Mount Fuji cell. cell64 defi.zb592.nUkO.zEzE. tslot 20389, the day 28 October 2025, the oldest of the 19 NDVI facts at the cell. band indices.ndvi. fact value 0.0112. fact_cid banvya7hge...vqv6bq. provenance class deterministic_index. manifest bands_cid mesoyti3qc...5rpgra. responder emem.dev with key 777er3yi...mvka. receipt served_at 16:03:29 UTC, one signature over 19 facts. preimage BLAKE3 1d5ab7f0...0f2b, version 2. STH tree_size 3,253,178. token emem:fact for the same cell and fact_cid."></p>
 
 ## Places and time
 

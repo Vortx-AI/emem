@@ -405,7 +405,7 @@ the published pooled scores and intervals exactly. None was registered, so none 
 
 The picture reads the two rules from the lab's three signed result notes. It was drawn on 7 November 2026.
 
-<p align="center"><img src="../media/stills/canopy-rules.webp" width="420" alt="Two canopy-loss rules in the three MCC experiments, from three signed result notes of key mujzmxes. Section 5.5, 19 forests: the registry rule deforestation_alert_ndvi_drop@1 finds 85% of lost forest and flags 53% of stable forest, MCC 0.295; the seasonal rule seasonal_loss_nbr@1 finds 25% and flags 2%, MCC 0.381. Section 5.6, 7 forests: registry 71% and 57%, MCC 0.145; seasonal 35% and 1%, MCC 0.457. Section 5.8, 10 forests: registry 74% and 62%, MCC 0.098; seasonal 23% and 5%, MCC 0.262. All three note signatures are valid when checked offline."></p>
+<p align="center"><img src="../media/stills/canopy-rules.webp" width="420" alt="Two canopy-loss rules in the three MCC experiments, from three signed result notes of key mujzmxes. Section 5.5, 19 scored forests: the registry rule deforestation_alert_ndvi_drop@1 finds 85% of lost forest and flags 53% of stable forest, MCC 0.295; the seasonal rule seasonal_loss_nbr@1 finds 25% and flags 2%, MCC 0.381. Section 5.6, 7 forests: registry 71% and 57%, MCC 0.145; seasonal 35% and 1%, MCC 0.457. Section 5.8, 10 forests: registry 74% and 62%, MCC 0.098; seasonal 23% and 5%, MCC 0.262. All three note signatures are valid when checked offline."></p>
 
 **Detection depends on how much of the cell was cleared.** Over the 960 loss cells:
 
