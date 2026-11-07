@@ -583,10 +583,15 @@ the exact hashing.
 
 ## Time filters on reads (bi-temporal)
 
-Every read primitive in the substrate takes two optional time filters.
-These primitives are `recall`, `recall_polygon`, `recall_many`,
-`trajectory`, `query_region`, `find_similar`, `state`, `state_multi`
-and each triple of `memory_bundle`.
+These read primitives take two optional time filters: `recall`,
+`recall_polygon`, `trajectory`, `query_region`, `find_similar`,
+`state`, `state_multi` and each triple of `memory_bundle`.
+
+`recall_many` has no time filters. It ignores the two fields and
+returns current facts. On 7 November 2026, `recall_many` with
+`"as_of_signed_at":"2026-09-01T00:00:00Z"` at the Mount Fuji cell
+returned a PM2.5 fact signed on 28 September 2026. To read the past at
+many cells, send one `recall` for each cell.
 
 | Filter | Type | Returns |
 |---|---|---|
@@ -722,9 +727,10 @@ finds addresses where signed facts disagree. An address here is one
 
 ### How the index works
 
-The scan reads `emem.multi_attester_index`. Its key is
-`cell|band|tslot` and its value is a CBOR `Vec<FactCid>`. Since 2.4.0
-it lives in redb with the fact index. Each `put_attestation` adds to it.
+The scan reads `emem.multi_attester_index`. Its key is one
+`(cell, band, tslot)` address and its value is a CBOR `Vec<FactCid>`.
+Each `put_attestation` adds to it. The storage layout below gives the
+key bytes and where the index lives.
 
 The canonical index keeps one fact per key, from the signer that holds
 the slot. When a different signer writes a fact at the same key, the
@@ -900,9 +906,11 @@ authors. For this reason the responder keeps the record of each write
 by path in `memory_file_meta_by_path`. The record by `file_cid` is for
 readers that have only the CID.
 
-The multi-attester index (`emem.multi_attester_index`, key
-`cell\0band\0tslot_be8`, value CBOR `Vec<FactCid>`) is in
-`facts.redb` with the fact index.
+The multi-attester index (`emem.multi_attester_index`, value CBOR
+`Vec<FactCid>`) has the key `cell`, a zero byte, `band`, a zero byte,
+then `tslot` as 8 big-endian bytes. Release 2.4.0 moves it into
+`facts.redb` with the fact index. Until the copy to redb is complete,
+the responder writes both stores and the scan reads sled.
 
 The responder never deletes a blob. `emem_memory_delete` removes the
 path from the index and writes a tombstone. `memory_file_blobs` keeps
@@ -1047,7 +1055,8 @@ What the substrate gives you:
 
 - Under the default write policy, the author signs each memory write.
   The responder signs each receipt.
-- Each read primitive takes a bi-temporal filter.
+- The main read primitives take a bi-temporal filter (see
+  [Time filters on reads](#time-filters-on-reads-bi-temporal)).
 - Each note and each fact has a content address.
 - An `emem:fact:` token names the full 32-byte hash of the signed body.
   It resolves to the same bytes on each responder that holds the fact.
