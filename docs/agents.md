@@ -1427,10 +1427,13 @@ make one. See [Writes that MCP does not carry](#writes-that-mcp-does-not-carry).
 This section lists routes and tools by group. To find a tool for a job,
 use [Find the tool for your job](#find-the-tool-for-your-job) first. The
 list of API routes is `/openapi.json`. The full tool list is `tools/list` on
-`https://emem.dev/mcp/full`. On 6 November 2026, the route names and body
-fields below matched both lists. On 7 November 2026, the route and tool
-names matched again. Some routes below are not in `/openapi.json`:
-`/openapi.action.json`, `/mcp/full` and three `/.well-known/` routes.
+`https://emem.dev/mcp/full`. On 7 November 2026, the route and tool
+names below matched both lists. The body fields below come from the
+request types in the server code. `/openapi.json` does not show all of
+them. For example, it has no `vintage` for `/v1/field_boundaries`, and
+no `place` or `date_a` for `/v1/diff`. Some routes below are not in
+`/openapi.json`: `/openapi.action.json`, `/mcp/full` and three
+`/.well-known/` routes.
 The server code has them. On 7 November 2026, the code had 188 routes
 under `/v1/`, and `/openapi.json` listed 183 of them. The five others
 serve demo files, world files, one picture and a copy of
@@ -1523,7 +1526,7 @@ marks an optional field.
 | `/v1/find_similar` | `{key, k?, band?, mode?, filter?, as_of_tslot?, as_of_signed_at?, scope?}`. `cell` and `cell64` are aliases of `key` |
 | `/v1/trajectory` | `{cell or place or lat and lng, band, window?, as_of_tslot?, as_of_signed_at?, scope?}`, or `from_date` and `to_date` in place of `window` |
 | `/v1/field_series` | `{geometry or bbox or areas or fields, start_date, end_date, index?, sensor?, orbit?, inner_buffer_m?, min_support_px?, min_clear_fraction?, max_scenes?, blocks?, mask_policy?, qa_reject_bits?, memory?}`. `min_valid_share` is an alias of `min_clear_fraction` |
-| `/v1/diff` | `{cell or place, band, tslot_a or date_a, tslot_b or date_b}`. A date is `YYYY-MM-DD` |
+| `/v1/diff` | `{cell or place or lat and lng, band, tslot_a or date_a, tslot_b or date_b}`. A date is `YYYY-MM-DD` |
 
 ##### Two forms of bbox
 
