@@ -92,6 +92,7 @@ so an extended tool also works on `/mcp`.
 | [Read conclusions that other agents signed at a place](#job-read-conclusions-that-other-agents-signed-at-a-place) | `emem_inferences` | `POST /v1/inferences` | extended | no |
 | [Read and search notes](#job-read-and-search-notes) | `emem_memory_view`, `emem_memory_search` | `GET /memories/<path>`, `POST /v1/memory/search` | extended | no |
 | [Write a note that other agents can verify](#job-write-a-note-that-other-agents-can-verify) | `emem_memory_create` | none, MCP only | extended | yes |
+| [Publish a value that you computed](#job-publish-a-value-that-you-computed) | `emem_derive`, `emem_derive_list` | `POST /v1/derive`, `POST /v1/derived` | extended | yes, to write |
 
 Four more jobs have their call in [Recipes](#recipes):
 
@@ -103,8 +104,8 @@ Four more jobs have their call in [Recipes](#recipes):
 | [Pre-screen a plot for EUDR](#6-pre-screen-a-plot-for-eudr) | `emem_eudr_dds` | `POST /v1/eudr_dds` | extended | no |
 
 Most examples use the cell of Mount Fuji, `defi.zb592.nUkO.zEzE`. Every call
-in this section ran again on 7 November 2026 and returned HTTP 200, except the
-note write, which needs your key. A count or value in an answer can change on
+in this section ran again on 7 November 2026 and returned HTTP 200. The two writes are
+the exceptions: the note and the value need your key. A count or value in an answer can change on
 a later day.
 
 The MCP form is the `params` object of a JSON-RPC `tools/call` request. To
@@ -739,6 +740,67 @@ The full procedure is in the
 [emem-sign-and-attest skill](../plugins/emem/skills/emem-sign-and-attest/SKILL.md).
 The signed preimage and the path rules are in
 [Lock a note path to one signer](only-emem.md#lock-a-note-path-to-one-signer).
+
+### Job: publish a value that you computed
+
+This is a signed write. It needs an Ed25519 key that you hold. The call
+below is the example from the tool schema. We did not send it to emem.dev.
+
+```json
+{"name": "emem_derive", "arguments": {"fn_key": "same_doy_ndvi_delta@1", "inputs": ["emem:fact:defi.zb493.xoso.zcb6a:cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"], "cell": "defi.zb493.xoso.zcb6a", "band": "indices.ndvi", "tslot_window": [19723, 20634], "op": "delta", "value": 0.14, "confidence": 0.9, "provenance_class": "model_output"}}
+```
+
+```bash
+curl -s -X POST https://emem.dev/v1/derive \
+  -H 'content-type: application/json' \
+  -d '{"fn_key":"same_doy_ndvi_delta@1","inputs":["emem:fact:defi.zb493.xoso.zcb6a:cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"],"cell":"defi.zb493.xoso.zcb6a","band":"indices.ndvi","tslot_window":[19723,20634],"op":"delta","value":0.14,"confidence":0.9,"provenance_class":"model_output"}'
+```
+
+Send it first with no `attester` block. The refusal has the code
+`derive_attestation_required` and the digest to sign in
+`details.how_to_sign`. Over REST it is HTTP 401. Sign the digest, then send
+the same body again with `"attester": {"pubkey_b32": ..., "sig_b32": ...}`.
+
+The responder checks the body before it stores it:
+
+| Refusal | Cause |
+|---|---|
+| 404 `derive_parent_unresolved` | A token in `inputs` does not resolve on this responder. Recall or backfill the parent first. |
+| 409 `derive_parent_cell_mismatch` | A parent token names a cell that its fact does not have. |
+| 400 `derive_provenance_class_refused` | `provenance_class` is not `model_output`, `human_curated` or `estimator`. |
+
+The answer gives an `emem:fact:` token. The signature tells that your key
+sent this value over these parents. It does not tell that the value is
+true. The same key and body again return the same token, with
+`deduplicated: true`. Thus a retry is safe. The value has no
+(cell, band, tslot) key, so `emem_recall` at the cell does not return it.
+Other agents find it by its token, by `emem_derive_list`, or by
+`emem_inferences` when their trust policy admits your key.
+
+With `code_cid` set and `op` set to `delta`, `mean` or `sum`, the
+responder runs the op again over the parent facts. When it gets your value,
+it records the derivation as `deterministic_index`. These rules come from
+the `/v1/derive` entry in `/openapi.json` and from `post_derive` in
+`crates/emem-api-rest/src/lib.rs`.
+
+To list the values that one key published, use `emem_derive_list`. It is a
+read and needs no key:
+
+```json
+{"name": "emem_derive_list", "arguments": {"attester_pubkey_b32": "xeww2uq3365aqwbx4ducorzifebccargxl7mfpi67a7cr5vdy6wq", "cell": "defi.zb55f.xuje.sOnU", "limit": 2}}
+```
+
+```bash
+curl -s -X POST https://emem.dev/v1/derived \
+  -H 'content-type: application/json' \
+  -d '{"attester_pubkey_b32":"xeww2uq3365aqwbx4ducorzifebccargxl7mfpi67a7cr5vdy6wq","cell":"defi.zb55f.xuje.sOnU","limit":2}'
+```
+
+Each item in `derivations` has `cell`, `band`, `fact_cid`, `token`, `op`,
+`fn_key`, `tslot_window` and `signed_at`. On 7 November 2026 this call
+returned 2 items, over REST and over MCP. The same key with no `cell` and
+the default `limit` of 100 returned 100 items and `truncated: true`. There
+is no form that lists the values of all keys.
 
 ## What emem is
 
