@@ -1,11 +1,11 @@
 """emem + LangChain via MCP -- ask a place question and cite receipts.
 
 Connects to the live emem MCP server over Streamable HTTP, auto-discovers
-all tools, and runs a LangGraph ReAct agent that resolves South Mumbai,
+all tools, and runs a LangChain agent that resolves South Mumbai,
 recalls its elevation, and answers with the signed fact CID/receipt.
 
 Install:
-    pip install langchain-mcp-adapters langgraph langchain-openai
+    pip install langchain langchain-mcp-adapters langchain-openai
 
 Usage:
     export OPENAI_API_KEY="sk-..."
@@ -18,8 +18,8 @@ copdem30m.elevation_mean, and return the answer with a signed fact CID.
 import asyncio
 import os
 
+from langchain.agents import create_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langgraph.prebuilt import create_react_agent
 from langchain_openai import ChatOpenAI
 
 EMEM_MCP_URL = os.getenv("EMEM_MCP_URL", "https://emem.dev/mcp")
@@ -45,7 +45,7 @@ async def main():
     tools = await client.get_tools()
     print(f"Loaded {len(tools)} emem tools via MCP\n")
 
-    agent = create_react_agent(llm, tools)
+    agent = create_agent(llm, tools)
 
     response = await agent.ainvoke({"messages": [("user", QUESTION)]})
 

@@ -1,7 +1,7 @@
 # LangChain agent with emem over MCP
 
-This example connects a LangGraph ReAct agent to the emem MCP server. The
-agent finds a place, reads a signed fact there, and gives the `fact_cid` and
+This example connects a LangChain agent to the emem MCP server. The agent
+finds a place, reads a signed fact there, and gives the `fact_cid` and
 receipt so that another agent can check the answer.
 
 ## What you need
@@ -18,7 +18,7 @@ its `fact_cid` and receipt.
 ## Install
 
 ```bash
-pip install langchain-mcp-adapters langgraph langchain-openai
+pip install langchain langchain-mcp-adapters langchain-openai
 ```
 
 ## Run
@@ -39,15 +39,17 @@ To use a different emem node, set `EMEM_MCP_URL`. The default is
    Streamable HTTP.
 2. It loads the 18 core emem tools that `/mcp` lists, for example
    `emem_locate`, `emem_recall`, `emem_ask` and `emem_verify_receipt`.
-3. It makes a ReAct agent with the `gpt-4.1-mini` model.
+3. It makes an agent with `create_agent` from `langchain.agents` and the
+   `gpt-4.1-mini` model. LangGraph 1.0 deprecated the older
+   `create_react_agent`, and LangGraph 2.0 removes it.
 4. It asks the agent to locate South Mumbai, recall its elevation
    (`copdem30m.elevation_mean`), and answer with the `fact_cid` and receipt.
 
 ## Test status
 
-On 7 November 2026 we installed the packages above
-(langchain-mcp-adapters 0.3.2, langgraph 1.2.20, mcp 1.30.0). The script
-loaded the emem tools and stopped at the OpenAI call, because we used a test
+On 7 November 2026 we installed the packages above in a new virtual
+environment (langchain 1.4.9, langchain-mcp-adapters 0.3.2, langgraph
+1.2.20, mcp 1.30.0). The script loaded 18 emem tools and stopped at the OpenAI call, because we used a test
 key. We did not run the model part.
 
 We also made the emem calls that the agent needs, on the same day:
@@ -67,7 +69,6 @@ The model must use the cell from `emem_locate`.
   `ChatAnthropic`, `ChatGoogleGenerativeAI` or another chat model class.
 - `/mcp` lists 18 core tools. For all tools, set
   `EMEM_MCP_URL=https://emem.dev/mcp/full`. On 7 November 2026 that list had
-  116 tools in 9 pages (8 pages earlier that day), and the adapter loaded all
-  116.
+  116 tools in 9 pages, and the adapter loaded all 116.
 - [`examples/langchain.py`](../langchain.py) wraps the REST API instead of
   MCP. This example uses MCP through `langchain-mcp-adapters`.
