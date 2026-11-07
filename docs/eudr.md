@@ -122,11 +122,28 @@ The block has the schema id `emem.visual_evidence.v2`. It contains these parts:
 - Sentinel-1 RTC VV backscatter at the same anchors, from `materialize_sentinel1_vv`.
   Radar sees through cloud, so this signal confirms the NDVI in monsoon regions where
   Sentinel-2 has gaps.
-- Per-year `scene.png` URLs for up to 6 cells of the plot.
-  Each URL asks for a full-year window, `?datetime=YYYY-01-01.../YYYY-12-31...`.
-  The [`GET /v1/cells/{cell64}/scene.png`](https://emem.dev/openapi.json) handler then
-  picks the latest clearest scene in that year.
-  Show them as a year-by-year grid of 6 images in an audit packet.
+- Per-year `scene.png` URLs for up to 6 cells of the plot, in `scene_png_urls` and
+  `scene_metadata`.
+  Each URL asks for `max_cloud=20` and a window of ±20 days (`EMEM_VISUAL_SCENE_WINDOW_DAYS`,
+  1 to 120).
+  The endpoint centres the window on the earliest NDVI observation date of that year.
+  If the year has no NDVI date, it uses the July-1 anchor as the centre.
+  The field `scene_coregistered_with_ndvi` tells you which centre the URL uses.
+- The [`GET /v1/cells/{cell64}/scene.png`](https://emem.dev/openapi.json) handler returns
+  the latest scene in the window with less than 20 % cloud.
+  It does not pick the clearest scene.
+  The `x-emem-scene-datetime` and `x-emem-scene-cloud-cover` headers name the scene it used.
+  If no scene passes, the handler returns 404 `no_clear_scene` and does not widen the search.
+  Show the images as a year-by-year grid in an audit packet.
+
+On 7 November 2026, a request at the Mount Fuji cell `defi.zb592.nUkO.zEzE` with the window
+2025-06-11 to 2025-07-21 returned the scene of 2025-07-20, with 10.59 % cloud:
+
+```sh
+curl -s -o scene.png -D - \
+  "https://emem.dev/v1/cells/defi.zb592.nUkO.zEzE/scene.png?datetime=2025-06-11T00%3A00%3A00Z/2025-07-21T00%3A00%3A00Z&max_cloud=20" \
+  | grep -i '^x-emem-scene-\(datetime\|cloud-cover\)'
+```
 
 ### Verdict thresholds
 
