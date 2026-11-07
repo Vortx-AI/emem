@@ -70,9 +70,11 @@ disputed fact does not change. To write an edge, read
 
 ## Read what was true, or what emem knew, on a date
 
-Six read primitives take two time bounds: `recall`, `recall_polygon`,
-`query_region`, `trajectory`, `find_similar` and `memory_bundle`. The two
-bounds are independent. `edges/recall` takes `as_of_tslot` only.
+Eight read primitives take two time bounds: `recall`, `recall_polygon`,
+`query_region`, `trajectory`, `find_similar`, `state`, `state_multi` and
+`memory_bundle`. The two bounds are independent. `edges/recall` takes
+`as_of_tslot` only. The [agent guide](agents.md#memory-operations-and-their-routes)
+says where each primitive takes the bounds.
 
 | Field | Question it answers | Filter |
 |---|---|---|

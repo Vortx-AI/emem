@@ -669,13 +669,18 @@ provenance classes by name, for example
   only the facts that come back. The filter does not change
   `bands_already_attested_at_cell`.
 
-Six read primitives take a time bound: recall, `recall_polygon`,
-`query_region`, `trajectory`, `find_similar` and `memory_bundle`. Each takes
-two bounds. `as_of_tslot` gives the latest fact observed at or before the
-bound. `as_of_signed_at` gives the latest fact signed at or before the bound.
-If you set both, both apply. The receipt then has an `as_of` block, so an
-auditor can replay the query later and get the same bytes. `edges/recall`
-takes `as_of_tslot` only. `diff`, `compare` and `verify` take no time bound.
+Eight read primitives take a time bound: recall, `recall_polygon`,
+`query_region`, `trajectory`, `find_similar`, `state`, `state_multi` and
+`memory_bundle`. Each takes two bounds. `as_of_tslot` gives the latest fact
+observed at or before the bound. `as_of_signed_at` gives the latest fact
+signed at or before the bound. If you set both, both apply. In
+`memory_bundle`, put the bounds in each triple, not at the top level.
+The receipt of recall, `query_region`, `trajectory` and `find_similar` then
+has an `as_of` block. An auditor can replay the query later and get the same
+bytes. `edges/recall` takes `as_of_tslot` only. `diff`, `compare` and
+`verify` take no time bound. On 7 November 2026, the `/openapi.json` schemas
+showed the bounds only for recall, `recall_polygon` and `trajectory`. The MCP
+tool schemas at `/mcp/full` showed them for the first seven primitives.
 
 ### Routes for operations from other memory libraries
 
