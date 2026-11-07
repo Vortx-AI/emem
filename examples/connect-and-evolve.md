@@ -23,7 +23,7 @@ verifies offline. For the concepts, see
 - A recall that carries its edges in the same response.
 - A receipt for each read that you can verify.
 
-The Part 1 outputs come from https://emem.dev on 6 November 2026. Part 2
+The Part 1 outputs come from https://emem.dev on 7 November 2026. Part 2
 did not run on that date (see Part 2).
 
 ```bash
@@ -51,6 +51,7 @@ By default it reports two kinds of disagreement. The field
 | `same_attester_provider_substitution` | One key answered from two upstreams (a different `derivation.fn_key` or `sources[].scheme`). |
 
 Send `"include_same_attester_sources": false` to get only the first kind.
+For the cell below, that request returns no contradictions.
 
 ```bash
 curl -sS -X POST "$EMEM/v1/memory_contradictions" \
@@ -60,7 +61,7 @@ curl -sS -X POST "$EMEM/v1/memory_contradictions" \
         attestations: [.attestations[] | {fact_cid, value, signed_at}]}'
 ```
 
-Output on 6 November 2026. This cell has one contradiction:
+Output on 7 November 2026. This cell has one contradiction:
 
 ```json
 {
@@ -83,13 +84,18 @@ The two values differ, so both stay on record.
 
 The full response also has `corpus_scanned`, `time_taken_ms`,
 `scan_truncated`, `agent_hint` and a signed `receipt`. The receipt's
-`fact_cids` cite every disputed fact. A scan that stops at its time
-budget returns `resume_after`. Send that value back to continue.
+`fact_cids` cite every disputed fact. For this cell, it cites the two
+facts above. A scan that stops at its time budget returns
+`resume_after`. Send that value back to continue.
 
-Keep `cell_prefix` (alias `cell`) narrow. A full cell64 scans few keys. This one answered in 0.1 s. A short prefix scans up to 50,000 keys. On 6 November 2026 the
-prefix `defi` took 8 s, and one 10-character prefix took 108 s.
+Keep `cell_prefix` (alias `cell`) narrow. A full cell64 scans few keys.
+On 7 November 2026, this cell answered in less than 0.1 s. A short
+prefix scans up to 50,000 keys. On 7 November 2026, the prefix `defi`
+took 8 s, scanned 44,682 keys, found 74 contradictions and stopped with
+`scan_truncated: true`. On 6 November 2026, one 10-character prefix took
+108 s.
 
-A GET form also exists:
+A GET form also exists. It returns the same contradiction for this cell:
 `GET $EMEM/v1/memory_contradictions?cell_prefix=...&band=...&min_severity=...`.
 
 ### 2. Read the edges that start at a fact
@@ -106,7 +112,7 @@ curl -sS -X POST "$EMEM/v1/edges/recall" \
   | jq '{direction, edges, objs, agent_hint}'
 ```
 
-Output on 6 November 2026:
+Output on 7 November 2026:
 
 ```json
 {
@@ -143,7 +149,7 @@ curl -sS -X POST "$EMEM/v1/recall" \
   | jq -c '{facts: [.facts[].value], edges: .edges}'
 ```
 
-Output on 6 November 2026:
+Output on 7 November 2026:
 
 ```json
 {"facts":[3768.409912109375],"edges":[]}
@@ -171,7 +177,7 @@ curl -sS -X POST "$EMEM/v1/verify_receipt" \
   | jq '{valid, signature_valid, merkle_proof_valid, reason, primitive, signer_pubkey_b32}'
 ```
 
-Output on 6 November 2026:
+Output on 7 November 2026:
 
 ```json
 {
@@ -195,9 +201,9 @@ https://emem.dev/verify.
 ## Part 2: run the full loop on a local node
 
 Part 2 writes. It needs a node that accepts your keys. We did not run the
-commands in this part on 6 November 2026, because the host had no Rust
-toolchain. The behaviour below comes from the source files named in each
-step.
+commands in this part on 6 or 7 November 2026, because the host had no
+usable Rust toolchain. The behaviour below comes from the source files
+named in each step.
 
 ### Why emem.dev refuses the writes
 
@@ -377,8 +383,9 @@ calls as Part 1, steps 3 and 4.
 
 ## Why it matters
 
-A plain store keeps facts. This loop also connects them with typed,
-time-bounded edges. It also records disagreement as an edge and a
-contested marker, so the memory can change over time. Both are
-append-only and signed, so you can still audit what the memory held
-before. For the full agent guide, see [../docs/agents.md](../docs/agents.md).
+A plain store keeps facts. This loop also connects facts with typed
+edges that have a start time. It records a disagreement as an edge and
+a contested marker, so the memory changes over time. Every edge carries a
+signature, and the store only appends edges. The loop deletes no fact. You can still
+audit what the memory held before. The contested marker is an unsigned
+overlay row on the node, not a signed record. For the full agent guide, see [../docs/agents.md](../docs/agents.md).
