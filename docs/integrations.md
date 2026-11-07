@@ -78,9 +78,9 @@ Older hosts speak stdio only. Use the `mcp-remote` bridge:
 | Runtime | Surface | Auth | Example |
 |---|---|---|---|
 | Claude Code | MCP (`http`) | none | [`examples/claude-code.mcp.json`](https://github.com/Vortx-AI/emem/blob/main/examples/claude-code.mcp.json) |
-| Claude Desktop | MCP (`url` only) | none | [`examples/claude-desktop.json`](https://github.com/Vortx-AI/emem/blob/main/examples/claude-desktop.json) |
+| Claude Desktop | MCP (custom connector) | none | Go to Settings, then Connectors, then Add custom connector, and enter `https://emem.dev/mcp`. The config file starts stdio servers only. For a file, use the `mcp-remote` bridge in [`examples/claude-desktop.json`](https://github.com/Vortx-AI/emem/blob/main/examples/claude-desktop.json). |
 | Cursor 0.42 and later | MCP (`url` only) | none | [`examples/cursor.mcp.json`](https://github.com/Vortx-AI/emem/blob/main/examples/cursor.mcp.json) |
-| Cline (VS Code) | MCP (`url` only) | none | [`examples/cline.mcp.json`](https://github.com/Vortx-AI/emem/blob/main/examples/cline.mcp.json) |
+| Cline (VS Code) | MCP (`streamableHttp`) | none | [`examples/cline.mcp.json`](https://github.com/Vortx-AI/emem/blob/main/examples/cline.mcp.json). Keep `"type": "streamableHttp"`. Without it Cline uses legacy SSE, and `GET /mcp` returns 405. |
 | Gemini CLI | extension install | none | Run `gemini extensions install https://github.com/Vortx-AI/emem`. It reads [`gemini-extension.json`](https://github.com/Vortx-AI/emem/blob/main/gemini-extension.json) at the repository root. |
 | OpenAI Custom GPT Action | OpenAPI 3.1 | none | [`examples/openai-gpt-action.json`](https://github.com/Vortx-AI/emem/blob/main/examples/openai-gpt-action.json) |
 | LangChain | MCP through an adapter | none | [`examples/langchain/`](https://github.com/Vortx-AI/emem/tree/main/examples/langchain) |
