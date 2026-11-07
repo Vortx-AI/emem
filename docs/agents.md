@@ -228,10 +228,10 @@ From zero to a signed, cite-able answer in three calls:
 
 The still above is one live `recall` with eight named bands, drawn by
 [`stills/src/recall_cell.py`](media/stills/src/recall_cell.py). Each fact
-keeps its own source and `observed_at`. Contains modified Copernicus
-Sentinel data 2026. Before the named recall, a recall
+keeps its own source and `observed_at`. Before the named recall, a recall
 at this cell with no `bands` list returned two facts. A bare recall returns
-only what is already stored, so name the bands that you need.
+only what is already stored, so name the bands that you need. Contains
+modified Copernicus Sentinel data 2026.
 
 That is the whole loop. Everything below is depth on each step.
 
