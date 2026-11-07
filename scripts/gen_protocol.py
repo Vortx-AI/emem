@@ -539,7 +539,7 @@ def _encoders(name, seed, title, sub, footer):
     oy = 312
     sats = [("Sentinel-2", TEAL), ("Sentinel-1", INDIGO), ("HLS", LEAF), ("MODIS", TURMERIC), ("DEM", LAC)]
     sxs = [320 + i * 248 for i in range(len(sats))]
-    encs = [("spectral indices", INDIGO), ("SAR backscatter", TEAL), ("terrain", LEAF), ("phenology", LAC)]
+    encs = [("spectral indices", INDIGO), ("SAR backscatter", TEAL), ("terrain", LEAF), ("surface temperature", LAC)]
     epos = [(CX + ER * math.cos(math.radians(-90 + i * 90)),
              CY + ER * math.sin(math.radians(-90 + i * 90)) * 0.92) for i in range(len(encs))]
     avoid = [(CX, CY, LR + 60), (W / 2, 150, 600), (W / 2, H - 80, 640)]
@@ -604,8 +604,8 @@ def encoders_split():
 def fusion():
     return _encoders("33-fusion-orbit-and-ground", 33,
         "Fusion: orbit and ground",
-        "many modalities, one cell, one signed record the next agent can cite",
-        "S1, S2, DEM and climate fuse at one cell into a record with a content id.")
+        "many modalities, one cell, signed facts the next agent can cite",
+        "S1, S2, DEM and climate facts meet at one cell. Each one is signed and has a content id.")
 
 
 def agent_to_token():

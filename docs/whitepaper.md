@@ -1166,7 +1166,7 @@ foundation embedding. Earlier versions also ran Clay, Prithvi and Galileo;
 facts they signed still verify. **172 algorithms** and **27 topics**
 are enumerated at `/v1/algorithms` and `/v1/topics`.
 
-![Sentinel-2, Sentinel-1, HLS, MODIS and DEM data go to the responder, which decodes them into spectral indices, SAR backscatter, terrain and phenology, and signs each value.](/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg)
+![Sentinel-2, Sentinel-1, HLS, MODIS and DEM data go to the responder, which decodes them into spectral indices, SAR backscatter, terrain and surface temperature, and signs each value.](/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg)
 *Figure 6: the responder decodes each open archive into typed values
 and signs each value. Four deterministic decoders read the same place,
 so a disagreement between them is information.*
