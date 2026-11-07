@@ -1,38 +1,44 @@
 # Machines that ask emem where they are
 
-*Every call on this page was run against `https://emem.dev` before it was
-written down, and `scripts/example_check.py` runs them again on every CI
-pass. If one stops working the build fails, not the reader.*
+*We ran every call on this page against `https://emem.dev` on 7 November
+2026. The `production truth` workflow runs `scripts/example_check.py` every
+hour, and that script runs these calls again, except the call with a
+placeholder. If one stops working, the workflow fails.*
 
-A robot already knows its own coordinates. What it does not know is what is
-true at those coordinates: the slope it is about to grade, the wind it is about
-to spray into, whether the street ahead is clear, how the crop has moved since
-the last pass. That is a memory problem, and it is the one emem is for.
+A robot knows its own coordinates. It does not know what is true at those
+coordinates. Examples are the slope it will grade, the wind it will spray into,
+and whether the street ahead is clear. It also does not know how the crop
+changed since the last pass. That is a memory problem, and emem is for memory
+problems.
 
-Two properties matter more to a machine than to a person. Every answer carries
-a signed receipt, so a second machine can check the first one's claim without
-trusting it. And every place has one address, so two machines that resolve
-"this field" separately arrive at the same cell64 rather than two descriptions
-that only a human can tell apart.
+Two properties matter more to a machine than to a person:
+
+- Every fact that a read returns has a content id, `fact_cid`. `POST
+  /v1/recall` also returns a signed receipt over these ids. A second machine
+  can check the claim of the first machine and does not have to trust it.
+  The weather and soil routes return no receipt (see [A sprayer](#a-sprayer)).
+- Every place has one address. Two machines that resolve "this field"
+  separately get the same cell64. They do not get two descriptions that only a
+  human can match.
 
 ## What emem does not do
 
-It does not drive anything, and it holds no control loop. It answers questions
-about places and signs the answers. Latency is a fetch, not a tick: a warm
-recall is milliseconds, a cold one that has to reach an upstream can be
-seconds. Nothing here belongs inside a safety loop, and a machine that cannot
-proceed without an answer should carry its own fallback.
+emem does not drive anything, and it has no control loop. It answers questions
+about places and signs the answers. A call is a fetch, not a control tick. A
+warm recall takes milliseconds. A cold recall that must reach an upstream
+source can take seconds. Do not put emem inside a safety loop. If a machine
+cannot continue without an answer, give it its own fallback.
 
-It is also not everywhere. The corpus holds thousands of places, not billions.
-Ask for a cell it has never seen and it will fetch what it can and tell you
-what it could not.
+emem does not cover every place. The corpus holds thousands of places, not
+billions. If you ask for a cell that emem has not seen, it fetches what it can.
+The response tells you what it could not fetch.
 
 ---
 
-## A street robot, and an autonomous vehicle
+## A street robot and an autonomous vehicle
 
-Both have the same question at a junction: what is in front of me right now,
-and is that a measurement or a guess?
+Both machines have the same need at a junction. They must know what is in front
+of them now, and if that is a measurement or a guess.
 
 ```bash
 curl -s -X POST https://emem.dev/v1/perception/at \
@@ -40,56 +46,70 @@ curl -s -X POST https://emem.dev/v1/perception/at \
   -d '{"cell":"defi.zb64a.cEjo.zfa47","question":"what is on this street?","stages":["detect"],"detect_from_clip":true}'
 ```
 
-That cell is London. `detect_from_clip` is the part that matters, and it is not
-the default. Without it the count comes from the camera's current frame:
-`source: live_frame`, `tamper_evidence: none`, and those bytes are gone the
-moment they are read, so nobody, including you, can recompute the number
-afterwards. With it, the count is taken from the retained clip the receipt
-commits to: `source: retained_clip`, `tamper_evidence:
-recomputable_from_source`, and the response carries the S3 key, the frame index
-and the hash at `camera.clip.clip_sha256`. Anyone holding the clip can rerun the
-detector and get your number. A machine that may have to defend a decision later
-wants the second one, and it does not cost anything to prefer it: measured
-across four London cameras, 0.8 s, 0.85 s, 0.88 s and 3.1 s, against 2.9 s for
-the live-frame form.
+That cell is in London. The important field is `detect_from_clip`, and it is
+not the default. The two modes give different evidence:
 
-Those numbers are worth stating because they were not always true. The same call
-took 34 to 165 seconds until the inference behind it was serialised, which is
-why the door allows 120 s (`EMEM_PERCEPTION_TIMEOUT_S`) rather than the 40 s
-every other route gets, and returns a typed 504 past that. The ceiling stays
-where it is: it is sized for the bad day, not the good one, and a shared GPU
-has bad days.
+| mode | `counted_from.source` | `counted_from.tamper_evidence` | can someone recompute the count later? |
+|---|---|---|---|
+| default | `live_frame` | `none` | No. The frame bytes are gone after the read. |
+| `detect_from_clip: true` | `retained_clip` | `recomputable_from_source` | Yes. `counted_from` gives `clip_s3_key`, `frame_index` and `clip_sha256`. |
 
-The response names the camera it used, how far away it
-was, and why that camera was chosen, because a count from a camera 300 m away
-is a different claim from a count at the junction you asked about. It also
-carries `camera_requested` and `camera_substituted`: if you name a camera and
-it is not there, you are told you were given another one rather than quietly
-handed someone else's street.
+The receipt is at `parts[0].metadata.receipt`. The signer is `geoqa`, and the
+schema is `geoqa.clip.v1`. The receipt signs the clip: its SHA-256, the camera,
+the place and the capture time. It does not sign the count. To check it, see
+[Check a clip receipt](#check-a-clip-receipt-from-a-perception-read). Anyone who has the
+clip can run the detector again and get your number. A machine that must defend a decision later
+needs this second mode. On 29 October 2026, clip mode took no more time than
+the live frame. It took 0.8 s, 0.85 s, 0.88 s and 3.1 s at four London
+cameras, and the live-frame call took 2.9 s.
+
+On 7 November 2026 at 01:34 UTC, the call above took 1.1 s. It counted
+7 cars, 11 people, 1 bus and 1 truck, from a camera 184 m away.
+The perception routes have a 120 s time limit. Most other routes have a 40 s
+limit (`EMEM_TIMEOUT_SECS`). Past the limit, the server returns a typed 504.
+The limit is high because clip detection runs on a shared GPU, and a busy GPU
+can make a call slow.
+
+One variable, `EMEM_PERCEPTION_TIMEOUT_S` (default 120), sets two limits:
+
+| limit | clamp | what you get past the limit |
+|---|---|---|
+| the time limit of the route | 40..600 s | a typed 504 |
+| the wait for the perception service | 5..600 s | a 502 with "the perception service did not answer" |
+
+If an operator sets a value below 40, the route limit stays at 40 s. The
+wait is shorter, so it ends first, and you get the 502.
+
+The response names the camera that it used and the distance to that camera. It
+also says why the server chose that camera. A count from a camera 300 m away is
+a different claim from a count at your junction. Two more fields help you here:
+
+- `camera_requested`: the camera that you named, if any.
+- `camera_substituted`: set when the camera that you named was not available
+  and the server used a different one. The server does not hide the change.
 
 ### `counts` never contains a zero
 
-This is the part most likely to be coded against wrongly. There is no zero to
-watch for, because publishing one would assert an empty street when the truth
-was that nothing was seen. Four states, and an agent has to tell them apart:
+Code that reads `counts` often gets this wrong. emem never publishes a zero.
+A zero would say that the street is empty. The truth can be that the camera saw
+nothing useful. An agent must tell these four states apart:
 
 | what you get | what it means |
 |---|---|
-| `counts: {"car": 11, ...}` | looked, and found these |
-| `counts: {}` | looked, and found none. This is the empty-street case |
-| `counts: null` with an `unobservable` block | never observed: the frame was not a view of the street. The block says why, and whether retrying helps |
-| `counts: null` with `counts_at_camera` | counted, but at a camera too far away to attribute to the point you asked about |
+| `counts: {"car": 11, ...}` | The detector looked and found these. |
+| `counts: {}` | The detector looked and found nothing. This is the empty-street case. |
+| `counts: null` with an `unobservable` block | No observation. The frame did not show the street. The block says why, and if a retry can help. |
+| `counts: null` with `counts_at_camera` | The detector counted, but the camera is too far from your point. The count does not apply to your point. |
 
-An agent waiting for `{"car": 0}` waits forever.
+An agent that waits for `{"car": 0}` waits forever.
 
-### Is 45 people a lot?
+### Compare a count with the past of the camera
 
-A count on its own cannot answer that, and most machines asking this question
-need the answer rather than the count. The response carries `temporal_context`
-beside `counts`, which compares what was just seen against what this same
-camera has seen before:
+A count alone does not tell you if the street is busy. Most machines need that
+judgement, not the count. The response has a `temporal_context` block next to `counts`. It
+compares the new count with past counts from the same camera.
 
-An excerpt, from the London call above on 2026-09-29:
+This excerpt comes from the London call above on 29 September 2026:
 
 ```json
 {
@@ -114,40 +134,56 @@ An excerpt, from the London call above on 2026-09-29:
 ```
 
 Read `basis` before you read the verdict. `hour_of_day` compares this hour with
-the same hour on other days, which is the comparison you want. The response
-also carries an `all_hours` comparison under `comparisons`, with a much larger
-sample, and `comparison_to_prefer` names `hour_of_day` or nothing, never
-`all_hours`: traffic is strongly diurnal, so a genuinely quiet 3 a.m. reading
-looks low against an all-hours baseline for a reason that has nothing to do
-with the street being empty.
+the same hour on other days. That is the comparison that you want.
 
-`n` is how many past readings the comparison rests on, and `percentile_ci` is
-the interval that sample supports. When the interval crosses a tier boundary
-the verdict is supported only in direction (`verdict_supported_at`), and
-`bounded_claim` states the strongest thing the whole interval agrees on.
-`counted_higher_than` is the exact rank and needs no interval at all. The
-baseline holds only readings from the same detector (`detector_fn_id`), because
-a count from a different model is a different measurement of the same street.
+The response also has an `all_hours` comparison under `comparisons`, with a
+larger sample. `comparison_to_prefer` is `hour_of_day` or `null`. It is never
+`all_hours`. Traffic changes a lot through the day. A quiet reading at 3 a.m.
+looks low against all hours, but the street is not unusually empty.
 
-Two limits are stated in the response rather than left for you to discover.
-`not_a_claim_about` says this is one camera against its own past and not this
-street against its neighbours, because two cameras 250 m apart differ by about
-as much as two 5 km apart. And the band is a percentile of stored history, not
-a mean and a standard deviation: on a count, which cannot go below zero, a
-two-sigma low threshold is often a negative number and so can never be crossed,
-which would leave "unusually quiet" unreachable while every response still read
-normal. The percentile has no such blind end. `emem_explain_algorithm` on
-`anomaly_zscore@1` carries that trap in full, if you are choosing between them.
+The verdict can be `null`. This occurs when `percentile_ci` crosses a band
+boundary, so the reading fits in no one band. Then `why_no_verdict` gives the
+interval and `n`. On 7 November 2026 at 01:34 UTC, the call above returned
+`verdict: null` and `comparison_to_prefer: null`. The interval was
+[0.666, 0.799] over 166 past readings for this hour. `bounded_claim` still said
+"above this camera's median". In the same response, `people` had its own
+verdict, "much more crowded than usual", because its interval fit inside one
+band. At 08:19 UTC, the same call returned `verdict: "about usual"`. Each call
+counts a new frame, so expect a different verdict on each call.
 
-The arithmetic is `deterministic_index`, not a model output, and `recompute`
-carries the query that reproduces it from the signed observations. The
-observations are signed; this arithmetic over them is not, and adds nothing you
-could not redo yourself.
+Use these fields to judge how strong the verdict is:
+
+| field | what it tells you |
+|---|---|
+| `n` | The number of past readings that the comparison uses. |
+| `percentile_ci` | The interval that this sample supports. |
+| `verdict_supported_at` | `band` when the interval fits inside the band that the verdict names. `direction` when the interval fits inside quiet, usual or busy, but crosses the boundary to a "much" tier. Then the verdict does not use "much". `none` when the interval crosses a band boundary, and then the verdict is `null`. |
+| `superlative_supported` | `true` when the whole interval is in the top tenth or the bottom tenth. Only then does the verdict use "much". |
+| `bounded_claim` | The strongest claim that the full interval supports. `says` is `null` when the interval contains the median of the camera. |
+| `counted_higher_than` | The exact rank. It needs no interval. |
+| `detector_fn_id` | The detector. The baseline uses only readings from this detector, because a different model gives a different measurement. |
+
+The response states two limits:
+
+- `not_a_claim_about` says that this is one camera against its own past. It is
+  not this street against nearby streets. Two cameras 250 m apart differ by
+  about as much as two cameras 5 km apart.
+- The band is a percentile of stored history. It is not a mean and standard
+  deviation. Counts cannot go below zero. So a low threshold at two standard
+  deviations is often negative, and no count can cross it. Then "unusually
+  quiet" can never occur, and every response says normal. A percentile does not
+  have this problem. To compare the two methods, call `emem_explain_algorithm`
+  on `anomaly_zscore@1`.
+
+The arithmetic is a `deterministic_index`, not a model output. The `recompute`
+field gives the query that reproduces it from the signed observations. emem
+signs the observations. It does not sign this arithmetic, because you can do the
+arithmetic yourself.
 
 ## A laser leveller
 
-A leveller grades a field to a target slope. Before it starts, the slope that
-is already there decides how much soil has to move and in which direction.
+A leveller grades a field to a target slope. The current slope decides how
+much soil must move, and in which direction.
 
 ```bash
 curl -s -X POST https://emem.dev/v1/terrain \
@@ -155,19 +191,29 @@ curl -s -X POST https://emem.dev/v1/terrain \
   -d '{"cell":"defi.zb4e3.vopU.fEyO"}'
 ```
 
-Back comes `centre_elevation_m`, a `slope` block, `ruggedness`, and
-`topo_position`, each with the cell dimensions they were computed over and the
-fact ids they were computed from. The `honest_note` says which neighbourhood
-was sampled and at what step, because a slope is meaningless without the
-baseline it was measured across. The default is a 3x3 Cop-DEM neighbourhood at
-about 29 m pitch (`step_cells: 3`, matching the 30 m source); 3x3 at 90 m is a
-different number, and a machine that mixes them will grade to the wrong plane.
-The DEM carries no bathymetry, so an ocean cell comes back inconclusive rather
-than flat.
+This is the cell that `POST /v1/locate` returns for "Nashik", at 20.00 N,
+73.79 E. The sprayer example uses the same cell. For your own machine, use the
+cell of your field.
+
+The response has `centre_elevation_m`, a `slope` block, `ruggedness` and
+`topo_position`. The `slope` block gives the cell size. The top-level
+`input_fact_cids` lists the fact ids that the response used. The response
+also has a `receipt` that signs these fact ids.
+On 7 November 2026, this cell had a slope of 7.0 degrees (12.3 percent),
+computed with the Horn 1981 method.
+
+The `honest_note` field says which neighbourhood emem sampled, and at what
+step. A slope has no meaning without its baseline. The default is a 3x3 Cop-DEM
+neighbourhood at about 29 m pitch (`step_cells: 3`). This matches the 30 m
+source. A 3x3 neighbourhood at 90 m gives a different number. A machine that
+mixes the two grades to the wrong plane.
+
+The DEM has no bathymetry. For an ocean cell, the result is inconclusive. It is
+not a flat value.
 
 ## A sprayer
 
-Wind decides whether a pass happens at all. Drift is the whole argument.
+Wind decides if a pass can happen. Spray drift is the main risk.
 
 ```bash
 curl -s -X POST https://emem.dev/v1/weather \
@@ -175,20 +221,39 @@ curl -s -X POST https://emem.dev/v1/weather \
   -d '{"cell":"defi.zb4e3.vopU.fEyO"}'
 ```
 
-The route returns four bands: `weather.wind_speed_10m`, temperature,
-precipitation and relative humidity, from an Open-Meteo / MET Norway forecast
-blend. It takes no band filter, so read the one you need out of `bands`. The
-blend is labelled `model_output`, not a measurement. Every reading carries an `age_s`. A wind speed is only a decision input while
-it is fresh, and "the newest we hold" is not the same claim as "current" -- the
-response distinguishes them so a sprayer does not act on a number from
-yesterday afternoon.
+The route returns four bands:
 
-Soil is the other half of the same decision, and the same cell answers on the
-soil route. At this cell, on 2026-09-29, the SoilGrids bands came back as signed
-Absences (`kind: absence`, `value: null`), which is an answer: the source was
-asked and had nothing for this point. A read that timed out instead appears in
-`materialize_notes` with `retryable: true`, and a retry a few seconds later
-usually answers warm.
+- `weather.wind_speed_10m`
+- `weather.temperature_2m`
+- `weather.precipitation_mm`
+- `weather.relative_humidity_2m`
+
+The values come from an Open-Meteo and MET Norway forecast blend. The route has
+no band filter, so read the band that you need from `bands`. The provenance
+class is `model_output`, not a measurement.
+
+Each reading has `captured_at`, `signed_at` and `age_s`. A wind speed is a
+decision input only while it is fresh. The newest value that emem holds is not
+always a current value.
+
+The two times measure different things:
+
+| field | what it measures |
+|---|---|
+| `captured_at` | The hour that the forecast value is for. |
+| `age_s` | The seconds since emem signed the fact (`signed_at`). It is not the age of the value. |
+
+Before you act, compare `captured_at` with your clock. Then the sprayer does
+not use a value from yesterday afternoon. A fact that emem signed a moment ago
+can still carry an old `captured_at`. On 7 November 2026 at 07:18 UTC, the
+wind speed at this cell was 3.8 m/s, with `captured_at: 2026-11-07T07:00:00Z`
+and `age_s: 0`.
+
+The weather and soil routes return a `fact_cid` for each band, but no receipt.
+To get a receipt, send the same cell and bands to `POST /v1/recall`.
+
+Soil is the other half of the decision. The soil route answers for the same
+cell:
 
 ```bash
 curl -s -X POST https://emem.dev/v1/soil \
@@ -196,10 +261,25 @@ curl -s -X POST https://emem.dev/v1/soil \
   -d '{"cell":"defi.zb4e3.vopU.fEyO"}'
 ```
 
+At this cell, on 7 November 2026, all six SoilGrids bands came back as signed
+absences (`kind: absence`, `value: null`). An absence is an answer. emem asked
+the source, and the source had no value for this point. Do not retry an
+absence. A read that timed out is different. It appears in `materialize_notes`
+with `retryable: true`. A retry some seconds later usually gets a warm answer.
+
+An absence stands as the answer for 6 hours. After that, the next read asks
+the source again (`EMEM_ABSENCE_RECHECK_SECS`, default 21600). If that new
+read times out, you get both: the older absence in `bands`, and a timeout
+entry for the same band in `materialize_notes`. On 7 November 2026 at 07:00
+UTC, this occurred for `soc_0_30cm` and `bdod_0_30cm`. emem signed their
+absences at 00:10 UTC, so they were older than 6 hours. The absence is still
+the last signed answer. The note tells you that the check for a newer answer
+did not finish.
+
 ## A harvester
 
-Readiness is a shape over time, not a reading. One NDVI value cannot tell you
-whether a crop is climbing or senescing; two months of them can.
+Readiness is a shape over time, not one reading. One NDVI value cannot tell you
+if a crop is growing or senescing. Two months of values can.
 
 ```bash
 curl -s -X POST https://emem.dev/v1/trajectory \
@@ -207,14 +287,18 @@ curl -s -X POST https://emem.dev/v1/trajectory \
   -d '{"cell":"defi.zb493.xuqA.zcb5f","band":"indices.ndvi","window":[20325,20690]}'
 ```
 
-The window is a pair of Unix epoch-day slots. Each point in `series` carries
-its own `fact_cid`, so the curve is not a picture: every point on it
-dereferences back to the signed observation it came from, and a second machine
-can re-check any of them.
+This is the cell that `POST /v1/locate` returns for "Bengaluru", at 12.97 N,
+77.59 E. The satellite example uses the same cell. The window is a pair of
+Unix epoch-day slots: 20325 is 25 August 2025 and 20690 is 25 August 2026. On
+7 November 2026, the `series` had 25 points, from slot 20362 (1 October 2025)
+to slot 20675 (10 August 2026). Each point has its own `fact_cid` and `token`. Every point links
+back to the signed observation that it came from. The response also has one
+`receipt`, and its `fact_cids` list holds the ids of all 25 points. A second
+machine can check any point again.
 
-Observations are sparse and unevenly spaced, because a satellite writes when it
-passes and not on a schedule you chose. Do not assume consecutive slots. Recall
-the band first if you need to know which slots exist:
+Observations are sparse and have irregular spacing. A satellite records when
+it passes, not on your schedule. Do not expect consecutive slots. To see which
+slots exist, recall the band first:
 
 ```bash
 curl -s -X POST https://emem.dev/v1/recall \
@@ -222,40 +306,51 @@ curl -s -X POST https://emem.dev/v1/recall \
   -d '{"cell":"defi.zb493.xuqA.zcb5f","bands":["indices.ndvi"]}'
 ```
 
-## An industrial robot, indoors
+## An industrial robot indoors
 
-emem does not see a factory floor, and no camera in this corpus is pointed at
-one. What it offers a machine that works indoors is the other half: identity
-and attestation.
+emem does not see a factory floor. No camera in this corpus points at one. For
+a machine that works indoors, emem gives identity and attestation.
 
 ```bash
 curl -s https://emem.dev/v1/device_platforms
 ```
 
-`registry.platforms` is the whitelist of hardware a key may enrol from, with
-the root of trust and evidence format each platform presents. That is what
-makes a write from a robot different from a write from a laptop claiming to be
-one, and it is why a fleet operator can later tell which arm produced which
-record.
+`registry.platforms` is the list of hardware that a key can enrol from. Each
+entry gives the root of trust and the evidence format of that platform. On 7
+November 2026, the list had 17 platforms. With this list, a write from a robot
+is different from a write from a laptop that says it is a robot. A fleet
+operator can later find which arm made which record.
 
-What ships: an enrolled device writes through `POST /v1/attest_traced`, which
-takes the attestation together with the `emem.os_trace.v1` execution trace that
-produced it, checks the trace against the device's substrate profile, binds
-each fact to an output the trace emitted, and returns an `emem:trace:` token on
-admit. `POST /v1/trace_verify` runs the same checks statelessly on any trace
-and returns every failed check. `GET /v1/devices` lists devices whose
-operators chose to be listed.
+What ships:
 
-What does not ship yet: there is no public enrolment route, so a device is
-enrolled by its node's operator. Every platform in the registry is `candidate`
-and every trust anchor is provisional, so hardware-attested enrolment refuses
-everything until a vendor anchor is published; an operator-asserted enrolment
-is recorded as exactly that.
+- An enrolled device writes through `POST /v1/attest_traced`. The call takes
+  the attestation and the `emem.os_trace.v1` execution trace that made it. The
+  server checks the trace against the substrate profile of the device. It
+  binds each fact to an output in the trace. On admit, it returns an
+  `emem:trace:` token.
+- `POST /v1/trace_verify` runs the same checks on any trace without stored
+  state. It returns every check that failed.
+- `GET /v1/devices` lists the devices whose operators chose to list them.
+
+What does not ship:
+
+- On emem.dev, no robot or industrial device can enrol today. The one admitted
+  anchor serves host profiles only.
+- `POST /v1/enroll_attested` is public. It admits only an attestation from an
+  anchor that is not provisional. On emem.dev, only the operator holds such
+  a key.
+- All 17 platforms have the status `candidate` (7 November 2026). Every
+  vendor anchor is provisional, so no device gets `platform_attested` today.
+  The one admitted anchor is the operator anchor `operator.vortx.v1` on
+  `generic.linux-host`. That platform serves the classes `execution`,
+  `database`, `codebase` and `model`, not `robot`.
+- Each enrolment states its tier: `platform_attested`, `operator_endorsed` or
+  `operator_asserted`. Read `endorsed_by` to see whose word it rests on.
 
 ## A satellite
 
-A satellite is not a consumer here. It is an attester: the thing whose passes
-become the observations everything else reads.
+Here a satellite is not a consumer. It is an attester. Its passes become the
+observations that all other machines read.
 
 ```bash
 curl -s -X POST https://emem.dev/v1/recall \
@@ -263,14 +358,15 @@ curl -s -X POST https://emem.dev/v1/recall \
   -d '{"cell":"defi.zb493.xuqA.zcb5f","bands":["indices.ndvi"],"deterministic":true}'
 ```
 
-`deterministic: true` is the filter that matters for a machine that has to
-defend a number later. It keeps only facts recomputable from the cited raw
-source, so anything a model produced is excluded rather than blended in. What
-comes back can be recomputed by anyone who fetches the same scene.
+Use `deterministic: true` when a machine must defend a number later. The filter
+keeps only facts that you can recompute from the cited raw source. It removes
+model outputs. It does not mix them in. Anyone who fetches the same scene can
+recompute each result.
 
-## Checking an answer you were given
+## Check an answer that another machine gave you
 
-Any machine can verify another's citation without asking emem to vouch for it:
+Any machine can verify the citation of another machine. It does not need emem
+to vouch for it:
 
 ```bash
 curl -s -X POST https://emem.dev/v1/verify_receipt \
@@ -278,17 +374,70 @@ curl -s -X POST https://emem.dev/v1/verify_receipt \
   -d '{"receipt": <the receipt object you were handed>}'
 ```
 
-That call is a convenience. The receipt verifies offline against the key in it
-(BLAKE3 over the preimage, then ed25519), so a second robot can check the first
-robot's claim with arithmetic instead of trust; `https://emem.dev/verify` does
-the same in a browser with no call back to us.
+This call is only a convenience. The receipt verifies offline against the key
+in it: BLAKE3 over the preimage, then Ed25519. So a second robot can check the
+claim of the first robot with arithmetic, not trust. The page
+`https://emem.dev/verify` does the same check in a browser, with no call back
+to the server.
 
-To see who else writes here:
+### Check a clip receipt from a perception read
+
+`/v1/verify_receipt` checks emem receipts only. It does not accept the
+`geoqa.clip.v1` receipt from `/v1/perception/at`. On 7 November 2026 it
+returned 400 `invalid_argument`, because the field `request_id` is missing.
+Check a clip receipt offline instead:
+
+1. Write `payload` as JSON with sorted keys and no spaces.
+2. Make sure that the SHA-256 of these bytes is equal to `payload_sha256`.
+3. Get the geo.qa key from `https://geo.qa/api/verify/key`.
+4. Verify `signature_b64` with Ed25519 over the payload bytes, not over the hash.
+
+```bash
+curl -s -X POST https://emem.dev/v1/perception/at \
+  -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb64a.cEjo.zfa47","stages":["detect"],"detect_from_clip":true}' \
+  | jq '.parts[0].metadata.receipt' > clip_receipt.json
+curl -s https://geo.qa/api/verify/key -o geoqa_key.json
+python3 check_clip.py clip_receipt.json geoqa_key.json
+```
+
+`check_clip.py` needs `pip install cryptography`. On Debian and Ubuntu, install
+it in a virtual environment, as
+[Write your first signed note](memory.md#write-your-first-signed-note) shows.
+
+```python
+import base64, hashlib, json, sys
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+r = json.load(open(sys.argv[1]))
+key = json.load(open(sys.argv[2]))["pubkey_b64"]
+msg = json.dumps(r["payload"], sort_keys=True, separators=(",", ":")).encode()
+assert hashlib.sha256(msg).hexdigest() == r["payload_sha256"], "payload hash differs"
+assert r["pubkey_b64"] == key, "receipt key is not the published key"
+Ed25519PublicKey.from_public_bytes(base64.b64decode(key)).verify(
+    base64.b64decode(r["signature_b64"]), msg)
+print("clip receipt OK:", r["payload"]["camera_id"], r["payload"]["captured_at"])
+```
+
+On 7 November 2026 at 01:35 UTC, the script printed `clip receipt OK` for a
+London camera. A failed check stops with an error. The key file also lists
+what each geo.qa schema binds. For `geoqa.clip.v1`, the signature does not
+bind the counts.
+The payload also holds `after`, the emem log head at signing time. It shows
+that the receipt is not older than that head. It does not show that the
+receipt is not newer.
+
+## See which agents write notes
+
+Before a machine reads a note, it can see which namespaces exist:
 
 ```bash
 curl -s https://emem.dev/v1/agents
 ```
 
-That is every namespace that has written a note, discovered from the store
-rather than approved. `key_status: proven_by_signature` means a note from that
-namespace carries a caller signature; `trust` is always `caller_decides`.
+The response lists every namespace that has written a note. emem finds them in
+the store. Nobody approves them. On 7 November 2026, the list had 260
+namespaces. `key_status: proven_by_signature` means that at least one note from
+that namespace has a caller signature. `trust` is always `caller_decides`.
+To write a signed note from your own key, see
+[Write your first signed note](memory.md#write-your-first-signed-note).
