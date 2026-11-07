@@ -34,8 +34,10 @@ The server has two endpoints:
 | `https://emem.dev/mcp/full` | all 116 | about 354,000 bytes, 8 or 9 pages of 2 to 22 tools |
 
 On `/mcp/full`, send the `nextCursor` value from each page to get the next page.
-The server cuts the pages by size, at about 45,000 bytes each. The number of pages can change when tool descriptions change.
-Some MCP clients read only the first page. On 7 November 2026 the LangChain and Agno adapters read every page. That was 8 or 9 pages on that date, because the count changed with server updates.
+The server cuts the pages by size, at about 45,000 bytes each.
+The number of pages changes when tool descriptions change. It was 8 or 9 on 7 November 2026.
+Some MCP clients read only the first page.
+On 7 November 2026 the LangChain and Agno adapters read every page.
 The LlamaIndex, AutoGen, Semantic Kernel and CrewAI adapters read only page 1 (12 or 13 tools). See the examples in [`examples/`](examples/).
 `@mastra/mcp` 0.10.12 also reads only page 1. On 7 November 2026 it loaded 12 tools from `/mcp/full`.
 
@@ -152,7 +154,10 @@ Each receipt has a `preimage_version` field. Read that field and use the rule fo
 | 0 or absent | No longer emitted. `POST /v1/verify_receipt` still verifies it. |
 
 The byte layout of each version is at [`/v1/verifier_spec`](https://emem.dev/v1/verifier_spec).
-The responder makes that document from the same code that signs receipts, so the two cannot differ.
+The responder makes the receipt layouts in that document from the same constants that sign receipts.
+The prose notes in it are hand-written strings in the code, and they can be out of date.
+On 7 November 2026 the `memory_write` note still said that the responder accepts the v1 digest for `create`.
+The code on `main` refuses it for every verb since commit `23fa7fd6`. See [the quickstart](docs/quickstart.md).
 The spec also lists two constructions that do not use the segment rule: the legacy v0 receipt (verify only) and
 caller-signed memory writes.
 
