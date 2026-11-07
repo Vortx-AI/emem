@@ -58,6 +58,8 @@ listens on `127.0.0.1:8080`. Use `--bind ADDR` to change the address. If you
 set `PORT` and no `--bind`, the node listens on `0.0.0.0:$PORT`, which is every
 interface. `emem-guard --help` lists every flag.
 
+The examples below write `emem-guard` for `./target/release/emem-guard`.
+
 Without `--responder` the node holds no corpus. It signs and logs every
 verdict, but it verifies no citation. `GET /health` then reports
 `"verifies_citations": false`.
@@ -174,8 +176,9 @@ emem-guard --conformance https://your-node.example
 
 This runs twelve checks over the wire and exits non-zero on any failure. The
 checks are in `src/conformance.rs`. They include a large body, a replayed
-request, a fetch of the logged leaf, a 1000 ms deadline and 100 requests at a
-concurrency of 16. The first run against this project's own node found a
+request, a fetch of the logged leaf, a 1000 ms deadline and a load test. The
+load test sends 96 requests from 16 threads (`LOAD_REQUESTS` is 100, and 100 / 16
+rounds down to 6 per thread). The first run against this project's own node found a
 9 MB body that returned 413.
 
 ## What it does not do

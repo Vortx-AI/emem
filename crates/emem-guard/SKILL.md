@@ -14,7 +14,7 @@ Report the defect. Do not improvise around it.
 
 Four diagrams show the shape before the commands do:
 
-- [nine doors, one decision](https://emem.dev/docs/diagrams/40-guard-checkpoints.svg)
+- [nine checkpoints, one decision](https://emem.dev/docs/diagrams/40-guard-checkpoints.svg)
 - [one verdict, in order](https://emem.dev/docs/diagrams/41-guard-verdict-path.svg)
 - [the chassis your DLP runs on](https://emem.dev/docs/diagrams/42-guard-dlp-chassis.svg)
 - [three deployments](https://emem.dev/docs/diagrams/43-guard-deployments.svg)
@@ -86,8 +86,8 @@ tells you the most important fact:
 ```
 
 A bare node holds no corpus. It signs and logs every verdict, but it verifies
-no citation. This is correct behaviour, not a broken install. The signed,
-append-only record of every decision is still half of the product.
+no citation. This is correct behaviour, not a broken install. The node still
+keeps a signed, append-only record of every decision.
 
 To make it verify citations, point it at a responder that holds facts:
 
@@ -256,14 +256,16 @@ When you accept the rate, remove `--shadow`.
 For reference, on 6 August 2026 the detector fired on 3 of 8739 sentences in
 this repository's own documentation (source: `src/claim.rs`). Two of the three
 are the crate's own positive test fixtures. That is one input, not a licence.
-Your traffic is not our changelog, so measure the rate where the gate will run.
+Your traffic is different from this documentation, so measure the rate where
+the gate will run.
 
 ## Step 9: plug in your own detection
 
-emem-guard checks grounding. It will never be good at content detection. That
-work needs thousands of patterns from hundreds of engineers, and this node
-gains nothing from it. This node adds what no detection engine ships: a
-signed, hash-chained record that anyone can check offline after the verdict.
+emem-guard checks grounding. It does not detect content. The one built-in
+module, `secret-patterns`, finds only fixed-prefix credential shapes (AWS,
+GitHub, Google) and PEM private-key headers. It is a reference module, not a
+DLP product. What the node adds is a
+signed, hash-chained record of each verdict that anyone can check offline.
 
 So bring your own detector. The node signs and logs a module's verdicts in the
 same way as a native verdict.
@@ -382,7 +384,7 @@ about field order:
 ```
 
 ```bash
-emem-guard --signed-module your-engine.json --trust-publisher <your key>
+./target/release/emem-guard --signed-module your-engine.json --trust-publisher <your key>
 ```
 
 The node refuses a signed module in three cases, and it names the case:
@@ -400,7 +402,7 @@ Your engine does not have to link against this binary. Run it on a unix socket
 and send one line of JSON each way:
 
 ```bash
-emem-guard --module sidecar:/run/your-engine.sock
+./target/release/emem-guard --module sidecar:/run/your-engine.sock
 ```
 
 The request and the response are byte-identical to what the webhook module
@@ -498,7 +500,9 @@ emem-guard: UNVERIFIED_ALLOW inbound signature not verified: <why>
 A steady flow of `UNVERIFIED_ALLOW` means a wrong secret or a stranger who
 talks to your endpoint. Both need a page.
 
-For Claude Enterprise Inference hooks, an administrator sets your HTTPS URL in
+### Claude Enterprise Inference hooks
+
+An administrator sets your HTTPS URL in
 the organisation configuration and presses Test connection. The test sends a
 synthetic prompt with `source.application` set to `config-test`. It reports the
 verdict that you returned.
@@ -507,7 +511,9 @@ The first connection test arrives **unsigned**, because the signing secret does
 not exist until the first save. Accept unsigned requests until your
 administrator confirms that the secret exists. Then add `--require-signature`.
 
-For Claude Code, the client posts hook input. To block, return **2xx with a
+### Claude Code client hooks
+
+The Claude Code client posts hook input to `POST /verdict/claude-code`. To block, return **2xx with a
 deny decision in the body**. A non-2xx response does not block. This is the
 opposite of what most HTTP clients expect.
 
@@ -518,6 +524,12 @@ signed with the previous secret keep arriving for about a minute, plus any
 request already in flight. Pass `--secret` twice during the switch. A server
 with one secret drops those late requests, and a dropped request is a webhook
 failure.
+
+```bash
+./target/release/emem-guard --secret <old secret> --secret <new secret> --require-signature
+```
+
+When the late requests stop, restart with only the new secret.
 
 ## Step 14: run the conformance suite before you point anything at it
 
