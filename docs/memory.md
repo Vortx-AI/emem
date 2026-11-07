@@ -306,7 +306,7 @@ digest in the refusal.
 | Memory file rename | MCP `emem_memory_rename` | `{old_path, new_path, attester}` | new path index + receipt |
 | Memory file delete | MCP `emem_memory_delete` | `{path, attester}`. A `path` that ends with `/` deletes each file below it ([rules](#reading-superseding-and-deleting)). | removes the path and writes a tombstone; the blob and the history stay |
 | Memory list by kind | MCP `emem_memory_list_by_kind` | `{kind, prefix?, limit?}`. `limit` is 256 by default, 2048 at most. | typed listing, newest `signed_at` first |
-| Memory file search | `POST /v1/memory/search` | `{q, k?, mode?, kind?, path_prefix?, attester_pubkey_b32?, include_superseded?}`. The server also takes `query` or `question` for `q`. `k` is 10 by default. | ranked hits + snippets. Superseded notes stay out unless `include_superseded` is true. |
+| Memory file search | `POST /v1/memory/search` | `{q, k?, mode?, kind?, path_prefix?, attester_pubkey_b32?, include_superseded?}`. The server also takes `query` or `question` for `q`. `k` is 10 by default and 100 at most; a larger `k` gives 100 hits. | ranked hits + snippets. Superseded notes stay out unless `include_superseded` is true. |
 | Row audit path | `GET /v1/tree/<file_cid>?row=` (MCP `emem_tree`) | path + query | one row's leaf and its path to the root a `pointer.v1` or `directory.v1` note signs ([details](#tokenised-files-ememtree)) |
 | Path over your rows | `POST /v1/tree/path` | `{index, leaves}` or `{index, chunks}` | the same path and root, with no note read |
 | Memory event stream | `GET /v1/memory/sse?path_prefix=&kind=&attester=` | query string | `text/event-stream` of writes |
