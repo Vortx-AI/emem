@@ -86,7 +86,8 @@ its prose against the facts. To check a draft against its citations, use
 We checked each failure path on 7 November 2026 with no backend running.
 
 Point the `gemma` backend at the llm shim in
-`python/llm_shim/openai_bedrock_shim.py`. The shim holds the Bedrock
+`python/llm_shim/openai_bedrock_shim.py` (see its
+[README](../llm_shim/README.md)). The shim holds the Bedrock
 credential, a daily spend cap and a response cache. Do not point
 `EMEM_EXPLAIN_GEMMA_BASE` straight at Bedrock: the sidecar meters nothing.
 
