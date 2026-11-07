@@ -48,8 +48,9 @@ jq -r '.current_by_band["weather.temperature_2m"] as $c
 ```
 
 `facts[]` is in order from oldest to newest. Thus `.facts[0]` is the
-oldest reading, not the current one. On 7 November 2026 this cell held
-12 temperature facts, from 23 July to 6 November 2026.
+oldest reading, not the current one. On 7 November 2026 at 02:05 UTC
+this cell held 13 temperature facts, from 23 July to 7 November 2026.
+The current token changes each time a newer reading lands.
 
 If you have a cell and a fact cid from a different source, build the
 same token with `POST https://emem.dev/v1/memory_token`. Send
@@ -102,6 +103,10 @@ The check compares the strings first, then the numbers. Results on
 | `28.0` | `"28"` with `"strict": true` | `false` | `reformatted` |
 | `23.9` | `24` | `false` | `rounded` |
 | `28.0` | `0.74` | `false` | `wrong` |
+
+The `23.9` row uses the token
+`emem:fact:defi.zb493.zezo.zcb35:ofo334twyt6ss3kco6bwljgwy3qiwzqi4grzhog4kwgcpydb6frq`.
+The other rows use the `28.0` token above.
 
 `rounded` means that you lost precision. `wrong` means that you have a
 different number. Use `strict` when the digits themselves matter, for
@@ -175,7 +180,7 @@ On 7 November 2026 this returned 0 contradictions, with
 All fields are optional. `cell_prefix` limits the scan to a region.
 `band` limits it to one measurement. `window_unix_s` limits it to a
 period. Without a scope, the scan stops at a cap. On 7 November 2026 a
-call with only `{"limit": 3}` scanned 44682 facts and returned
+call with only `{"limit": 3}` scanned 44702 facts and returned
 `scan_truncated: true`. Read `scan_truncated` before you report "none
 found".
 

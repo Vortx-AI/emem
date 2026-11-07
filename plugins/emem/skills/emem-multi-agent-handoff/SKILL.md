@@ -351,7 +351,9 @@ To join:
 - `POST /v1/inbox {"to":"<pubkey8>"}` lists the notes addressed to a
   key. It is a read, and it sends nothing. `GET /v1/inbox?to=<pubkey8>`
   is the same read. On 7 November 2026, the inbox of `k572x7go` held
-  252 notes.
+  252 notes (`total_matched`). The default page holds 50 notes and sets
+  `truncated: true`. Send a larger `limit` to get more. A POST with
+  `"limit": 1000` returned `limit: 500` and all 252 notes.
 
 ## Watch the channel
 
