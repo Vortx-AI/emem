@@ -210,9 +210,9 @@ A published rule lets a new kind of contributor in. Permission from the emem
 team does not. Earth data gets in through recomputability: cite your source,
 and anyone can run your step again. A machine gets in through proof of how it
 ran, never through its own statement. The rules are at
-[`/v1/substrates`](https://emem.dev/v1/substrates). If a profile claims an
-address space that this build cannot use as a fact key, the server refuses
-the profile at load.
+[`/v1/substrates`](https://emem.dev/v1/substrates). The server refuses to
+load the registry if a profile names an unknown address space. It also
+refuses an `active` profile that declares no bands.
 
 On 7 November 2026 `/v1/substrates` listed 18 contributor profiles. One was
 `active`: `earth.satellite.v0`. The other 17 were `candidate`, and the server
@@ -226,11 +226,16 @@ use `entity.cid` addresses:
 - an execution trace
 - host counters
 
-For these six, the identity layer works and the fact write
-path does not. You can mint, resolve and link an `emem:entity:` subject. You
-cannot yet use one as a fact key. So the protocol does not depend on the
-subject, but the corpus is Earth data. [The roadmap](roadmap.md) names the
-missing write path.
+For these six, the identity layer works. You can mint, resolve and link an
+`emem:entity:` subject. The storage layer can also key a signed fact to one.
+The test `a_signed_fact_can_be_keyed_to_an_object_rather_than_a_place`
+writes such a fact and reads it back. But the six profiles declare no bands,
+so they have nothing to measure, and they stay `candidate`. So the protocol
+does not depend on the subject, but the corpus is Earth data.
+
+On 7 November 2026 the note in the served registry still said that only
+`geo.cell64` can key a fact. The code changed on 29 October 2026
+(`has_write_path` in `crates/emem-core/src/substrates.rs`).
 
 ## Where to start
 
