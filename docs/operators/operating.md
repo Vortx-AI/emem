@@ -8,7 +8,7 @@ for known problems.
 For build, test and contribution steps, read [Developing](../developers/developing.md). For the wire bytes, read
 [Protocol](../protocol.md).
 
-Each default and count on this page comes from the code or from `https://emem.dev` on 6 November 2026.
+Each default and count on this page comes from the code or from `https://emem.dev` on 7 November 2026.
 
 ## What runs
 
@@ -37,7 +37,7 @@ set it.
 ### Image tags
 
 The `publish` workflow (`.github/workflows/publish.yml`) pushes these tags. The registry had each example tag on
-6 November 2026.
+7 November 2026.
 
 | Tag | Example | Moves |
 |---|---|---|
@@ -50,8 +50,18 @@ The `publish` workflow (`.github/workflows/publish.yml`) pushes these tags. The 
 
 Release `v1.4.0` has only the `:v1.4.0` form. The bare forms started after that release. There is no `:0.0` tag.
 
-For a long-lived node, pin the digest, not a tag. A maintainer can move or delete a tag. Nobody can change a digest. The Hugging Face
-Space does this in [`huggingface-space/Dockerfile`](https://github.com/Vortx-AI/emem/blob/main/huggingface-space/Dockerfile).
+`:latest` and `:main` follow `main`, so they can hold code that is in no release. On 7 November 2026, `:latest` and
+`:v2.4.4` had different digests.
+
+For a long-lived node, pin the digest, not a tag. A maintainer can move or delete a tag. Nobody can change a digest.
+On 7 November 2026, `:v2.4.4` had this digest:
+
+```text
+ghcr.io/vortx-ai/emem@sha256:1b8ec823e13caaa2f5813628e4787f7d038e1713c097e62bd511b71d93f859a8
+```
+
+The Hugging Face Space pins a digest in
+[`huggingface-space/Dockerfile`](https://github.com/Vortx-AI/emem/blob/main/huggingface-space/Dockerfile).
 
 ### What the image contains
 
@@ -68,9 +78,10 @@ These facts come from the runtime stage of [`Dockerfile`](https://github.com/Vor
 ### How emem.dev runs
 
 emem.dev runs the image with `docker run` under the system unit
-[`deploy/systemd/emem-server.service`](https://github.com/Vortx-AI/emem/blob/main/deploy/systemd/emem-server.service). That unit sets
-`TimeoutStopSec=150`, mounts `config/` read-only, and turns on the warmer. It is for a store of about 98 GB. Read it
-for these settings, but do not copy it for a small node.
+[`deploy/systemd/emem-server.service`](https://github.com/Vortx-AI/emem/blob/main/deploy/systemd/emem-server.service). That unit runs
+`:latest` with `--network host` and `--user 1000:1000`. It sets `TimeoutStopSec=150`, mounts `config/` read-only, and
+turns on the warmer. It is for a store of about 98 GB. Read it for these settings, but do not copy it for a small
+node.
 
 The maintainers deploy emem.dev with `pending_deploy.sh` after the `publish` workflow passes. See
 [AGENTS.md](https://github.com/Vortx-AI/emem/blob/main/AGENTS.md#build). Do not use `scripts/redeploy.sh` on that host. That script builds on the host and
@@ -133,7 +144,7 @@ connects to it.
 ## Content-Security-Policy
 
 The node sends a strict CSP header on each response. `build_csp` in `crates/emem-api-rest/src/lib.rs` makes it. The
-policy has no environment override. On 6 November 2026, emem.dev sent this policy. This page does not show the
+policy has no environment override. On 7 November 2026, emem.dev sent this policy. This page does not show the
 `'sha256-…'` hashes.
 
 ```text
@@ -223,7 +234,12 @@ upstreams and background work. Each default comes from the code.
 | `EMEM_SPLATS_DIR` | `$EMEM_DATA/splats-site` | The static files that `/splats/` serves. The repository does not include them. If the directory is empty, `/splats/` gives 404. |
 | `RUST_LOG` | `info` | The log filter, for example `info,emem_storage=debug,rustls_acme=info`. |
 
-The binary reads more variables than these tables show. To list them, search the code for `env::var("EMEM_`.
+The binary reads more variables than these tables show. On 7 November 2026, the code read 201 `EMEM_` names. To
+list them:
+
+```bash
+grep -rhoE 'env::var\("EMEM_[A-Z0-9_]+' crates | sort -u
+```
 
 ## What is in the data directory
 
@@ -283,7 +299,7 @@ curl -sS http://127.0.0.1:5051/v1/coverage_matrix | jq '.totals'
 curl -sS 'http://127.0.0.1:5051/v1/materializers?page_size=1' | jq '.pagination.total'
 ```
 
-On 6 November 2026, emem.dev gave these values:
+On 7 November 2026, emem.dev gave these values:
 
 | Value | emem.dev |
 |---|---|
@@ -429,16 +445,18 @@ The schema CID pins the byte layout of a fact. Old facts keep their old `schema_
 
 ## Demo binaries for a bug report
 
-These binaries are in `crates/emem-cli/src/bin/`. The first four run against a node, `http://localhost:5051` by
-default. `emem-demo`, `emem-livedemo` and `emem-realdemo` sign attestations with a new key and write them to the node.
-Run them only against your own node.
+These binaries are in `crates/emem-cli/src/bin/`. The first five run against a local node by default, port 5051.
+`EMEM_BASE_URL` changes the node. `emem-demo`, `emem-livedemo`, `emem-realdemo` and `emem-connect-demo` sign
+attestations with a new key and write them to the node. Run them only against your own node.
 
 | Binary | Output | Use |
 |---|---|---|
 | `emem-demo` | console | Writes 3 facts, then calls each read primitive |
 | `emem-livedemo` | `var/demos/<UTC>/` | Each primitive, with the JSON, a curl command and a BLAKE3 hash per step |
 | `emem-realdemo` | `var/demos/realdata_<UTC>/` | Reads Cop-DEM 30 m tiles, attests two bands per place, then calls each read primitive |
+| `emem-connect-demo` | console and exit code | Runs [connect and evolve](https://github.com/Vortx-AI/emem/blob/main/examples/connect-and-evolve.md): two keys sign facts that disagree, then it reads the edges and the contradiction |
 | `emem-ask-eval` | console and exit code | A check of `/v1/ask` routing. No CI job runs it. |
+| `emem-demo-device` | enrolls a device and posts a trace | Needs an operator endorser key and a root ftrace capture. The default node is `https://emem.dev`, so set `--base` to your node. `--dry-run` sends nothing. |
 | `emem-purge-fnkey` | changes the store (dry run by default) | Removes facts by `derivation.fn_key`. Stop the node first. |
 | `emem-sled-slim` | changes the store | Removes old fact trees from `cache.sled/`. Stop the node first. |
 
