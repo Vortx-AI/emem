@@ -126,10 +126,11 @@ curl -s -X POST https://emem.dev/v1/find_similar \
 # band_used "geotessera", score 0.833, "Carlisle, Iowa, United States"
 ```
 
-Each neighbour names the band that gave its score. The `geotessera` band is a
-surface-texture embedding from Sentinel-1 and Sentinel-2. emem.dev no
-longer makes new vectors for it, so the index holds only the vectors that it
-already stored. You can get fewer neighbours than `k`, as here.
+`key` takes a `cell64` or a place name. Each neighbour names the band that
+gave its score. The `geotessera` band is a surface-texture embedding from
+Sentinel-1 and Sentinel-2. emem.dev no longer makes new vectors for it, so
+the index holds only the vectors that it already stored. You can get fewer
+neighbours than `k`, as here.
 
 Read `interpretation` before you say that two places are alike. Its
 `does_not_mean` field says that a high score does not mean a similar
@@ -183,14 +184,14 @@ curl -s -X POST https://emem.dev/v1/ask \
   -d '{"q":"how is the vegetation doing around Manaus?"}' \
   | jq '{answer, shown: .band_observations_summary.bands_shown, cited: (.receipt.fact_cids|length)}'
 # answer starts "At Manaus, Amazonas, Brazil, in the one cell that name resolves to:
-# greenness (NDVI) 0.51 ...". On 7 November 2026: "shown": 12, "cited": 783
+# greenness (NDVI) 0.51 ...". On 7 November 2026: "shown": 12, "cited": 788
 ```
 
 `ask` sends a plain-language question to the correct path. It returns an
 answer and the ids of the facts it read. The answer gives the age of each
 reading. The answer shows 12 bands that match the question
 (`band_observations_summary.bands_shown`). The receipt cites every fact
-held at the cell, 783 at 13:45 UTC on 7 November 2026. This count grows
+held at the cell, 788 at 14:34 UTC on 7 November 2026. This count grows
 as the cell gets new facts. Each entry in
 `band_observations_summary.bands` has its own `fact_cid`.
 
@@ -199,7 +200,8 @@ not in your list.
 
 ## 9. Check a token that another agent gave you
 
-The token below is the Everest Base Camp fact from section 3.
+The token below is the Everest Base Camp fact from section 3. The first
+command saves the response in `resolved.json` in the current directory.
 
 ```bash
 curl -s -X POST https://emem.dev/v1/memory_token/resolve \
@@ -236,7 +238,8 @@ independent check. For an independent check, use the Python SDK or
 
 | The question | First call | Then |
 |---|---|---|
-| A latitude and longitude, or a place name | `/v1/locate` | `/v1/recall` |
+| A latitude and longitude | `/v1/locate` | `/v1/recall` |
+| A place name | `/v1/recall` with `place` | `/v1/locate` if HTTP 400 |
 | "Is X true here?" | `/v1/recall` for the band | `/v1/verify` |
 | "How does X differ from Y?" | `/v1/recall` at both cells | `/v1/compare` |
 | "Find places like X" | `/v1/find_similar` | `/v1/recall` at a neighbour |
