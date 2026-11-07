@@ -287,7 +287,7 @@ numbers gives HTTP 400 `invalid_argument`. See
 [Two forms of bbox](#two-forms-of-bbox).
 
 Over MCP on 7 November 2026, the 4-cell answer was about 18,900 bytes on the
-wire. Four calls gave 18,922 to 18,943 bytes. It had no
+wire. Five calls gave 18,922 to 18,951 bytes. It had no
 `structuredContent`, so read it from the text. With `"max_cells": 16`, the
 MCP answer omitted `by_cell`, which holds the facts and the receipt of each
 cell. Its `fetch` body kept only `place`. For more than a
@@ -1691,11 +1691,11 @@ a CFL stability check. `jepa_predict` is a constrained AR(2) seasonal NDVI
 predictor with fixed coefficients. It is arithmetic, not a learned model.
 
 `cell` (or `coastal_cell`) also takes a place name, and `place` is an
-alias of it. `wave_solve` also accepts `cell` in place of `coastal_cell`.
-The route then runs `/v1/locate` first. On 7 November 2026,
-`/v1/jepa_predict` with `{"place": "Mount Fuji"}` and `/v1/heat_solve`
-with `{"cell": "Mount Fuji"}` both answered 200 for cell
-`defi.zb592.nUkO.zEzE`.
+alias of it. For a place name, the route runs `/v1/locate` first. On 7
+November 2026, `/v1/jepa_predict` with `{"place": "Mount Fuji"}` and
+`/v1/heat_solve` with `{"cell": "Mount Fuji"}` both answered 200 for cell
+`defi.zb592.nUkO.zEzE`. `wave_solve` takes `cell` and `place` as aliases
+of `coastal_cell` (`physics.rs`, `WaveSolveReq`).
 
 `wave_solve` walks seaward from the coastal cell. The last cell of that
 walk must be more than 5 m deep. At least half of the cells must be more
@@ -2905,11 +2905,12 @@ that the refusal gives, then retry:
 |---|---|
 | 429 `rate_limited`, the per-IP limit | `Retry-After: 1` |
 | 503 `overloaded`, the in-flight limit | `Retry-After: 1` |
-| 429 from a daily per-IP quota, for example on `/v1/read`, `/v1/ocr`, `/v1/decide`, `/v1/range_hash` or `scene.png` | `Retry-After: 86400`. Try again the next day. |
+| 429 from a daily per-IP quota on `/v1/read`, `/v1/ocr`, `/v1/lab_report_parse`, `/v1/land_record_parse`, `/v1/decide`, `/v1/range_hash` or `scene.png` | `Retry-After: 86400`, an upper bound. The window is 24 h from the first counted request, not a calendar day. The JSON body has `code` (for example `read_quota`, `decide_quota` or `range_hash_quota`) and `error`, outside the error envelope. `scene.png` sends plain text. |
 | 429 `rate_limited` with `details.code: write_rate_limited`, the per-key write limit | No header. Read `details.retry_after_s`. |
 
 The rules are in `crates/emem-api-rest/src/lib.rs`
-(`RATE_LIMITED_RETRY_AFTER`, `enforce_write_rate_limit_key`) and
+(`RATE_LIMITED_RETRY_AFTER`, `check_daily_quota`,
+`enforce_write_rate_limit_key`) and
 `reader.rs` (`quota_refused`).
 
 ## CORS policy
