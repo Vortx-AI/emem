@@ -64,6 +64,8 @@ Do not use colour as the only signal. Write the word too, for example `valid` or
   renderer are in [films/src/](films/src/). Run `python film.py --help` there for the commands.
 - Ship an MP4 (H.264) and a WebM (VP9), each 2 MB or less, and a WebP poster of 300 KB or less.
 - On a docs page, show the poster and link it to the MP4. Give the WebM link next to it.
+  When a still of the same data is directly above, give text links only, so the page does not show the
+  same picture twice. `agents.md` does this for `emem-ndvi-season.mp4`.
 
 ## Stills
 
@@ -82,6 +84,11 @@ Do not use colour as the only signal. Write the word too, for example `valid` or
 
 The alt text states what the image shows, with the values. The caption says what the image does not prove when that
 matters, for example "A signature shows who signed. It does not show that the value is true."
+
+Before you commit, run `python3 docs/media/stills/src/check_media.py` from the repository root. It
+fails when a file is over its size limit or has no row in the table below. It fails when a page gives
+the wrong length for a film. It also fails when a number in a still's alt text is in no saved response.
+A value that a script computes, such as a byte count, goes in its `COMPUTED` list with the code that makes it.
 
 ## Media that follows these rules
 
