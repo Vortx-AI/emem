@@ -47,8 +47,8 @@ To use a different emem node, set `EMEM_MCP_URL`. The default is
 
 ## Test status
 
-On 7 November 2026 we installed the packages above (crewai 1.15.36,
-crewai-tools 1.15.36, mcp 1.30.0). The script loaded the emem tools and
+On 7 November 2026 we installed the packages above (crewai 1.15.37,
+crewai-tools 1.15.37, mcp 1.30.0). The script loaded the emem tools and
 stopped at the OpenAI call, because we used a test key. We did not run the
 model part.
 
