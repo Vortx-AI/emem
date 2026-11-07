@@ -1098,10 +1098,12 @@ Each `put_attestation` adds to it. The storage layout below gives the
 key bytes and where the index lives.
 
 The canonical index keeps one fact per key, from the signer that holds
-the slot. When a different signer writes a fact at the same key, the
-responder stores that fact and adds it to the multi-attester index. The
-new fact does not take the slot. The multi-attester index therefore keeps the
-CID of each distinct attester at the key.
+the slot. That signer can replace its own fact in the slot. A fact from
+a different signer does not take the slot, but the responder stores it.
+The multi-attester index keeps the CID of every distinct fact at the
+key, from all signers. Each new fact at the key adds one CID, also from
+the slot holder. In the example below, the second record has five CIDs
+from one signer.
 
 Few keys can put a fact there. By default, `/v1/attest` accepts only
 these keys:
