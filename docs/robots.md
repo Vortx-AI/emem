@@ -245,6 +245,15 @@ the source, and the source had no value for this point. Do not retry an
 absence. A read that timed out is different. It appears in `materialize_notes`
 with `retryable: true`. A retry some seconds later usually gets a warm answer.
 
+An absence stands as the answer for 6 hours. After that, the next read asks
+the source again (`EMEM_ABSENCE_RECHECK_SECS`, default 21600). If that new
+read times out, you get both: the older absence in `bands`, and a timeout
+entry for the same band in `materialize_notes`. On 7 November 2026 at 07:00
+UTC, this occurred for `soc_0_30cm` and `bdod_0_30cm`. emem signed their
+absences at 00:10 UTC, so they were older than 6 hours. The absence is still
+the last signed answer. The note tells you that the check for a newer answer
+did not finish.
+
 ## A harvester
 
 Readiness is a shape over time, not one reading. One NDVI value cannot tell you
