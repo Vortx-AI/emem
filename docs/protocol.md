@@ -289,8 +289,9 @@ decoder clips the latitude of the bbox to `[-90, 90]`.
 
 ### 1.6 Round-trip and edge cases
 
-The tests in `geo.rs:357-700` pin the contract. The polar clamp is a rule
-in the encoder (`geo.rs:141-145`), not a test.
+The tests in `geo.rs:357-700` pin the contract. The polar clamp and the
+longitude wrap are rules in the encoder (`geo.rs:141-150`), not tests.
+`roundtrip_antimeridian` tests only the point (-30, 179.99).
 
 | Case | Required result | Test in `geo.rs` |
 |---|---|---|
@@ -805,12 +806,15 @@ The fact has no separate provenance field. On a match, the responder
 writes `deterministic_index` to
 `derivation.args.recomputation.effective_provenance_class`.
 `derivation.args.provenance_class` keeps the class that the caller
-declared, because the caller signed it. The `recomputation` map holds
-these keys in this order: `verified`, `op`, `recomputed_via`,
-`responder_recomputed`, `effective_provenance_class`, `recomputed_at`,
-`rule`, `ulp_gap`, `ulp_tolerance`. The `fact_cid` covers it. On no
-match, or for any other op, the value stays as the caller declared it. Without a `code_cid`, the responder does no
-arithmetic.
+declared, because the caller signed it. When the responder recomputes,
+the `recomputation` map holds these keys in this order: `verified`, `op`,
+`recomputed_via`, `responder_recomputed`, `effective_provenance_class`,
+`recomputed_at`, `rule`, `ulp_gap`, `ulp_tolerance`. When the caller sent
+a `code_cid` but the responder cannot recompute the op, the map is
+`{verified: false, reason}`. The `reason` is `op_not_tier1_pure` or
+`parent_values_not_all_scalar`. The `fact_cid` covers the map. On no
+match, or for any other op, the value stays as the caller declared it.
+Without a `code_cid`, the responder does no arithmetic.
 
 The `signer` on the fact is the key of the **responder**. The caller
 signed the derive preimage, not the fact body. A fact that names the
@@ -832,7 +836,7 @@ The nested `recomputation` map keeps the order given above:
     "preimage": "blake3(\"emem.memory_write|derive|/v1/derive|\" || body_hash)",
     "provenance_class": "model_output",  // as the caller declared it
     // "recomputation": { "verified", "op", ..., "ulp_tolerance" }
-    //   present only when the responder ran the arithmetic again
+    //   present when the caller sent a code_cid
     "submitted_via": "emem.derive.v1"
   }
 }
@@ -1378,8 +1382,9 @@ The tree below uses the v0 rule. For 4 facts with sorted CBOR hashes
        CBOR(fact0)     CBOR(fact1)     CBOR(fact2)     CBOR(fact3)
 ```
 
-Under the current v1 rule the shape is the same. Each leaf is
-`blake3(0x00 ‖ Ci)`, and each node is `blake3(0x01 ‖ left ‖ right)`.
+Under the current v1 rule the shape is the same. `Ci` are the same
+sorted CBOR hashes as above. Each leaf is `blake3(0x00 ‖ Ci)`, and each
+node is `blake3(0x01 ‖ left ‖ right)`.
 
 ### 6.2 Verify-on-write
 
@@ -2543,8 +2548,10 @@ receipt's Merkle root. On 7 November 2026 the same steps passed again
 for the same entry, at `tree_size` 3,243,767, and at 02:19 UTC at
 `tree_size` 3,245,735.
 
-The Claude Code plugin ships a verifier for steps 2, 3, 5 and 6. It
-needs no packages. The `inclusion` command checks the proof against the
+The Claude Code plugin ships a verifier for steps 2, 3 and 6. It needs
+no packages. It does step 5 only when the response has no
+`leaf_hash_b32`. Otherwise it uses `leaf_hash_b32` as given, so do
+step 5 yourself. The `inclusion` command checks the proof against the
 STH inside the same response. So for the plugin, get the step 4 proof
 without `tree_size`. Then the proof and its STH have the same size. A
 proof at an older `tree_size` gives `INVALID` when the log has grown
@@ -2586,8 +2593,9 @@ The responder does not send it, so the script adds it. If `m` equals
 below does not handle that case. The Rust function is
 `translog::verify_consistency` in `crates/emem-attest/src/translog.rs`.
 
-Save the three answers as `old.json`, `new.json` and `cons.json`. Then
-run this script with Python 3 and the `blake3` package:
+Save the three answers as `old.json`, `new.json` and `cons.json`. Save
+this script as `check_consistency.py`. Run it with Python 3 and the
+`blake3` package:
 
 ```python
 import base64, json, sys
@@ -2696,7 +2704,8 @@ the pair is a prefix of the current signed head. It does not show that
 the key is independent of the responder. You decide that in step 5.
 
 1. Get co-signatures: `curl -s 'https://emem.dev/v1/log/witnesses?limit=5'`.
-   To get all co-signatures for one size, add `&tree_size=<n>`.
+   To get the co-signatures for one size, add `&tree_size=<n>`. The
+   `limit` still applies (default 20, maximum 200), so set it higher.
 2. For each row, rebuild the digest. Use the `PreimageV1` rules of §7.1
    with domain `emem.translog.witness.v1` and three segments.
    `tree_size` is 8 bytes big-endian. `root` and `witness_pubkey` are the
@@ -2715,7 +2724,8 @@ the key is independent of the responder. You decide that in step 5.
 
 Save the step 1 answer as `witnesses.json`. Save this script as
 `check_witness.py`. It needs Python 3 and the `blake3` and `pynacl`
-packages:
+packages. Step 4 also needs `jq` and the `check_consistency.py` script
+of §9.6.1.1:
 
 ```python
 import base64, json, sys
@@ -3282,8 +3292,10 @@ working.
 ## The tokenverse
 
 This part is for a reader who cites emem in text. It sums up the token
-kinds that §1 to §9 define. A token is a short text name for one thing that emem holds. It fits in
-a sentence, and any party can resolve it. The kinds do not bind equally
+kinds that emem issues. §9.8 defines `emem:tree`. The table names a
+resolver for each of the other kinds. A token is a short text name for
+one thing that emem holds. It fits in a sentence, and any party can
+resolve it. The kinds do not bind equally
 much. Read the Strength column before you cite one.
 
 | Token | Names | Strength | Resolve at |

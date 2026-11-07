@@ -73,7 +73,9 @@ A path that does not exist gives HTTP 404 with `code: not_found`:
 curl -s https://emem.dev/v1/no-such-route
 ```
 
-The body is short. All error bodies have `schema: emem.error.v1`:
+The body is short and has `schema: emem.error.v1`. Some routes send other
+bodies; see [Responses that are not
+`emem.error.v1`](#responses-that-are-not-ememerrorv1):
 
 ```json
 {"code":"not_found","did_you_mean":[],"message":"no route matched /v1/no-such-route. ...","path":"/v1/no-such-route","schema":"emem.error.v1"}
@@ -121,9 +123,11 @@ curl -s -X POST https://emem.dev/v1/recall \
 
 A value out of its range gives HTTP 400 with `code: invalid_argument` and
 `details.error: invalid_field`. The details also have `field`, `allowed`
-(the `min` and `max`, or an `enum`) and `got`. The `lat` and `lng` routes
-such as `/v1/at` send this body. `/v1/heat_solve`, `/v1/wave_solve` and
-`/v1/jepa_predict` send it for their numeric and `band` fields.
+and `got`. For `lat` and `lng` routes such as `/v1/at`, `allowed` has one
+`{min, max}` for each coordinate, and `got` holds both values.
+`/v1/heat_solve`, `/v1/wave_solve` and `/v1/jepa_predict` send this body
+for their numeric fields, with one `min` and `max`. `/v1/jepa_predict`
+also sends it for `band`, with an `enum`.
 
 ```sh
 curl -s 'https://emem.dev/v1/at?lat=95&lng=10'
@@ -425,7 +429,8 @@ curl -s -X POST https://emem.dev/mcp -H 'content-type: application/json' \
 Some routes send a smaller JSON body. It has a `code`, and sometimes `error`
 in place of `message`. Most of these bodies have no `schema`. The
 `/postcard` bodies are the exception: `painting` carries
-`emem.postcard_pending.v1`, and the two 502 bodies carry `emem.error.v1`.
+`emem.postcard_pending.v1`, and the two error bodies (`upstream_unavailable`,
+`upstream_error`) carry `emem.error.v1`.
 
 | Route | `code` | HTTP | Meaning |
 |---|---|---|---|
@@ -478,7 +483,8 @@ A 4xx status from the service comes back unchanged, with the body of the
 service. Three other failures send a bare status with no body:
 
 - 500: the proxy cannot build its HTTP client.
-- 405: the method is not GET or POST.
+- 405: the method is HEAD. Other methods such as DELETE get the JSON
+  `method_not_allowed` body of the router, with `allow: ["GET","POST"]`.
 - 502: the proxy cannot read the body that the service sent.
 
 On 7 November 2026, `GET /v1/perception/nope` gave the 404 body.
@@ -521,7 +527,7 @@ this table, and the first match wins.
 | `POLICY_MODULE` | A detection module that the operator loaded denied. The verdict names the module. | Set by the module, for example `redact_and_retry` | No. Self-hosted, with `--module` or `--signed-module`. |
 | `PROV_DRIFT` | A cited reading drifted past the threshold of its band. | `refresh_token` | No. See the note below the table. |
 | `GEO_ZONE` | A cited cell is in a zone that the operator restricted. | `contact_admin` | No. Self-hosted, with `--restrict-cell`. |
-| `CLAIM_UNGROUNDED` | A measurable claim about a place has no citation that resolved. | `cite_observation` | Only with `claim_gating: true`. Self-hosted, with `--claim-gating`. |
+| `CLAIM_UNGROUNDED` | A measurable claim about a place has no citation that resolved. | `cite_observation` | Only with `claim_gating: true` in the body or `?claim_gating=true` in the query. The query wins. Self-hosted, with `--claim-gating`. |
 
 No resolver in the code sets the token states that give `PROV_SIG` or
 `PROV_DRIFT`. Only unit tests make them. The two codes are in the published
@@ -534,10 +540,10 @@ In shadow mode (`--shadow`), a self-hosted guard answers `allow` with
 
 The guard does not refuse a bad request. The `emem-guard` webhook routes
 answer `allow` when they cannot parse the body. On emem.dev, a body that is
-not JSON gets a plain-text 400 (see
-[Plain-text refusals](#plain-text-refusals-of-a-bad-request-body)). A JSON
-object with no text in it gets `allow` with `checked: 0`. Two routes of the
-`emem-guard` binary send a small error body:
+not JSON gets a plain-text 400. A wrong `content-type` gets a plain-text 415
+(see [Plain-text refusals](#plain-text-refusals-of-a-bad-request-body)). A
+JSON object with no text in it gets `allow` with `checked: 0`. Two routes of
+the `emem-guard` binary send a small error body:
 
 | Route | HTTP | Body |
 |---|---|---|

@@ -21,8 +21,9 @@ before the binary uses it.
 - The `emem-server` binary embeds the JSON files at compile time. To change a
   manifest, edit the JSON and rebuild. There is no runtime override.
 - Band and algorithm keys are the names that agents send, so pin them.
-  URLs, weights and thresholds inside a manifest can change with a new
-  manifest CID.
+  The keys are the same across publishers. URLs, weights and thresholds
+  are not: they can change with a new manifest CID, and another publisher
+  can use other values.
 - The tenth JSON file, `climate_archetype_centroids_v1.json`, is seed data
   for one algorithm. It is not a manifest and has no CID.
 
@@ -298,14 +299,14 @@ A missing or unknown `basis` stops the manifest from loading.
 number back to its source.
 
 `prerequisites` names external seed data. For example,
-`climate_archetype_triple@1` uses the 12-entry Köppen-Geiger archetype table in
-`crates/emem-core/data/climate_archetype_centroids_v1.json`. The
+`climate_archetype_triple@1` uses the 12-entry Köppen-Geiger archetype table
+in `crates/emem-core/data/climate_archetype_centroids_v1.json`. The
 `prerequisites` text says that the algorithm emits an Absence
-`archetype_centroids_unavailable` when the responder has not loaded the table. No Rust
-code reads that file or sends that Absence. The algorithm is
+`archetype_centroids_unavailable` when the responder has not loaded the
+table. No Rust code reads that file or sends that Absence. The algorithm is
 `documentation_only` and has no AST, so the dispatcher skips it. On
-7 November 2026, its `here.status` was `stored_only`, because it reads
-the retired `clay_v1` and `prithvi_eo2` bands.
+7 November 2026, its `here.status` was `stored_only`, because it reads the
+retired `clay_v1`, `prithvi_eo2` and `geotessera.multi_year` bands.
 
 ### Other rules the validator enforces
 
@@ -358,8 +359,9 @@ in snake case.
 
 Evaluation is pure. Given `samples: HashMap<String, f64>`, the AST reduces to
 `Option<f64>`. A missing band makes the expression `None`, never a
-silent zero. The one exception is `or_else`: when its `primary` has a
-missing band, it returns `fallback`. Before evaluation, the dispatcher
+silent zero. The one exception is `or_else`: when its `primary` gives
+`None` or a value that is not finite, it returns `fallback`. That covers a
+missing band, a division by zero and NaN. Before evaluation, the dispatcher
 checks the required bands. These are all bands except the bands inside an
 `or_else` primary.
 
@@ -487,11 +489,11 @@ One example of each kind:
 
 ## emem-sources (sources-v0.json)
 
-46 source schemes with 48 providers. Each scheme has an ordered `providers[]` list.
-`Dispatcher::fetch` in `crates/emem-fetch/src/lib.rs` tries the providers in
-that order and returns the first success. `emem-storage` holds a
-`Dispatcher`, but no serving path calls it. The materializers in
-`emem-api-rest` call their connectors directly.
+46 source schemes with 48 providers. Each scheme has an ordered
+`providers[]` list. `Dispatcher::fetch` in `crates/emem-fetch/src/lib.rs`
+tries the providers in that order and returns the first success.
+`emem-storage` holds a `Dispatcher`, but no serving path calls it. The
+materializers in `emem-api-rest` call their connectors directly.
 
 A fact names what it read in its `sources[]` list (struct `Source` in
 `crates/emem-fact/src/fact.rs`). Each entry has `scheme` and `id`, the
@@ -575,7 +577,7 @@ The backends that route a question (`topics-v0.json` `_routing._backends`):
 |---|---|
 | `ort` | Default. BAAI/bge-base-en-v1.5 (110 M parameters, 768-D, MTEB about 63), CLS-pooled, L2-normalised. Reads `tokenizer.json` and `model.onnx` from `EMEM_TOPIC_MODEL_DIR`. About 110 ms warm for `/v1/ask` end to end on CPU. |
 | `model2vec` | Fallback. `minishlab/potion-base-8M`, a static token-lookup embedder (256-D, about 32 MB, no ONNX dependency). |
-| `keyword` | Deterministic substring search over `aliases[]` and `key`. Select it with `EMEM_TOPIC_BACKEND=keyword`. It also runs as a precision pass before the transformer backends. |
+| `keyword` | Deterministic whole-word search over `aliases[]` and `key`. Select it with `EMEM_TOPIC_BACKEND=keyword`. It also runs as a precision pass before the transformer backends. |
 
 `route` in `crates/emem-api-rest/src/topic_router.rs` picks the topics for
 a question in these steps:

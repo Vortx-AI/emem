@@ -345,13 +345,13 @@ So one independent operator vouched by a domain counts for more than 111 bare
 keys. On that day `independent_operator_domains` named one operator, `eudr.dev`.
 
 If you pinned a head earlier, add `at_or_after=<your tree_size>`. The
-response then has a `nearest_witnessed` block. It gives the nearest co-signed
-head at or after your size. It prefers a head that a key other than this
-node's own `self_operator` key co-signed. A free `key_only` key counts for
-this choice, so the chosen head is not always from an independent
-operator. It also gives a consistency proof from your size to that head. Check each witness signature,
-then check the proof
-([protocol §9.6.2.1](./protocol.md#9621-check-a-witness-co-signature-by-hand)).
+response then has a `nearest_witnessed` block. It gives the nearest
+co-signed head at or after your size. It prefers a head that a key other
+than this node's own `self_operator` key co-signed. A free `key_only` key
+counts for this choice, so the chosen head is not always from an independent
+operator. It also gives a consistency proof from your size to that head.
+Check each witness signature, then check the proof ([protocol
+§9.6.2.1](./protocol.md#9621-check-a-witness-co-signature-by-hand)).
 
 The node hash is `blake3(0x01 || left || right)`. A witness that uses SHA-256
 cannot reproduce the root. From outside, that failure looks the same as
@@ -479,9 +479,10 @@ wrong, and the evidence is yours. That is the design.
 ### 12.1 Run the checks with the plugin scripts
 
 The Claude Code plugin in `plugins/emem/` ships three verifiers. They use
-only the Python standard library and the `emem_crypto.py` file next to
-them. Run the commands from the repository root. Each script prints
-`VALID` or `INVALID` per check, and exits 1 when a check fails.
+only the Python standard library and the `emem_crypto.py` file next to them.
+The commands below also use `jq`, but only to print the sizes. Run the
+commands from the repository root. Each script prints `VALID` or `INVALID`
+per check, and exits 1 when a check fails.
 
 Check a receipt. Use the receipt from a `POST /v1/recall` response
 (saved as `recall.json`), as in
@@ -522,15 +523,13 @@ curl -s 'https://emem.dev/v1/log/consistency?first=<old tree_size>&second=<new t
 python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py consistency sth.json new_sth.json consistency.json
 ```
 
-On 7 November 2026 at 02:47 UTC all three checks gave `VALID` against
-emem.dev. The receipt was from a recall at Mount Fuji. Its inclusion
-proof was for leaf 2,788,378 at `tree_size` 3,245,983, with 22 hashes.
-The consistency proof went from size 3,245,983 to 3,245,984, with 14
-hashes. At 03:02 UTC we ran the walk again with `inclusion.json` as the
-first head. All checks gave `VALID`. At 03:13 UTC the receipt, the
-inclusion proof and the link from `sth.json` to `inclusion.json` gave
-`VALID` again. Both heads had `tree_size` 3,246,150, so the link proof
-had 0 hashes.
+On 7 November 2026 at 03:40 UTC all four checks gave `VALID` against
+emem.dev. The four checks are the receipt, the inclusion proof, the link
+from `sth.json` to `inclusion.json` and the later consistency proof. The receipt was from a
+recall at Mount Fuji. Its inclusion proof was for leaf 2,788,378 at
+`tree_size` 3,246,307, with 22 hashes. Both heads had that size, so the
+link proof had 0 hashes. The later proof went from size 3,246,307 to
+3,246,310, with 12 hashes.
 
 The scripts do not check the link from the log entry to the receipt's
 Merkle root. That is step 7 of

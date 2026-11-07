@@ -19,7 +19,7 @@ To report a new attack, follow [SECURITY.md](../../SECURITY.md).
 
 | Surface | Who can write | What the write can change for other readers |
 |---|---|---|
-| Fact plane | Responder key, enrolled devices, operator-listed keys | The fact at `(cell, band, tslot)` |
+| Fact plane | Responder key, enrolled devices, operator-listed keys (any key when `EMEM_FACT_PLANE_OPEN=1`) | The fact at `(cell, band, tslot)` |
 | Canonical index | Only the key that holds the address | Nothing: a second signer goes to the multi-attester index |
 | Shared entity space | T3 keys | The rank of a phrase binding, by count of distinct keys |
 | Derivations and edges | T1 keys | Nothing until someone gives a reader the token |

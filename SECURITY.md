@@ -10,8 +10,8 @@ covers the protocol code and the hosted instance. See also
 [Privacy](/privacy) and [Terms](/terms).
 
 For the trust model itself (what a receipt proves, the transparency log,
-witnesses), read [docs/security.md](docs/security.md) and the
-[threat model](docs/security/threat-model.md).
+witnesses), read [docs/security.md](https://github.com/Vortx-AI/emem/blob/main/docs/security.md) and the
+[threat model](https://github.com/Vortx-AI/emem/blob/main/docs/security/threat-model.md).
 
 ## Report a vulnerability
 
@@ -58,13 +58,13 @@ design. A listing is not a statement of support.
 ## Disclosure timeline
 
 Our target is 90 days from the first report to a public fix and advisory.
-We shorten the embargo when the fix is simple. With your agreement, we
+We shorten the embargo when nobody disputes the fix. With your agreement, we
 extend it when deployers need more time to coordinate.
 
 ## Safe harbor
 
-We do not take legal action, or refer to law enforcement, a researcher
-who acts in good faith and obeys these rules:
+We will not take legal action against, or refer to law enforcement, a
+researcher who acts in good faith and obeys these rules:
 
 - Test only against accounts, cells and keys that you own, or against the
   public hosted instance at a reasonable rate. Do not cause a denial of
@@ -111,8 +111,9 @@ These values are the defaults in the code. An operator can change the
 ones that name an environment variable. The live responder declares its
 current limits under `runtime` at
 [`/v1/agent_card`](https://emem.dev/v1/agent_card).
-`scripts/sync_counts.py` compares the limits in this table with that
-block.
+`scripts/sync_counts.py` compares five values in this table with that
+block: requests per minute, burst, `Retry-After`, timeout and body cap.
+It does not check the load-shedding row.
 
 | Concern | Mitigation |
 |---|---|
@@ -127,7 +128,7 @@ block.
 | Identity | The responder keeps its ed25519 secret in a file with mode 0600 and never writes it to a log. |
 | Receipts | Each fact read carries a signed receipt. You can verify it offline, or with `/v1/verify_receipt`. |
 | Storage | sled with content-addressed keys. No SQL. |
-| `unsafe` code | `#![forbid(unsafe_code)]` in every crate except `emem-airgap`, `emem-scorecard` and `emem-sleep-agent`. Those three use no `unsafe`. |
+| `unsafe` code | `#![forbid(unsafe_code)]` in every crate except `emem-airgap`, `emem-scorecard` and `emem-sleep-agent`. The bin targets in `crates/emem-cli/src/bin/`, `emem-server` included, do not carry the attribute either. None of these uses `unsafe`. |
 
 ## Cryptographic invariants we patch at once
 
