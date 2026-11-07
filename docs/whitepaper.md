@@ -657,7 +657,7 @@ Every answer carries an ed25519 receipt that verifies offline against the
 responder's published key. No callback, no account, no API key. The
 receiver checks arithmetic, not reputation.
 
-![The receipt preimage: a domain tag, request_id, served_at, optional scope, as_of, edges and manifest, the primitive, and the lists of cells and fact_cids. BLAKE3 makes a 32-byte digest and Ed25519 signs it. Anyone verifies it offline with the responder public key from /.well-known/emem.json.](/docs/diagrams/10-trust-plane.svg)
+![The receipt preimage: a domain tag, request_id, served_at, optional scope, as_of, edges and manifest, the primitive, the lists of cells and fact_cids, an optional field binding, and a digest of the Merkle inclusion proof. BLAKE3 makes a 32-byte digest and Ed25519 signs it. Anyone verifies it offline with the responder public key from /.well-known/emem.json.](/docs/diagrams/10-trust-plane.svg)
 *Figure 5: the trust plane. What a responder signs, and how anyone
 re-checks it without trusting the server; the `/verify` page recomputes
 these steps in the browser.*

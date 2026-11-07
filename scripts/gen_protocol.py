@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Protocol gallery diagrams in the Mithila SVG hand: architecture, the
-decentralised federation, and the trust plane (the v1 receipt preimage).
+decentralised federation, and the trust plane (the v2 receipt preimage).
 
 Vector SVG into docs/diagrams/, matching the README's architecture.png /
 federation.png / engram. PNG previews under /tmp.
@@ -159,26 +159,26 @@ def trust_plane():
     segs = [("domain", '"emem.preimage.v1" · "receipt"'), ("request_id", "ULID"),
             ("served_at", "ISO 8601"), ("[scope]·[as_of]", "optional, tagged"),
             ("[edges]·[manifest]", "optional, tagged"), ("primitive", "emem.recall"),
-            ("cells[]", "len-prefixed list"), ("fact_cids[]", "len-prefixed list")]
+            ("cells[]", "len-prefixed list"), ("fact_cids[]", "len-prefixed list"),
+            ("[field]", "optional, tagged"), ("merkle", "proof digest or absent")]
     ph = 60 + len(segs) * 38
     bx, rx = 760, 1156
     avoid = [(px + pw / 2, py + ph / 2, pw * 0.62), (bx, CY, 70), (rx, CY, 170),
-             (rx, CY + 200, 120), (W / 2, 150, 600), (W / 2, H - 110, 640)]
+             (rx, CY + 200, 120), (W / 2, 150, 600), (W / 2, H - 126, 640)]
     _ground(s, avoid=avoid)
     _header(s, "The trust plane",
             "what a responder signs, and how anyone re-checks it without trusting the server")
 
     # corner motifs in the open band above the row
-    s.bird(180, 280, 34, col=TEAL, angle=0.12)
+    s.bird(640, 330, 34, col=TEAL, angle=0.12)
     s.sun(W - 160, 280, 26, col=TURMERIC)
     s.fish(150, H - 230, 24, col=INDIGO, angle=-0.12)
     s.vine(250, H - 240, 520, H - 252, col=LEAF, n=4, amp=16)
 
-    # left: the v1 preimage as a stack of tagged, length-prefixed segments
+    # left: the v2 preimage (v1 segments plus a merkle segment) as a stack of tagged, length-prefixed segments
     s.rect(px, py, pw, ph, fill=PAPER, op=0.78, stroke=INK, sw=2.2, rx=12)
     s.rect(px + 5, py + 5, pw - 10, ph - 10, stroke=INK, sw=0.8, rx=9, op=0.5)
-    s.text(px + 22, py + 36, "preimage_version 1", 14, INK, font=MONO, weight="bold")
-    s.text(px + pw - 20, py + 36, "tagged · len-prefixed", 10.5, INK_SOFT, font=MONO, anchor="end")
+    s.text(px + 22, py + 36, "preimage_version 2", 14, INK, font=MONO, weight="bold")
     s.line(px + 18, py + 50, px + pw - 18, py + 50, INK_SOFT, 1.0, op=0.6)
     for i, (tag, desc) in enumerate(segs):
         ry = py + 78 + i * 38
@@ -216,13 +216,13 @@ def trust_plane():
     s.text(1392, CY - 154, "/.well-known/emem.json", 10.5, INK_SOFT, font=MONO, anchor="middle")
 
     # footer recipe
-    s.line(220, H - 158, W - 220, H - 158, INK_SOFT, 0.8, op=0.45)
-    s.dot(220, H - 158, 2.4, VERMIL); s.dot(W - 220, H - 158, 2.4, VERMIL)
-    s.text(W / 2, H - 122, "verify offline:  digest = blake3(preimage);  ed25519.verify(sig, digest, pubkey)",
+    s.line(220, H - 174, W - 220, H - 174, INK_SOFT, 0.8, op=0.45)
+    s.dot(220, H - 174, 2.4, VERMIL); s.dot(W - 220, H - 174, 2.4, VERMIL)
+    s.text(W / 2, H - 138, "verify offline:  digest = blake3(preimage);  ed25519.verify(sig, digest, pubkey)",
            14, INK, font=MONO, anchor="middle")
-    s.text(W / 2, H - 90, "merkle tree: RFC 6962 leaf/node domain separation · duplicate leaves rejected",
+    s.text(W / 2, H - 106, "merkle tree: RFC 6962 leaf/node domain separation · duplicate leaves rejected",
            11.5, INK_SOFT, font=MONO, anchor="middle")
-    s.text(W / 2, H - 60, "the same blake3 + ed25519 check runs in your browser at /verify",
+    s.text(W / 2, H - 76, "the same blake3 + ed25519 check runs in your browser at /verify",
            11.5, INK_SOFT, font=MONO, anchor="middle")
     s.save(f"{OUT}/10-trust-plane.svg")
     return "10-trust-plane"

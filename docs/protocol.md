@@ -776,7 +776,7 @@ Failure → write rejected. The HTTP layer surfaces this as the
 
 ## 7. Receipt
 
-![The receipt preimage: a domain tag, request_id, served_at, optional scope, as_of, edges and manifest, the primitive, and the lists of cells and fact_cids. BLAKE3 makes a 32-byte digest and Ed25519 signs it. Anyone verifies it offline with the responder public key from /.well-known/emem.json.](/docs/diagrams/10-trust-plane.svg)
+![The receipt preimage: a domain tag, request_id, served_at, optional scope, as_of, edges and manifest, the primitive, the lists of cells and fact_cids, an optional field binding, and a digest of the Merkle inclusion proof. BLAKE3 makes a 32-byte digest and Ed25519 signs it. Anyone verifies it offline with the responder public key from /.well-known/emem.json.](/docs/diagrams/10-trust-plane.svg)
 *What a responder signs. Section 7.2 gives the preimage byte by byte. Sections 8 and 9 give the Merkle path and the append-only log.*
 
 `crates/emem-fact/src/receipt.rs:11-58`.
