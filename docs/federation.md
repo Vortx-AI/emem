@@ -585,7 +585,7 @@ mutual witnessing only. Nobody resolves facts across nodes yet.
 ---
 
 *The README section "Where this is going" and
-[examples/connect-and-evolve.md](../examples/connect-and-evolve.md) are
+[examples/connect-and-evolve.md](https://github.com/Vortx-AI/emem/blob/main/examples/connect-and-evolve.md) are
 companions to this page. The federation diagram is
 `docs/diagrams/federation.png`.*
 

@@ -51,11 +51,11 @@ The `publish` workflow (`.github/workflows/publish.yml`) pushes these tags. The 
 Release `v1.4.0` has only the `:v1.4.0` form. The bare forms started after that release. There is no `:0.0` tag.
 
 For a long-lived node, pin the digest, not a tag. A maintainer can move or delete a tag. Nobody can change a digest. The Hugging Face
-Space does this in [`huggingface-space/Dockerfile`](../../huggingface-space/Dockerfile).
+Space does this in [`huggingface-space/Dockerfile`](https://github.com/Vortx-AI/emem/blob/main/huggingface-space/Dockerfile).
 
 ### What the image contains
 
-These facts come from the runtime stage of [`Dockerfile`](../../Dockerfile).
+These facts come from the runtime stage of [`Dockerfile`](https://github.com/Vortx-AI/emem/blob/main/Dockerfile).
 
 | Setting | Value |
 |---|---|
@@ -68,18 +68,18 @@ These facts come from the runtime stage of [`Dockerfile`](../../Dockerfile).
 ### How emem.dev runs
 
 emem.dev runs the image with `docker run` under the system unit
-[`deploy/systemd/emem-server.service`](../../deploy/systemd/emem-server.service). That unit sets
+[`deploy/systemd/emem-server.service`](https://github.com/Vortx-AI/emem/blob/main/deploy/systemd/emem-server.service). That unit sets
 `TimeoutStopSec=150`, mounts `config/` read-only, and turns on the warmer. It is for a store of about 98 GB. Read it
 for these settings, but do not copy it for a small node.
 
 The maintainers deploy emem.dev with `pending_deploy.sh` after the `publish` workflow passes. See
-[AGENTS.md](../../AGENTS.md#build). Do not use `scripts/redeploy.sh` on that host. That script builds on the host and
+[AGENTS.md](https://github.com/Vortx-AI/emem/blob/main/AGENTS.md#build). Do not use `scripts/redeploy.sh` on that host. That script builds on the host and
 restarts a user unit that production does not use.
 
 ## Deploy the binary under systemd
 
 [Self-host](../self-host.md#run-the-binary-under-systemd) has a minimal user unit. The repository also has a longer
-example, [`ops/systemd/emem-server.service.example`](../../ops/systemd/emem-server.service.example). Its values are
+example, [`ops/systemd/emem-server.service.example`](https://github.com/Vortx-AI/emem/blob/main/ops/systemd/emem-server.service.example). Its values are
 from one maintainer's host. Change `WorkingDirectory=`, `EMEM_DATA`, `EMEM_TLS_DOMAINS` and `EMEM_TLS_CONTACT` before
 you use it. Remove the `ORT_DYLIB_PATH`, `LD_LIBRARY_PATH` and `EMEM_GA_MEASUREMENT_ID` lines: the current binary does
 not use them to run.
@@ -203,7 +203,7 @@ upstreams and background work. Each default comes from the code.
 | Variable | Default | What it does |
 |---|---|---|
 | `EMEM_WARM_INTERVAL_SECS` | `0` (off) | Runs the warmer every this many seconds. The warmer recalls each entry in its list, so the first visitor finds the facts ready. emem.dev uses `21600`. |
-| `EMEM_WARM_PRIORITY` | `$EMEM_DATA/warm_priority.json` | The warmer's list. Each entry has `cells`, `bands` or `band`, and an optional `start_unix` and `end_unix`. emem.dev uses `/config/warm_priority.json`, from [`config/warm_priority.json`](../../config/warm_priority.json). |
+| `EMEM_WARM_PRIORITY` | `$EMEM_DATA/warm_priority.json` | The warmer's list. Each entry has `cells`, `bands` or `band`, and an optional `start_unix` and `end_unix`. emem.dev uses `/config/warm_priority.json`, from [`config/warm_priority.json`](https://github.com/Vortx-AI/emem/blob/main/config/warm_priority.json). |
 | `EMEM_WARM_BUDGET_MS` | `30000` | The time for one entry in one pass. Work that does not finish continues in the background. |
 | `EMEM_WARM_MAX_IO_PRESSURE` | `10` | A pass waits while IO stalls are above this percent (`/proc/pressure/io`, `some avg60`). It waits one interval at most. |
 | `EMEM_SHUTDOWN_GRACE_S` | `3` | Seconds that open connections get to finish at stop, 30 at most. |
@@ -420,7 +420,7 @@ limit. Use `EMEM_TLS_STAGING=1` while you test.
 1. Save the manifests: `curl -sS http://127.0.0.1:5051/v1/manifests > pre.json`.
 2. Pull the new image, or build the new binary, and restart.
 3. Get `/v1/manifests` again and compare it with `pre.json`.
-4. Find each changed CID in [CHANGELOG.md](../../CHANGELOG.md) for that release.
+4. Find each changed CID in [CHANGELOG.md](https://github.com/Vortx-AI/emem/blob/main/CHANGELOG.md) for that release.
 
 The schema CID pins the byte layout of a fact. Old facts keep their old `schema_cid`, `bands_cid` and
 `sources_cid`, so they verify after an upgrade.

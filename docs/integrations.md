@@ -76,19 +76,19 @@ Older hosts speak stdio only. Use the `mcp-remote` bridge:
 
 | Runtime | Surface | Auth | Example |
 |---|---|---|---|
-| Claude Code | MCP (`http`) | none | [`examples/claude-code.mcp.json`](../examples/claude-code.mcp.json) |
-| Claude Desktop | MCP (`http`) | none | [`examples/claude-desktop.json`](../examples/claude-desktop.json) |
-| Cursor 0.42 and later | MCP (`http`) | none | [`examples/cursor.mcp.json`](../examples/cursor.mcp.json) |
-| Cline (VS Code) | MCP (`http`) | none | [`examples/cline.mcp.json`](../examples/cline.mcp.json) |
-| Gemini CLI | extension install | none | [`examples/gemini-extension.json`](../examples/gemini-extension.json) |
-| OpenAI Custom GPT Action | OpenAPI 3.1 | none | [`examples/openai-gpt-action.json`](../examples/openai-gpt-action.json) |
-| LangChain | MCP through an adapter | none | [`examples/langchain/`](../examples/langchain) |
-| LlamaIndex | MCP through an adapter | none | [`examples/llamaindex/`](../examples/llamaindex) |
-| AutoGen | MCP tool | none | [`examples/autogen/`](../examples/autogen) |
-| CrewAI | MCP tool | none | [`examples/crewai/`](../examples/crewai) |
-| Semantic Kernel | MCP tool | none | [`examples/semantic-kernel/`](../examples/semantic-kernel) |
-| Mastra (TypeScript) | MCP tool | none | [`examples/mastra/`](../examples/mastra) |
-| Agno | MCP tool | none | [`examples/agno/`](../examples/agno) |
+| Claude Code | MCP (`http`) | none | [`examples/claude-code.mcp.json`](https://github.com/Vortx-AI/emem/blob/main/examples/claude-code.mcp.json) |
+| Claude Desktop | MCP (`http`) | none | [`examples/claude-desktop.json`](https://github.com/Vortx-AI/emem/blob/main/examples/claude-desktop.json) |
+| Cursor 0.42 and later | MCP (`http`) | none | [`examples/cursor.mcp.json`](https://github.com/Vortx-AI/emem/blob/main/examples/cursor.mcp.json) |
+| Cline (VS Code) | MCP (`http`) | none | [`examples/cline.mcp.json`](https://github.com/Vortx-AI/emem/blob/main/examples/cline.mcp.json) |
+| Gemini CLI | extension install | none | [`examples/gemini-extension.json`](https://github.com/Vortx-AI/emem/blob/main/examples/gemini-extension.json) |
+| OpenAI Custom GPT Action | OpenAPI 3.1 | none | [`examples/openai-gpt-action.json`](https://github.com/Vortx-AI/emem/blob/main/examples/openai-gpt-action.json) |
+| LangChain | MCP through an adapter | none | [`examples/langchain/`](https://github.com/Vortx-AI/emem/tree/main/examples/langchain) |
+| LlamaIndex | MCP through an adapter | none | [`examples/llamaindex/`](https://github.com/Vortx-AI/emem/tree/main/examples/llamaindex) |
+| AutoGen | MCP tool | none | [`examples/autogen/`](https://github.com/Vortx-AI/emem/tree/main/examples/autogen) |
+| CrewAI | MCP tool | none | [`examples/crewai/`](https://github.com/Vortx-AI/emem/tree/main/examples/crewai) |
+| Semantic Kernel | MCP tool | none | [`examples/semantic-kernel/`](https://github.com/Vortx-AI/emem/tree/main/examples/semantic-kernel) |
+| Mastra (TypeScript) | MCP tool | none | [`examples/mastra/`](https://github.com/Vortx-AI/emem/tree/main/examples/mastra) |
+| Agno | MCP tool | none | [`examples/agno/`](https://github.com/Vortx-AI/emem/tree/main/examples/agno) |
 | Pydantic AI | MCP tool | none | No example yet. Use the standard MCP client config with `https://emem.dev/mcp`. |
 | Dify | MCP (`http`) | none | No example yet. Add `https://emem.dev/mcp` as an MCP server in the tool settings of the workspace. |
 | OpenAI Codex | MCP | none | No example yet. Use native Streamable HTTP if the build has it, or the `mcp-remote` bridge. |
@@ -144,7 +144,7 @@ Every runtime uses the same loop. Each step names the REST route and the MCP too
 8. Find disagreement. `POST /v1/memory_contradictions` (`emem_memory_contradictions`) shows where signed sources
    disagree at the same address. It does not average them.
 
-[`examples/agent-walkthroughs.md`](../examples/agent-walkthroughs.md) shows this loop on real questions, as `curl`
+[`examples/agent-walkthroughs.md`](https://github.com/Vortx-AI/emem/blob/main/examples/agent-walkthroughs.md) shows this loop on real questions, as `curl`
 sequences.
 
 ## Cite one fact with a memory token

@@ -5,7 +5,7 @@ This page is for engineers who change the code in
 rules that the repository enforces. For the system design, read
 [architecture.md](architecture.md). For the wire bytes, read
 [protocol.md](../protocol.md). For the contribution rules, read
-[CONTRIBUTING.md](../../CONTRIBUTING.md).
+[CONTRIBUTING.md](https://github.com/Vortx-AI/emem/blob/main/CONTRIBUTING.md).
 
 The numbers on this page come from the code and from `https://emem.dev`
 on 6 November 2026. The `curl` commands ran against `https://emem.dev`
@@ -100,7 +100,7 @@ Outside the workspace:
 | `emem-connect-demo` | Runs the "connect and evolve" loop from `examples/connect-and-evolve.md` |
 | `emem-demo-device` | Enrols this host as a labelled demo device and publishes a trace |
 | `emem-ask-eval` | Checks how `/v1/ask` routes a fixed set of questions |
-| `emem-purge-fnkey` | Admin: removes cached facts by `derivation.fn_key`. Stop the server first. |
+| `emem-purge-fnkey` | Admin: removes cached facts by `derivation.fn_key`. Stop the server first, because sled holds an exclusive lock. |
 | `emem-sled-slim` | Admin: copies the live sled trees into a new store. Stop the server first. |
 
 Other crates build `emem-guard`, `emem-airgap`, `emem-encode`,
@@ -190,8 +190,8 @@ rebuilds the preimage and checks the Ed25519 signature in the tab.
 
 1. Add the entry to `crates/emem-core/data/bands-v0.json`. Each band has
    `key`, `offset`, `dims`, `tempo`, `privacy` and descriptive fields.
-   The `dims` of all bands must add up to 1792. Make sure that offsets
-   do not overlap.
+   The `dims` of all bands must add up to 1792. Each `offset` must equal
+   the `offset` plus `dims` of the band before it, so a gap also fails.
 2. Run `cargo test -p emem-core bands`. The registry tests find overlaps,
    gaps and a wrong total.
 3. If the band comes from other bands, add a recipe to
@@ -234,6 +234,10 @@ with the band, materializer and function registry entries.
    `srv.sign_receipt(primitive, cells, fact_cids, was_cached, started, intent)`
    (`crates/emem-storage/src/server.rs`).
 6. Write a test that proves an empty answer says why it is empty.
+   For example, `recall` returns `bands_already_attested_at_cell` and
+   `materialize_notes`, and `compare_bands` returns
+   `bands_with_no_history`. A caller can then tell a wrong query from
+   an empty place.
 
 ## Run the tests and lints
 
@@ -255,7 +259,7 @@ Five crates also have tests in `tests/`: `emem-airgap`, `emem-fact`,
 `emem-fetch`, `emem-primitives` and `emem-trace`.
 
 CI (`.github/workflows/ci.yml`) runs on pushes to `main` and on pull
-requests to `main`. These jobs gate a merge:
+requests to `main`. It runs these jobs:
 
 | Job | What it runs |
 |---|---|
@@ -267,6 +271,9 @@ requests to `main`. These jobs gate a merge:
 | `python-sdks` | The Python SDK tests |
 | `whitepaper` | `python3 scripts/render_whitepaper.py --check` |
 | `doc-lint` | `scripts/doc_lint.py` and other repository checks |
+| `guard-conformance` | Builds `emem-guard` and checks it against a real socket |
+| `contract` | Builds this commit's server, starts it on `127.0.0.1:5097` and runs the contract gates against it |
+| `ts-sdk` | Type-checks and builds the TypeScript SDK in `sdks/emem-ts` |
 
 Clippy in CI uses the current stable toolchain. Run `rustup update stable`
 before you run clippy, or a new lint can pass locally and fail in CI.
@@ -305,14 +312,16 @@ are `http://localhost:5051` and `./var/demos/<UTC stamp>`.
 curl -s http://127.0.0.1:5051/v1/demos | jq -c 'keys'   # ["count","root","runs"]
 ```
 
-The directory has one JSON file for each step and a `trace.json` index.
-The server lists runs at `GET /v1/demos`. To find a wire-shape
+The directory has a `<step>.req.json` and a `<step>.resp.json` file for
+each step, and a `trace.json` index. The server lists runs at
+`GET /v1/demos`. `GET /v1/demos/:run` gives the index of one run, and
+`GET /v1/demos/:run/:file` gives one file. To find a wire-shape
 regression, compare `trace.json` with the one from the last good run.
 
 ## Commit and open a pull request
 
-The full rules are in [CONTRIBUTING.md](../../CONTRIBUTING.md) and
-[AGENTS.md](../../AGENTS.md). In short:
+The full rules are in [CONTRIBUTING.md](https://github.com/Vortx-AI/emem/blob/main/CONTRIBUTING.md) and
+[AGENTS.md](https://github.com/Vortx-AI/emem/blob/main/AGENTS.md). In short:
 
 - Write the subject in sentence case, 72 characters or fewer. The body
   says why.
@@ -334,7 +343,7 @@ The full rules are in [CONTRIBUTING.md](../../CONTRIBUTING.md) and
 | MCP tools | `crates/emem-mcp/src/lib.rs` |
 | Cell64 encoding | `crates/emem-codec/src/geo.rs` |
 | Fact CID (canonical CBOR, BLAKE3, base32) | `crates/emem-fact/src/cbor.rs`, `crates/emem-fact/src/cid.rs` |
-| Receipt preimage | `crates/emem-attest/src/lib.rs` (`receipt_preimage_v1`); signer in `crates/emem-storage/src/server.rs` (`sign_receipt`) |
+| Receipt preimage | `crates/emem-attest/src/lib.rs`: `receipt_preimage_v2` signs; `receipt_preimage_v1` only checks old receipts. Signer: `sign_receipt` in `crates/emem-storage/src/server.rs` |
 | Merkle root and paths | `crates/emem-attest/src/lib.rs` |
 | Lazy materialization | `crates/emem-storage/src/lib.rs` (`materialize_many`) |
 | Physics solvers | `crates/emem-api-rest/src/physics.rs` |
@@ -351,7 +360,7 @@ Open an issue at `github.com/Vortx-AI/emem/issues`. Include:
 - The `curl` command, the expected response and the actual response.
 
 Do not report a security problem in a public issue. Read
-[SECURITY.md](../../SECURITY.md). A running responder also serves
+[SECURITY.md](https://github.com/Vortx-AI/emem/blob/main/SECURITY.md). A running responder also serves
 `/.well-known/security.txt`, with the contact from `EMEM_TLS_CONTACT`.
 
 For deployment, read [operating.md](../operators/operating.md).

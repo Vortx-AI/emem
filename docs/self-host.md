@@ -33,7 +33,7 @@ account. On the first recall of a cell, it reads the open archives, signs the va
 
 On 6 November 2026 the host that wrote this page had no Docker. A registry query found the image manifest, and
 the two requests ran against `https://emem.dev`, which runs the same image. The image facts below come from
-[`Dockerfile`](../Dockerfile).
+[`Dockerfile`](https://github.com/Vortx-AI/emem/blob/main/Dockerfile).
 
 | Image setting | Value |
 |---|---|
@@ -62,7 +62,7 @@ Without `--user`, the uid 65532 process cannot write to a directory that your ow
 
 ### Use Docker Compose
 
-[`docker-compose.yml`](../docker-compose.yml) starts a node for the witness role in
+[`docker-compose.yml`](https://github.com/Vortx-AI/emem/blob/main/docker-compose.yml) starts a node for the witness role in
 [Federation](federation.md). It binds `127.0.0.1:5051` and stores data in the volume `emem-data`.
 
 ```bash
@@ -260,13 +260,13 @@ loginctl enable-linger "$USER"   # keeps the unit running after you log out
 ```
 
 emem.dev does not use this unit. It runs the image with `docker run` under a system unit,
-[`deploy/systemd/emem-server.service`](../deploy/systemd/emem-server.service). That unit is for a large store (about
+[`deploy/systemd/emem-server.service`](https://github.com/Vortx-AI/emem/blob/main/deploy/systemd/emem-server.service). That unit is for a large store (about
 98 GB). Read it for the stop timeout and the OOM settings, but do not copy it for a small node.
 
 ## Run a Hugging Face Space
 
 The Space at <https://huggingface.co/spaces/vortx-ai/emem> runs the same image. Its source is in
-[`huggingface-space/`](../huggingface-space/). Click "Duplicate this Space" to run a copy in your own Hugging Face
+[`huggingface-space/`](https://github.com/Vortx-AI/emem/tree/main/huggingface-space). Click "Duplicate this Space" to run a copy in your own Hugging Face
 account. This is a quick way to test without a VM.
 
 The Space pins an image digest, not `:latest`, so it can be older than emem.dev.

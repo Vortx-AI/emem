@@ -64,8 +64,9 @@ gives the rules and both commands.
    `key`, `offset`, `dims`, `tempo` and `privacy`. The `dims` of all bands
    must add up to 1792.
 2. Connect the materializer. Add a connector module under
-   `crates/emem-fetch/src/<your_source>.rs` and register it in
-   `crates/emem-fetch/src/connectors.rs`.
+   `crates/emem-fetch/src/<your_source>.rs` and declare it in
+   `crates/emem-fetch/src/lib.rs`. Add the source to
+   `crates/emem-core/data/sources-v0.json`.
 3. Map the band to the connector in `crates/emem-api-rest/src/lib.rs`.
    Search for an existing band that is like yours (for example
    `weather.temperature_2m`).
