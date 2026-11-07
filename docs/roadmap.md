@@ -1311,16 +1311,203 @@ layouts it points to v2 sections 3 and 6.
 
 ### The substrate: trusted, portable, verifiable memory
 
-- **A drop-in memory API that returns a receipt.** Ships today: `memory_create` and `emem_memory_search` write and read a private per-agent memory, `emem_memory_token` mints the `emem:fact:` handle, and `emem_verify_receipt` checks any of it offline. Open: the same three-line `add` / `search` ergonomics the popular memory frameworks expose, so a signed receipt is the only new thing a caller has to learn, plus a public head-to-head on the recall benchmarks (LongMemEval, LoCoMo), reported alongside the offline verification those frameworks do not provide.
-- **A memory passport.** Ships today: `emem_memory_bundle` collapses a set of facts into one signed `emem:bundle:` token that resolves and re-checks anywhere. Ships as of 2026-07-16: `POST /v1/memory_token/resolve_many` dereferences up to 256 tokens in one call, partial by design with typed per-item errors, one batch receipt over the resolved union plus a receipt per item; and token dereferences carry immutable cache headers (a content-addressed body never changes and a receipt never expires), so a client-side token store is trivial. Open: a written import and export profile so that bundle carries between memory stores from different vendors, and the self-teaching `how_to_sign` refusal extended to bundle writes. The session-state worked example ships as of 2026-07-16: [examples/agent-handoff/](https://github.com/Vortx-AI/emem/tree/main/examples/agent-handoff) parks a checkpoint as one signed memory file on a throwaway local responder and a second identity resumes from it, checking the content id and the receipt before reading a word; every command in it is the script itself.
-- **Typed identity kinds for objects.** An entity's `kind` is a free-text string today, which is enough to mint an identity and not enough to say what changed. One address carries several identities at once, and they change on different clocks: the coordinate never moves, the land cover cycles over years, the land use moves once over decades, the administrative status changes by decree. "Did this place change" has no answer until you say which of those you mean. Open: a small closed set of identity kinds (physical, material, ecological, functional, administrative), so "same place, different object" and "same object, changed state" stop colliding, and so change attribution can say what kind of thing changed instead of raising one alarm bit.
-- **Signed state for agent-to-agent work.** Ships today: emem answers the A2A task surface at `/a2a/tasks` and serves a signed card at [`/.well-known/agent-card.json`](https://emem.dev/.well-known/agent-card.json). Open: an attestation that rides an agent card so two agents from two companies verify each other's claimed memory offline before acting on it, closing the trust gap the A2A spec leaves to implementers.
-- **Quantitative evaluation in the open.** Ships today: every receipt carries its own cost block (`latency_p50_ms`, `was_cached`), `emem-scorecard` scores retrieval accuracy against a running responder with no hardcoded numbers, and [benchmarks.md](benchmarks.md) publishes dated, single-node latency and throughput measurements with the method next to each number. Open: multi-node scaling, storage per fact, cache-hit ratio under realistic mixes, and head-to-head comparisons against spatial databases and geospatial data infrastructures on identical queries.
-- **Substrate generality.** The signed fact, the receipt preimage, the provenance class, and the token grammar operate on any canonical address; nothing in them is satellite-specific. Ships today: Earth observation as the first substrate over cell64. Open: a written profile for a second sensing domain with its own canonical address space, plus the formal memory model started in [model.md](model.md): the observation tuple, the property table with mechanisms, and the shipped memory algebra, with machine-checked proofs, uncertainty propagation, semantic compression, and a conformance profile as the open work.
-- **The cell build graph.** Ships today, at the leaf level: every derived observation names its versioned rule (`derivation.fn_key` in the content-addressed algorithm registry), its hashed inputs (`sources[]`), and its content-addressed output, and recall-on-miss is a demand-driven build with cache semantics in the receipt. Determinism means derived layers are evictable without breaking citations: rebuilding yields the same bytes and the same cid. Open: multi-hop derivation as signed objects (facts to gaussians to meshes to navigation surfaces; the worlds bake prototypes the first hop), the one-traversal lineage graph, and a target language, so a cell compiles like a Bazel or Nix package but verifiably across trust domains. The consequence for long-running agents: the world owns the state, not the session. What exists, what is still valid (`/v1/temporal_route`), and what replaced what are all one call away, recall with a band list is already a single-hop `ensure`, and a thousand agents coordinate through shared content-addressed artifacts instead of messages. The atom underneath it stays the existing observation, band is its type field, not the object, and the open generalisation is artifact-typed values (a mesh signed and cited exactly like an NDVI reading), with derivation discovery on top: rules stay declared and signed, which chain applies at a cell is learned, and the planner answers `prove(goal)` with an artifact plus its validity chain. The compiler and execution-substrate view is written down in [model.md](model.md).
-- **Re-runnable derivations.** `/v1/derive` records a `code_cid` for a caller-registered derivation but never fetches or runs it, so a registered derivation is a signed assertion, and it is forced to the `model_output` class no matter how deterministic its code is. Open: a sandbox tier for pure functions that re-runs the `code_cid` against the parent tokens and, when the output reproduces byte-for-byte, earns the derivation `deterministic_index`. That makes a derived artifact independently recomputable from raw source bytes by a stranger, which is a property no unsigned map or proprietary reconstruction service offers.
-- **Derivations you can find by standing at the place.** Ships today: `POST /v1/inferences` (MCP `emem_inferences`) reads every registered derivation within a radius of a point, nearest first, typed as derivative and attributed to its attester, under a trust policy the response states (by default, keys an organisation vouched for). `/v1/ask` names the vouched ones inside the place it resolved to, as pointers, so a co-located agent can cite what a peer already derived instead of recomputing it. `recall` still never returns one. Open: the reverse-lineage index ("what is downstream of this parent fact_cid") so that when an upstream source moves, staleness propagates to everything built on it. Knowing what to invalidate when an instrument or source changes is the sensor term of change attribution, operationalized.
-- **An audit trail for regulated work.** Ships today: bi-temporal recall (`as_of_tslot` for what was on the ground, `as_of_signed_at` for what the memory knew) and a signed absence for what was never there. Open: the profile that turns those into a procurement-grade record of what an agent knew and when, aimed at the data-provenance gap that content-only provenance standards do not cover.
+| item | status on 7 November 2026 |
+|---|---|
+| Memory API with receipts | Ships. Simple `add` / `search` calls and a public benchmark result are not done. |
+| Memory passport | Ships for one responder. A profile to move bundles between vendors is not written. |
+| Typed identity kinds | Not built. `kind` is free text. |
+| Signed state for A2A work | A2A endpoint and signed card ship. Card attestations are not built. |
+| Open evaluation | Single-node results ship. Scaling and comparison results are not done. |
+| A second substrate | Not built. Earth observation over cell64 is the only one. |
+| Cell build graph | One step ships. Multi-step signed derivations are not built. |
+| Re-runnable derivations | Not built. `code_cid` is recorded, not run. |
+| Derivations found by place | Ships. A reverse-lineage index is not built. |
+| Audit trail profile | Bi-temporal recall ships. The profile is not written. |
+
+#### A memory API that returns a receipt
+
+These calls ship:
+
+- `emem_memory_create` writes a note to a private memory for each agent.
+- `emem_memory_search` reads it back.
+- `emem_memory_token` makes the `emem:fact:` handle.
+- `emem_verify_receipt` checks the result offline.
+
+Two items are open. The first is a short `add` / `search` interface like
+the one that common memory frameworks have. Then a signed receipt is the
+only new thing that a caller must learn.
+
+The second is a published benchmark result. `emem-scorecard` already runs
+a LongMemEval-S style test against a running responder. The repository
+has only a sample of about 15 items
+(`crates/emem-scorecard/data/sample-longmemeval.jsonl`).
+[benchmarks.md](benchmarks.md) says that a sample score is not the
+published result. No full LongMemEval or LoCoMo result is published.
+
+#### A memory passport
+
+These parts ship:
+
+- `emem_memory_bundle` puts up to 256 facts into one signed
+  `emem:bundle:` token. Only the responder that made a bundle can resolve
+  it. Other responders answer 404.
+- `POST /v1/memory_token/resolve_many` resolves up to 256 `emem:fact:`
+  tokens in one call. Each item resolves on its own and a failed item
+  gets a typed error. The response has one receipt for the batch and one
+  receipt for each item.
+- A response in which all tokens resolve has
+  `Cache-Control: public, max-age=31536000, immutable`. A batch with a
+  failure is not cached, because the fact can arrive later.
+- [examples/agent-handoff/](https://github.com/Vortx-AI/emem/tree/main/examples/agent-handoff)
+  stores a checkpoint as one signed memory file on a local responder. A
+  second identity checks the content id and the receipt, then continues
+  from it.
+
+Two items are open. The first is a written import and export profile, so
+that a bundle can move between memory stores from different vendors. The
+second is a caller-signed bundle write. Today the responder signs a
+bundle and the caller signs nothing. A signed bundle write would give
+the same `how_to_sign` refusal as other signed writes.
+
+#### Typed identity kinds for objects
+
+An entity's `kind` is a free-text string (`kind: String` in
+`crates/emem-primitives/src/entity.rs`). This is enough to make an
+identity. It is not enough to say what changed.
+
+One address can have several identities, and each changes at its own
+rate:
+
+| identity | how often it changes |
+|---|---|
+| The coordinate | Never |
+| Land cover | Over years |
+| Land use | Once over decades |
+| Administrative status | When a decree changes it |
+
+"Did this place change" has no answer until the caller says which
+identity. The open item is a small closed set of identity kinds:
+physical, material, ecological, functional and administrative. With it,
+"same place, different object" and "same object, changed state" become
+different answers. Change attribution can then say which kind of thing
+changed.
+
+#### Signed state for agent-to-agent work
+
+emem answers A2A tasks at `POST /a2a/tasks`. It serves a signed card at
+[`/.well-known/agent-card.json`](https://emem.dev/.well-known/agent-card.json)
+(HTTP 200 on 7 November 2026). The open item is an attestation in the
+agent card. With it, two agents from two companies can check each
+other's memory offline before they act on it. The A2A specification
+does not define this check. [A2A interoperability](#a2a-interoperability)
+below has the details.
+
+#### Quantitative evaluation in the open
+
+These parts ship:
+
+- Every receipt has a `cost` block with `latency_p50_ms`,
+  `latency_p99_ms` and `was_cached`.
+- `emem-scorecard` scores a running responder. It reads all numbers from
+  the responder's output.
+- [benchmarks.md](benchmarks.md) gives dated latency and throughput
+  results from one node, with the method next to each number.
+
+These results are not done:
+
+- Results for more than one node.
+- Storage for each fact.
+- Cache hit ratio with a realistic mix of calls.
+- Comparisons with spatial databases on the same queries.
+
+#### A second substrate
+
+The signed fact, the receipt preimage, the provenance class and the token
+grammar work on any canonical address. None of them is specific to
+satellites. Earth observation over cell64 is the only substrate that
+ships.
+
+Open items:
+
+- A written profile for a second sensing domain with its own address
+  space.
+- The formal memory model that [model.md](model.md) starts: the
+  observation tuple, the property table and the memory algebra. The open
+  parts are machine-checked proofs, uncertainty propagation, semantic
+  compression and a conformance profile.
+
+[Next substrates](#next-substrates-subjects-that-are-not-places) above
+lists the subjects that are not places.
+
+#### The cell build graph
+
+One step ships. Each derived observation names three things:
+
+- Its versioned rule: `derivation.fn_key` in the content-addressed
+  algorithm registry.
+- Its hashed inputs: `sources[]`.
+- Its content-addressed output.
+
+A recall on a miss builds the fact on demand, and the receipt shows
+whether it came from the cache. A rebuild gives the same bytes and the
+same cid. So an operator can delete a derived layer and citations still
+work. `/v1/temporal_route` tells which facts are still valid. A recall
+with a list of bands is a one-step build.
+
+Open items:
+
+- Derivations with more than one step, as signed objects. An example is
+  facts, then gaussians, then meshes, then navigation surfaces. The
+  worlds bakes are prototypes of the first step.
+- A lineage graph that one call can walk.
+- A target language, so that a cell builds like a Bazel or Nix package
+  and other trust domains can check the build.
+- Values typed as artifacts, so that a mesh is signed and cited like an
+  NDVI reading. The band stays the type field of an observation.
+- Derivation discovery. Rules stay declared and signed. The planner
+  learns which chain applies at a cell, and answers `prove(goal)` with an
+  artifact and its validity chain.
+
+[model.md](model.md) describes the compiler view of this design.
+
+#### Re-runnable derivations
+
+`POST /v1/derive` records a caller's `code_cid` but never fetches or runs
+it. So a registered derivation is a signed claim, not a checked result.
+The caller must choose `model_output`, `human_curated` or `estimator` as
+its provenance class. The responder refuses `direct_sensor` and
+`deterministic_index`, because it did not compute the value.
+
+The open item is a sandbox for pure functions. It runs the `code_cid`
+against the parent tokens. If the output is the same byte for byte, the
+derivation gets `deterministic_index`. Then any other party can compute
+the derived value again from the raw source bytes.
+
+#### Derivations found by place
+
+`POST /v1/inferences` (MCP `emem_inferences`) ships. It reads the
+registered derivations within a radius of a point, nearest first. Each
+result is typed as derivative and names its attester. A trust policy
+decides which keys it admits, and the response states the policy. By
+default it admits keys that an organisation vouched for. `/v1/ask` and
+`/v1/locate` point to vouched derivations inside the place in the
+`research_nearby` field. So
+an agent at the same place can cite a peer's derivation and not compute
+it again. `recall` never returns a derivation.
+
+The open item is a reverse-lineage index: "what is built on this parent
+`fact_cid`". When an upstream source changes, the index shows which
+derived facts are now stale. This is the sensor term of change
+attribution in practice.
+
+#### An audit trail for regulated work
+
+Bi-temporal recall ships. `as_of_tslot` gives what was on the ground at a
+time. `as_of_signed_at` gives what the memory knew at a time. A signed
+absence records that a value was not there. The open item is a profile
+that turns these parts into a procurement-grade record of what an agent
+knew, and when. Provenance standards that cover only content do not
+record this.
 
 ### The worlds: making the proof denser, live, and portable
 
