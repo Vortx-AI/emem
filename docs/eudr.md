@@ -259,7 +259,7 @@ The block has the schema id `emem.visual_evidence.v2`. It contains these parts:
   If the SCL read fails, the scene cloud cap alone decides.
   Thus the picker does not choose the clearest scene. It chooses the newest usable scene.
   The block's `method` string is `annual_s2_l2a_least_cloudy + annual_s1_rtc_vv_cloud_independent`.
-  This paragraph gives the real Sentinel-2 rule.
+  The words "least cloudy" in that string are not correct. The rule in this paragraph is the real rule.
   The block's `anchor_policy` text always names the ±30/60/90 day ladder, also when an operator changes the base window.
   If scenes exist but no pixel is usable, the signed fact records an absence.
   If no step finds a scene, that cell and year get an error and no fact.
@@ -313,6 +313,7 @@ The block has the schema id `emem.visual_evidence.v2`. It contains these parts:
   The `x-emem-scene-datetime` and `x-emem-scene-cloud-cover` headers name the scene it used.
   These URLs set `max_cloud` and `datetime`, so the handler tries one search only.
   If no scene passes, it returns 404 `no_clear_scene` and does not widen the search.
+  If a fetch from the catalogue fails, it returns 502 `scene_upstream_failed`.
   Show the images as a year-by-year grid in an audit packet.
 
 On 7 November 2026, a request at the Mount Fuji cell `defi.zb592.nUkO.zEzE` with the window
