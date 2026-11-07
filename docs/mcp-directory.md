@@ -98,6 +98,10 @@ Seven read tools accept `as_of_tslot` (observation time) and `as_of_signed_at` (
 `emem_find_similar` and `emem_trajectory`. When you set a bound, the receipt includes an `as_of` block.
 An auditor can then replay a past query byte for byte, without trust in the issuer.
 
+`emem_edges_recall` reads the typed links between facts. It accepts only `as_of_tslot`, which filters
+edges by their valid time (`crates/emem-primitives/src/edges.rs`). It has no `as_of_signed_at`. The tool
+lists on emem.dev showed these eight tools on 7 November 2026.
+
 ## Connect a client
 
 Add the remote endpoint to your MCP client:
