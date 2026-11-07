@@ -1,94 +1,132 @@
 # Connect & evolve
 
-> **Status.** Typed temporal edges (`/v1/edges`, `emem_edges_recall`)
-> and multi-attester contradiction scoring (`memory_contradictions`)
-> shipped in v0.0.9 and answer on emem.dev. The deterministic refinement
-> loop ships in the same code but is opt-in (`EMEM_REFINEMENT_ENABLED=1`),
-> and emem.dev does not enable it, so no edge there was drawn by it.
-> Everything here is signed and non-destructive by design. The runnable
-> walkthrough, against a local responder, is
-> [examples/connect-and-evolve.md](https://github.com/Vortx-AI/emem/tree/main/examples/connect-and-evolve.md).
+This page shows how emem links facts to each other and how it records
+disagreement. The short summary for an agent is in
+[Connect facts and revise them](agents.md#connect-facts-and-revise-them).
+A runnable walkthrough against a local responder is in
+[examples/connect-and-evolve.md](../examples/connect-and-evolve.md).
 
-A pile of facts is not yet a memory. A memory connects things and gets
-better as it learns. This layer adds two abilities: facts **link** to
-each other through typed, time-bounded edges, and the corpus **evolves**
-by turning disagreement into recorded links and re-checks, without ever
-deleting what it had before.
+## What ships and what does not
 
-## Typed temporal edges
+| Part | State on emem.dev |
+|---|---|
+| Typed edges: read with `POST /v1/edges/recall` or `emem_edges_recall` | Ships. All calls on this page ran on 7 November 2026. |
+| Edges on a recall: `include: ["edges"]` on `POST /v1/recall` | Ships. |
+| Write edges: `POST /v1/edges` | Ships. It needs a signed attestation. |
+| Contradiction scan: `emem_memory_contradictions` | Ships. See [Find where sources disagree](agents.md#job-find-where-sources-disagree). |
+| Refinement loop | In the code, but off by default (`EMEM_REFINEMENT_ENABLED`). emem.dev does not turn it on, so no edge there comes from the loop. |
+| Edges across responders | Roadmap. See [Edges across responders](#edges-across-responders). |
 
-A fact answers "what is at this place". An **edge** answers "how does
-this relate to that". An edge is itself a signed fact:
+No step on this page deletes or changes a fact. emem adds edges and
+markers next to the facts.
+
+## What an edge is
+
+A fact tells what is at a place. An edge tells how one fact relates to
+another fact. An edge is a signed record with five main fields:
 
 ```
 EdgeFact(subj, pred, obj, valid_from, valid_to)
 ```
 
-- `subj`, `obj`: the two things being related, each named by its
-  content id.
-- `pred`: the relationship, a free-form string (e.g. `disagrees_with`,
-  `supersedes`, `replaced_by`, `co_located_with`).
-- `valid_from`, `valid_to`: the window the relationship held. An open
-  `valid_to` means "still true".
+| Field | Meaning |
+|---|---|
+| `subj` | The content id (CID) of the fact that the edge starts at. |
+| `pred` | The relation, a free string. Examples: `disagrees_with`, `supersedes`, `replaced_by`, `co_located_with`. |
+| `obj` | The CID of the fact that the edge points to. |
+| `valid_from` | The first tslot in which the relation is true. |
+| `valid_to` | The last tslot in which the relation is true. No value means "still true". |
 
-Read edges with `POST /v1/edges/recall`. It takes a valid-time bound,
-`as_of_tslot`, which returns the latest edge per neighbour whose
-`[valid_from, valid_to)` covers that tslot:
+An edge also carries `confidence` (0 to 1), `signer` and `signed_at`. It
+can also carry a `note` and a `schema_cid` for the relation.
 
-```bash
-curl -s -X POST https://emem.dev/v1/edges/recall \
-  -H 'content-type: application/json' \
-  -d '{"subj":"l7hm437whbei33v37ntoxydt572ac7ldkopotvuu67idpdu5nxcq",
-       "pred":"disagrees_with"}' \
-  | jq '{edges: (.edges|length), hint: .agent_hint}'
+A read with `as_of_tslot` equal to `valid_to` still returns the edge. A
+read with a later tslot does not. The test
+`forward_recall_edges_valid_to_boundary` in
+`crates/emem-storage/src/lib.rs` holds this rule. The doc comment on
+`EdgeFact.valid_to` says "exclusive", and the module comment in
+`crates/emem-fact/src/edge.rs` says the same. The read path does not
+work that way.
+
+## Read the edges of a fact
+
+Send the fact CID as `subj`. The example fact is the JRC 2020 forest flag
+(`jrc_gfc2020.forest_2020`, value 0) at cell `defi.zb441.zd21e.zd3ee`.
+A recall of that cell and band returned this CID on 7 November 2026. The
+responder signed the fact on 28 September 2026 from the JRC V4 tile.
+
+```json
+{"name": "emem_edges_recall",
+ "arguments": {"subj": "ygcje35skz5dmiyzs5xt3oayakjpizemnpkvnpqvasnwa53qntza",
+               "pred": "disagrees_with"}}
 ```
 
-`subj` is a fact CID, not a cell. The one above is a real fact (the JRC
-2020 forest flag near Soubré) and it has no edges yet, so this returns
-`edges: []` with an `agent_hint` saying so. That is the honest "no
-relation known", not a lookup failure: `/v1/edges/recall` rejects an
-empty or ambiguous request with a 400 rather than returning a silent
-empty array.
+```bash
+curl -s -X POST https://emem.dev/v1/edges/recall \
+  -H 'content-type: application/json' \
+  -d '{"subj":"ygcje35skz5dmiyzs5xt3oayakjpizemnpkvnpqvasnwa53qntza",
+       "pred":"disagrees_with"}' \
+  | jq '{direction, edges: (.edges|length), hint: .agent_hint}'
+```
 
-To read the other direction, what points AT a fact (what disagrees with
-it, supersedes it or relates to it), send `obj` instead of `subj`, or set
-`direction: "in"`. Set exactly one of the two. The response carries
-`direction`, `objs`, and for a reverse read `subjs`:
+On 7 November 2026 this fact had no edges, with or without `pred`. The answer was
+`direction: "out"`, `edges: 0` and an `agent_hint` that says "no relation
+known". An empty list means that no edge exists. It is not a failure.
+
+Leave out `pred`, or send `""`, to read edges with any relation. Add
+`as_of_tslot` to read the edges that were true at that tslot.
+Send `limit` to set the maximum number of edges. The default is 100. The
+responder clamps the value to the range 1 to 1000 by default. The top
+comes from `EMEM_EDGES_MAX_LIMIT`
+(`crates/emem-primitives/src/edges.rs`).
+
+The responder signs the recall receipt like all other receipts. Its preimage
+includes the CIDs of the returned edges, so you can verify it offline.
+See [Verify a receipt](agents.md#job-verify-a-receipt).
+
+## Read the edges that point at a fact
+
+Send the CID as `obj` to find the facts that point at it. Such a fact can
+disagree with it, supersede it or relate to it in another way.
+
+```json
+{"name": "emem_edges_recall",
+ "arguments": {"obj": "ygcje35skz5dmiyzs5xt3oayakjpizemnpkvnpqvasnwa53qntza"}}
+```
 
 ```bash
 curl -s -X POST https://emem.dev/v1/edges/recall \
   -H 'content-type: application/json' \
-  -d '{"obj":"l7hm437whbei33v37ntoxydt572ac7ldkopotvuu67idpdu5nxcq"}' \
+  -d '{"obj":"ygcje35skz5dmiyzs5xt3oayakjpizemnpkvnpqvasnwa53qntza"}' \
   | jq '{direction, edges: (.edges|length), subjs}'
 ```
 
-For this fact that prints `direction: "in"`, `edges: 0`, `subjs: []`:
-nothing points at it yet.
+On 7 November 2026 this printed `direction: "in"`, `edges: 0` and
+`subjs: []`. No edge pointed at the fact.
 
-The MCP tool is `emem_edges_recall`. The recall receipt is signed like
-every other and commits the returned edge CIDs into its preimage, so it
-verifies offline the same way.
+Send `subj` or `obj`, not both. `direction` is `"out"` for `subj` and
+`"in"` for `obj`. The route returns HTTP 400 `invalid_argument` for these
+requests:
 
-Edges are written by `POST /v1/edges`: a signed attestation envelope
-whose `edges[]` leaves fold into the Merkle root the signature covers.
-Unlike facts, edges key no `(cell, band, tslot)` address, so a caller's
-own key can write them. That is how agent B records that it disagrees
-with agent A's fact. One gap to know: `emem_memory_view` does not show
-inbound edges on a note, so a reader has to ask `edges/recall` with
-`obj` to see a refutation.
+| Request | Error message (short form) |
+|---|---|
+| `{}` | `direction="out" requires a non-empty subj` |
+| `subj` and `obj` together | `ambiguous request`. Set exactly one of `subj` (out) or `obj` (in). |
+| `subj` with `direction: "in"` | `direction="in" requires a non-empty obj` |
 
-### Bi-temporal supersession: newer shadows older, nothing is deleted
+`emem_memory_view` does not show the edges that point at a note. To find
+a reply that disagrees with a note, send the note CID as `obj`.
 
-When a newer edge with a later `valid_from` arrives for the same
-`(subj, pred, obj)`, it **shadows** the older one rather than replacing
-it. A query with `as_of_tslot` in 2025 still sees the edge that was true
-in 2025; one in 2027 sees the newer one. History is never overwritten,
-so an audit can always replay the state as of any date.
+## Get the edges with a recall
 
-### Attach a fact's edges in one call
+Add `include: ["edges"]` to a recall. The edges come back in the same
+answer, so you do not need a second call.
 
-Add `include: ["edges"]` to a recall and the matching edges ride back
-with the fact, so an agent does not need a second round trip:
+```json
+{"name": "emem_recall",
+ "arguments": {"cell": "defi.zb441.zd21e.zd3ee", "band": "indices.ndvi",
+               "include": ["edges"]}}
+```
 
 ```bash
 curl -s -X POST https://emem.dev/v1/recall \
@@ -97,61 +135,117 @@ curl -s -X POST https://emem.dev/v1/recall \
   | jq '{value: .facts[0].value, edges: .edges}'
 ```
 
-The edges ride at the top level of the response, one `edges` array for
-all returned facts, not inside each fact. Asked for and absent, it is
-`edges: []`, which is what this cell returns today; not asked for, the
-key is not there at all, and the response is byte-identical to a recall
-from before edges existed. When edges are attached, their CIDs are
-threaded into the receipt. When the refinement loop has flagged a
-returned fact, the response also carries a top-level `contested` array
-naming it; that note is advisory and sits outside the signed surface.
+On 7 November 2026 both calls returned a first value of
+0.5138218516893375 and `edges: []`.
 
-## The refinement loop: how the memory evolves
+| You send | The answer |
+|---|---|
+| `include: ["edges"]`, and edges exist | One top-level `edges` array for all returned facts. The receipt signs the edge CIDs. |
+| `include: ["edges"]`, and no edges exist | `edges: []`. |
+| No `include` | No `edges` key. The answer and the receipt are the same as before edges existed. |
 
-**What it does.** When the loop is on and attesters disagree, it records
-the disagreement as a link and marks the contested fact for another
-look, so conflicts are kept visible rather than resolved silently. Its
-input is the contradiction scan, which by default counts only distinct
-attesters. The fact plane admits few of those (the responder, enrolled
-devices and an operator allowlist), so on a single-responder corpus the
-loop has little to act on.
+By default, a recall returns up to 32 edges for each fact and 256 edges
+in total. The variables `EMEM_RECALL_EDGES_PER_FACT` and
+`EMEM_RECALL_EDGES_TOTAL_CAP` change these limits.
 
-The loop is opt-in (`EMEM_REFINEMENT_ENABLED`, tuned by
-`EMEM_REFINEMENT_INTERVAL_SECS`, `EMEM_REFINEMENT_MIN_SEVERITY`,
-`EMEM_REFINEMENT_CELL_PREFIX` and `EMEM_REFINEMENT_MAX_PAIRS`) and
-non-destructive:
+If the refinement loop marked a returned fact, the answer also has a
+top-level `contested` array that names it. This array is advice only. It
+is not in the receipt preimage, so a recall before and after the mark
+signs the same receipt.
 
-1. The contradiction scorer (see
-   [What only emem does](./only-emem.md)) finds attesters that disagree
-   at the same `(cell, band, tslot)`.
-2. The loop writes a `disagrees_with` **edge** between the conflicting
-   facts, with a `valid_from` of now. The original facts are untouched.
-3. It flags the contested fact for **re-attestation**, a signal that
-   this value is worth observing again.
+## Write an edge
 
-Because every step is an edge or a flag (never a deletion), the whole
-history stays verifiable: you can see that two attesters disagreed, when
-the disagreement was recorded, and whether a later observation resolved
-it. Nothing is silently reconciled, and every edge in the chain is
-signed.
+This is a signed write. It needs your own Ed25519 key, and this page does
+not run it.
 
-## What this adds
+Send a signed attestation envelope to `POST /v1/edges`. Its `edges[]`
+array must not be empty. The envelope must also have a `facts` array. For
+an envelope with only edges, send `"facts": []`. The edge leaves go into
+the Merkle root that the signature covers. The answer gives `fact_cids`,
+`edge_cids` and `edge_count`. Each signing key can write about 240 times
+a minute, with a burst of 60, by default. Above that rate the answer is
+HTTP 429 `rate_limited`. Its `details` give `code: "write_rate_limited"`
+and `retry_after_s`. The variables `EMEM_WRITE_RATE_PER_MIN` and
+`EMEM_WRITE_RATE_BURST` change these limits. `EMEM_WRITE_RATE_LIMIT=off`
+turns the limit off.
 
-A plain store remembers facts. This layer lets facts **connect** (typed
-temporal edges between them) and lets the memory **evolve** (a loop
-that turns multi-attester disagreement into recorded edges and
-re-attestation flags). Both are append-only and signed, so a change in
-what the memory holds never removes the record of what it held before.
+An edge has no `(cell, band, tslot)` address. Thus the `fact_plane_closed`
+gate, which keeps callers off fact addresses, does not stop an envelope
+that has only edges. A caller can sign an edge with its own key. For
+example, a second agent can record that it disagrees with a fact from the
+first agent. Do not use the steps for a
+signed note here, because a note signs a different digest. The envelope
+and its preimage are in
+[protocol section 6](protocol.md#6-attestation-envelope). The worked example in
+[examples/connect-and-evolve.md](../examples/connect-and-evolve.md) reads
+edges back and describes this write.
 
-## Where this is going
+## How a newer edge hides an older edge
 
-The edges and the refinement loop run inside one responder today. Because
-every edge and every contradiction is itself a content-addressed, signed
-fact, the same machinery extends to a federation of independent
-responders: nodes that resolve the same content ids byte-for-byte could
-cross-cite each other's attestations and record where they disagree
-across hosts, so the disagreement graph spans the network rather than one
-store. What federation ships today is mutual witnessing of transparency
-log heads between nodes ([federation](./federation.md)); read federation,
-where one node answers from another's facts, does not exist yet, so a
-disagreement graph still lives on one responder.
+Two edges can have the same `subj`, `pred` and `obj`. Then the edge with
+the later `valid_from` hides the older edge. emem keeps both edges.
+
+`as_of_tslot` selects the edges that were true at one tslot:
+
+1. emem keeps the edges with `valid_from` less than or equal to the tslot.
+2. emem removes the edges with a `valid_to` less than the tslot. An edge
+   is still true at its `valid_to` tslot.
+3. For each predicate and neighbour fact, emem returns the edge with the
+   largest `valid_from`.
+
+Without `as_of_tslot`, step 3 runs on all edges. Thus a read for a 2025
+tslot shows the edge that was true in 2025, and a read for 2027 shows the
+newer edge. An audit can read the state at any past tslot.
+
+## The refinement loop
+
+The refinement loop turns disagreement into edges. It is in the code, but
+it is off by default, and emem.dev does not turn it on.
+
+When the loop runs, it does these steps:
+
+1. It runs the contradiction scan with
+   `include_same_attester_sources: false`. Thus the scan counts only
+   facts from different attesters. Two facts from one attester that
+   changed its upstream source do not count. The default scan for a
+   caller counts them.
+2. It skips each contradiction with a severity below the minimum.
+3. For each remaining contradiction, it pairs the fact with the lowest
+   confidence and the fact with the highest confidence. When
+   `EMEM_REFINEMENT_MAX_PAIRS` is above 1, the next pair is the second
+   lowest and the second highest, and so on.
+4. It writes a signed `disagrees_with` edge between the two facts. `subj`
+   is the smaller CID. `valid_from` is the tslot of the contradiction.
+   The edge `confidence` is the severity of the contradiction. The edge
+   `note` gives the severity, the kind and the band. The responder key
+   signs the edge.
+5. It marks the fact with the lower confidence as contested. A recall
+   shows this mark in `contested`.
+
+The loop does not change the original facts. It skips an edge that
+already exists with the same `subj`, `obj` and `valid_from`, so a second
+run writes no new edges.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `EMEM_REFINEMENT_ENABLED` | off | `1` turns the loop on. Any value other than empty, `0`, `false` or `no` also turns it on. The check ignores case. Thus `off` and `disabled` turn the loop on. Use `0` or `false` to turn it off. |
+| `EMEM_REFINEMENT_INTERVAL_SECS` | 86400 (one day) | Time between runs. Minimum 1. |
+| `EMEM_REFINEMENT_MIN_SEVERITY` | 0.5 | Lower severities make no edge. Range 0 to 1. |
+| `EMEM_REFINEMENT_CELL_PREFIX` | none | Limits the scan to cells with this cell64 prefix. |
+| `EMEM_REFINEMENT_MAX_PAIRS` | 1 | Pairs written for each contradiction. Minimum 1. The loop writes no more pairs than half the facts in the contradiction. |
+
+The fact plane admits few attesters: the responder, enrolled devices and
+an operator allow list. Thus on a corpus with one responder, the loop has
+few contradictions to act on.
+
+## Edges across responders
+
+Today the edges and the refinement loop work inside one responder. Each
+edge and each contradiction has a signature and a content id. Thus a
+federation of responders could, in a later version, cite edges from each other and
+record disagreement across hosts. This does not ship.
+
+What federation ships today is mutual witnessing of transparency log
+heads between nodes. See [federation](./federation.md). Read federation,
+where one node answers from the facts of another node, does not exist.
+Thus a disagreement graph is on one responder only.

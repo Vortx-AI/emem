@@ -1,20 +1,49 @@
-# Why hosts and directories show 12 tools, not 107
+# Why hosts and directories showed 12 tools, not 107
 
-> Checked 2026-09-29: the fix shipped. A no-cursor `tools/list` at
-> `https://emem.dev/mcp` now returns all 18 core tools in one page (76,766
-> bytes measured) with no `nextCursor`, so the chain ends at the core tier;
-> `/mcp/full` lists all 114 across 8 pages. The `server.json` text this record
-> calls false now describes the single core page, though its byte figures
-> (about 64 KB, and 7 pages for `/mcp/full`) are behind the measurement. The
-> numbers below are the 2026-08-11 state.
+This is a record of a defect that emem.dev had on 11 August 2026, and of its
+fix. The body of the record keeps the state of 11 August. Two later checks
+come first.
 
-*Measured against `https://emem.dev` on 2026-08-11. Every number below is one
-`tools/list` call away from being reproduced.*
+## State on 7 November 2026
 
-The symptom people report is "the tool list does not load", on Smithery and in
-MCP hosts generally. It is not a connection fault and not a client bug. There
-are two distinct failures, and `/mcp` produces one or the other for every
-client depending on whether it follows cursors.
+The fix still holds on version 2.4.4.
+
+| Call | Pages | Bytes | Tools | `nextCursor` on the last page |
+|---|---|---|---|---|
+| `/mcp`, no cursor | 1 | 76,820 | 18 (the core profile) | none |
+| `/mcp/full` | 9 | 354,705 | 116 | none |
+| `/mcp` with `{"tier":"all"}` | 9 | 354,714 | 116 | none |
+
+The pagination code in `crates/emem-api-rest/src/lib.rs` ends the chain when
+the selected list ends. Find the `next_cursor` after the comment "The cursor
+carries the selection". The code has no handoff to `tier:extended`.
+
+The probe `core_profile_whole_on_page_one` in `demos/stabilisation/claims.py`
+now pins the property in [A claim to pin](#a-claim-to-pin).
+
+The text in `server.json` (`x-emem.directoryCompliance.toolListing`) gives the
+correct count of 116 tools. Its byte and page figures are old. It says about
+64 KB for `/mcp`, and 7 pages of about 290 KB for `/mcp/full`.
+
+## State on 29 September 2026
+
+The fix shipped. A `tools/list` call at `https://emem.dev/mcp` with no cursor
+returned all 18 core tools in one page. The page had 76,766 bytes and no
+`nextCursor`, so the chain ended at the core tier. `/mcp/full` listed all 114
+tools across 8 pages. The `server.json` text that this record calls false then
+described the single core page. Its byte figures were behind the measurement:
+about 64 KB, and 7 pages for `/mcp/full`.
+
+## The symptom on 11 August 2026
+
+All numbers from here to the end are the state on 11 August 2026, measured
+against `https://emem.dev`. One `tools/list` call reproduced each number on
+that day.
+
+Users reported that "the tool list does not load", on Smithery and in other
+MCP hosts. The cause was not a connection fault or a client bug. `/mcp` had two
+different failures. A client got one or the other: the result depended on
+whether the client followed cursors.
 
 ## Measured
 
@@ -24,29 +53,28 @@ client depending on whether it follows cursors.
 /mcp/full   7 pages   = 289,937 B total, 107 tools, 7 round trips
 ```
 
-Page 1 of `/mcp` carries **12 tools** and `nextCursor: core@12`. The cursor
-chain then runs `core@12` → `tier:extended` → `extended@14` → … → null.
+Page 1 of `/mcp` had **12 tools** and `nextCursor: core@12`. The cursor chain
+then ran `core@12`, `tier:extended`, `extended@14` and so on, until null.
 
 ## Failure 1: a client that ignores `nextCursor` sees 12 tools
 
-Most directory scanners, and several hosts, take page one and stop. They get 12
-of 107, and not even the whole core profile, which is 16. The response says so
-itself, in two fields that disagree:
+Most directory scanners, and some hosts, take page one and stop. They got 12 of
+107 tools. That was not even the full core profile of 16 tools. The response
+showed this in two fields that disagreed:
 
 ```json
 "_discovery": { "showing_count": 12, "showing": "core", "total_tools": 107 }
 "_meta": { "dev.emem/profiles": { "core": 16, "all": 107 } }
 ```
 
-The four remaining core tools are on page 2. So a non-paginating client cannot
-see the advertised core surface at all, by construction.
+The other four core tools were on page 2. Thus a client that did not paginate
+could never see the full core surface that emem advertised.
 
-## Failure 2: a client that does follow cursors gets all 107 from `/mcp`
+## Failure 2: a client that follows cursors gets all 107 from `/mcp`
 
-`/mcp` does not stop at the core tier. When core is exhausted it hands the
-reader on to extended:
-
-`crates/emem-api-rest/src/lib.rs:20931`
+`/mcp` did not stop at the core tier. When the core tools ran out, the code
+sent the reader on to the extended tier. The code was at
+`crates/emem-api-rest/src/lib.rs:20931` on that day:
 
 ```rust
 let next_cursor = if more_in_tier {
@@ -58,72 +86,72 @@ let next_cursor = if more_in_tier {
 };
 ```
 
-So a well-behaved client walking the chain from `/mcp` pays **8 round trips,
-292 KB and 6.4 seconds** before it can call anything. Cold-connect handshakes
-and directory scanners routinely time out well inside that, which is what the
-connect-then-drop cycling looks like from the outside.
+A client that walked the full chain from `/mcp` thus paid **8 round trips,
+292 KB and 6.4 seconds** before it could call a tool. Cold-connect handshakes
+and directory scanners often time out before that. From the outside, this
+looked like a cycle of connect and drop.
 
-## The claim in `server.json` is false, and inverted
+## The claim in `server.json` was false, and inverted
 
-`x-emem.directoryCompliance.toolListing` currently reads:
+On 11 August, `x-emem.directoryCompliance.toolListing` said:
 
 > tools/list at the advertised /mcp returns a 16-tool core surface (~51 KB);
 > /mcp/full returns all 107 (about 266 KB). … so a host connecting cold from a
 > directory spends 51 KB of context rather than 266 KB.
 
-Measured, `/mcp` serves 292 KB over 8 pages and `/mcp/full` serves 290 KB over
-7. `/mcp` is the **more** expensive endpoint, not the cheaper one. The split
-does not bound anything; it only orders core first. A directory reading that
-sentence and choosing `/mcp` gets the opposite of what it was promised.
+The measurement was different. `/mcp` served 292 KB over 8 pages, and
+`/mcp/full` served 290 KB over 7 pages. Thus `/mcp` was the **more** expensive
+endpoint. The split did not limit the size; it only put the core tools first.
+A directory that read the sentence and chose `/mcp` got the opposite of the
+promise.
 
-This is the same class of defect as the dead documentation URL in the previous
-log: a true-sounding sentence about behaviour outside the code, which no test
-was watching.
+The dead documentation URL in the previous log was the same type of defect. In
+both cases, a sentence about behaviour outside the code sounded true. No test
+checked it.
 
 ## Fix
 
-Two changes, and the second is what makes the first useful.
+The record proposed three changes. The second change makes the first useful.
 
-1. **Terminate the chain at the core tier when the endpoint's default is
-   core.** Return `None` rather than `tier:extended`. A client that wants
-   everything already has `/mcp/full`, and an explicit `{"tier":"all"}` still
-   works from either endpoint, so nothing is lost. The current handoff means
-   the `/mcp` default is indistinguishable from `/mcp/full` for any client
-   patient enough to finish.
+1. **Stop the chain at the core tier when the default of the endpoint is
+   core.** Return `None`, not `tier:extended`. A client that wants all tools
+   has `/mcp/full`. An explicit `{"tier":"all"}` works from both endpoints, so
+   clients lose nothing. With the handoff, a patient client could not tell the
+   `/mcp` default from `/mcp/full`.
 
-2. **Size the page budget so all 16 core tools fit page 1.** They are about
-   64,166 bytes together (43,596 + 20,570), comfortably under the 102,400-byte
-   client cap that `demos/stabilisation` already pins. The budget was halved in
-   `c0b896b` so that each page fits the ceiling, and that is what splits core
-   across two pages. Raising it to roughly 70 KB keeps every page legal and
-   puts the whole core profile in one response.
+2. **Set the page budget so that all 16 core tools fit on page 1.** Together
+   they are about 64,166 bytes (43,596 + 20,570). That is well below the
+   102,400-byte client cap that `demos/stabilisation` already pins. Commit
+   `c0b896b` cut the budget in half so that each page fits the cap. That cut
+   split the core tools across two pages. A budget of about 70 KB keeps each
+   page below the cap and puts the full core profile in one response.
 
-Together: **one round trip, ~64 KB, 16 tools, and it works on clients that
-never send a cursor at all.** That is the behaviour `server.json` already
-claims.
+3. **Correct the `directoryCompliance.toolListing` text** to match what ships.
 
-3. **Correct the `directoryCompliance.toolListing` text** to whatever ships.
+Changes 1 and 2 together give one round trip, about 64 KB and 16 tools. This
+works on clients that never send a cursor. `server.json` already claimed this
+behaviour.
 
-## A claim worth pinning
+## A claim to pin
 
-`demos/stabilisation` already asserts that every page of `/mcp/full` fits the
-client cap, and it passes, because the pages are legal. What nothing asserts is the
-property that actually matters to a directory:
+On 11 August, `demos/stabilisation` checked that each page of `/mcp/full` fits
+the client cap. That check passed, because the pages were within the cap. No
+check covered the property that matters to a directory:
 
 > A no-cursor `tools/list` on `/mcp` returns the complete core profile, and the
 > chain from `/mcp` ends at the core tier.
 
-Both halves of that are false today and neither is red anywhere. The existing
-`widest_tools_page` probe checks the wrong endpoint for this question, and
-checks page size rather than page count.
+Both parts of that property were false, and no check failed. The probe
+`widest_tools_page` checked the wrong endpoint for this question. It also
+checked page size, not page count.
 
-## For anyone integrating right now
+## Advice to integrators on 11 August
 
-Until this changes:
+Until the fix shipped:
 
-- Do not judge the surface by page one. `/mcp` page one is 12 of 107.
-- `emem_tools` maps the whole catalogue without loading it, and `tools/call`
-  dispatches any of the 107 by name at either endpoint regardless of what
-  `tools/list` showed you. A tool you cannot see is still callable.
-- If you need everything up front and your client paginates, use `/mcp/full`:
-  same tools, one fewer round trip.
+- Do not judge the surface by page one. Page one of `/mcp` had 12 of 107 tools.
+- `emem_tools` maps the full catalogue, and you do not have to load it.
+  `tools/call` runs any of the 107 tools by name at either endpoint. A tool
+  that `tools/list` did not show is still callable.
+- If you need all tools at the start and your client paginates, use
+  `/mcp/full`. It has the same tools and one fewer round trip.

@@ -1,351 +1,220 @@
-# Microsoft Copilot Studio + Semantic Kernel, Integration Guide
+# Microsoft Copilot and Semantic Kernel listings
 
-**Status:** package built in [`integrations/microsoft-copilot/`](../../integrations/microsoft-copilot/) (manifest, mcptools.json, intro.md, both icons); Semantic Kernel example in `examples/semantic-kernel/`. Remaining: the Microsoft-side steps (Partner Center, the no-auth question, the forms).  
-**Two Microsoft paths, pursue in order:**
-1. M365 Copilot Federated Connector (form submission, fastest)
-2. Copilot Studio MCP Certification (Partner Center, broader reach)
-3. Semantic Kernel example (code contribution)
+This page records how emem can reach three Microsoft surfaces, and the state of
+each path. We checked all states, counts and Microsoft requirements on
+7 November 2026. We did not check steps that need a Microsoft or Partner
+Center login. The page says so where it applies.
 
----
-
-## What is already done
-
-| Asset | Location | Status |
+| Path | What ships in this repo | State on 7 November 2026 |
 |---|---|---|
-| MCP endpoint | `https://emem.dev/mcp` (Streamable HTTP) | ✅ live |
-| Tool annotations (`readOnlyHint`, `title`) | All tools in `tools/list` | ✅ present |
-| 192×192 color icon | `web/icon-192.png` | ✅ exists |
-| 512×512 logo | `web/logo.png` | ✅ exists |
-| Privacy policy | `https://emem.dev/privacy` | ✅ live |
-| Terms | `https://emem.dev/terms` | ✅ live |
-| AutoGen example (close relative) | `examples/autogen/emem_mcp_geospatial_agent.py` | ✅ exists |
+| Microsoft 365 Copilot federated connector | The package in [`integrations/microsoft-copilot/`](../../integrations/microsoft-copilot/) | No listing found. Submission state needs a Partner Center login; not checked. |
+| Copilot Studio MCP certification | The same package | No listing found. The package uses `"authorization": {"type": "None"}`. Microsoft now asks for an Azure Key Vault block. |
+| Semantic Kernel example | [`examples/semantic-kernel/`](../../examples/semantic-kernel/) | Upstream PR [microsoft/semantic-kernel#14228](https://github.com/microsoft/semantic-kernel/pull/14228) closed without merge on 28 September 2026. |
 
-**Built:** everything that was listed missing here (outline icon, `mcptools.json`, `manifest.json`, `intro.md`, the Semantic Kernel example). The package in `integrations/microsoft-copilot/` supersedes the templates below, which are kept as the record of the plan; the template text claimed "no rate limits for reads", which is false (reads are rate-limited per client).
+## What the package holds
 
----
+[`integrations/microsoft-copilot/README.md`](../../integrations/microsoft-copilot/README.md)
+lists the five files. Zip them flat, with no folder, to upload.
 
-## Path 1, M365 Copilot Federated Connector (do first)
-
-This lists emem in the **Microsoft 365 Copilot connectors gallery**, available to all M365 enterprise tenants whose admins approve it. Fastest path. No Partner Center needed.
-
-### Auth blocker, email first
-
-The docs say "Authenticated scenarios use OAuth 2.0." emem has **no auth for reads**. Before filling the form, email Microsoft to confirm no-auth servers are accepted:
-
-```
-To: submit-fcc@microsoft.com
-Subject: Federated Connector submission — no-auth read-only MCP server
-
-Hi,
-
-We're preparing to submit emem (https://emem.dev/mcp) as a federated connector.
-emem is an MCP server whose reads need no authentication (no OAuth, no API key).
-Pure lookups carry readOnlyHint: true, and reads that can materialise a fact on a
-cold address carry readOnlyHint: false; writes are ed25519-signed by the caller and tiered by reach, see GET /v1/enlist.
-
-Could you confirm whether no-auth / anonymous read-only MCP servers are accepted
-in the federated connector program, and if so, how to handle the OAuth credential
-fields in the submission form?
-
-Thank you,
-Vortx AI
-```
-
-**If they confirm no-auth is OK**, proceed with the form. If OAuth is required, emem would need to add a lightweight OAuth wrapper for the reads, but this is unlikely to be required for a fully public read API.
-
-### Prepare before filling the form
-
-| Field | Limit | Value |
+| File | Content | Check on 7 November 2026 |
 |---|---|---|
-| **MCP server URL** |, | `https://emem.dev/mcp` |
-| **Connector display name** |, | `emem, verifiable Earth memory` |
-| **Short description** | ≤80 chars | `Signed, cite-able Earth observation facts for any place. No API key to read.` |
-| **Synonyms** (keywords) | ≤10 | `earth observation, geospatial, climate risk, satellite, air quality, flood, deforestation, vegetation, signed memory, MCP` |
-| **Color logo** | 192×192 PNG | `web/icon-192.png`, already correct size ✅ |
-| **Outline logo** | 32×32 white-on-transparent PNG | **Must be created**, see below |
-| **Privacy policy** |, | `https://emem.dev/privacy` |
-| **Docs / support** |, | `https://emem.dev/agents.md` |
-| **Contact** |, | `avijeet@vortx.ai` |
+| `manifest.json` | `devPreview` app manifest, version 2.4.4, one `agentConnectors` entry for `https://emem.dev/mcp` | ASCII only |
+| `mcptools.json` | The 18 core tools from `tools/list` on `/mcp` | 18 tools. Four differ from the live list (see below). 8 lines hold non-ASCII characters. |
+| `intro.md` | The connector documentation page | Its tool counts match the live list |
+| `color.png` | Colour icon | 192 x 192 PNG |
+| `outline.png` | White-on-transparent outline icon | 32 x 32 PNG |
 
-**Create the 32×32 outline PNG:**
-```bash
-# Using ImageMagick — install if needed: brew install imagemagick
-convert web/logo.png \
-  -resize 32x32 \
-  -background transparent \
-  -alpha set \
-  -channel RGB -white-threshold 1% \
-  web/outline-32.png
-# Or manually create a 32x32 white-on-transparent version of the logo mark
-```
+On 7 November 2026, the live `/mcp` list had 18 tools on one page. Each tool
+has a `title` and the annotations `readOnlyHint`, `destructiveHint`,
+`idempotentHint` and `openWorldHint`.
 
-**Tool list to include** (all read-only, include in form):
-```
-emem_locate        — Resolve place name/coordinate to canonical cell64 address
-emem_recall        — Read signed facts at a location (air quality, flood, fire, vegetation, elevation)
-emem_ask           — Free-text question about a place, answered with signed facts
-emem_memory_token  — Compose a cite-able emem:fact: handle for any fact
-emem_verify_receipt — Verify a fact's Ed25519 signature offline
-emem_deforestation_alert — NDVI drop + embedding change alert
-emem_burn_severity — Burn severity from pre/post-fire Sentinel-2
-emem_band_raster   — Signed raster derivation for any band over a region
-emem_hunt          — Find event hotspots (flood, fire, drought) over a region
-emem_entity        — Mint or get a canonical object identity
-```
-Pure lookups carry `readOnlyHint: true`; tools that can materialise, sign and persist a fact on a cold address, and the signed write verbs, carry `false`. List the read-only set via:
-```bash
+| `readOnlyHint` | Count | Tools |
+|---|---|---|
+| `true` | 9 | `emem_locate`, `emem_memory_token`, `emem_memory_token_resolve`, `emem_verify_receipt`, `emem_memory_contradictions`, `emem_guard_verdict`, `emem_tools`, `emem_echo_verify`, `emem_entity_resolve` |
+| `false` | 9 | `emem_recall`, `emem_ask`, `emem_intent`, `emem_find_similar`, `emem_memory_bundle`, `search`, `fetch`, `emem_entity`, `emem_entity_link` |
+
+The first seven tools in the `false` row can measure and sign a new fact
+when the reading does not exist yet. `emem_entity` and `emem_entity_link`
+write shared identities and need a signed attester block. `intro.md` gives
+the same split.
+
+Count the read-only tools yourself:
+
+```sh
 curl -s -X POST https://emem.dev/mcp \
-  -H "Content-Type: application/json" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
   | jq '[.result.tools[] | select(.annotations.readOnlyHint == true) | .name]'
 ```
 
-**Sample prompts (form requires ≥3 with expected responses):**
-```
-1. "Is the air quality in Delhi safe for outdoor exercise today?"
-   → emem_locate("Delhi") → emem_recall(band: "aqi") → returns signed AQI fact with receipt
+On 7 November 2026 this returned the 9 names in the table.
 
-2. "Has there been recent deforestation near the Amazon at -3.47°N, -62.22°W?"
-   → emem_deforestation_alert(place: "Amazon, -3.47, -62.22") → signed NDVI alert
+### Make mcptools.json current before you upload
 
-3. "What is the elevation and flood risk at 28.61°N, 77.21°E (New Delhi)?"
-   → emem_locate → emem_recall(bands: ["elevation", "flood_extent"]) → signed facts
-```
+On 7 November 2026, the repo `mcptools.json` differed from the live list for
+four tools:
 
-**Test credentials for reviewer:**
-```
-No login required. Add emem as a connector with URL: https://emem.dev/mcp
-All read tools work anonymously. Verify any returned receipt at https://emem.dev/verify
-```
+| Tool | Field that differs |
+|---|---|
+| `emem_locate` | `description` |
+| `emem_ask` | `description` |
+| `emem_intent` | `inputSchema` |
+| `emem_memory_contradictions` | `description`, `inputSchema` |
 
-### Submit
-**Form:** `https://aka.ms/FccSubmissionForm`  
-**Questions:** `submit-fcc@microsoft.com`
+Run the regeneration command in the package README before each upload. Then
+look for non-ASCII characters, because Microsoft warns that they can fail
+validation:
 
----
-
-## Path 2, Copilot Studio MCP Certification (Partner Center)
-
-This lists emem in **Copilot Studio + Azure Foundry**, broader than M365 Copilot alone.
-
-### Prerequisites (complete before building the package)
-
-- [ ] Create a **Microsoft Partner Center account**: `https://partner.microsoft.com/`
-- [ ] Complete **business verification** in Partner Center
-- [ ] Enroll in the **Microsoft 365 and Copilot program** inside Partner Center
-- [ ] Create an **Azure subscription** (needed for Key Vault)
-- [ ] Create an **Azure Key Vault** (required even for no-auth, store placeholder secrets)
-
-### Package files to create
-
-**1. `manifest.json`**, save to `examples/copilot-studio/manifest.json`:
-```json
-{
-  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/vDevPreview/MicrosoftTeams.schema.json",
-  "manifestVersion": "devPreview",
-  "version": "2.4.4",
-  "id": "com.vortxai.emem",
-  "developer": {
-    "name": "Vortx AI Private Limited",
-    "websiteUrl": "https://emem.dev",
-    "privacyUrl": "https://emem.dev/privacy",
-    "termsOfUseUrl": "https://emem.dev/terms"
-  },
-  "name": {
-    "short": "emem",
-    "full": "emem — verifiable Earth memory"
-  },
-  "description": {
-    "short": "Signed, cite-able Earth observation facts for any place. No API key to read.",
-    "full": "emem is shared, verifiable memory for AI agents grounded in Earth observation. Recall Ed25519-signed, BLAKE3 content-addressed facts about air quality, vegetation, flood extent, fire severity, elevation, and deforestation for any place on Earth. No API key, no signup, no rate limits for reads. Every response includes an offline-verifiable receipt. 116 MCP tools. Apache 2.0."
-  },
-  "agentConnectors": [
-    {
-      "id": "emem-connector",
-      "displayName": "emem",
-      "description": "Signed Earth observation facts. emem_locate → emem_recall → cite with emem:fact: token.",
-      "toolSource": {
-        "remoteMcpServer": {
-          "mcpServerUrl": "https://emem.dev/mcp",
-          "mcpToolDescription": {
-            "file": "mcptools.json"
-          },
-          "authorization": {
-            "type": "AzureKeyVault",
-            "referenceId": "https://<your-keyvault>.vault.azure.net/"
-          }
-        }
-      }
-    }
-  ],
-  "icons": {
-    "outline": "outline-32.png",
-    "color": "icon-192.png"
-  },
-  "accentColor": "#1a3a5c"
-}
-```
-Replace `<your-keyvault>` with your actual Azure Key Vault URI.
-
-**2. `mcptools.json`**, save to `examples/copilot-studio/mcptools.json`:
-
-Generate from the live server:
-```bash
-curl -s -X POST https://emem.dev/mcp \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
-  | jq '[.result.tools[] | {
-      name: .name,
-      title: .annotations.title,
-      description: .description,
-      inputSchema: .inputSchema,
-      annotations: { readOnlyHint: .annotations.readOnlyHint }
-    }]' > examples/copilot-studio/mcptools.json
+```sh
+grep -nP '[^\x00-\x7F]' integrations/microsoft-copilot/mcptools.json
 ```
 
-**3. `intro.md`**, save to `examples/copilot-studio/intro.md`:
-```markdown
-# emem — verifiable Earth memory
+## Federated connector for Microsoft 365 Copilot
 
-emem provides shared, verifiable memory for AI agents grounded in Earth observation.
-Recall Ed25519-signed facts about any place on Earth — air quality, flood extent,
-fire severity, vegetation health, elevation, deforestation — with offline-verifiable receipts.
+A federated connector puts a remote MCP server in the Connectors Gallery of
+Microsoft 365 Copilot tenants. Each tenant admin must then approve it.
 
-## Setup
+Microsoft's page
+[Submit a federated Microsoft 365 Copilot connector](https://learn.microsoft.com/en-us/microsoft-365/copilot/connectors/submit-federated-connector)
+had its last update on 16 October 2026. It gives these rules for an independent
+software vendor:
 
-No API key or signup required to read. Add the connector URL: `https://emem.dev/mcp`
+- Submit a plugin package in Partner Center. You need the developer or
+  manager role.
+- Every tool needs a human-readable title and the `readOnlyHint` annotation.
+- Give OAuth 2.0 credentials "for any authenticated scenario", and a test
+  account for reviewers.
+- Assets: a description of 80 characters or fewer, up to 10 synonyms, a
+  192 x 192 colour logo and a 32 x 32 outline logo.
+- Give at least three sample prompts with expected responses.
 
-## Example prompts
+The emem package meets the title and logo rules. Each tool has the
+`readOnlyHint` annotation. The manifest short description has 70
+characters.
 
-- "Is the air quality in Delhi safe for exercise today?"
-- "Has the Amazon near Manaus been deforested recently? Give me a citable receipt."
-- "What is the flood risk at 28.6°N, 77.2°E?"
+Prepare these values for the form:
 
-## Authentication
+| Field | Limit | Value |
+|---|---|---|
+| MCP server URL | | `https://emem.dev/mcp` |
+| Connector display name | | `emem` (`name.full` in `manifest.json` is `emem, verifiable memory for AI agents`) |
+| Short description | 80 characters | `Signed, citable Earth observation facts for any place. No key to read.` |
+| Synonyms | 10 | `earth observation, geospatial, climate risk, satellite, air quality, surface water, deforestation, vegetation, signed memory, MCP` |
+| Colour logo | 192 x 192 PNG | `integrations/microsoft-copilot/color.png` |
+| Outline logo | 32 x 32 PNG | `integrations/microsoft-copilot/outline.png` |
+| Privacy policy | | `https://emem.dev/privacy` (200 on 7 November 2026) |
+| Docs and support | | `https://emem.dev/agents.md` (200 on 7 November 2026) |
+| Contact | | `avijeet@vortx.ai`, from the August plan. Confirm it before you submit. |
 
-No authentication required for read operations.
-Write operations (attesting derivations) require an ed25519 key — not relevant for most users.
+The old plan used the form link `https://aka.ms/FccSubmissionForm` and the
+address `submit-fcc@microsoft.com`. On 7 November 2026, the link still
+redirected to a Microsoft Forms page. The current Microsoft page names
+neither the form nor the address.
 
-## Known limitations
+### Open question: no OAuth for reads
 
-- Ground resolution is ~9.55 m (64-bit cell address). Sub-10-metre queries are not supported.
-- High-frequency streams (>1 write/second) are outside the design envelope.
-- Write operations are not available through this connector.
+emem reads need no credential. The Microsoft page asks for OAuth only for
+authenticated scenarios, but its metadata table has an "OAuth credentials"
+row. Ask Microsoft if they accept an anonymous read server before you submit.
 
-## Support
+### Open question: `search` and `fetch` are not read-only
 
-- Homepage: https://emem.dev
-- Docs: https://emem.dev/agents.md
-- GitHub: https://github.com/Vortx-AI/emem
-- Email: avijeet@vortx.ai
+Microsoft's federated connector page asks for the tools `search` and `fetch`
+with `readOnlyHint: true`. In the table above, both have
+`readOnlyHint: false`, because each can measure and sign a new fact. Ask
+Microsoft if this blocks the submission.
+
+### Sample prompts
+
+The old plan listed prompts that used the bands `aqi` and `flood_extent`.
+Neither band exists. On 7 November 2026, `GET /v1/bands` listed 43 bands.
+Air quality comes from `cams.*` bands such as `cams.pm25`. Water comes from
+`surface_water.*` bands. Use the three prompts in `intro.md`. Microsoft
+asks for an expected response with each prompt. We ran each prompt through
+`POST /v1/ask` on 7 November 2026.
+
+| Prompt | Expected response |
+|---|---|
+| "What is the vegetation index near Mount Fuji right now? Give me a receipt I can cite." | `emem_ask` resolves Mount Fuji to one cell. It gives NDVI and other indices with their age, the `fact_cids` and a signed receipt. On 7 November 2026, NDVI was 0.03, measured 2 days before. |
+| "Was there forest loss after 2020 at -3.47, -62.22?" | `emem_recall` with the bands `forest_change.lossyear` and `jrc_gfc2020.forest_2020`. On 7 November 2026, `lossyear` was 0 (no loss from 2001 to 2025) and `forest_2020` was 1. The answer carries a signed receipt. |
+| "What is the elevation at 28.61, 77.21?" | `emem_ask` gives the elevation from the Copernicus DEM with a signed receipt. On 7 November 2026, it was 215.56 m. |
+
+The second prompt needs a fix before you submit. On 7 November 2026,
+`emem_ask` answered it with weather and NDVI, not with forest loss. Change
+the prompt, or tell the reviewers to expect `emem_recall`.
+
+Reviewers need no login. Tell them to add `https://emem.dev/mcp` as the
+connector URL and to check a receipt at `https://emem.dev/verify`.
+
+## Copilot Studio MCP certification
+
+A certified MCP server appears in Copilot Studio and Azure Foundry.
+Microsoft's page
+[Microsoft MCP server certification (preview)](https://learn.microsoft.com/en-us/microsoft-copilot-studio/mcp-certification)
+had its last update on 2 November 2026. It gives these rules:
+
+- The publisher must have a Partner Center account with business
+  verification. It must enrol in the Microsoft 365 and Copilot program.
+- New submissions start with an intake form. Microsoft then sends
+  instructions. The legacy process stays open through 18 November 2026.
+- The offer type in Partner Center is "Apps and Agents for M365 and Copilot".
+- Each package needs a manifest, a tool file, `intro.md`, and an Azure Key
+  Vault authentication block.
+- Manifest and tool files must use ASCII header names and values.
+
+The emem package differs from this in two places:
+
+| Item | emem package | Microsoft example |
+|---|---|---|
+| `authorization` | `{"type": "None"}` | `{"type": "AzureKeyVault", "referenceId": "<vault URI>"}` |
+| Manifest schema | `devPreview` | `v1.30` |
+
+The package README says what to do if Microsoft refuses `None`: use an
+`AzureKeyVault` block that holds a placeholder. The Microsoft FAQ lists the
+secrets for OAuth2 and Azure AD providers only. It names no secret set for
+a server without auth.
+
+These steps need the publisher's accounts. Nobody checked them on
+7 November 2026:
+
+1. Make a Partner Center account and complete business verification.
+2. Enrol in the Microsoft 365 and Copilot program.
+3. Send the intake form.
+4. If Microsoft asks for Key Vault, make an Azure subscription and a vault.
+
+## Semantic Kernel example
+
+[`examples/semantic-kernel/emem_mcp_geospatial_agent.py`](../../examples/semantic-kernel/emem_mcp_geospatial_agent.py)
+connects a Semantic Kernel kernel to `https://emem.dev/mcp` through
+`MCPStreamableHttpPlugin`. It asks the model to locate South Mumbai, recall
+`copdem30m.elevation_mean`, and verify the receipt.
+
+On 7 November 2026, Semantic Kernel 1.47.0 was the newest release on PyPI
+(5 November 2026). Its `python/semantic_kernel/connectors/mcp.py` still
+defines `MCPStreamableHttpPlugin`. The example needs an OpenAI key, so we
+did not run it.
+
+```sh
+pip install semantic-kernel
+export OPENAI_API_KEY="sk-..."
+python examples/semantic-kernel/emem_mcp_geospatial_agent.py
 ```
 
-**4. Icons**, copy existing assets:
-```bash
-cp web/icon-192.png examples/copilot-studio/icon-192.png
-# Create outline-32.png (32x32 white-on-transparent):
-convert web/logo-mark.png -resize 32x32 -background transparent examples/copilot-studio/outline-32.png
-```
+### Upstream state
 
-### Submit via Partner Center
-1. Go to `https://partner.microsoft.com/`
-2. Create new offer → **Apps and Agents for M365 and Copilot**
-3. Upload the package (manifest.json + mcptools.json + intro.md + icons)
-4. Fill in commercial, legal, support, publisher information
-5. Submit for review
-
----
-
-## Path 3, Semantic Kernel example
-
-Semantic Kernel is Microsoft's .NET + Python agent framework with native MCP support. An example in their repo gives emem visibility to a large enterprise developer audience.
-
-### Create the example
-
-**File: `examples/semantic-kernel/emem_mcp_geospatial_agent.py`**
-
-Base it on `examples/autogen/emem_mcp_geospatial_agent.py`, the pattern is the same. Use `MCPStreamableHttpPlugin`:
-
-```python
-"""
-emem geospatial memory example for Microsoft Semantic Kernel.
-
-Uses emem as a Streamable HTTP MCP plugin — no API key required to read; writes are signed and tiered.
-
-Install:
-    pip install semantic-kernel
-
-Run:
-    python emem_mcp_geospatial_agent.py
-"""
-
-import asyncio
-from semantic_kernel import Kernel
-from semantic_kernel.connectors.mcp import MCPStreamableHttpPlugin
-from semantic_kernel.connectors.ai.open_ai import OpenAIChatCompletion
-
-async def main():
-    kernel = Kernel()
-    kernel.add_service(OpenAIChatCompletion(ai_model_id="gpt-4o"))
-
-    async with MCPStreamableHttpPlugin(
-        name="emem",
-        description="Verifiable Earth memory — signed facts for any place on Earth",
-        url="https://emem.dev/mcp",
-    ) as emem_plugin:
-        kernel.add_plugin(emem_plugin)
-
-        result = await kernel.invoke_prompt(
-            "Is the air quality in Delhi safe for outdoor exercise today? "
-            "Give me a signed fact with a receipt I can cite."
-        )
-        print(result)
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-Also create `examples/semantic-kernel/README.md` following the same pattern as `examples/autogen/README.md`.
-
-### Submit PR to microsoft/semantic-kernel
-
-```
-Repo: https://github.com/microsoft/semantic-kernel
-Target path: python/samples/demos/ or python/samples/concepts/mcp/
-PR title: "Add emem geospatial memory MCP example for Semantic Kernel"
-```
-
-Also submit PR to `MicrosoftDocs/semantic-kernel-docs`:
-```
-Repo: https://github.com/MicrosoftDocs/semantic-kernel-docs
-Target path: semantic-kernel/concepts/plugins/
-Add emem as an example under "Adding MCP plugins"
-```
-
----
-
-## Summary: what to do and in what order
-
-| # | Action | Blocker | Time |
-|---|---|---|---|
-| 1 | Email `submit-fcc@microsoft.com` asking about no-auth servers | None | 5 min |
-| 2 | Create `outline-32.png` (32×32 white-on-transparent icon) | None | 10 min |
-| 3 | Create `examples/semantic-kernel/` example + README | None | 1 hr |
-| 4 | Submit PR to `microsoft/semantic-kernel` | Working example | 30 min |
-| 5 | Submit Federated Connector form (`https://aka.ms/FccSubmissionForm`) | Email response from step 1 | 30 min |
-| 6 | Set up Partner Center + Azure Key Vault | Microsoft account | 1-2 days |
-| 7 | Build Copilot Studio package (manifest + mcptools.json + intro.md) | Partner Center setup | 2 hrs |
-| 8 | Submit Partner Center "Apps and Agents for M365 and Copilot" | Package complete | 1 hr |
-
----
+| Target | State on 7 November 2026 |
+|---|---|
+| [microsoft/semantic-kernel#14228](https://github.com/microsoft/semantic-kernel/pull/14228) | Opened 28 July 2026 by kumari-jaya. It added `python/samples/concepts/mcp/emem_mcp_geospatial_agent.py`. Closed without merge on 28 September 2026. The maintainer wrote that Semantic Kernel takes no new features and pointed to microsoft/agent-framework. |
+| `MicrosoftDocs/semantic-kernel-docs` | No emem PR found. The page `semantic-kernel/concepts/plugins/adding-mcp-plugins.md` exists. |
+| `microsoft/agent-framework` | No emem issue or PR found. |
 
 ## References
 
-- Federated connector form: https://aka.ms/FccSubmissionForm
-- Federated connector docs: https://learn.microsoft.com/en-us/microsoft-365/copilot/connectors/submit-federated-connector
+- Federated connector guide: https://learn.microsoft.com/en-us/microsoft-365/copilot/connectors/submit-federated-connector
 - Copilot Studio MCP certification: https://learn.microsoft.com/en-us/microsoft-copilot-studio/mcp-certification
 - Partner Center: https://partner.microsoft.com/
-- Semantic Kernel MCP docs: https://github.com/MicrosoftDocs/semantic-kernel-docs/blob/main/semantic-kernel/concepts/plugins/adding-mcp-plugins.md
+- Semantic Kernel MCP plugins: https://github.com/MicrosoftDocs/semantic-kernel-docs/blob/main/semantic-kernel/concepts/plugins/adding-mcp-plugins.md
 - emem MCP endpoint: https://emem.dev/mcp
-- emem privacy: https://emem.dev/privacy
-- emem terms: https://emem.dev/terms
+- emem privacy policy: https://emem.dev/privacy (200 on 7 November 2026)
+- emem terms: https://emem.dev/terms (200 on 7 November 2026)

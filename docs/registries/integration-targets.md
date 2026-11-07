@@ -1,72 +1,74 @@
-# Integrations: where a PR is actually wanted, and how to write one
+# Integration targets: where projects want a PR, and how to write one
 
-The listing campaign in `registry_claude.md` has a poor return. Two merges,
-two closures, and three submissions nobody has looked at since May. One of the
-closures is the useful one, because the maintainer said why:
+This page is a plan. It names the third-party projects that accept emem code,
+the form each one wants, and how to write the PR.
+We checked the states on this page on 7 November 2026, unless a line says otherwise.
+
+## Why listings did not work
+
+The listing campaign in [`registry_claude.md`](../../registry_claude.md) had a poor return.
+Two submissions merged, two closed, and three got no reply after May 2026.
+One closure gave a reason:
 
 > a thin wrapper around the emem MCP endpoint with no substantial AI logic of
 > its own … this repository prioritises tutorials demonstrating meaningful LLM
 > integration rather than promotional wrappers for external services
 
-That is the whole problem in one sentence. A link in a list costs a maintainer
-nothing and gives their users nothing, so it sits. Code that does a job for
-their users gets merged. The rest of this document is about which repositories
-want code, what shape they want it in, and how to write the PR so it does not
-read as generated.
+A link in a list gives the maintainer's users nothing, so it waits.
+Maintainers merge code that does a job for their users.
+The rest of this page is about which projects want code, and in which form.
 
-## The thing that changed under everyone's feet
+## Pick the form the project wants
 
-The "open a PR adding your integration to the framework" era is over at the
-big frameworks, and submissions still aimed at it die quietly. There are now
-three distinct shapes, and picking the wrong one is why a submission gets no
-reply rather than a rejection.
+Large frameworks no longer take integration PRs into their own code.
+There are three forms now.
+A submission in the wrong form gets no reply, not a rejection.
 
-### Shape A: publish first, then a documentation PR
+| Form | What the project wants | Projects |
+|---|---|---|
+| A | A package you publish, then one docs PR that lists it | LangChain |
+| B | A package PR into their monorepo; they publish it | LlamaIndex |
+| C | A package in their marketplace, with their own packaging rules | n8n, Dify |
 
-**LangChain.** `langchain-community` was archived on 2026-06-19. New
-integrations are **not accepted as PRs to any langchain-ai repository**. The
-integration must be an independent package on PyPI, and the only PR you open
-is to `langchain-ai/docs`, adding a row to
-`scripts/data/integration_external_docs.yaml`. A dedicated hosted guide page
-under `src/oss/python/integrations/<component_type>/` is available at 50,000+
-monthly downloads or by maintainer invitation, which is not us yet.
+### Form A: publish the package, then open a docs PR (LangChain)
 
-**The prerequisite is already met and nobody has filed the PR.**
-`emem-langmem` 2.1.0, a LangChain `BaseStore` for LangGraph, has been on
-PyPI since the 2.1.0 release. That makes the docs row the single
-highest-return action available in this entire campaign: one line of YAML,
-into the repository whose whole purpose is receiving those lines, for a
-package that already exists.
+GitHub shows the `langchain-ai/langchain-community` repository as archived since 19 June 2026.
+LangChain does not take new integrations as PRs to its code repositories.
+The integration is a separate package on PyPI.
+The only PR goes to `langchain-ai/docs`. It adds a row to `scripts/data/integration_external_docs.yaml`.
+The header of that file says a hosted guide page needs 50,000 monthly downloads or a feature by LangChain.
+emem does not meet that bar.
 
-Before filing, check `emem-langmem` against LangChain's standard test suite
-for `BaseStore`; their docs make listing conditional on it "where applicable".
-If it does not pass, fixing that is the actual work and the PR is the easy
-part.
+The package exists: `emem-langmem` 2.4.4 is the newest version on PyPI.
+It holds `EmemStore`, a LangChain `BaseStore[str, bytes]` from `langchain_core.stores`.
+It is not a LangGraph store, so `StateGraph.compile(store=...)` cannot use it.
+The PyPI summary of 2.4.4 still says "drop-in agent memory for LangGraph".
+Change that description in a new release before you file the docs PR.
+No PR for it is open or closed in `langchain-ai/docs` (GitHub search for `emem-langmem`, 0 results).
 
-#### The row, and the two defects that would have sunk it
+Do these steps before you file:
 
-The package's own suite passes, 38 tests, so the code was never the problem.
-Both defects were in what it tells a reader:
+1. Fix the defects in [docs/sdks/langmem.md, Known issues](../sdks/langmem.md).
+   `yield_keys()` with no prefix fails, and a flat tuple key raises `TypeError`.
+2. Fix the install conflict. The package pins `langchain-core>=0.3,<1.0`.
+   The newest `langgraph` (1.2.20) needs `langchain-core` 1.4.7 or later.
+3. Run LangChain's standard `BaseStore` tests on the package.
+   LangChain lists an integration on the condition that it passes them "where applicable".
+4. Release the fixed package to PyPI.
 
-- `pyproject.toml` declared `Documentation = https://emem.dev/docs/sdks/langmem.html`,
-  a page that has never existed. That is the URL the LangChain row would have
-  carried, and a listing whose link 404s is a listing that gets reverted.
-- `README.md` pointed at `https://emem.dev/docs/memory.md`. Docs render as
-  `.html`; the `.md` form 404s.
+The first pass found two link defects. A later release fixed both.
+PyPI 2.4.4 gives `Documentation` as the GitHub folder `sdks/emem-langmem`, which returns 200.
+The package README links to `https://emem.dev/docs/memory.html`, which returns 200.
 
-Both are fixed here. The published 2.1.0 on PyPI still carries the dead
-Documentation link until the next release, which is why the row below uses the
-GitHub URL, because LangChain's own preference order is partner docs, then GitHub,
-then PyPI, and the GitHub path resolves today.
-
-File: `langchain-ai/docs` → `scripts/data/integration_external_docs.yaml`,
-under `python:` → `stores:` (the category `BaseStore` belongs to; entries there
-are not alphabetised, so append).
+The row goes in `scripts/data/integration_external_docs.yaml`, under `python:` then `stores:`.
+Entries there are not in alphabetical order, so add the row at the end.
+The file sets the link order: partner docs, then GitHub, then PyPI.
+The partner page `https://emem.dev/docs/sdks/langmem.html` returns 200 and describes `EmemStore`, so use it.
 
 ```yaml
 - name: EmemStore
   pypi: emem-langmem
-  docs_url: https://github.com/Vortx-AI/emem/tree/main/sdks/emem-langmem
+  docs_url: https://emem.dev/docs/sdks/langmem.html
 ```
 
 PR title:
@@ -75,11 +77,11 @@ PR title:
 docs: add EmemStore (emem-langmem) to stores
 ```
 
-PR body, which should stay this short:
+PR body. Keep it this short:
 
 ```markdown
-Adds `emem-langmem`, a `BaseStore[str, bytes]` for LangGraph, to the stores
-listing. Published on PyPI, Apache-2.0, 38 tests.
+Adds `emem-langmem`, a LangChain `BaseStore[str, bytes]`, to the stores
+listing. Published on PyPI, Apache-2.0.
 
 The store keeps agent memory in emem rather than in process: each write is
 signed with an ed25519 key the caller holds, and lands under
@@ -88,169 +90,173 @@ come back with the content address, so a value written in one session can be
 re-checked in another.
 ```
 
-This also retires `langchain-ai/langchain-mcp-adapters#511`. It was filed as
-an issue, and no issue in that repository can produce a listing, because
-listings do not live there any more.
+Before you send it, add the test result from step 3 to the body.
+Do not write a test count that you did not run.
 
-### Shape B: a real package, into their monorepo
+The old issue `langchain-ai/langchain-mcp-adapters#511` closed as `not_planned` on 10 June 2026.
+An issue in that repository cannot give a listing, because LangChain keeps listings in `langchain-ai/docs`.
 
-**LlamaIndex** still accepts new integration packages into
-`llama-index-integrations/`, scaffolded with their own CLI, and their team
-publishes the result to PyPI. That is a genuine contribution rather than a
-link, and it is the correct instrument for a framework that has an official
-tools directory.
+### Form B: send a package PR into the monorepo (LlamaIndex)
 
-Target: `llama-index-tools-emem`, a tool spec exposing locate → recall →
-verify. Not a wrapper around one endpoint: the value is that the tool returns
-the `fact_cid` and the receipt alongside the value, so an agent built on
-LlamaIndex can cite what it read and a reader can check it.
+LlamaIndex takes new integration packages into `llama-index-integrations/`.
+You make the package with their CLI, and their team publishes it to PyPI.
 
-Note that `run-llama/llama_index#21699` was opened as a *discussion*. That is
-the wrong instrument. A discussion asks permission for something their
-contributing guide already grants; the package PR is the ask.
+The target is `llama-index-tools-emem`, a tool spec for locate, recall and verify.
+Its value is that each tool returns the `fact_cid` and the receipt with the value.
+An agent on LlamaIndex can then cite what it read, and a reader can check it.
+The package does not exist yet: `llama-index-tools-emem` is not on PyPI (404).
+The repository has an example only, in [`examples/llamaindex/`](../../examples/llamaindex/).
 
-### Shape C: a marketplace with its own packaging rules
+`run-llama/llama_index` discussion #21699 is open since 18 May 2026, with 0 comments.
+A discussion asks for permission that their contributing guide already gives.
+The package PR is the request.
 
-These want a separately published artefact and have hard, checkable
-requirements. Read them before writing code, because each has at least one
-rule that invalidates work done the obvious way.
+### Form C: publish to a marketplace with its own rules (n8n, Dify)
 
-**n8n community node.** From 2026-05-01: every verified node must be published
-by a GitHub Action carrying a provenance statement: **a node published from a
-laptop is refused**. Scaffold with `npm create @n8n/node`, which includes the
-`publish.yml` they expect. Each package integrates exactly one third-party
-service. TypeScript. The node must not read environment variables or touch the
-filesystem; everything arrives through node parameters.
+Each marketplace wants a separately published package and has rules you can check.
+Read the rules before you write code.
 
-One rule needs a deliberate decision: **the package licence must be MIT**, and
-emem is Apache-2.0. This is not a conflict, it is a normal split: the node is
-a thin client that talks HTTP to a public endpoint, so it can ship MIT while
-the server it calls stays Apache-2.0. Do it knowingly and say so in the
-README, rather than discovering it at review.
+#### n8n community node
 
-**Dify plugin.** Fork `langgenius/dify-plugins`, create an organisation
-directory, then a plugin subdirectory holding the source and the packaged
-`.difypkg`. Needs a `manifest.yaml` with the privacy field populated, a
-separate plugin privacy policy, and a README carrying contact details and the
-source repository URL. `PRIVACY.md` already exists and is unusually thorough,
-so this is mostly assembly.
+The n8n verification guidelines set these rules:
 
-**Watch their clock.** Dify marks a PR stale at 14 days of unresolved comments
-and closes it at 30, and a closed one **cannot be reopened**, it needs a new
-PR. That is precisely how `browser-use#4852` died: it passed review, a bot
-asked whether it was still wanted, nobody answered for 14 days, and it closed.
-Any venue with a bot needs a watch, not a submission.
+| Rule | State of `integrations/n8n` (`n8n-nodes-emem` 0.1.0) |
+|---|---|
+| From 1 May 2026, publish through GitHub Actions with a provenance statement. n8n refuses a node published from a laptop. | Not ready. `.github/workflows/publish-n8n-node.yml` runs `npm publish --provenance` on a tag `n8n-*.*.*`. No such tag exists. `package.json` gives `repository.url` as `https://github.com/Vortx-AI/n8n-nodes-emem.git`, and that repository does not exist (GitHub API 404 on 7 November 2026). Provenance checks that this URL is the repository that built the package. Set it to `https://github.com/Vortx-AI/emem` with `directory: integrations/n8n` first. |
+| Scaffold with `npm create @n8n/node`, which includes the expected `publish.yml` | Not checked. Compare the files in `integrations/n8n` with the scaffold output before you publish. |
+| One package integrates exactly one third-party service | Met. The package has one node, `Emem`. |
+| The node is in TypeScript | Met. `nodes/Emem/Emem.node.ts`. |
+| The package licence is MIT | Not met. `package.json` says `Apache-2.0`. |
+| No external dependencies | Met. The only entry is a peer dependency on `n8n-workflow`. |
+| No access to environment variables or the file system | Met. The node source reads neither. |
 
-## Ranked build list
+The package is not on npm (the registry returns "Not found").
 
-Ordered by acceptance probability times reach, not by how interesting the code
-is.
+The licence needs a decision.
+The node is a thin HTTP client for a public endpoint.
+It can ship under MIT while the emem server stays Apache-2.0.
+Make that choice on purpose, and say so in the node README.
 
-| # | Deliverable | Shape | State |
+#### Dify plugin
+
+To submit, fork `langgenius/dify-plugins`. Add an organisation folder, then a plugin folder.
+The plugin folder holds the source and the packaged `.difypkg`.
+The plugin needs these parts:
+
+- a `manifest.yaml` with a value in the privacy field
+- a separate privacy policy for the plugin (start from [`PRIVACY.md`](../../PRIVACY.md))
+- a README with contact details and the source repository URL
+
+The plugin `vortx-ai/emem` is on the Dify marketplace at version 2.4.0, updated 13 September 2026.
+The live responder is 2.4.4.
+The plugin source is not in this repository, so the version gate cannot see it.
+Copy the source into `integrations/dify/` and add it to the version bump surfaces.
+
+Watch the PR after you file it.
+The original note says Dify marks a PR stale after 14 days of unresolved comments.
+It closes the PR after 30 days, and nobody can reopen a closed PR.
+That is how `browser-use/browser-use#4852` ended: it closed on 18 July 2026.
+It passed review. Then a bot asked if the author still wanted it, and nobody answered.
+A venue with a bot needs someone to watch it.
+
+## Build list in order
+
+The order is the chance of acceptance multiplied by reach.
+
+| # | Deliverable | Form | State on 7 November 2026 |
 |---|---|---|---|
-| 1 | LangChain docs row for `emem-langmem` | A | package published; PR unfiled |
-| 2 | `llama-index-tools-emem` | B | not started |
-| 3 | n8n node `n8n-nodes-emem` | C | not started; needs MIT + Action publish |
-| 4 | Dify plugin | C | live on the marketplace at 2.2.0 while every other surface is 2.4.0; the source lives outside this repo, so the version gate cannot see it. Vendor it under `integrations/dify/` and add it to the bump surfaces |
+| 1 | LangChain docs row for `emem-langmem` | A | Package 2.4.4 on PyPI. Defects and install conflict open. PR not filed. |
+| 2 | `llama-index-tools-emem` | B | Not started. Example only. |
+| 3 | n8n node `n8n-nodes-emem` | C | Code and publish workflow in the repo. Licence is Apache-2.0, not MIT. `repository.url` names a repository that does not exist. Not on npm. |
+| 4 | Dify plugin | C | Marketplace at 2.4.0, responder at 2.4.4. Source not in this repo. |
 
-Everything above ships from this repository. None of it needs a third party to
-say yes first, which is the opposite of the listing campaign, where every item
-is blocked on someone else's review queue.
+We build all four, here or in our own packages. LlamaIndex has not started.
+Each still needs one review in the target project.
+Every item in the listing campaign waits in another project's review queue.
 
-## Databases: be honest about the fit
+## Skip vector database lists
 
-Vector database integration lists (Qdrant, Weaviate, Chroma, Milvus, LanceDB)
-want storage backends and retrievers. emem is not a vector store, and
-submitting it as one earns the `awesome-llm-apps` verdict a second time. The
-embeddings surface and `emem_find_similar` are real, but "index emem facts in
-your vector DB" is a thing a *user* does, not an integration either project
-maintains.
+Vector database integration lists (Qdrant, Weaviate, Chroma, Milvus, LanceDB) want storage backends and retrievers.
+emem is not a vector store.
+A submission as one gets the same answer as the closure quoted at the top.
+The embeddings surface and `emem_find_similar` exist.
+But a user indexes emem facts in a vector database. None of these projects maintains that as an integration.
 
-Skip the database lists until there is an adapter someone actually asked for.
-The absence of a target here is a finding, not an omission.
+Do not submit to these lists until a user asks for an adapter.
+An empty list here is a finding.
 
-## The agent-memory ecosystem is the unexplored one
+## Ask the agent-memory projects first
 
-mem0, Letta, cognee, Zep/Graphiti all solve per-user conversational memory:
-what did this user tell me, what should I remember about them. emem solves a
-different axis, a shared fact that two agents who share no vendor can each
-verify, and the two compose rather than compete. Nothing in
-`registry_claude.md` has approached any of them.
+mem0, Letta, cognee and Zep/Graphiti keep per-user conversational memory.
+They store what a user said to the agent.
+emem keeps a shared fact that two agents with no common vendor can each verify.
+The two can work together.
+Nothing in `registry_claude.md` has contacted any of them.
 
-The honest opening is not "add emem as a memory backend". It is that their
-stores hold what the agent was *told*, with no way to check whether it is
-still true, and emem holds what was *measured*, with a receipt. Worth an issue
-that asks the question before any code: whether they see a seam there. If the
-answer is no, that costs one issue instead of a package.
+Do not open with "add emem as a memory backend".
+Their stores hold what a user said, with no way to check if it is still true.
+emem holds a measurement, with a receipt.
+Open one issue that asks if they see a place for that.
+If they say no, the cost is one issue, not one package.
 
-## Writing the PR so it does not read as generated
+## Write the PR so it does not read as generated
 
-Maintainers are now triaging a flood of machine-written submissions and have
-become fast at spotting them. A PR that pattern-matches to that flood gets
-closed on sight, whatever the code underneath is worth. These are the tells,
-in rough order of how quickly they give it away.
+Maintainers now get many machine-written submissions, and they find them fast.
+They close a PR that looks like one on sight.
+These signs give it away, the fastest first:
 
-1. **Every bullet opening with a bolded phrase.** The strongest single tell.
-   One or two bolded leads in a body is normal writing; six is a template.
-2. **Section scaffolding nobody asked for.** `## Summary` / `## Changes` /
-   `## Test plan` on a one-line addition. Use their template if they have one,
-   and plain paragraphs if they do not.
-3. **Length out of proportion to the diff.** A one-line entry does not need
-   twelve lines of justification. Under six is right, and one is often enough.
-4. **The vocabulary.** This repository already has the list, as code:
-   `BUZZWORDS` in `scripts/doc_lint.py`, enforced in CI by the
-   `prose convention holds` job. Run it before you write the PR body, not
-   after, and take the same words out of anything you send to a maintainer.
-5. **Dashes.** `doc_lint.py` caps em and en dashes at zero, which is stricter
-   than the "at most one" this section first advised, and it is the better
-   rule. Commas, colons and full stops carry the same load.
-6. **Tricolons.** Three parallel clauses in a row is a rhythm these models fall
-   into constantly. Break the third one or drop it.
-7. **Emoji headers**, unless the surrounding file already uses them.
-8. **Restating the diff in prose.** They can read the diff. Say why, not what.
+1. Every bullet starts with a bold phrase. This is the strongest single sign.
+   One or two bold leads are normal. Six is a template.
+2. Section headings that nobody asked for, such as `## Summary`, `## Changes` and `## Test plan` on a one-line change.
+   Use their template if they have one. If not, write plain paragraphs.
+3. A body that is long for the size of the diff.
+   A one-line entry needs fewer than six lines of text. One line is often enough.
+4. The vocabulary. This repository keeps the word list as code: `BUZZWORDS` in `scripts/doc_lint.py`.
+   CI runs it in the `prose convention holds` job.
+   Run it on your PR body before you send it, and remove those words.
+5. Dashes. `doc_lint.py` allows zero em or en dashes. Use commas, colons and full stops.
+6. Three parallel clauses in a row. Break the third one or remove it.
+7. Emoji in headings, unless the file already uses them.
+8. A prose copy of the diff. The reviewer can read the diff. Say why, not what.
 
-And the things that read as a person, all of which are just being specific:
+These things read as a person wrote them. Each one is a way to be specific:
 
-- **Reference something only a reader of their repository would know.** The
-  entry two lines above yours, the rule in their CONTRIBUTING, an open issue
-  the change relates to. This is the single most effective signal, and it is
-  also genuinely useful to the reviewer.
-- **Show one concrete artefact.** A command and the output it actually
-  produced. A version. A file path. Never claim a test you did not run.
-- **Leave something uneven.** A caveat, an aside, a question. "Happy to move
-  this to X if you would rather file it there" is worth more than another
-  paragraph of justification, because it hands the maintainer a decision
-  instead of a pitch.
-- **First person singular, one register, held.** Not "we are excited to".
+- Refer to something that only a reader of their repository knows.
+  For example, the entry above yours, a rule in their CONTRIBUTING file, or a related open issue.
+  This is the most effective sign, and it also helps the reviewer.
+- Show one real artefact: a command and its actual output, a version, a file path.
+  Do not claim a test that you did not run.
+- Leave one uneven part: a caveat, an aside or a question.
+  For example: "Happy to move this to X if you would rather file it there."
+  That gives the maintainer a decision instead of a pitch.
+- Write in the first person singular, in one register, from start to end.
+  Avoid stock phrases of excitement.
 
-### On attribution, which is a real decision and not a style question
+### Decide on attribution before you file
 
-Some maintainers state that they do not accept AI-authored submissions.
-`hesreallyhim/awesome-claude-code` is explicit about it. The response to that
-is not to remove the attribution and file anyway. A maintainer who later works
-out that a policy was worked around does not just close the PR, they remember
-the project, and that cost is permanent and unrecoverable for the sake of one
-list entry.
+Some maintainers do not accept AI-written submissions.
+`hesreallyhim/awesome-claude-code` says so explicitly.
+Do not remove the attribution and file anyway.
+A maintainer who learns that someone bypassed a policy closes the PR and remembers the project.
+That cost is permanent, and one list entry is not worth it.
 
-So the split is:
+Use this split:
 
-- Where a maintainer bans AI submissions, **Avijeet writes and files it.** The
-  research and the draft are useful to him; the authorship has to be real.
-- Everywhere else, the goal is prose that does not read as slop **because it
-  is not slop**: specific, short, checked, and reviewed by a person who
-  understands the claim and is willing to defend it in the thread. That is a
-  quality bar, and it is met by writing better, not by hiding anything.
+- Where a maintainer bans AI submissions, Avijeet writes and files the PR.
+  The research and the draft help him, but the author must be real.
+- Everywhere else, the text must be specific, short and checked.
+  A person who understands the claim reviews it and defends it in the thread.
+  That is a quality bar. Better writing meets it. A hidden author does not.
 
-The practical consequence: a human reads every one of these before it goes
-out. That is not a formality. Half the tells above survive any amount of
-instruction and get caught in ten seconds by someone who knows what the
-project actually does.
+A person reads every PR before it goes out.
+Half the signs above survive any instruction, and a person who knows the project sees them in seconds.
 
-## What is blocked, and on what
+## What stops the listing PRs
 
-The ten listing PRs from the previous pass are all staged and all stuck at the
-same place: the GitHub App cannot create forks under `avijeetsingh1`, so every
-session got as far as a committed branch and then failed to push. That unblocks
-with a fork per repository, done by hand once.
+This section comes from the original note. We did not check it again on 7 November 2026.
+Ten listing PRs from the earlier pass stopped at the same point.
+The GitHub App cannot create forks under `avijeetsingh1`.
+Each session made a committed branch and then failed to push it.
+To unblock them, make one fork per repository by hand.
 
-Nothing in the build list above is blocked by it. Those four ship from here.
+The build list above does not depend on these forks.

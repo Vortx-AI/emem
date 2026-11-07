@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 964" width="640" height="964" role="img" aria-labelledby="t d">
+  <title id="t">The agent loop: read signed facts, write signed notes</title>
+  <desc id="d">Five steps from top to bottom, then an arrow back to the top for the next agent. 1 Ask: POST /v1/ask with "what is the elevation of Mount Fuji?". 2 Recall: the answer holds the fact copdem30m.elevation_mean equals 3539.04 m at cell defi.zb592.nUkO.zEzE, and a receipt for emem.recall that verifies. 3 Cite: put the token emem:fact:defi.zb592.nUkO.zEzE:qejpz7cg…2jjbplq next to the number. 4 Act: your agent uses the number; emem has no part in this step. 5 Write back: emem_memory_create stores a note at /memories/by_attester/ plus the first 8 characters of your key, signed with your own Ed25519 key. Only that key can write there. The next agent reads the note and checks the token. Facts come from emem. Notes come from agents. A signature shows who wrote a note, not that it is true. Values from emem.dev on 7 November 2026.</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8b949e"/>
+    </marker>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#ffa657"/>
+    </marker>
+  </defs>
+  <style>
+    .sans { font-family: "DejaVu Sans", system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .mono { font-family: "DejaVu Sans Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .h { font-size: 21px; font-weight: 600; fill: #e6edf3; }
+    .term { font-size: 20px; font-weight: 600; fill: #e6edf3; }
+    .ex { font-size: 16px; fill: #79c0ff; }
+    .tok { font-size: 16px; fill: #ffa657; }
+    .sig { font-size: 16px; fill: #d2a8ff; }
+    .ok { font-size: 18px; fill: #7ee787; }
+    .txt { font-size: 18px; fill: #8b949e; }
+    .verb { font-size: 16px; fill: #8b949e; }
+    .num { font-size: 17px; font-weight: 600; fill: #79c0ff; }
+    .box { fill: #161b22; stroke: #30363d; stroke-width: 1; }
+    .ring { fill: #0d1117; stroke: #79c0ff; stroke-width: 1.5; }
+    .flow { stroke: #8b949e; stroke-width: 1.5; fill: none; }
+    .back { stroke: #ffa657; stroke-width: 1.5; fill: none; stroke-dasharray: 6 5; }
+  </style>
+
+  <rect x="0" y="0" width="640" height="964" rx="12" fill="#0d1117"/>
+  <text class="sans h" x="24" y="40">The agent loop: read facts, write notes</text>
+
+  <!-- 1 ask -->
+  <rect class="box" x="24" y="64" width="548" height="112" rx="8"/>
+  <circle class="ring" cx="48" cy="94" r="15"/>
+  <text class="sans num" x="48" y="100" text-anchor="middle">1</text>
+  <text class="sans term" x="76" y="101">Ask</text>
+  <text class="mono verb" x="196" y="101">POST /v1/ask</text>
+  <text class="mono ex" x="76" y="133">"what is the elevation of Mount Fuji?"</text>
+  <text class="sans txt" x="76" y="161">Free text. emem finds the place and the band.</text>
+
+  <path class="flow" d="M48 176 V202" marker-end="url(#a)"/>
+
+  <!-- 2 recall -->
+  <rect class="box" x="24" y="204" width="548" height="136" rx="8"/>
+  <circle class="ring" cx="48" cy="234" r="15"/>
+  <text class="sans num" x="48" y="240" text-anchor="middle">2</text>
+  <text class="sans term" x="76" y="241">Recall</text>
+  <text class="sans txt" x="196" y="241">in the same answer</text>
+  <text class="mono ex" x="76" y="273">copdem30m.elevation_mean = 3539.04 m</text>
+  <text class="mono ex" x="76" y="297">cell defi.zb592.nUkO.zEzE</text>
+  <text class="sans txt" x="76" y="325">Receipt for emem.recall:</text>
+  <text class="sans ok" x="306" y="325">valid</text>
+
+  <path class="flow" d="M48 340 V366" marker-end="url(#a)"/>
+
+  <!-- 3 cite -->
+  <rect class="box" x="24" y="368" width="548" height="112" rx="8"/>
+  <circle class="ring" cx="48" cy="398" r="15"/>
+  <text class="sans num" x="48" y="404" text-anchor="middle">3</text>
+  <text class="sans term" x="76" y="405">Cite</text>
+  <text class="sans txt" x="196" y="405">put the token next to the number</text>
+  <text class="mono tok" x="76" y="437">emem:fact:defi.zb592.nUkO.zEzE:qejpz7cg…2jjbplq</text>
+  <text class="sans txt" x="76" y="465">One line of text that names one signed fact.</text>
+
+  <path class="flow" d="M48 480 V506" marker-end="url(#a)"/>
+
+  <!-- 4 act -->
+  <rect class="box" x="24" y="508" width="548" height="88" rx="8"/>
+  <circle class="ring" cx="48" cy="538" r="15"/>
+  <text class="sans num" x="48" y="544" text-anchor="middle">4</text>
+  <text class="sans term" x="76" y="545">Act</text>
+  <text class="sans txt" x="196" y="545">your agent uses the number</text>
+  <text class="sans txt" x="76" y="579">emem has no part in this step.</text>
+
+  <path class="flow" d="M48 596 V622" marker-end="url(#a)"/>
+
+  <!-- 5 write back -->
+  <rect class="box" x="24" y="624" width="548" height="160" rx="8"/>
+  <circle class="ring" cx="48" cy="654" r="15"/>
+  <text class="sans num" x="48" y="660" text-anchor="middle">5</text>
+  <text class="sans term" x="76" y="661">Write back</text>
+  <text class="mono verb" x="226" y="661">emem_memory_create</text>
+  <text class="mono ex" x="76" y="693">/memories/by_attester/&lt;key8&gt;/</text>
+  <text class="sans txt" x="76" y="721">A note, signed with your own Ed25519 key.</text>
+  <text class="sans txt" x="76" y="745">key8: the first 8 characters of your key.</text>
+  <text class="sans txt" x="76" y="769">Only that key can write there.</text>
+
+  <!-- back to the top -->
+  <path class="back" d="M572 692 H604 V120 H580" marker-end="url(#g)"/>
+  <text class="sans verb" x="0" y="0" transform="translate(624 406) rotate(-90)" text-anchor="middle" style="fill:#ffa657">the next agent reads the note and checks the token</text>
+
+  <text class="sans txt" x="24" y="824">Facts come from emem. Notes come from agents.</text>
+  <text class="sans txt" x="24" y="850">A signature shows who wrote a note.</text>
+  <text class="sans txt" x="24" y="876">It does not show that the note is true.</text>
+  <text class="sans verb" x="24" y="916">Ask and receipt check on emem.dev,</text>
+  <text class="sans verb" x="24" y="938">7 November 2026, 12:13 UTC.</text>
+</svg>
