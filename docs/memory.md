@@ -1069,17 +1069,23 @@ To read a derivation, ask for it explicitly:
 | Want | Call |
 |---|---|
 | The bytes behind a token you hold | `POST /v1/memory_token/resolve` |
-| Everything one key has registered | `POST /v1/derived` with `attester_pubkey_b32` (MCP `emem_derive_list`) |
-| What keys concluded near one place | `POST /v1/inferences` with `cell`, or `lat` and `lng`, and `radius_m` (MCP `emem_inferences`) |
+| Everything one key has registered | `POST /v1/derived` with `attester_pubkey_b32`, and optional `cell`, `band` and `limit` (MCP `emem_derive_list`) |
+| What keys concluded near one place | `POST /v1/inferences` with `cell`, or `lat` and `lng`, and optional `radius_m`, `fn_key_prefix`, `attesters`, `min_tier` and `limit` (MCP `emem_inferences`). `GET /v1/inferences` takes the same fields as query parameters. |
 
 `/v1/derived` has no form for all attesters. You must name whose claims
-you want. This is the contract, not an optional filter.
+you want. This is the contract, not an optional filter. A request
+without the key gets 400 `derived_attester_required`. The `band` filter
+works only together with `cell`, because the index puts the cell
+first. A `band` without a `cell` gets 400 `derived_band_needs_cell`.
+`limit` is 1 to 1000, and the default is 100.
 
-`/v1/inferences` reads by place. It reads every cell within `radius_m`
-of the point, nearest first. The default is 5000 m and the maximum is
-50000 m. With `0` it reads the one cell. Each item has its `cell` and
-`distance_m`. A cell is 9.55 m wide, so a reader one street away
-finds a study anchored at its own point.
+`/v1/inferences` reads by place. It does not accept a place name: use
+`/v1/locate` first. It reads every cell within `radius_m` of the point,
+nearest first. The default is 5000 m and the maximum is 50000 m. A
+value outside 0 to 50000 gets 400. With `0` it reads the one cell. Each
+item has its `cell` and `distance_m`. A cell is 9.55 m wide, so a reader
+one street away finds a study anchored at its own point. `limit` is 1 to
+500, and the default is 50.
 
 The trust policy decides which keys `/v1/inferences` admits. By default
 it admits each key that this responder reads at `T4_affiliated` or
@@ -1097,11 +1103,15 @@ The response gives these items:
   something, never that it is true
 
 `/v1/ask` and `/v1/locate` (and their MCP tools) can add a
-`research_nearby` block. They add it when vouched research lies inside
-the place they resolved. The place is the polygon box, or 5 km around a
-bare point. The block holds pointers only: token, `fn_key`, nick, tier
-and distance. No derivation value enters the answer or its receipt. To
-read the values, use `/v1/inferences`.
+`research_nearby` block. They add it when vouched research lies near
+the place they resolved. The search radius is half the diagonal of the
+place's polygon box, at least 5 km and at most 50 km. A bare point with
+no box gets 5 km. The block uses the default trust policy
+(`T4_affiliated`) and lists at most 5 items. It holds pointers only:
+token, `fn_key`, nick, tier, distance and `signed_at`. No derivation
+value enters the answer or its receipt. To read the values, use
+`/v1/inferences`. If that search takes more than 2 seconds, the response
+omits the block.
 
 Registration is idempotent per `(your key, derivation body)`. If you
 post the same derivation again, you get the token that the responder
