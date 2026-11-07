@@ -129,6 +129,10 @@ state_multi and each triple of memory_bundle. `recall_many` does not
 - `as_of_tslot` gives what was true on the ground at that time.
 - `as_of_signed_at` gives what the memory knew at that time.
 
+Send `as_of_signed_at` in UTC with a `Z` suffix. The responder compares
+it with `signed_at` as text and does not convert a UTC offset (see
+[Time filters on reads](memory.md#time-filters-on-reads-bi-temporal)).
+
 Thus the read that ships today is `Recall(M, a, t)`: one place, and a
 bound on one or both time axes. `diff` and `compare` take their own two
 times and do not accept the pair. `memory_contradictions` does not
