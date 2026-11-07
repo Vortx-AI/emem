@@ -305,26 +305,45 @@ place with the most people wins. The `via` field of the response names the layer
 
 ## Add a connector
 
-1. Add `crates/emem-fetch/src/<name>.rs` and a `pub mod` line in `lib.rs`. The top doc comment
-   gives the wire path, the licence, the auth, the rate limits, and empty versus error.
-   `wdpa.rs` is a good model.
-2. Write an async fetch function that returns the value and the URL, or a typed error.
-   Return `Ok(None)` for a real empty result, so the materializer can sign an Absence.
-   Return `Err` for an upstream failure, so the caller can try again. Never invent a default value.
-3. Add the scheme to `crates/emem-core/data/sources-v0.json`. Give the tempo and the
-   native resolution. List the providers in failover order, each with its licence.
-4. If the band is new, add it to `crates/emem-core/data/bands-v0.json`. The validator
-   (`BandRegistry::validate` in `crates/emem-core/src/bands.rs`) needs contiguous offsets that
-   sum to 1792. Use a reserved slot or the tail. Never move an existing offset.
-5. Add a `materialize_<name>` function in `crates/emem-api-rest/src/lib.rs` and a match arm in
-   `try_materialize_bands`. Sign through `sign_and_persist`, so the receipt shape stays the same.
-6. Add an entry to `band_materializer_meta` with the history window, tempo and resolution.
-   `/v1/materializers` and `/v1/data_availability` read it.
-7. Add the function to `crates/emem-core/data/functions-v0.json` with `kind: primary`, the source
-   scheme, the formula and `deterministic: true`. The fact's `derivation` names this `fn_key`.
-8. Test offline with `cargo test -p emem-fetch <name>`. Use recorded bytes, as
-   `dmsp_ols.rs` does. The network tests are in `crates/emem-fetch/tests/live_cog_fetch.rs` and
-   run with `cargo test --workspace --test live_cog_fetch`. There is no `live` cargo feature.
+A connector has two parts: a fetch module in `emem-fetch` and a materializer in `emem-api-rest`.
+The WDPA connector is a good model: `crates/emem-fetch/src/wdpa.rs` and `materialize_protected`
+in `crates/emem-api-rest/src/lib.rs`. Line numbers in `lib.rs` change often, so search for the names.
 
-Steps 3 to 7 change registry files. A change there moves the manifest CIDs. Read
+1. Add `crates/emem-fetch/src/<name>.rs` and a `pub mod <name>;` line in
+   `crates/emem-fetch/src/lib.rs`. The top doc comment gives the upstream, the licence, the auth,
+   the rate limits, and empty versus error.
+2. Write an async fetch function that returns the value or a typed error. `fetch_wdpa_status`
+   returns `Result<Option<WdpaMatch>, WdpaError>`.
+   - Return `Ok(None)` for a real empty result. The materializer then signs an Absence.
+   - Return `Err` for an upstream failure. The node stores nothing, and the next recall tries again.
+   - Never invent a default value.
+   - If the upstream URL changes for each read, return it in the sample, as
+     `NightlightSample.upstream_url` does in `dmsp_ols.rs`.
+3. Add `async fn materialize_<name>` in `lib.rs`. Set `sources[0].url` and `derivation.fn_key`
+   on the fact. Sign through `sign_and_persist`, so the receipt shape stays the same.
+4. Add a match arm for the band key in `materialize_bands_once`. `try_materialize_bands` calls
+   it on a recall miss.
+5. Add the band key to `all_materializable_bands`. If the key is not in this list,
+   `band_is_known` is false. Then `/v1/materializers`, `/v1/bands` and `/v1/data_availability`
+   do not show the band.
+6. Add an arm to `band_materializer_meta` with the tempo, the history window and the resolution.
+   Add a row to the `materializer_bands` table in `coverage_matrix` for `/v1/coverage_matrix`.
+7. If the source has a history, add an arm to `materialize_band_at`. Backfill and the temporal
+   windows call it for a past date.
+8. Choose the band key. A dotted key, such as `copdem30m.elevation_mean`, needs no change to
+   `bands-v0.json`. To give it the text of a cube slot, add an arm to `cube_band_alias` in
+   `crates/emem-core/src/bands.rs`. Only a new cube slot needs a change to `bands-v0.json`.
+   `BandRegistry::validate` needs contiguous offsets that sum to 1792. Use a reserved slot or
+   the tail. Never move an existing offset.
+9. Optional: declare the scheme in `crates/emem-core/data/sources-v0.json` and the function in
+   `crates/emem-core/data/functions-v0.json` (`kind: primary`, `deterministic: true`). The node
+   publishes these files at `/v1/sources` and `/v1/functions`, but no read or write path checks a
+   fact against them. On 7 November 2026, 5 of the 39 `fn_key` values in `lib.rs` are in
+   `functions-v0.json`, and `sources-v0.json` has no WDPA scheme.
+10. Test offline with `cargo test -p emem-fetch <name>`. Give the parser bytes that the test
+    builds or records, as the `dmsp_ols.rs` tests build a small TIFF. The network tests are in
+    `crates/emem-fetch/tests/live_cog_fetch.rs` and run with
+    `cargo test --workspace --test live_cog_fetch`. There is no `live` cargo feature.
+
+Steps 8 and 9 can change registry files. A change there moves the manifest CIDs. Read
 [architecture.md](architecture.md) before you change a registry.
