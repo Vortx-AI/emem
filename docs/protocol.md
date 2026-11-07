@@ -94,7 +94,7 @@ repository.
      | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["valid"], d["preimage_blake3_hex"])'
    ```
 
-On 7 November 2026 at 02:05 UTC, step 2 printed `VALID` and step 4
+On 7 November 2026 at 02:50 UTC, step 2 printed `VALID` and step 4
 printed `True` with the same digest. The signer in step 2 and the key in
 step 3 were both `777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka`.
 
@@ -1683,8 +1683,8 @@ So "I have no proof" is a statement that the responder made. An
 intermediary cannot make that gap.
 
 The binding covers `leaf_index`, `path`, `root` and `version`. Three more
-fields are in the proof but are **not signed**. They tell where the proof
-sits:
+fields are in the proof, but the signature does **not** cover them. They
+tell where the proof sits:
 
 - `fact_cid`: the fact the proof is for (`fact_cids[0]`). `leaf_index` is
   that fact's place in its own attestation's batch, sorted bytewise, not its
