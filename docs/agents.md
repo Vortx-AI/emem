@@ -256,7 +256,10 @@ curl -s -X POST https://emem.dev/v1/recall_polygon \
 
 The call sampled 4 cells in an area of 13.4 km². Read `cells_sampled`,
 `coverage_fraction` and `is_exhaustive` before you state an area total. You can
-also send `bbox` or `polygon_geojson` instead of `place`.
+also send `bbox` or `polygon_geojson` instead of `place`. Here `bbox` is an
+object with `min_lat`, `max_lat`, `min_lng` and `max_lng`. An array of four
+numbers gives HTTP 400 `invalid_argument`. See
+[Two forms of bbox](#two-forms-of-bbox).
 
 Over MCP on 7 November 2026, the 4-cell answer was 18,943 bytes on the wire.
 It had no `structuredContent`, so read it from the text. With
@@ -1207,6 +1210,23 @@ marks an optional field.
 | `/v1/trajectory` | `{cell or place or lat and lng, band, window?, as_of_tslot?, as_of_signed_at?, scope?}`, or `from_date` and `to_date` in place of `window` |
 | `/v1/field_series` | `{geometry or bbox or areas or fields, start_date, end_date, index?, sensor?, orbit?, inner_buffer_m?, min_support_px?, min_clear_fraction?, max_scenes?, blocks?, mask_policy?, qa_reject_bits?, memory?}`. `min_valid_share` is an alias of `min_clear_fraction` |
 | `/v1/diff` | `{cell or place, band, tslot_a or date_a, tslot_b or date_b}`. A date is `YYYY-MM-DD` |
+
+##### Two forms of bbox
+
+The routes do not use one bbox form. Send the form that the route
+expects:
+
+| Route | Field | Form |
+|---|---|---|
+| `/v1/recall_polygon`, `/v1/field_boundaries` | `polygon_bbox` (`bbox` is an alias on `recall_polygon`) | An object, for example `{"min_lat":35.36,"max_lat":35.365,"min_lng":138.72,"max_lng":138.726}` |
+| `/v1/band_raster` | `bbox` | The same object |
+| `/v1/query_region` | `bbox` | An array: `[west, south, east, north]`, longitude first |
+
+On 7 November 2026, an array sent to `/v1/recall_polygon` or
+`/v1/field_boundaries` gave HTTP 400 `invalid_argument`. The MCP tool
+`emem_recall_polygon` gave JSON-RPC error `-32602` with the same reason.
+The responder does not guess the order of an array, because GeoJSON and
+Nominatim use different orders.
 
 `/v1/recall_many` with `compact: true` keeps at most nine keys on each fact:
 `band`, `value`, `unit`, `tslot`, `observed_at`, `kind`, `confidence`,
