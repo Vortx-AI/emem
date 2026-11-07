@@ -57,9 +57,10 @@ async def main() -> None:
             prompt=(
                 "You are a geospatial verification agent. "
                 "Follow these steps in order: "
-                "1. Resolve South Mumbai to coordinates using emem locate. "
-                "2. Recall the elevation (copdem30m.elevation_mean) for that location. "
-                "3. Verify the receipt/fact CID returned by emem. "
+                "1. Call emem_locate for South Mumbai and keep the cell64 it returns. "
+                "2. Call emem_recall with that cell64 as `cell` and the band "
+                "copdem30m.elevation_mean. Do not send the place name to emem_recall. "
+                "3. Call emem_verify_receipt with the receipt from step 2. "
                 "Show each step and the final verified answer."
             ),
             settings=execution_settings,

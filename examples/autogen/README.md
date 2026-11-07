@@ -62,7 +62,8 @@ We also made the emem calls that the agent needs, on the same day:
 | `emem_recall` with the place name | error `no_geocoder_match`: the name is ambiguous |
 
 If the model sends the place name to `emem_recall`, emem refuses to guess.
-The model must use the cell from `emem_locate`.
+The model must use the cell from `emem_locate`. The system message tells the
+model to do this.
 
 `emem_verify_receipt` is the responder checking its own signature. It is not
 an independent check. For an independent check, verify the receipt offline.
