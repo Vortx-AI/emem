@@ -948,6 +948,11 @@ routes in the last column are the source of truth.
 | Topics | 27 topics declared, 25 live | `counts` of `/v1/topics` |
 | Version | 2.4.4 | `info.version` of `/openapi.json` |
 
+`/v1/agent_card` gives a different materializer count. On 7 November 2026,
+its `band_taxonomy.materializer_wired.count` was 115. That count includes
+retired bands, for example the three `nightlights` bands. The
+`/v1/materializers` list leaves out retired bands, because their fetch fails.
+
 The source has 27 data connectors and 8 utility modules in
 `crates/emem-fetch/src/`. The minimum Rust version is 1.91.
 
