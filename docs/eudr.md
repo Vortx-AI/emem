@@ -23,15 +23,15 @@ The schema enum for the visual `verdict` also lacks one value (see
 
 ## Per-cell verdict
 
-The endpoint samples each polygon plot at `max_cells_per_plot` cell64s inside the polygon.
+The endpoint samples each plot at one or more cell64s.
 A plot without a polygon (a GeoJSON Point or a `bbox`) of 4 ha or less uses 1 cell,
 unless the commodity is cattle.
-If the operator does not set a count, the sampler uses about 110 cells per hectare of the
+Every other plot in the request uses one shared count, `max_cells_per_plot`.
+If the operator does not set it, the sampler uses about 110 cells per hectare of the
 largest plot in the request.
 The sampler takes the area of each plot's bounding box, not the area inside the polygon.
 Thus a long or irregular polygon gets more cells than its own area needs.
-All other plots in that request get this same count.
-The count is at least 55 and at most 51,200.
+The derived count is at least 55 and at most 51,200.
 If no plot geometry gives an area, the count is 64.
 The endpoint clamps a count that the operator sets to 1 through 51,200.
 The verdict runs **`eudr_compliance@1`** on each cell, from two static COG baselines:
