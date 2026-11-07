@@ -170,7 +170,7 @@ def verdict_path():
     avoid.append((W / 2, 776, 600))
     _ground(s, avoid=avoid)
     _header(s, "One verdict, in order",
-            "assemble · sign · append · THEN answer — the order is the product, not an implementation detail")
+            "assemble · sign · append · THEN answer: the guard logs the verdict before it answers")
 
     inners = ["ring", "fish", "leaf", "hatch", "ring", "fish"]
     for i, (lab, sub, col, budget) in enumerate(stages):
@@ -195,7 +195,7 @@ def verdict_path():
     s.line(x0 - 46, ys - 128, xs[-1] + 96, ys - 128, VERMIL, 1.2, op=0.5)
     s.text(x0 - 46, ys - 140, "800 ms self-budget, under the 1000 ms floor the caller can configure",
            11, VERMIL, font=MONO)
-    s.text(x0 - 46, ys - 96, "late is not slow: it is a transport failure, and enough of them stop enforcement for everyone",
+    s.text(x0 - 46, ys - 96, "a late verdict counts as a transport failure, and enough of them stop enforcement for everyone",
            10, INK_SOFT, font=MONO)
 
     _card(s, 214, 700, 420, 150, INK_SOFT, "if the log cannot take it",
