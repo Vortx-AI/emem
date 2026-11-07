@@ -157,14 +157,16 @@ Draw a still from its saved data. The output is byte-identical to the committed 
 
 Check that the stills and films still match emem.dev. This command resolves every fact and bundle token in their
 saved data and compares each live value with the saved copies. It reads the file and device tokens of
-`what-crosses.webp` again. Then it proves offline that the log head in `log-proof.webp` is a prefix of the
-current head. It uses only the standard library and makes read-only calls:
+`what-crosses.webp` again. It gets the CBOR bytes of the facts in `wire-forms.webp` and the one-byte film again
+and compares them with the saved files. Then it proves offline that the log head in `log-proof.webp` is a prefix
+of the current head. It uses only the standard library and makes read-only calls:
 
     python3 docs/media/stills/src/recheck.py
 
-On 7 November 2026 at 15:41 UTC, 71 tokens resolved and 0 values differed. The tree root, leaf and 107 rows
-matched, and `trace_verify` still gave `admit`. The head of 3,248,898 entries in `log-proof.webp` extended to
-the current head of 3,253,062 entries with an 18-hash consistency proof.
+On 7 November 2026 at 15:49 UTC, 71 tokens resolved and 0 values differed. The tree root, leaf and 107 rows
+matched, and `trace_verify` still gave `admit`. The 790 and 743 CBOR bytes of the two facts were equal to the
+saved files. The head of 3,248,898 entries in `log-proof.webp` extended to the current head of 3,253,134
+entries with an 18-hash consistency proof.
 
 Check one film frame before a full render. This command writes a PNG of the frame at 25 s:
 

@@ -9,11 +9,13 @@
 2. Reads again the file (emem:tree:) and device (emem:trace:) tokens of
    what-crosses.webp: the tree root and leaf must match the saved ones, and
    trace_verify must still admit the trace.
-3. Gets the current signed tree head and a consistency proof from the head
+3. Fetches the CBOR bytes of the facts in wire-forms.webp and the
+   emem-one-byte film again; they must equal the saved files byte for byte.
+4. Gets the current signed tree head and a consistency proof from the head
    in log-proof.webp to it, and checks both offline with the plugin's
    verify_log.py.
 
-Read-only calls, about one per token plus three for what-crosses and two for the log, with a 0.5 s
+Read-only calls, about one per token plus three for what-crosses, two for the CBOR bytes and two for the log, with a 0.5 s
 pause between calls. Standard library only. Exit 0 when every check passed.
 """
 from __future__ import annotations
@@ -32,7 +34,11 @@ ROOT = pathlib.Path(__file__).resolve().parents[4]
 DATA_DIRS = [ROOT / "docs/media/stills/src/data", ROOT / "docs/media/films/src"]
 CROSSES = ROOT / "docs/media/stills/src/data/crosses"
 LOG_HEAD = ROOT / "docs/media/stills/src/data/log/inclusion_fuji.json"
-VERIFY_LOG = ROOT / "plugins/emem/skills/emem-transparency-log/scripts/verify_log.py"
+SAVED_CBOR = [
+    ("banvya7hgenuowjggkgguezvltxtefp6jgihocwkgcbddyvqv6bq", ROOT / "docs/media/stills/src/data/wire/fact.cbor"),
+    ("qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq", ROOT / "docs/media/films/src/data/one-byte/fact-live.cbor"),
+]
+VERIFY_LOG =ROOT / "plugins/emem/skills/emem-transparency-log/scripts/verify_log.py"
 BASE = "https://emem.dev"
 TOKEN = re.compile(r"emem:(?:fact|bundle):[a-z0-9]+(?:\.[A-Za-z0-9]+)*(?::[a-z2-7]{52})?")
 
@@ -125,6 +131,25 @@ def check_crosses():
     return ok
 
 
+def check_bytes():
+    """Fetch the saved CBOR of the wire-forms and one-byte facts again; the bytes must be equal."""
+    ok = True
+    for cid, path in SAVED_CBOR:
+        req = urllib.request.Request(BASE + "/v1/facts/" + cid, headers={
+            "accept": "application/cbor", "user-agent": "emem-docs-media-recheck"})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                live = r.read()
+            same = live == path.read_bytes()
+            ok &= same
+            print(f"bytes   {'ok  ' if same else 'DIFF'} {cid[:8]}...  {len(live)} bytes  {path.name}")
+        except Exception as e:  # noqa: BLE001
+            ok = False
+            print(f"ERROR   bytes {cid[:8]}: {e}")
+        time.sleep(0.5)
+    return ok
+
+
 def check_log(out):
     first = json.loads(LOG_HEAD.read_text())["sth"]["tree_size"]
     now = call("/v1/log/sth")
@@ -146,6 +171,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     ok = check_tokens()
     ok = check_crosses() and ok
+    ok = check_bytes() and ok
     ok = check_log(out) and ok
     return 0 if ok else 1
 
