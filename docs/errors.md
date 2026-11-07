@@ -62,9 +62,10 @@ place, and the digest that a write had to sign. Some errors also carry `path`
 or `did_you_mean`.
 
 Over MCP, a failed tool call comes back as a normal `result` with
-`isError: true`. The text is `tool error (-N): <code>: <message>`, then the
-`details` JSON if there is any. An MCP caller can branch on the code name
-without the number.
+`isError: true`. The text is `tool error (-N): <code>: <message>`. `N` is
+the MCP number of the code. When the error has `details`, the text then has
+a blank line, the line `details:`, and the details as indented JSON. An MCP
+caller can branch on the code name without the number.
 
 ## How to branch on an error
 
@@ -74,7 +75,8 @@ without the number.
    invalid_argument` and `details.code: memory_attestation_required`.
 2. Do not switch on the HTTP status alone. One code can have different
    statuses on different routes. `band_not_in_registry` is 400 from
-   `/v1/recall` and 404 from the storage layer.
+   `/v1/recall`. It is 404 from `/v1/backfill` and from every route that
+   passes on a storage error.
 3. Do not treat a signed absence as an error. A `/v1/recall` fact with
    `kind: "absence"` and a `reason_cid` is a signed answer: this band has
    no data at this cell. A retry gives the same answer.
@@ -178,6 +180,15 @@ This request has one unknown and one known band, so it returns HTTP 200.
 curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
   -d '{"cell":"defi.zb4d9.pefa.zf619","bands":["elevation_mean","copdem30m.elevation_mean"]}'
+```
+
+`/v1/backfill` sends the same code with HTTP 404, not 400. It refuses the
+unknown band before it fetches anything:
+
+```sh
+curl -s -X POST https://emem.dev/v1/backfill \
+  -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb4d9.pefa.zf619","band":"elevation_mean"}'
 ```
 
 A fact token whose cid lost characters gives HTTP 400 with `code:
