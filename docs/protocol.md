@@ -518,9 +518,9 @@ struct PrimaryFact {
 
 `served_via` records which compute tier made the value (`tier`,
 `model`, `device`, and an optional `fallback_reason` and
-`model_blake2b_hex`). Numeric bands such as NDVI and elevation leave it
-out. Serde skips it when it is `None`, so facts without it keep their
-CID.
+`model_blake2b_hex`). The responder does not set it now. Only older
+facts from the retired foundation-model tier carry it. Serde skips it
+when it is `None`, so facts without it keep their CID.
 
 Worked example (Fast-tempo NDVI composite over a single Sentinel-2 capture):
 
@@ -625,7 +625,9 @@ does not vouch for it.
 The responder refuses `direct_sensor` and `deterministic_index` with
 `400 derive_provenance_class_refused`. Those two classes say "a sensor
 made this" or "anyone can recompute this from the raw source". The
-responder did not see the arithmetic, so it cannot say either.
+caller did the arithmetic, so the responder cannot say either at write
+time. The one exception is a recomputation that matches (see rule 3).
+Then the responder stores `deterministic_index` itself.
 
 **3. It must be attested, and the signature means something narrow.**
 
@@ -666,6 +668,8 @@ covers it, and the signature of the responder covers the `fact_cid`:
     "inputs": ["emem:fact:...", "..."],  // the parent tokens as submitted
     "provenance_class": "model_output",
     "code_cid": null,
+    // "recomputation": { "verified", "rule", "ulp_gap", "ulp_tolerance" }
+    //   present only when the responder ran the arithmetic again
     "preimage": "blake3(\"emem.memory_write|derive|/v1/derive|\" || body_hash)",
     "submitted_via": "emem.derive.v1"
   }
@@ -694,10 +698,10 @@ body_hash = blake3(cbor(DeriveBody))
 
 One scheme needs one verifier. The verb separates the domains. No
 memory-file verb is `derive`, so a signature for a file write cannot be
-replayed as a derivation, and the reverse. The literal
-`emem.memory_write` prefix is the domain for every caller-attested write
-at this responder, not only file writes. A new name would make every
-memory-write signature already issued invalid, so the name stays.
+replayed as a derivation, and the reverse. `emem.memory_write|` is the
+v1 domain, and derive still uses it. Memory file writes now sign under
+`emem.memory_write.v2|` (§7.5). A new name for the v1 domain would make
+every derive signature already issued invalid, so the name stays.
 
 `cbor(DeriveBody)` is a **definite-length 10-entry map whose keys appear
 in declaration order**:
@@ -741,8 +745,8 @@ that sign in one round trip.
 ##### Tenancy: derived facts are attester-scoped
 
 A caller-registered derivative is untrusted input. It must never appear
-in a default read of another agent. The storage layout prevents this;
-no filter is necessary:
+in a default read of another agent. The storage layout prevents this
+for the keyed reads:
 
 > `fact_canonical_key` returns `None` for the `Derivative` variant
 > (`crates/emem-cache/src/sled_hot.rs`), so a derivative is stored
@@ -754,6 +758,20 @@ Every keyed read uses one of those indexes. Thus `recall`,
 `find_similar` cannot return a derivation of a caller. No one has to
 remember to apply six filters. A registered derivation gets citation
 and resolution. It does not become part of the shared default reads.
+
+`/v1/derive` also writes three side indexes (`derive_core` in
+`crates/emem-api-rest/src/lib.rs`):
+
+| Index | Key | Used by |
+|---|---|---|
+| `emem.derived_by_attester` | attester key, then cell and band | `POST /v1/derived` |
+| `emem.derived_by_cell` | cell, `fn_key`, `signed_at`, attester key | `/v1/inferences`, and the `research_nearby` pointers |
+| `emem.derived_by_body_hash` | attester key and body hash | the idempotency rule below |
+
+`/v1/ask` and `/v1/locate` read `emem.derived_by_cell` and can attach a
+`research_nearby` block. That block holds pointers only: a token,
+`fn_key`, attester nick and tier, distance and `signed_at`. It never
+holds a derived value, so the answer and its receipt do not change.
 
 Three reads reach a derivation. Each one names the derivation, its
 attester, or a trust policy:
@@ -808,8 +826,10 @@ The codebase calls a `NegativeFact` a **signed Absence**. An Absence
 has a `FactCid`, the responder signs it, and you can cite it like a
 Primary or Derivative fact.
 
-The responder writes the reason as one line of text. The text starts
-with a short code and a colon. `reason_cid` is the content address of
+The responder writes the reason as one line of text. Most reason texts
+start with a short code and a colon. The MODIS texts ("no valid ...
+observation in ...") and the Hansen texts ("Hansen GFC v1.13 tile ...
+not present ...") do not. `reason_cid` is the content address of
 that text (`reason_cid_for`, `crates/emem-api-rest/src/lib.rs`):
 
 ```text
@@ -1012,6 +1032,7 @@ code from `crates/emem-core/src/error.rs`
 | Failed check | Error code | HTTP |
 |---|---|---|
 | Step 1 (subject in no address space) | `unaddressable_subject` | 400 |
+| An enrolled device writes a subject outside its profile's address space (`put_attestation_gated`) | `unaddressable_subject` | 400 |
 | Steps 2 to 7 (duplicate leaf, root mismatch, bad key, bad signature) | `bad_signature` | 422 |
 
 ---
@@ -1050,24 +1071,24 @@ The struct is `Receipt` in `crates/emem-fact/src/receipt.rs:11-103`.
 | `request_id` | `String` | ULID generated per request |
 | `served_at` | `String` | ISO 8601 UTC, second precision (`iso8601_now`, `crates/emem-storage/src/server.rs:648-666`) |
 | `primitive` | `String` | namespaced wire form: `"emem.recall"`, `"emem.find_similar"`, `"emem.verify"`, `"emem.query_region"`, `"emem.memory_file"`, `"emem.memory_bundle"`, `"emem.memory_contradictions"`, … (the bare form without `emem.` is internal-only; wire receipts always carry the prefix) |
-| `intent` | `Option<String>` | populated when served via `/v1/intent`; omitted from JSON when None |
+| `intent` | `Option<String>` | set when the response comes through `/v1/intent`; omitted from JSON when None. Not signed |
 | `cells` | `Vec<String>` | cell64 strings cited in the response. For `emem.memory_file` primitives, `cells[0]` is the memory path; when an attester block was supplied, `cells[0] = "pubkey:<b32>"` and `cells[1]` is the path |
 | `fact_cids` | `Vec<FactCid>` | every fact CID returned. For `emem.memory_file`, `fact_cids[0]` is the new `file_cid`; for `emem.memory_bundle`, the spatial `fact_cids` cited inside the bundle in citation order |
 | `as_of` | `Option<AsOfReceipt>` | `{valid_time?: u64, transaction_time?: ISO8601}`. Present only when at least one bi-temporal bound was set on the read; absent for current-state reads so pre-bi-temporal receipts deserialise byte-identically |
-| `schema_cid` | `SchemaCid` | active CDDL profile |
+| `schema_cid` | `SchemaCid` | active CDDL profile. Not signed here; the signed copy is `source_versions.schema_cid` |
 | `merkle_proof` | `Option<MerkleProof>` | inclusion proof for `fact_cids[0]` when persisted; omitted from JSON when None. Bound into the signature from `preimage_version: 2` on, so do not strip it (see §7.3.1) |
 | `responder` | `AttesterKey` | ed25519 pubkey, `[u8; 32]` |
-| `responder_key_epoch` | `KeyEpoch` | `u32` rotation counter |
+| `responder_key_epoch` | `KeyEpoch` | `u32` rotation counter. Not signed |
 | `responder_pubkey_b32` | `String` | base32-nopad-lowercase of `responder`. A copy for JSON readers. The signature does not cover it, and the responder omits it when empty |
 | `signature` | `Signature` | ed25519 `[u8; 64]` |
 | `signature_b32` | `String` | base32-nopad-lowercase of `signature`. A copy, like `responder_pubkey_b32` |
 | `source_versions` | `BTreeMap<String, String>` | manifest pins. On emem.dev on 6 November 2026 it held four keys: `bands_cid`, `registry_cid`, `schema_cid`, `sources_cid`. Signed through the `0x06` segment when not empty |
-| `registry_cid` | `RegistryCid` | function registry CID in force |
+| `registry_cid` | `RegistryCid` | function registry CID in force. Not signed here; the signed copy is `source_versions.registry_cid` |
 | `cost` | `Cost` | self-declared (see below). Not signed |
 | `scope` | `Option<Scope>` | `{user_id, agent_id, run_id, org_id}` when the caller set a scope; omitted otherwise. Signed through the `0x03` segment |
 | `edge_cids` | `Vec<EdgeCid>` | temporal edge CIDs the response cited; omitted when empty. Signed through the `0x05` segment |
 | `field` | `Option<FieldBinding>` | `{aoi_cid, derivation_cid}` on field responses only. Signed through the `0x0a` segment |
-| `preimage_version` | `u8` | the signing rule: `2` today, `1` for older receipts. Omitted when `0` (legacy rule) |
+| `preimage_version` | `u8` | the signing rule: `2` on 7 November 2026, `1` for older receipts. Omitted when `0` (legacy rule) |
 
 `Cost` (`receipt.rs:185-214`):
 
@@ -1298,9 +1319,10 @@ fields ride beside them **unsigned**, to say where the proof sits:
 - `fact_cid`: the fact the proof is for (`fact_cids[0]`). `leaf_index` is
   that fact's place in its own attestation's batch, sorted bytewise, not its
   place in the receipt's list, so it can exceed the list's length.
-- `leaf_count`: how many facts the batch tree holds. A leaf in a short right
-  subtree has a shorter path than `ceil(log2(n))`; check the path length
-  against this before folding.
+- `leaf_count`: how many facts the batch tree holds. The batch tree pairs
+  an odd node with itself, so every path has exactly
+  `ceil(log2(leaf_count))` siblings. Reject any other length before you
+  fold.
 - `log_entry_hash`: the transparency-log entry of the attestation that carried
   the batch, `blake3(attestation CBOR)` in base32. `GET
   /v1/log/inclusion?entry_hash=` (or `?fact_cid=`) proves it into a signed tree
@@ -1317,10 +1339,14 @@ The v2 binding has a cost worth stating plainly, because integrators
 meet it as a bug report rather than as a design note.
 
 Since v2 covers the proof, and v1 already covered every other field
-listed in §7.1, **a receipt cannot be reshaped and still verify.** An
-SDK that drops `merkle_proof` because it looks redundant, re-keys a
-field, summarises the envelope, or round-trips it through anything
-lossy produces `signature_valid: false` on data nobody tampered with.
+listed in §7.1, **no signed field can change and still verify.** The
+fields that the table above marks "Not signed" (`intent`, `cost`,
+`responder_key_epoch`, the top-level `schema_cid` and `registry_cid`,
+and the two base32 copies) can change without a signature failure. Do
+not trust them on their own. Some
+SDKs drop `merkle_proof` because it looks redundant, re-key a field,
+summarise the envelope, or round-trip it through a lossy format. Each
+of these gives `signature_valid: false` on data that nobody changed.
 That is not a defect in the verifier; it is the same property that
 stops an intermediary stripping a proof in transit, seen from the
 other side. Store and forward the responder's exact bytes.
@@ -1543,7 +1569,7 @@ not try both.
 
 where:
 
-- `verb ∈ {create, str_replace, insert, delete, rename}`
+- `verb ∈ {create, str_replace, insert, delete, rename, supersede}`
 - `path` is the canonical memory path beginning with `/memories/`, the
   path the verb writes *to*: for `rename` that is the `new_path`
 - `body_hash = blake3(canonical body bytes)`, where the canonical body
@@ -1556,6 +1582,7 @@ where:
 | `insert` | the whole file's UTF-8 bytes *after* the insertion |
 | `delete` | the empty string: `blake3("")` |
 | `rename` | the `old_path` string's UTF-8 bytes |
+| `supersede` | the UTF-8 bytes of `superseded_by + "\|" + reason` (`reason` is empty when omitted) |
 
 The body is the *content*, never the JSON envelope the caller POSTs.
 For the edit verbs the caller must apply the edit locally and hash the
@@ -1585,8 +1612,8 @@ pub fn verify_attester_versioned(verb: &str, path: &str, body_hash: &[u8; 32],
 ```
 
 `attester_preimage` is v1 and `attester_preimage_v2` is v2.
-`verify_attester_versioned` tries v2 first. It falls back to v1 only for
-`create`, `str_replace` and `insert`. The write handler
+`verify_attester_versioned` tries v2 first. It falls back to v1 for
+every verb except `delete` and `rename` (`V2_REQUIRED_VERBS`). The write handler
 (`validate_attester_binding` in `crates/emem-api-rest/src/lib.rs`) then
 refuses a v1 result for every verb with `reason: v1_retired`. The read
 path (`memory_view`) uses the same function to report which version an
@@ -1625,8 +1652,9 @@ does not prove that the note is true. Reads need no key.
 
 1. Read the note's metadata with the MCP tool `emem_memory_view` and the
    argument `{"path": "<path>"}`. Keep the `authorship` block.
-2. Read the raw note bytes with `GET https://emem.dev<signed_path>`. Use
-   the bytes as served. Do not decode and re-encode them.
+2. Read the raw note bytes with `GET https://emem.dev<path>`, where
+   `path` is the current path in the view. Use the bytes as served. Do
+   not decode and re-encode them.
 3. If `authorship.caller_signed` is `false`, stop. No caller signature
    exists, so authorship cannot be checked.
 4. For `create`, `str_replace` and `insert`, compute `blake3(bytes)`.
@@ -1639,7 +1667,8 @@ does not prove that the note is true. Reads need no key.
    segment must equal the first 8 characters of the key.
 
 `signed_path` is the path at write time. It differs from the current path
-after a `rename`. The `memory_view` receipt carries
+after a `rename`. Fetch the bytes at the current `path`, and use
+`signed_path` only to build the digest. The `memory_view` receipt carries
 `cells = ["pubkey:<b32>", path]`, so the responder's signature (§7.1)
 also covers the key and the path it served.
 
@@ -1653,7 +1682,7 @@ import blake3
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 view = json.load(open(sys.argv[1]))           # the memory_view result object
-body = open(sys.argv[2], "rb").read()         # GET https://emem.dev<signed_path>
+body = open(sys.argv[2], "rb").read()         # GET https://emem.dev<path>
 a = view["authorship"]
 
 def b32(s):
@@ -1888,8 +1917,10 @@ It appends the 32-byte hash as a trailer, fsyncs, and increments
 last 32 bytes, computes `blake3` of the remaining bytes, and compares.
 It counts the matches in `sealed_ok` and lists the mismatches in
 `VerifyReport.bad`. A segment without a trailer (the open segment, or
-one that a restart closed) also goes into `bad`. The log continues to
-write to its open segment when `verify` finds a bad segment.
+one that a restart closed) also goes into `bad`. Thus on a node that
+restarted, `verify` flags each restart-closed segment. No code in the
+workspace calls `verify` on 7 November 2026. The server does not check
+segments at start or while it writes. It is a tool for an operator.
 
 ### 9.5 Snapshot / replication trait
 
@@ -1964,7 +1995,9 @@ values from the responses, BLAKE3 and Ed25519.
 2. Rebuild the STH digest. Use the `PreimageV1` rules of §7.1 with
    domain `emem.translog.sth.v1` and the four segments above.
    `tree_size` is 8 bytes big-endian. `root` and `responder_pubkey` are
-   the raw 32 bytes from base32. `signed_at` is the UTF-8 text.
+   the raw 32 bytes from base32. `signed_at` is the UTF-8 text. The
+   base32 values are lowercase with no padding. In Python, decode with
+   `base64.b32decode(s.upper() + "=" * (-len(s) % 8))`.
 3. Verify `signature_b32` over that 32-byte digest with
    `responder_pubkey_b32`.
 4. Get a proof at the size of the step 1 STH. Use the `log_entry_hash`
@@ -1981,7 +2014,9 @@ values from the responses, BLAKE3 and Ed25519.
    `GET /v1/log/entries?start=<leaf_index>&end=<leaf_index+1>`. Then
    `blake3(entry_cbor_b32 decoded)` must equal `entry_hash`. For an
    attestation, the CBOR field `batch_root` must equal the receipt's
-   `merkle_proof.root`. That connects the fact (§8) to the log entry.
+   `merkle_proof.root`. The CBOR holds `batch_root` as an array of 32
+   integers, not a byte string. Convert it with `bytes(...)` before you
+   compare. That connects the fact (§8) to the log entry.
 
 The path walk for step 6, in Python:
 
@@ -2037,8 +2072,11 @@ For this reason `GET /v1/log/witnesses` puts each witness key in a tier:
 
 `independent_operator_count` counts distinct `org_vouched` domains, not
 keys, because keys cost nothing and domains do not. The co-signatures of
-a key share the per-key write rate limit. The node also signs its own
-head every two minutes (`self_witness_pubkey_b32`). Thus
+a key share the per-key write rate limit. On emem.dev, a liveness job
+outside the server co-signs the head about once a minute with
+`self_witness_pubkey_b32` (live on 7 November 2026). The server binary
+does not do this, so another node does it only if its operator runs such
+a job. Thus
 `head_is_witnessed` tells you little about outside oversight.
 `head_is_independently_witnessed` removes that key, but it still counts
 every `key_only` key, and keys cost nothing. Use
@@ -2162,7 +2200,12 @@ path over leaves or chunks the caller holds.
 ## 10. Privacy classes
 
 In short: every band in `bands-v0.json` declares a privacy class. The
-class is part of `bands_cid`, so a receipt commits to it. The rule in
+class is part of `bands_cid`. A receipt commits to `bands_cid` through
+`source_versions` (§7), so it commits to the registry class. Each fact
+also carries its own `privacy_class` field, and the two can differ. For
+example, `population` facts carry `"public"` (the materializer writes
+that value), but the registry declares `aggregate_only`. To know the
+class, read the registry, not the fact. The rule in
 this section says what a conforming responder must do with the class.
 The reference responder does not apply that rule yet (see the note at
 the end of §10.1).
@@ -2293,16 +2336,26 @@ a structured error, not `false`, and the responder does that.
 
 In short: a second responder or verifier is compatible only if it computes
 the same manifest CIDs from the same registry files. This is the first
-test to pass, because every fact, receipt and attestation cites these
-CIDs.
+test to pass, because signed objects carry these CIDs:
+
+| Object | Field | CIDs it carries |
+|---|---|---|
+| Fact | `schema_cid` | `schema_cid` only |
+| Attestation | `registry_cid`, `schema_cid` | both, in the signed preimage (§6) |
+| Receipt | `source_versions` (signed, §7.1) | `bands_cid`, `registry_cid`, `schema_cid`, `sources_cid` |
+
+In a receipt, `registry_cid` is the `functions_cid` of `/v1/manifests`
+(the two were equal live on 7 November 2026). No signed object carries
+`algorithms_cid`. The top-level `schema_cid` and `registry_cid` of a
+receipt are unsigned copies.
 
 `GET /v1/manifests` returns ten digests (§3.3). Four of them are the
 conformance gate:
 
 | CID | Source manifest | What the manifest pins |
 |-----|-----------------|--------------|
-| `bands_cid` | `bands-v0.json` | 43 cube slots summing to exactly 1792 dims, each with its tempo and privacy class. 115 materializer-wired band names (42 user-callable today) route into those slots; that routing is not in this manifest |
-| `algorithms_cid` | `algorithms-v0.json` | 172 algorithms in three kinds: 29 `solo`, 114 `combined`, 29 `embedding`. Each entry carries typed `parameters`, `learned_from` with citations, and `prerequisites`, so a third party can run it again against the receipt that cites it. [agents.md](agents.md) lists the catalog, including the triple-encoder-consensus entries such as `deforestation_triple@1` and `coastal_erosion_triple@1` |
+| `bands_cid` | `bands-v0.json` | 43 cube slots summing to exactly 1792 dims, each with its tempo and privacy class. Materializer-wired band names route into those slots (`GET /v1/materializers` gave `pagination.total` 113 on 7 November 2026). That routing is not in this manifest |
+| `algorithms_cid` | `algorithms-v0.json` | 172 algorithms in three kinds: 29 `solo`, 114 `combined`, 29 `embedding`. Each entry carries typed `parameters`, `learned_from` with citations, and `prerequisites`, so a third party can run it again against the receipt that cites it. [agents.md](agents.md) lists the catalog. Seven entries are triple-encoder consensus recipes: `clay_prithvi_tessera_triple_consensus@1`, `deforestation_triple@1`, `coastal_erosion_triple@1`, `urban_expansion_triple@1`, `wetland_change_triple@1`, `disaster_anomaly_triple@1` and `climate_archetype_triple@1`. They are declared, but they do not run on emem.dev, because the encoders were retired. `/v1/locate` shows them with `available_now: false` |
 | `sources_cid` | `sources-v0.json` | 46 source schemes, each with its providers, tempo and native resolution. The manifest does not record transport. In the code, many connectors use the shared STAC + COG sampler (`crates/emem-fetch/src/cog.rs`). Others use HTTPS JSON, Parquet on S3, NCSS CSV, TAR or ZIP, Overpass QL and PMTiles |
 | `schema_cid` | `schema-v0.json` | CDDL bundle pinned to `hash="blake3"`, `signature="ed25519"`, `cid_encoding="base32-nopad-lowercase"` |
 
@@ -2384,8 +2437,8 @@ are already deployed.
 1. Manifests are content-addressed. An operator who publishes a new
    `bands-v0.json` gets a new `bands_cid` (§12). Facts signed under
    the old `bands_cid` stay valid and are not signed again. The
-   receipt's `registry_cid` and `schema_cid` tell a verifier which
-   manifest set applied.
+   receipt's signed `source_versions` tells a verifier which manifest
+   set applied (§12).
 2. Schema changes happen at the manifest level. A CDDL change gives a
    new `schema_cid`. A fact has no version field, and the CBOR encoder
    has no version on the wire. Two facts with different `schema_cid`
@@ -2394,8 +2447,8 @@ are already deployed.
    new `Source` connector kinds and new `Tempo` variants ship with a
    new manifest CID. A responder that does not know an op or a
    connector kind MUST return a structured error. It must not evaluate
-   the claim as `false` or use a default. §11 shows what emem.dev does
-   today.
+   the claim as `false` or use a default. §11 shows what emem.dev did
+   on 7 November 2026.
 
 End of spec.
 
@@ -2421,10 +2474,26 @@ Only `emem:fact:` binds a whole body. Treat the anchors as shared
 references, not as shared bytes. A citation that looks the same but
 binds less can mislead a reader later, so name the kind you cite.
 
-`POST /v1/memory_token/resolve` takes only `emem:fact:` tokens (and the
-legacy `memt:` form). On 6 November 2026 it returned HTTP 400
-`invalid_argument` for `emem:raster:`, `emem:cube:` and `emem:entity:`
-tokens. Use the route in the table for each kind.
+`POST /v1/memory_token/resolve` is for `emem:fact:` tokens (and the
+legacy `memt:` form). It accepts two `emem:fact:` forms:
+
+- `emem:fact:<cell64>:<fact_cid>`, the `token` field of
+  `POST /v1/memory_token`.
+- `emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid>`, the
+  `descriptor_token` field. `lat` and `lng` come from the cell64 and
+  have five decimals. `POST /v1/memory_token` mints it only when
+  you send `band` and `observed_on`. The resolver checks the date
+  against the signed fact and refuses a mismatch with HTTP 409.
+
+On 7 November 2026 the route gave these results for other inputs:
+
+| Input | Result |
+|---|---|
+| `emem:entity:` token | HTTP 400 `invalid_argument` |
+| `emem:raster:` or `emem:cube:` token | HTTP 404 `cid_not_found`. The resolver takes the 52-character `aoi_cid` and looks it up as a fact CID |
+| a bare 52-character CID | looked up as a fact CID (degraded mode) |
+
+Use the route in the table for each kind.
 
 Check the receipt with `emem_verify_receipt`, or in your own process
 with any ed25519 and blake3 library (§7.4). The full grammar,
