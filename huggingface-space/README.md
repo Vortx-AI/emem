@@ -65,7 +65,7 @@ the key from the Space's own `/.well-known/emem.json`, at
 `federation.node.responder_pubkey_b32`. The key of emem.dev does not verify it.
 
 The Space keeps its own small corpus. On 7 November 2026, `/health` reported
-107 cells and 25 bands. A cell that emem.dev already holds can be empty on the
+108 cells (`corpus.distinct_cells`) and 25 bands (`corpus.distinct_bands`). A cell that emem.dev already holds can be empty on the
 Space. The Space then fetches the value from the open source when you ask.
 
 The `Dockerfile` pins the image by digest, not by tag. The Space version
@@ -99,11 +99,14 @@ longer, because the Space fetches the source data first.
 ## Connect an MCP client
 
 The MCP endpoint is `https://vortx-ai-emem.hf.space/mcp` (Streamable HTTP).
-Use the client configs in [examples/](https://github.com/Vortx-AI/emem/tree/main/examples) and change the URL from
-`https://emem.dev/mcp` to the Space URL.
+For Claude Code or Cursor, copy
+[examples/claude-code.mcp.json](https://github.com/Vortx-AI/emem/blob/main/examples/claude-code.mcp.json) or
+[examples/cursor.mcp.json](https://github.com/Vortx-AI/emem/blob/main/examples/cursor.mcp.json).
+Change the URL from `https://emem.dev/mcp` to the Space URL.
 
 Claude Desktop does not connect to a remote URL from
-`claude_desktop_config.json`. Use one of these two methods:
+`claude_desktop_config.json`, so do not copy the `url` entry in
+`examples/claude-desktop.json`. Use one of these two methods:
 
 - In Claude Desktop, open Customize > Connectors, click + Add, choose Add
   custom connector, and enter the Space MCP URL.
