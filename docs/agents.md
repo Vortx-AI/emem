@@ -717,8 +717,9 @@ walkthrough is in [Connect and evolve](connect-and-evolve.md).
 
 Point a hosted MCP client at `https://emem.dev/mcp`. The transport is
 Streamable HTTP, MCP 2025-11-25. `initialize` also accepts 2025-06-18,
-2025-03-26 and 2024-11-05. A self-hosted node listens on port 5051. Reads
-need no key.
+2025-03-26 and 2024-11-05. For a version that is not on this list, the
+server answers with 2025-11-25. A self-hosted node listens on port 5051 by
+default. Set `EMEM_BIND` to change it. Reads need no key.
 
 | Client | Config |
 |---|---|
@@ -744,7 +745,7 @@ EMEM = os.environ.get("EMEM_URL", "https://emem.dev")
 
 @tool
 def emem_recall(cell: str, bands: list[str] | None = None) -> dict:
-    """Recall facts at an emem cell64. Returns signed receipt + facts."""
+    """Recall facts at an emem cell64. Returns the facts and a signed receipt."""
     body = {"cell": cell}
     if bands: body["bands"] = bands
     return requests.post(f"{EMEM}/v1/recall", json=body, timeout=30).json()
@@ -760,30 +761,35 @@ The full tool sets are `examples/langchain.py` (nine tools) and
 
 This is the answer to the recall in
 [Read signed facts at one place](#job-read-signed-facts-at-one-place), on
-6 November 2026. We shortened some fields.
+7 November 2026. We removed some fields, for example `band_metadata`,
+`signer`, `spatial_basis` and `receipt.cost`, and we shortened others.
 
 ```json
 {
   "facts": [{
     "band": "copdem30m.elevation_mean",
     "cell": "defi.zb592.nUkO.zEzE",
+    "kind": "primary",
     "tslot": 0,
     "value": 3539.042236328125,
     "unit": "m",
     "confidence": 0.949999988079071,
+    "observed_at": "2021-04-30T00:00:00Z",
     "derivation": {"fn_key": "copernicus_dem_30m_aws_pixel@1",
                    "args": [35.362818414124675, 138.730792696665, "reader=cog-pixel-floor@2"]},
     "sources": [{"scheme": "copernicus.dem.30m.aws",
                  "id": "https://copernicus-dem-30m.s3.amazonaws.com/Copernicus_DSM_COG_10_N35_00_E138_00_DEM/Copernicus_DSM_COG_10_N35_00_E138_00_DEM.tif",
                  "captured_at": "2021-04-30T00:00:00Z"}],
     "signed_at": "2026-09-28T12:23:41Z",
-    "fact_cid": "qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq"
+    "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+    "fact_cid": "qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq",
+    "memory_token": "emem:fact:defi.zb592.nUkO.zEzE:qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq"
   }],
   "bands_already_attested_at_cell": ["..."],
   "receipt": {
-    "request_id": "01M6SJSX03C419CEWKZ25Y6FVC",
+    "request_id": "01M6T1D3C3YKEZZSC2XW0QHR7E",
     "primitive": "emem.recall",
-    "served_at": "2026-11-06T23:23:50Z",
+    "served_at": "2026-11-07T03:38:59Z",
     "preimage_version": 2,
     "cells": ["defi.zb592.nUkO.zEzE"],
     "fact_cids": ["qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq"],
@@ -792,13 +798,21 @@ This is the answer to the recall in
     "responder_key_epoch": 0,
     "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
     "registry_cid": "3pbqnyninz6xqll2ynjlh4djlppcp2mdcdmzeq4otebnli5ndzaa",
-    "signature_b32": "gfrpb5ntjycvdgdsbzksdxk2l4aau6qhdi6xaladzl4mj2w4s465bjtffkui5kcbzvuq7kpyrg7p5joqhllprkb5svn722ytnzog6ba"
+    "signature_b32": "3u5hdjdc6o7ypfllbtk6uoebzultfewajdudbxyqk2372ectzhbdiippyaqmw6lfk74c5pkz7huqyrc7zdymudoscbcefqd2aytowbq"
   }
 }
 ```
 
 Read these fields:
 
+- `kind` is `primary`, `derivative` or `absence`. An absence has no
+  `value`. See [Three kinds of fact](#three-kinds-of-fact).
+- `observed_at` is when the source captured the data. `signed_at` is when
+  the responder signed the fact. Here the DEM tile is from 2021 and the
+  fact is from September 2026.
+- `memory_token` is the `emem:fact:` handle for this fact. Give it to
+  another agent as is. See
+  [Cite one fact for another agent](#job-cite-one-fact-for-another-agent).
 - `request_id` is a ULID. It sorts by time, so you can use it as a
   correlation key.
 - `signature_b32` is a 64-byte Ed25519 signature over the BLAKE3 digest of a
