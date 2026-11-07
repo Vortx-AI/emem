@@ -223,9 +223,9 @@ curl -s -X POST https://emem.dev/mcp \
 
 A recall can return HTTP 200 and still fail to fetch a band. The responder
 then adds an entry to `materialize_notes[]` with `status: "skipped"`. The
-responder signs nothing for that band, and the entry is not an absence. A signed absence
-comes back as `status: "materialized"` with a `fact_cid`. The recall,
-polygon and find-similar routes use the same note shape.
+responder signs nothing for that band, and the entry is not an absence. A
+signed absence comes back as `status: "materialized"` with a `fact_cid`.
+The recall, polygon and find-similar routes use the same note shape.
 
 A per-band skip note has these keys: `band`, `status`, `reason`,
 `reason_class`, `retryable` and `absence` (always `false`). The `reason` is
@@ -310,7 +310,7 @@ codes. The next subsection names them and says what you get instead.
 | `source_fetch_failed` | -19 | 502; 504 when a fan-out passes its budget; 422 from the physics routes | An upstream fetch failed at the transport (non-2xx, DNS, timeout, bad JSON) before the upstream gave an answer. On a place lookup this means the geocoder is down, not that the place is absent. | Retry with backoff. |
 | `source_format_mismatch` | -20 | 502 | The fetched bytes do not match the declared format. | Report it; the provider may have changed format. |
 | `compute_timeout` | -21 | 504 | The request ran past the transport budget (default 40 s, `EMEM_TIMEOUT_SECS`). `details.budget_secs` gives the budget. Over MCP the same cause reads `exceeded the <N>s call budget`, with the budget in seconds. | Send a smaller input, or retry. A band read that passes the 14 s dispatch cap keeps running. A retry often finds the value ready. |
-| `compute_quota_exceeded` | -22 | 402 | You used all of a per-key, per-day compute quota. | No route sends this code today (see [Codes that no route sends](#codes-that-no-route-sends)). |
+| `compute_quota_exceeded` | -22 | 402 | You used all of a per-key, per-day compute quota. | No route sends this code in version 2.4.4 (see [Codes that no route sends](#codes-that-no-route-sends)). |
 | `rate_limited` | -23 | 429; 503 when the memory SSE subscriber cap is full | Too many requests. Per IP the default is 600 per minute with a burst of 120 (`EMEM_RATE_LIMIT_RPS`, `EMEM_RATE_LIMIT_BURST`). Memory writes also have a per-attester backstop (`details.code: write_rate_limited`). | Honour `Retry-After` (seconds) or `details.retry_after_s`. |
 | `cache_error` | -24 | 500; 503 when the node has no durable store | The responder's store returned an internal error. | Retry once. |
 | `invalid_argument` | -25 | 400 on most routes; the route tables below give the others | A field is syntactically valid but semantically wrong, or the body did not match the route's schema (`details.deserializer_error` names the field). Also the top-level code for most route refusals below. | Read `message` and `details`; the request shape is in `/openapi.json`. |
@@ -413,7 +413,7 @@ refusal names itself in `details.code`.
 | `derive_parent_cell_mismatch` | `invalid_argument` | 409 | The token names a cell that is not the cell of the signed fact. The message gives the correct token. |
 | `derive_attestation_required` | `invalid_argument` | 401 | The body has no `attester` block. `details.how_to_sign` carries the digest to sign. |
 | `derive_attestation_invalid` | `bad_signature` | 401 | The key has a bad shape (`reason: bad_pubkey`) or the signature does not verify (`reason: bad_signature`). The message names the expected digest. |
-| `derive_namespace_violation` | `invalid_argument` | 403 | The code maps this case, but it cannot occur today. `/v1/derive` is not under a `by_attester` path. |
+| `derive_namespace_violation` | `invalid_argument` | 403 | The code maps this case, but it cannot occur in version 2.4.4. `/v1/derive` is not under a `by_attester` path. |
 
 Three more derive refusals have no `details` block. The route code is the
 start of `message`.

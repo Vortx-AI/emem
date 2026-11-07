@@ -2778,9 +2778,9 @@ co-signatures. The witness preimage is
 signature verifies and the root agrees with its own history at that
 size.
 
-**Witnesses do not make split-view equivocation detectable today.** The
-party that a client checks also serves the STH, the proofs and the
-witness list. A responder that equivocates can give each client a view
+**In version 2.4.4, witnesses do not make split-view equivocation
+detectable.** The party that a client checks also serves the STH, the
+proofs and the witness list. A responder that equivocates can give each client a view
 that agrees with itself in all three. Clients have no gossip channel,
 and without one you cannot detect a split view. There is also no
 witness allowlist or trust anchor. `POST /v1/log/witness` accepts any
