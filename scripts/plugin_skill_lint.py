@@ -26,6 +26,13 @@ Each rule is a finding a review made, or a mistake made while fixing one:
                   does not ship; eleven skills told a reviewer their scripts
                   read local files when they had no scripts (the review held
                   field-signals as reading a credential, 2026-10-28)
+  scanner-curl    a `curl ... https://` that the HOL plugin scanner cannot
+                  exempt (its RISKY_SKILL_INSTRUCTION rule, high). Only a
+                  shell fence whose every command is a literal GET, with
+                  -fsSLI flags, one URL and no $ | ; & < > ( ) { }, passes.
+                  A docs rewrite brought back 69 such curls in 19 skills on
+                  2026-11-07, two days after they were removed; the scanner
+                  failed on main before anything here noticed
 
 Exit 1 on any finding, with file and line.
 """
@@ -33,7 +40,9 @@ import glob
 import json
 import os
 import re
+import shlex
 import sys
+import urllib.parse
 
 PLUGINS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "plugins")
 ROOT = os.path.join(PLUGINS, "emem")
@@ -46,10 +55,97 @@ HEADER_DUMP = re.compile(r"\bcurl\b[^\n]*(?:\s-D\s|--dump-header|header_json|\s-
 PIPE_EXEC = re.compile(r"\|\s*(?:sudo\s+)?(?:sh|bash|zsh|python3?|node|perl|ruby)\b(?!\S)")
 findings = []
 
+# The scanner's rule, ported from hol-guard (skill_security.py, skill_curl_context.py,
+# skill_command_urls.py, read 2026-11-07): continuations are joined except on comment
+# lines; a `curl` with a URL on its line is risky unless it sits in a shell fence where
+# every command line is a literal read-only GET.
+CURL_FLAGS = {"--silent", "--show-error", "--fail", "--location", "--head", "--compressed", "--no-progress-meter"}
+CMD_URL = re.compile(r"https?://[^\s`\"']+", re.I)
+
+
+def _joined(text):
+    out = []
+    for line in text.splitlines(keepends=True):
+        if not line.lstrip(" \t").startswith("#") and line.endswith("\\\n"):
+            out.append(line[:-2] + " ")
+        else:
+            out.append(line)
+    return "".join(out)
+
+
+def _read_only_curl(cmd):
+    if any(c in cmd for c in "$`|;&<>(){}"):
+        return False
+    try:
+        toks = shlex.split(cmd)
+    except ValueError:
+        return False
+    if not toks or toks[0] != "curl":
+        return False
+    saw, it = False, iter(toks[1:])
+    for t in it:
+        if t in CURL_FLAGS or re.fullmatch(r"-[fsSLI]+", t):
+            continue
+        if t in {"-X", "--request"}:
+            if next(it, None) not in {"GET", "HEAD"}:
+                return False
+            continue
+        u = urllib.parse.urlsplit(t)
+        if saw or u.scheme not in ("http", "https") or not u.hostname or "@" in u.netloc \
+                or any(c in u.path + u.query for c in "[]{}"):
+            return False
+        if u.query:
+            k, _, v = u.query.partition("=")
+            ok = (k in {"page", "limit", "per_page", "offset"} and re.fullmatch(r"[0-9]{1,4}", v)) \
+                or (k == "format" and v in {"json", "xml", "text", "csv", "yaml"})
+            if not ok:
+                return False
+        saw = True
+    return saw
+
+
+def _exempt_spans(text):
+    spans, fence, start, off, safe, saw = [], "", 0, 0, False, False
+    for line in text.splitlines(keepends=True):
+        body = line.rstrip("\r\n").lstrip(" \t")
+        w = len(body) - len(body.lstrip(body[:1])) if body[:1] in ("`", "~") else 0
+        if not fence:
+            if w >= 3:
+                fence, safe, start, saw = body[:w], body[w:].strip() in {"", "bash", "sh", "shell"}, off + len(line), False
+        elif w >= len(fence) and body[0] == fence[0] and not body[w:].strip():
+            if safe and saw:
+                spans.append((start, off))
+            fence = ""
+        elif line.lstrip().startswith("#"):
+            safe = safe and not line.rstrip("\r\n").endswith("\\")
+        elif line.strip():
+            safe, saw = safe and _read_only_curl(line.strip()), True
+        off += len(line)
+    return spans
+
+
+def scanner_curls(text):
+    """Line numbers of the curls the scanner would flag."""
+    text = _joined(text)
+    spans = _exempt_spans(text)
+    out = []
+    for m in re.finditer(r"curl\s+", text, re.I):
+        eol = text.find("\n", m.end())
+        u = CMD_URL.search(text, m.end())
+        if u and u.start() < (len(text) if eol == -1 else eol) and \
+                not any(a <= m.start() and u.end() <= b for a, b in spans):
+            out.append(text.count("\n", 0, m.start()) + 1)
+    return out
+
 
 def rel(p):
     return os.path.relpath(p, os.path.join(ROOT, "..", ".."))
 
+
+GUARD_SKILL = os.path.join(PLUGINS, "..", "crates", "emem-guard", "SKILL.md")
+if os.path.exists(GUARD_SKILL):
+    for n in scanner_curls(open(GUARD_SKILL, encoding="utf-8").read()):
+        findings.append((rel(GUARD_SKILL), n, "scanner-curl", "the plugin scanner flags this curl; describe the REST call or use a literal GET"))
 
 for f in sorted(glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md"))):
     text = open(f, encoding="utf-8").read()
@@ -74,6 +170,8 @@ for f in sorted(glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md"))):
                 findings.append((rel(f), n, "secret-shape", "reads response headers, which is where credentials live; take what you need from a JSON body"))
             if PIPE_EXEC.search(line):
                 findings.append((rel(f), n, "pipe-exec", line.strip()[:100]))
+    for n in scanner_curls(text):
+        findings.append((rel(f), n, "scanner-curl", "the plugin scanner flags this curl; describe the REST call or use a literal GET"))
     for n, line in enumerate(text.splitlines(), 1):
         if LOCAL_READ.search(line):
             findings.append((rel(f), n, "local-read", line.strip()[:100]))
@@ -100,4 +198,4 @@ for f, n, rule, what in findings:
     print(f"{f}:{n}: {rule}: {what}")
 if findings:
     sys.exit(1)
-print("plugin skills: no undefined shell variables, sibling scripts, local reads, foreign hosts, piped execution, secret-shaped names, credentials or unshipped files in the emem plugin")
+print("plugin skills: no undefined shell variables, sibling scripts, local reads, foreign hosts, piped execution, secret-shaped names, credentials, unshipped files or scanner-flagged curls in the emem plugin")
