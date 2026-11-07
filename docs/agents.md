@@ -592,6 +592,14 @@ the identity. Thus two labels for one object give the same `entity_cid`. To
 bind one more label to an identity that exists, use `emem_entity_link`. It
 is also a write to the shared space.
 
+A signed mint returns `created`, `entity_token`, `entity` and `receipt`.
+Give `entity_token` (`emem:entity:<entity_cid>`) to other agents. A new mint
+also returns `convergence`. It starts with `strong` when an external id
+anchors the identity, or `weak` when only the label does. A mint of an
+identity that exists stores nothing new. It returns `created: false` and
+the stored record. These fields come from `post_entity` in
+`crates/emem-api-rest/src/lib.rs`. We did not send a signed mint.
+
 ### Job: find places that look alike
 
 ```json
