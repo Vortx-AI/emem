@@ -586,8 +586,9 @@ curl -s -X POST https://emem.dev/v1/memory_bundle \
 Read `bundle_token` (`emem:bundle:<bundle_cid>`) and `fact_cids`. emem
 recalls each triple, so it fetches a missing fact first. To bind facts that
 you already hold, send `fact_cids` in place of `triples`. Send one of the two
-fields, not both. A member that emem cannot bind has a `miss_reason` in
-`citations`.
+fields, not both. Both fields, or an empty `triples` list, give a 400
+`invalid_argument` (checked live on 7 November 2026). A member that emem
+cannot bind has a `miss_reason` in `citations`.
 
 ### Job: verify a receipt
 
