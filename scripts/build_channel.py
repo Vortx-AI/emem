@@ -849,27 +849,17 @@ def build_markdown(notes: list[dict], cites: dict) -> str:
         f"## The exchange ({len(notes)} notes)",
         "",
     ]
-    # Index first, so a reader can navigate before committing to 100+ notes.
-    day = None
+    # The notes, in full, go to part files under docs/collaboration-log/. One
+    # file of every note reached 26 MB, and a plugin scanner refuses to
+    # secret-scan a repository holding any text file over 16 MiB, so it
+    # scanned nothing; the docs book also baked the whole file into the binary.
+    # An index alone would make the reader trust a summary of the record
+    # instead of reading it, so every day below links to its notes.
+    blocks: list[tuple[str, str, int]] = []
     for n in notes:
         d = (n["signed_at"] or "")[:10]
-        if d != day:
-            day = d
-            out += ["", f"**{day or 'undated'}**", ""]
         who = display(n["attester"])
-        out.append(f"- {n['signed_at'][11:16]} `{who}` {inert_line(title_of(n))}")
-
-    # Then the notes themselves, in full. An index alone would make the reader
-    # trust a summary of the record instead of reading it.
-    out += ["", "---", "", "## The notes, in full", ""]
-    day = None
-    for n in notes:
-        d = (n["signed_at"] or "")[:10]
-        if d != day:
-            day = d
-            out += ["", f"### {day or 'undated'}", ""]
-        who = display(n["attester"])
-        out += [
+        text = "\n".join([
             f"#### {inert_line(title_of(n))}",
             "",
             f"`{n['attester']}` ({who}) · {n['signed_at']} · cid `{n['cid']}`  ",
@@ -879,8 +869,124 @@ def build_markdown(notes: list[dict], cites: dict) -> str:
             "\n".join(("##" + ln) if ln.startswith("#") else ln
                       for ln in note_as_inert_markdown(n["content"]).splitlines()),
             "",
+        ]) + "\n"
+        blocks.append((d, text, len(text.encode("utf-8"))))
+    parts = split_into_parts(blocks)
+    first_part_of_day: dict[str, str] = {}
+    for name, bs in parts.items():
+        for d, _, _ in bs:
+            first_part_of_day.setdefault(d, name)
+    out += [
+        f"The notes are in {len(parts)} files under `docs/collaboration-log/`, one per",
+        f"week, or per day where a week passes {PART_CAP_BYTES // 1_000_000} MB.",
+        "",
+        "| file | days | notes |",
+        "|---|---|---|",
+    ]
+    for name, bs in parts.items():
+        span = bs[0][0] if bs[0][0] == bs[-1][0] else f"{bs[0][0]} to {bs[-1][0]}"
+        out.append(f"| [{name}]({PARTS_URL}{name}) | {span or 'undated'} | {len(bs)} |")
+    out += ["", "## Index", ""]
+    day = None
+    for n in notes:
+        d = (n["signed_at"] or "")[:10]
+        if d != day:
+            day = d
+            link = first_part_of_day.get(d, "")
+            out += ["", f"**{day or 'undated'}** ([notes]({PARTS_URL}{link}))", ""]
+        who = display(n["attester"])
+        out.append(f"- {n['signed_at'][11:16]} `{who}` {inert_line(title_of(n))}")
+    index = redact_credentials("\n".join(out) + "\n")
+    files = {}
+    for name, bs in parts.items():
+        body = [
+            f"# The agent collaboration log: {name[len('collaboration-log-'):-3]}",
+            "",
+            "Part of [the agent collaboration log](../collaboration-log.md). Each note is",
+            "reproduced from the ledger, rendered inert, with its author, time and cid. A",
+            "value shaped like a credential is shown as `[redacted]`; the cid resolves the",
+            "signed original.",
+            "",
         ]
-    return "\n".join(out) + "\n"
+        day = None
+        for d, text, _ in bs:
+            if d != day:
+                day = d
+                body += ["", f"### {d or 'undated'}", ""]
+            body.append(text)
+        files[name] = redact_credentials("\n".join(body) + "\n")
+    return index, files
+
+
+# Credential-shaped values in the archive. The archive is committed, so a
+# credential an author pasted into a note would be copied into git history for
+# good. The value is shown as [redacted]; the key name stays, and each note's
+# cid resolves the signed original. The shapes are those secret scanners flag.
+_PROVIDER_TOKEN = re.compile(
+    r"AKIA[0-9A-Z]{16}|gh[pous]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,}"
+    r"|glpat-[A-Za-z0-9\-]{20}|xox[bpaser]-[A-Za-z0-9\-]{10,}|xapp-[A-Za-z0-9\-]{10,}"
+    r"|(?<![A-Za-z0-9])sk-(?:proj-|ant-)?[A-Za-z0-9_-]{20,}"
+)
+_PRIVATE_KEY = re.compile(
+    r"-----BEGIN ((?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY)-----[\s\S]*?-----END \1-----"
+)
+# Quoted values only: prose such as `token: emem:fact:...` is a citation.
+_ASSIGNED_SECRET = re.compile(
+    r"((?:password|secret|token|api_?key|private_key)\s*[=:]\s*[\"'])"
+    r"(?!\[redacted\])[^\s\"']{8,}[^\"'\n]*",
+    re.I,
+)
+_AWS_SECRET = re.compile(r"(aws_secret_access_key\s*[=:]\s*[\"']?)[A-Za-z0-9/+=]{40}", re.I)
+
+
+def redact_credentials(text: str) -> str:
+    text = _PRIVATE_KEY.sub("[redacted private key]", text)
+    text = _PROVIDER_TOKEN.sub("[redacted]", text)
+    text = _AWS_SECRET.sub(lambda m: m.group(1) + "[redacted]", text)
+    return _ASSIGNED_SECRET.sub(lambda m: m.group(1) + "[redacted]", text)
+
+
+PART_CAP_BYTES = 4_000_000
+PARTS_URL = "https://github.com/Vortx-AI/emem/blob/main/docs/collaboration-log/"
+
+
+def split_into_parts(blocks: list[tuple[str, str, int]]) -> dict[str, list]:
+    """File name -> its (day, text, bytes) blocks, in time order.
+
+    One file per ISO week; a week over the cap, one per day; a day over the
+    cap, numbered parts cut at note boundaries. Calendar keys, not running
+    sizes, so a new note changes only the file of its own week."""
+    import datetime as _dt
+
+    def week(d: str) -> str:
+        if not d:
+            return "undated"
+        y, w, _ = _dt.date.fromisoformat(d).isocalendar()
+        return f"{y}-W{w:02d}"
+
+    by_week: dict[str, list] = {}
+    for b in blocks:
+        by_week.setdefault(week(b[0]), []).append(b)
+    parts: dict[str, list] = {}
+    for wk, bs in by_week.items():
+        if sum(b[2] for b in bs) <= PART_CAP_BYTES:
+            parts[f"collaboration-log-{wk}.md"] = bs
+            continue
+        by_day: dict[str, list] = {}
+        for b in bs:
+            by_day.setdefault(b[0], []).append(b)
+        for d, ds in by_day.items():
+            if sum(b[2] for b in ds) <= PART_CAP_BYTES:
+                parts[f"collaboration-log-{d or 'undated'}.md"] = ds
+                continue
+            k, cur = 1, []
+            for b in ds:
+                if cur and sum(x[2] for x in cur) + b[2] > PART_CAP_BYTES:
+                    parts[f"collaboration-log-{d}-{k}.md"] = cur
+                    k, cur = k + 1, []
+                cur.append(b)
+            parts[f"collaboration-log-{d}-{k}.md"] = cur
+    return parts
 
 
 # --------------------------------------------------------------------------
@@ -3190,7 +3296,8 @@ def main() -> int:
     channel_json = build_json(notes, cites, built_at)
     print(f"\n{len(notes):,} notes, "
           f"{notes[0]['signed_at'][:10]} to {notes[-1]['signed_at'][:10]}")
-    print(f"  markdown {len(md):,} chars   html {len(page):,} chars"
+    print(f"  markdown {len(md[0]) + sum(len(t) for t in md[1].values()):,} chars"
+          f" in {1 + len(md[1])} files   html {len(page):,} chars"
           f"   json {len(channel_json):,} chars")
     if PROBLEMS:
         print(f"  {len(PROBLEMS)} problem(s) reported ON the page:")
@@ -3385,23 +3492,36 @@ def main() -> int:
     for i, a in enumerate(sys.argv):
         if a == "--accept-count" and i + 1 < len(sys.argv):
             accept = int(sys.argv[i + 1])
-    if accept is not None and accept == len(notes):
-        print(f"  accepting {len(notes)} notes against {prev_notes} published, "
-              f"as explicitly stated on the command line")
+    # At least the stated count, not exactly it: agents write while a build
+    # reads, and an exact match lost that race (3,542 stated, 3,543 read). A
+    # read below the stated floor still refuses.
+    if accept is not None and len(notes) >= accept:
+        print(f"  accepting {len(notes)} notes (floor {accept}) against "
+              f"{prev_notes} published, as explicitly stated on the command line")
     elif prev_notes and len(notes) < prev_notes - allowed_drop:
         print(
             f"  REFUSING to write: this build read {len(notes)} notes against "
             f"{prev_notes} already published, {prev_notes - len(notes)} fewer "
             f"(tolerance {allowed_drop}). "
-            f"Notes do not disappear, so this is a failed read and not a smaller "
-            f"channel. Keeping the published transcript.",
+            f"Notes disappear only when their author deletes them, so this is "
+            f"read as a failed read and the published transcript is kept. If the "
+            f"notes were deleted on purpose (a namespace roll-up), publish the "
+            f"smaller channel once with: build_channel.py --accept-count {len(notes)}",
             file=sys.stderr,
         )
         for p in PROBLEMS:
             print(f"    {p}", file=sys.stderr)
         return 1
 
-    write_atomic(REPO / "docs" / "collaboration-log.md", md)
+    index_md, part_files = md
+    parts_dir = REPO / "docs" / "collaboration-log"
+    parts_dir.mkdir(exist_ok=True)
+    for name, text in part_files.items():
+        write_atomic(parts_dir / name, text)
+    for old in parts_dir.glob("collaboration-log-*.md"):
+        if old.name not in part_files:
+            old.unlink()
+    write_atomic(REPO / "docs" / "collaboration-log.md", index_md)
     write_atomic(REPO / "web" / "channel.json", channel_json)
 
     prev = channel.read_text() if channel.exists() else ""
@@ -3413,7 +3533,7 @@ def main() -> int:
     else:
         write_atomic(channel, page)
         print("  wrote web/channel.html")
-    print("  wrote docs/collaboration-log.md")
+    print(f"  wrote docs/collaboration-log.md and {len(part_files)} parts")
     print("  wrote web/channel.json")
     return 0
 

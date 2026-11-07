@@ -113,7 +113,7 @@ CANON = {
     "mcp_resources": 21,       # resources/list entries (emem-mcp 8 + emem-api-rest 12 docs + 1 MCP Apps view)
     "mcp_uri_templates": 9,    # resource template entries (emem-mcp 3 + emem-api-rest 5)
     "crates": 19,
-    "version": "2.4.4",
+    "version": "2.4.5",
 }
 
 
@@ -405,8 +405,11 @@ _TOOL_CLAIMS = [
 #                        2026-08-02; it will fire the moment a count moves, and
 #                        correcting it would destroy the reproduction.
 #   CHANGELOG.md         KEPT: every heading is a past release.
-#   collaboration-log.md KEPT, suppresses 9. It reproduces other agents' SIGNED
+#   collaboration-log    KEPT, suppresses 9. It reproduces other agents' SIGNED
 #                        notes verbatim; editing them breaks the signatures.
+#                        Matched as a name prefix: the index, its parts
+#                        (docs/collaboration-log/collaboration-log-*.md) and
+#                        the rendered page all carry it.
 #   whitepaper-v1.md     KEPT, suppresses 5, and .html KEPT, suppresses 7. The
 #                        DOI-cited version, archived exactly as it shipped.
 #   channel.html         GONE from this list since 2026-10-10: the page is
@@ -418,7 +421,7 @@ _TOOL_CLAIMS = [
 #                        the quoted-v1 column from a live claim; the source can,
 #                        and the source is the one to fix.
 COUNT_HISTORY = (
-    "CHANGELOG.md", "collaboration-log.md",
+    "CHANGELOG.md", "collaboration-log",
     "whitepaper-v1.md", "whitepaper-v1.html",
     "audit-repro",
     "whitepaper-v2.html",

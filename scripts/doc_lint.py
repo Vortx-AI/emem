@@ -52,7 +52,7 @@ SKIP = {
     # linted; its output is evidence, not prose we wrote.
     "docs/collaboration-log.md",
 }
-SKIP_DIRS = ("docs/book/",)
+SKIP_DIRS = ("docs/book/", "docs/collaboration-log/")
 
 # SKIP_DIRS entries that are generated build output, not committed files.
 # Their absence is the NORMAL state: docs/book/ is gitignored and mdbook only

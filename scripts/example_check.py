@@ -54,6 +54,8 @@ SOURCES = ["docs/**/*.md", "web/*.html", "SKILL.md", "README.md", "AGENTS.md", "
 # damage. Same list-with-reasons discipline as sync_counts.
 FROZEN = (
     "collaboration-log.md",   # reproduces signed notes verbatim
+    "collaboration-log/",     # its parts, the notes in full
+    "docs/errors.md",         # shows each error envelope on purpose
     "audit-repro-",           # a dated reproduction of one run
     "whitepaper-v1",          # the DOI-cited archive
     "CHANGELOG.md",           # every entry is a past release
@@ -213,6 +215,8 @@ def runnable(cmd: str):
     """(ok, why-not). Placeholders are a reason, not a silent skip."""
     if PLACEHOLDER.search(cmd):
         return False, "carries a placeholder"
+    if re.search(r"(?:-d|--data(?:-binary)?)\s+@", cmd):
+        return False, "sends a local file an earlier step writes"
     if "|" in cmd and "jq" not in cmd:
         return False, "piped into something that is not jq"
     # A step in a sequence, not a standalone example: it needs a value the

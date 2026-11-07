@@ -629,6 +629,12 @@ humid tropical forest, and Hansen records any loss of tree cover, so on forests 
 plantation cycles more than to conversion the two references count different events. The question this experiment
 asked is therefore still open; it needs forests chosen from TMF's own record of conversion before any series is read.
 
+**Erratum (7 November 2026).** One input was wrong. At Sabah the series held one Element84 scene, of 24 February
+2022. emem read it with offset 0, but its DNs still carried ESA's offset. So both bands were 0.1 too bright, and
+NDVI dipped (fixed in emem c11aef7). We rescored without that date, from the same cached signed inputs. 13 of 25
+methods change, on stable cells only. Pooled MCC moves by -0.004 to +0.009 (`lab:seasonal_canopy_loss@1` 0.190 to
+0.198, `lab:memory_hls_emp@4` 0.236 to 0.243). No comparison above changes its verdict.
+
 ### 5.15 Two optical sensors: Landsat in the memory, on forests that had loss (MCC decides, forests resampled)
 
 Version 4 (`lab:memory_hls_emp@4`) puts Landsat 8 and 9 into the same optical memory as Sentinel-2. Each cell puts
@@ -898,6 +904,14 @@ score better than the champion, and the first experiment's gain, carried by one 
 registered test is still to come: CL1, an independent reference for this selection (model readers on dated imagery),
 tests P1 against P0 again (its H1). It was drawn on 6 November (note
 `k572x7go/note-20261106-cl1-draw.md`) and is not scored.
+
+**Erratum (7 November 2026).** At Trairao the 2024-2025 series held one Element84 scene, of 3 February 2022. emem
+read it with offset 0, but its DNs still carried ESA's offset (fixed in emem c11aef7). We rescored without it, from
+the same cached signed inputs. The replay reproduces the published 0.3138, 0.2610 and 0.3083 exactly. Without the
+scene: P0 0.319, P1 0.265, P2 0.313. P1 minus P0 moves from -0.053 to -0.054, and P2 minus P0 from -0.006 to -0.006. Every policy kept
+version 5 at Trairao, so the change falls on all of them, and neither comparison decides. The period-A records
+behind the decisions held no affected scene. The verification above re-derived the lab's numbers from these same
+inputs, so it could not see an error in an input.
 
 ### 5.21 Status of every proposal
 

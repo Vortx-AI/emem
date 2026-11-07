@@ -64,6 +64,7 @@ SKIP = (
     "docs/book/",
     "docs/whitepaper-v1.md",
     "docs/collaboration-log.md",
+    "docs/collaboration-log/",
     # Records of what was true when written; naming a retired route is
     # their job.
     "docs/operators/deprecations.md",
