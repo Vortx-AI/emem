@@ -410,8 +410,8 @@ def fact_to_reasoning():
     # the signed answer flows out to a receipt lotus on the right
     s.flow((cwx + cww + 6, CY), (1396 - 96, CY), LEAF, 1.6, op=0.85, glow=True)
     s.lotus(1396, CY, 86); s.seal(1396 + 72, CY - 72, 12, fill=LEAF)
-    s.text(1396, CY + 116, "cited answer", 12.5, INK, font=MONO, anchor="middle", weight="bold")
-    s.text(1396, CY + 136, "points at a fact_cid", 11, INK_SOFT, font=MONO, anchor="middle")
+    s.text(1396, CY + 162, "cited answer", 12.5, INK, font=MONO, anchor="middle", weight="bold")
+    s.text(1396, CY + 182, "points at a fact_cid", 11, INK_SOFT, font=MONO, anchor="middle")
 
     s.line(220, H - 114, W - 220, H - 114, INK_SOFT, 0.8, op=0.45)
     s.dot(220, H - 114, 2.4, VERMIL); s.dot(W - 220, H - 114, 2.4, VERMIL)
@@ -459,8 +459,8 @@ def memory_vs_stac():
     s.flow((400, by), (1322 - 100, by), LEAF, 1.7, op=0.85, glow=True)
     s.leaf(640, by - 34, 16, col=LEAF, angle=0.2); s.bud(940, by - 36, 16, col=VERMIL)
     s.lotus(1322, by, 82); s.seal(1322 + 68, by - 68, 12, fill=LEAF)
-    s.text(1322, by + 112, "signed number", 12, INK, font=MONO, anchor="middle", weight="bold")
-    s.text(1322, by + 132, "+ fact_cid", 11, INK_SOFT, font=MONO, anchor="middle")
+    s.text(1322, by + 156, "signed number", 12, INK, font=MONO, anchor="middle", weight="bold")
+    s.text(1322, by + 176, "+ fact_cid", 11, INK_SOFT, font=MONO, anchor="middle")
 
     s.line(220, H - 114, W - 220, H - 114, INK_SOFT, 0.8, op=0.45)
     s.dot(220, H - 114, 2.4, VERMIL); s.dot(W - 220, H - 114, 2.4, VERMIL)
