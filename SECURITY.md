@@ -128,7 +128,7 @@ It does not check the load-shedding row.
 | Identity | The responder keeps its ed25519 secret in a file with mode 0600 and never writes it to a log. |
 | Receipts | Each fact read carries a signed receipt. You can verify it offline, or with `/v1/verify_receipt`. |
 | Storage | sled with content-addressed keys. No SQL. |
-| `unsafe` code | `#![forbid(unsafe_code)]` in every crate except `emem-airgap`, `emem-scorecard` and `emem-sleep-agent`. The bin targets in `crates/emem-cli/src/bin/`, `emem-server` included, do not carry the attribute either. None of these uses `unsafe`. |
+| `unsafe` code | `#![forbid(unsafe_code)]` in every crate except `emem-airgap`, `emem-scorecard` and `emem-sleep-agent`. The bin targets in `crates/emem-cli/src/bin/`, `emem-server` included, do not carry the attribute either. The `emem-guard` binary (`crates/emem-guard/src/bin/emem-guard.rs`) does not carry it. None of these uses `unsafe`. |
 
 ## Cryptographic invariants we patch at once
 
