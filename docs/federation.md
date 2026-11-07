@@ -590,15 +590,17 @@ facts from that node.
 `docker-compose.yml` at the repository root starts a node that meets the
 witness bar. Its header comment lists three steps to join. Serve the node on
 a public name over TLS. Publish the `_emem-node` TXT record. Run the witness
-job. [Self-host](self-host.md) covers the container. Joining gives
+job. [Self-host](self-host.md) covers the container. A node that joins gets
 mutual witnessing only. Nobody resolves facts across nodes yet.
 
 ---
 
-*The README section "Where this is going" and
-[examples/connect-and-evolve.md](https://github.com/Vortx-AI/emem/blob/main/examples/connect-and-evolve.md) are
-companions to this page. The federation diagram is
-`docs/diagrams/federation.png`.*
+*[examples/connect-and-evolve.md](https://github.com/Vortx-AI/emem/blob/main/examples/connect-and-evolve.md)
+is a companion to this page. The diagram `docs/diagrams/federation.png`
+shows the target design: eight responders that resolve one content id. It
+is an illustration, not the live network. On 7 November 2026,
+`federation.peers` in `https://emem.dev/.well-known/emem.json` listed one
+peer (`https://geo.qa/emem`), and no node resolves facts from another node.*
 
 ## 9. What the DePIN and open-protocol peers built that we did not
 
