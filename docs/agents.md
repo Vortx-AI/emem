@@ -2519,14 +2519,25 @@ route reads five shapes:
 | `cloudevent` | a CloudEvents 1.0 structured event | a CloudEvent with the verdict |
 | `policy` | `{"input":{...}}` | `{"result":{"allow":bool,"deny":[...],"verdict":{...}}}`. `verdict` is the full native verdict |
 
+Send the body that matches the shape. If the body does not parse as that
+shape, the route finds no text and answers `allow` with `checked: 0`
+(`guard_texts_for`, `lib.rs`). On 7 November 2026, a `{"texts":[...]}` body
+with `?shape=openai` gave `flagged: false` and `checked: 0`.
+
 In the `openai` shape, branch on `flagged`, not on `categories`. Four
 `emem/*` categories map to four deny codes: `PROV_SIG`, `PROV_BYTES`,
 `PROV_DRIFT` and `CLAIM_UNGROUNDED`. Other deny codes have no category. On
-7 November 2026, the 2000 m call above gave `flagged: true` with all four
-categories `false`. Read the code and fix in `results[].emem`.
+7 November 2026, the 2000 m text above, sent as `{"input":"..."}`, gave
+`flagged: true` with all four categories `false`. Read the code and fix in
+`results[].emem`.
 
 Add `?claim_gating=true` to also find measurable claims about a place that
 have no citation. The answer names the emem band that can answer each one.
+On 7 November 2026, `{"texts":["Elevation in Leh is 3500 m."]}` gave
+`action` `deny`, `code` `CLAIM_UNGROUNDED` and `fix` `cite_observation`.
+Its `claim` block gave `source_band` `copdem30m.elevation_mean`. The
+scanner does not find every claim. The text "The NDVI in the Sundarbans is
+0.7." gave `allow` with no claim.
 
 ### Enforce the verdict on your own node
 
