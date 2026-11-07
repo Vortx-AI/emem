@@ -330,7 +330,7 @@ contract and what each tier protects.
 |---|---|
 | A write with no signature | 401. The answer tells you how to sign. |
 | A write outside your namespace | 403, `details.code` `memory_namespace_violation` |
-| More than 240 writes per minute from one attester (limit on 7 November 2026) | 429 `rate_limited`, with `details.retry_after_s` |
+| More than 240 writes per minute from one attester (limit on 7 November 2026) | 429 `rate_limited`, with `details.code` `write_rate_limited` and `details.retry_after_s` |
 
 [`/v1/limits`](https://emem.dev/v1/limits) keeps enforced limits apart from
 measured ones.
@@ -388,7 +388,10 @@ cell64 grid did not change. See [CHANGELOG.md](../CHANGELOG.md).
 - One node serves reads. Federation phase 0 runs: a second node co-signs the
   log head of this node, and this node co-signs the head of the second node.
   This makes a split view detectable. It does nothing else. Reads do not
-  resolve across nodes.
+  resolve across nodes. On 7 November 2026
+  [`/v1/log/witnesses`](https://emem.dev/v1/log/witnesses) named one
+  independent operator, `eudr.dev`. Its last co-signature was 169 entries
+  behind the head, so `head_is_independently_witnessed` was `false`.
 - The corpus is small. On 7 November 2026 `GET /v1/coverage` reported
   `total_cells` 2,424. The first read of a new place can take tens of
   seconds.
