@@ -316,11 +316,11 @@ def _cycle(name, seed, title, sub, stages, centre, signed_lab, bead, footer,
     """A ring of stages flowing clockwise into a central lotus. Shared by the
     agent loop and the cite economy."""
     s = Svg(1600, 1040, seed=seed); W, H = s.W, s.H
-    CX, CY = 800, 600; R = 296; LR = 84
+    CX, CY = 800, 570; R = 296; LR = 84
     pos = []
     for i in range(len(stages)):
         th = math.radians(phase + i * 360 / len(stages))
-        pos.append((CX + R * math.cos(th), CY + R * math.sin(th) * 0.92))
+        pos.append((CX + R * math.cos(th), CY + R * math.sin(th) * 0.86))
     avoid = [(CX, CY, LR + 60), (W / 2, 150, 600), (W / 2, H - 80, 640)]
     for (x, y) in pos:
         avoid.append((x, y, 96))
@@ -340,13 +340,20 @@ def _cycle(name, seed, title, sub, stages, centre, signed_lab, bead, footer,
         x, y = pos[i]
         s.roundel(x, y, 33, col, signed=(lab == signed_lab), petal=(i % 2 == 0),
                   inner=inners[i % len(inners)])
-        below = y >= CY - 10
-        s.text(x, y + (52 if below else -52), lab, 12.5, INK, font=MONO, anchor="middle", weight="bold")
-        s.text(x, y + (70 if below else -34), sub2, 10.5, INK_SOFT, font=MONO, anchor="middle")
+        # petal tips reach 1.55 r (51 px); labels sit clear of them
+        if abs(x - CX) < 10 and y > CY:
+            s.text(x + 62, y - 3, lab, 12.5, INK, font=MONO, weight="bold")
+            s.text(x + 62, y + 15, sub2, 10.5, INK_SOFT, font=MONO)
+        elif y >= CY - 10:
+            s.text(x, y + 74, lab, 12.5, INK, font=MONO, anchor="middle", weight="bold")
+            s.text(x, y + 92, sub2, 10.5, INK_SOFT, font=MONO, anchor="middle")
+        else:
+            s.text(x, y - 80, lab, 12.5, INK, font=MONO, anchor="middle", weight="bold")
+            s.text(x, y - 62, sub2, 10.5, INK_SOFT, font=MONO, anchor="middle")
     s.lotus(CX, CY, LR)
     s.seal(CX + LR * 0.84, CY - LR * 0.84, 11, fill=LEAF)
-    s.text(CX, CY + LR + 40, centre[0], 12.5, INK, font=MONO, anchor="middle", weight="bold")
-    s.text(CX, CY + LR + 60, centre[1], 11, INK_SOFT, font=MONO, anchor="middle")
+    s.text(CX, CY + LR * 1.5 + 26, centre[0], 12.5, INK, font=MONO, anchor="middle", weight="bold")
+    s.text(CX, CY + LR * 1.5 + 46, centre[1], 11, INK_SOFT, font=MONO, anchor="middle")
     s.line(220, H - 112, W - 220, H - 112, INK_SOFT, 0.8, op=0.45)
     s.dot(220, H - 112, 2.4, VERMIL); s.dot(W - 220, H - 112, 2.4, VERMIL)
     s.text(W / 2, H - 76, footer, 16, INK, font=SERIF, anchor="middle", italic=True)
@@ -565,13 +572,20 @@ def _encoders(name, seed, title, sub, footer):
         x, y = epos[i]
         s.line(CX, CY, x, y, INK_SOFT, 0.9, op=0.4)
         s.roundel(x, y, 24, col, signed=True, inner=inners[i])
-        ly = y - 38 if y < CY else y + 40
-        s.text(x, ly, lab, 11, INK, font=MONO, anchor="middle", weight="bold")
+        # beside the roundel: above and below are taken by the orbit labels,
+        # the spoke and the responder caption; a paper plate keeps the orbit
+        # flow lines off the text
+        tw = len(lab) * 7.0 * s.fscale + 10
+        s.rect(x - 37 - tw if x < CX - 10 else x + 37, y - 9, tw, 18, fill=PAPER, rx=4, op=0.92)
+        if x < CX - 10:
+            s.text(x - 42, y + 4, lab, 11, INK, font=MONO, anchor="end", weight="bold")
+        else:
+            s.text(x + 42, y + 4, lab, 11, INK, font=MONO, weight="bold")
 
     # ground (centre): the responder fuses + signs
     s.lotus(CX, CY, LR)
     s.seal(CX + LR * 0.84, CY - LR * 0.84, 13, fill=LEAF)
-    s.text(CX, CY + LR + 40, "the responder · decodes + fuses + signs", 12.5,
+    s.text(CX, CY + ER * 0.92 + 70, "the responder · decodes + fuses + signs", 12.5,
            INK, font=MONO, anchor="middle", weight="bold")
 
     s.line(220, H - 116, W - 220, H - 116, INK_SOFT, 0.8, op=0.45)
