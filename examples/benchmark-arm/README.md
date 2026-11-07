@@ -219,10 +219,9 @@ before you use the scores.
 When the authors ran the script, they found two bugs in it. They fixed both
 and put a comment at each fix. First, citation grading compared the answer
 with the first token in a prompt that offered several, so it marked correct
-citations as misses. Second,
-retrieval-hit detection counted handoff prompts, which have a different shape,
-as hits. That made the hit rate about three times too high (0.086 against
-0.026).
+citations as misses. Second, retrieval-hit detection counted handoff
+prompts, which have a different shape, as hits. That made the hit rate about
+three times too high (0.086 against 0.026).
 
 ## The inversion scorer
 

@@ -75,8 +75,10 @@ for both phrasings. The script takes the first candidate. A real fleet should
 read `corroboration` and `independent_attesters` before it picks one.
 On 7 November 2026 these fields did not break the tie. Both candidates had
 `corroboration: none_attributed` and `independent_attesters: 0`. Both had
-the same cell and bounding box. Only the first, `4itylz3k...`, had an
-`external_ids` entry (`osm: relation/1411107`), so that is one way to choose.
+the same cell and bounding box, `[3.9407, 51.9110, 4.1131, 51.9995]`. That
+box is the whole Maasvlakte area, about 12 km by 10 km. The geocoder did not
+find the ramp itself. Only the first, `4itylz3k...`, had an `external_ids`
+entry (`osm: relation/1411107`), so that is one way to choose.
 
 ## What the script does not do
 
