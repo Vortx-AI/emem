@@ -1600,11 +1600,22 @@ The response has `verdict` (here `true`), `evidence` (here 15 fact CIDs)
 and a `receipt`. Quote the `evidence` CIDs in your answer.
 
 - `op` is one of `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `ni`, `exists`
-  and `absent`.
+  and `absent`. For `in` and `ni` (not in), `value` is an array.
+- `value` is necessary for each `op`. For `exists` and `absent`, send
+  `null`. Without `value`, the response is HTTP 400.
 - `window` holds two tslots, not Unix seconds. Take tslots from a recall.
+  `/openapi.json` says Unix seconds, but the code compares tslots
+  (`crates/emem-primitives/src/verify.rs`).
 - `agg` is one of `any` (the default), `all`, `mean`, `min` and `max`.
 - `mode` is `fast` (the default) or `resolve`. `resolve` fetches the
   upstream value when no fact exists at one exact tslot.
+
+A `false` verdict does not always mean that the claim is wrong. When the
+window holds no fact, each comparison gives `false` and `evidence` is
+empty. `absent` gives `true` only when the window holds a signed
+[Absence](#signed-absence) fact. A window with no fact gives `false`. On 7
+November 2026, `gt` and `absent` over the window `[1,2]` both gave `false`
+with 0 evidence CIDs. Thus read `evidence` before you report the verdict.
 
 ### 2. Get a signed difference between two tslots
 
