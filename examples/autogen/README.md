@@ -1,40 +1,82 @@
-# AutoGen + emem MCP Agent
+# AutoGen agent with emem over MCP
 
-A Microsoft AutoGen assistant that connects to emem over MCP (Streamable HTTP)
-and answers questions about real places with signed facts from the shared memory, citing receipts any agent can re-verify.
+This example connects a Microsoft AutoGen `AssistantAgent` to the emem MCP
+server. The agent finds a place, reads a signed fact there, and checks the
+receipt of that fact.
+
+## What you need
+
+- Python 3.10 or later. We tested with Python 3.12.
+- An OpenAI API key for the model. emem reads need no key.
+
+## What you get
+
+The agent runs three steps for South Mumbai and prints each one: locate,
+recall the elevation, and verify the receipt. The output streams to the
+console.
 
 ## Install
 
 ```bash
-pip install autogen-agentchat autogen-ext[openai,mcp]
+pip install autogen-agentchat 'autogen-ext[openai,mcp]' 'mcp<2'
 ```
+
+Keep `mcp<2`. On 7 November 2026, `autogen-ext` 0.7.5 did not import with
+`mcp` 2.3.0 (`cannot import name 'RequestContext'`).
 
 ## Run
 
+Run these commands from the root of the repository.
+
 ```bash
 export OPENAI_API_KEY="sk-..."
-python emem_mcp_geospatial_agent.py
+python examples/autogen/emem_mcp_geospatial_agent.py
 ```
 
-Optional:
+To use a different emem node, set `EMEM_MCP_URL`. The default is
+`https://emem.dev/mcp`.
 
-```bash
-export EMEM_MCP_URL="https://emem.dev/mcp"
-```
+## What the script does
 
-## What it does
-
-1. Connects to `https://emem.dev/mcp` via Streamable HTTP using
+1. It connects to `https://emem.dev/mcp` over Streamable HTTP with
    `McpWorkbench` and `StreamableHttpServerParams`.
-2. Auto-discovers all emem MCP tools (locate, recall, compare, verify, etc.).
-3. Creates an AutoGen `AssistantAgent` with a geospatial verification system message.
-4. Asks whether Helsinki Airport, Finland (60.3172, 24.9633) appears to be
-   low-lying or flood-prone.
-5. The agent recalls elevation, land cover, surface water, and summarises
-   with signed `fact_cid`s from the receipts.
+2. It loads the 18 core emem tools that `/mcp` lists.
+3. It makes an `AssistantAgent` with the `gpt-4.1-mini` model and a system
+   message that lists the three steps.
+4. It asks the agent to locate South Mumbai, recall its elevation
+   (`copdem30m.elevation_mean`), and verify the receipt.
+
+## Test status
+
+On 7 November 2026 we installed the packages above (autogen-agentchat 0.7.5,
+autogen-ext 0.7.5, mcp 1.30.0). The script loaded the emem tools and stopped
+at the OpenAI call, because we used a test key. We did not run the model part.
+
+We also made the emem calls that the agent needs, on the same day:
+
+| call | result on 7 November 2026 |
+|---|---|
+| `emem_locate` with `South Mumbai` | `cell64` is `defi.zb4d7.zb8ec.zf21e`; `place_label` is "South Mumbai (precinct of the city of Mumbai)" |
+| `emem_recall` on that cell, band `copdem30m.elevation_mean` | `facts[0].value` is 6.56 m |
+| `POST /v1/verify_receipt` with that receipt | `signature_valid: true`, `merkle_proof_valid: true` |
+| `emem_recall` with the place name | tool error `no_geocoder_match`: the name is ambiguous. Over REST it is HTTP 400 with `code` `no_geocoder_match` and `details.code` `ambiguous_place` |
+
+If the model sends the place name to `emem_recall`, emem refuses to guess.
+The model must use the cell from `emem_locate`. The system message tells the
+model to do this.
+
+`emem_verify_receipt` is the responder checking its own signature. It is not
+an independent check. For an independent check, verify the receipt offline.
+See [Verify the receipt](../../docs/quickstart.md#verify-the-receipt).
 
 ## Notes
 
-- No API key needed for emem (reads are anonymous).
-- Any AutoGen-compatible model client works -- swap `OpenAIChatCompletionClient`
-  for another provider.
+- Any AutoGen model client can drive the agent. Change
+  `OpenAIChatCompletionClient` to the client for another provider.
+- `/mcp` lists 18 core tools. `https://emem.dev/mcp/full` lists all tools in
+  pages. On 7 November 2026 it had 116 tools in 9 pages, and 8 pages earlier
+  that day. The server cuts a page at about 45,000 bytes, so the page count
+  and the tools on each page change when the server changes. `McpWorkbench`
+  loaded only the first page (12 tools with 9 pages, 13 with 8). That page did
+  not have `emem_recall` or `emem_verify_receipt`. Keep `/mcp` for this
+  script.
