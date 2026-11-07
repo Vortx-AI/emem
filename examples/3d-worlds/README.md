@@ -149,12 +149,13 @@ share. The presets are `canyon`, `interlaken`, `semantic` and `carbon`.
 ```bash
 cd "$(git rev-parse --show-toplevel)/examples/3d-worlds"
 python3 make_splats.py --preset carbon --out out/rondonia
-# fetched 1024 cells, 3421 signed facts
+# fetched 1024 cells, 3672 signed facts
 # wrote out/rondonia (.ply 68.5 KB, .splat 32.0 KB, 1024 splats)
 ```
 
-On 7 November 2026 between 13:50 and 14:15 UTC this run took about 3 s to
-7 s, and all 1,024 cells returned a biomass fact. A cell with no biomass fact
+On 7 November 2026 between 13:50 and 16:15 UTC this run took about 2 s to
+7 s, and all 1,024 cells returned a biomass fact. Two runs at 16:10 UTC
+gave 3,672 facts. Runs at 14:13 UTC gave 3,421. A cell with no biomass fact
 gives no splat. Each run makes the responder fetch more cells, so the splat
 count and the fact count go up on repeat runs. The splat count stops at
 1,024. Runs earlier that day gave 498, 606 and 898 splats, and took up to
