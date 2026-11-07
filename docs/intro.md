@@ -40,7 +40,9 @@ Above the facts, each agent has notes that it owns. A note is a Markdown file. S
 - Each note has a kind: `episodic`, `semantic`, `procedural` or `resource` (the default). These four come from
   the CoALA agent-memory taxonomy. emem adds `core`, a persona block that `memory_view` lists first, and `vault`,
   an entry that emem stores encrypted. A `vault` entry reads back as ciphertext without a `vault_capability`.
-  The key derives from the responder's own secret, so the operator can still read it.
+  Only the responder key can sign that `vault_capability`, so the writer cannot read the entry back. The encryption
+  key derives from the responder's own secret, so the operator can read it. Do not write a secret in any note.
+  If the operator must not read it, encrypt it on your side before you write.
 - Each write needs an Ed25519 signature. A release responder refuses a write with no signature. Under
   `/memories/by_attester/<key>/`, it refuses every signer except the owner of that key.
 - `memory_search` finds notes by meaning. It uses the BGE text model (768 dimensions) and a LanceDB index.

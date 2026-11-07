@@ -139,7 +139,7 @@ c.text(GX, GY + gh / 2 + 16, "the operator files the statement", f_tiny, INK_SOF
 
 # ----------------------------------------------------------------- legend
 ly = H - 60
-lx = 70
+lx = 96
 c.seal(lx + 7, ly, 7, fill=LEAF); c.text(lx + 18, ly - 7, "pass: no forest loss after the cut-off", f_lab, INK); lx += 18 + c.textw("pass: no forest loss after the cut-off", f_lab) + 28
 c.line((lx, ly - 8), (lx, ly + 8), VERMIL, 1.6); c.text(lx + 8, ly - 7, "2020 cut-off", f_lab, INK); lx += 8 + c.textw("2020 cut-off", f_lab) + 28
 c.di.rectangle([c.S(lx), c.S(ly - 8), c.S(lx + 9), c.S(ly)], fill=c.rgba(TURMERIC, 220), outline=c.rgba(INK, 255)); c.text(lx + 16, ly - 7, "signed loss-year histogram", f_lab, INK); lx += 16 + c.textw("signed loss-year histogram", f_lab) + 28

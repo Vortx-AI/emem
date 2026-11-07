@@ -48,9 +48,9 @@
 <text x="75" y="391" class="h" font-size="19" font-weight="bold">Operator satellites</text>
 <rect x="297" y="374" width="134" height="24" rx="12" fill="#2f5e86"/>
 <text x="364" y="391" text-anchor="middle" class="m" font-size="10.5" style="fill:#fff">orbital.satellite.v1</text>
-<text x="75" y="415" class="h" font-size="12.5">An operator's own spacecraft is not an archive.</text>
-<text x="75" y="433" class="h" font-size="12.5">It is a device: respected as a contributor,</text>
-<text x="75" y="451" class="h" font-size="13.5" font-weight="bold">refused on its word alone.</text>
+<text x="75" y="415" class="h" font-size="12.5">emem treats an operator's own spacecraft as a</text>
+<text x="75" y="433" class="h" font-size="12.5">device, not an archive: its output is welcome,</text>
+<text x="75" y="451" class="h" font-size="13.5" font-weight="bold">but not on its word alone.</text>
 <text x="75" y="477" class="h" font-size="12.5">Each pass window ships its OS execution trace,</text>
 <text x="75" y="495" class="h" font-size="12.5">digest-chained, signed, the payloads bound inside:</text>
 <!-- chained segment glyph -->
@@ -84,7 +84,7 @@
 <rect x="600" y="306" width="136" height="22" rx="11" fill="#2e8c84" opacity="0.15"/><text x="668" y="321" text-anchor="middle">signature_invalid</text>
 <text x="750" y="321" class="h dim" font-size="12">…seventeen named refusals</text>
 </g>
-<text x="600" y="352" class="h dim" font-size="12">Un-enrolled writers are untouched; the archive cannot break.</text>
+<text x="600" y="352" class="h dim" font-size="12">The gate applies only to enrolled devices.</text>
 
 <!-- drift scoring chip -->
 <rect x="580" y="385" width="420" height="52" rx="26" fill="#d59a2a" opacity="0.13" stroke="#d59a2a" stroke-width="1.5"/>

@@ -118,8 +118,9 @@ Do not make a REST path from a tool name.
 - The first read of a new place is slower, because emem reads the public archive first. On 7 November 2026 a
   first read took 0.6 to 1.7 s, and a repeat read took less than 0.1 s.
 - Notes are public, except a note of kind `vault`, which the responder stores encrypted. The operator can still read a
-  `vault` note, because its key derives from the responder's secret. The log keeps every note. Do not write a
-  secret in a plain note.
+  `vault` note, because its key derives from the responder's secret. Only the responder key can sign the
+  `vault_capability` that opens it, so the writer cannot read it back. The log keeps every note. Do not write a
+  secret in any note. If the operator must not read it, encrypt it on your side before you write.
 
 The full list is in the [README](https://github.com/Vortx-AI/emem/blob/main/README.md#what-the-checks-do-not-prove).
 

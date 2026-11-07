@@ -13,7 +13,7 @@
   </defs>
   <rect width="720" height="684" fill="#faf7f2"/>
   <text x="22" y="34" class="h1">Tokyo, Japan</text>
-  <text x="22" y="50" class="dek">Elevation per cell · 29 – 55 m</text>
+  <text x="22" y="50" class="dek">Elevation per cell · 29 to 55 m</text>
   <rect x="0" y="56" width="720" height="544" fill="#f3ede2"/>
   <rect x="630.48" y="58.96" width="90.00" height="68.00" fill="#afc285" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb596.fami.zd5ae · 41.0</title></rect>
   <rect x="359.99" y="460.87" width="90.00" height="68.00" fill="#e1d7af" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb596.cosi.zd589 · 36.0</title></rect>

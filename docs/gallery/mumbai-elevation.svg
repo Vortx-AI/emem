@@ -13,7 +13,7 @@
   </defs>
   <rect width="720" height="860" fill="#faf7f2"/>
   <text x="22" y="34" class="h1">Mumbai, India</text>
-  <text x="22" y="50" class="dek">Elevation per cell · 2 – 115 m</text>
+  <text x="22" y="50" class="dek">Elevation per cell · 2 to 115 m</text>
   <rect x="0" y="56" width="720" height="720" fill="#f3ede2"/>
   <rect x="270.27" y="415.86" width="90.00" height="90.00" fill="#ede5cd" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.zc5ec.zf619 · 18.0</title></rect>
   <rect x="450.16" y="415.86" width="90.00" height="90.00" fill="#f5f1e8" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.zc5ec.zf73d · 5.0</title></rect>
