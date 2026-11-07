@@ -39,7 +39,7 @@ def flow(a, b, col, w, a_=170, bow=0.0, beads=True, glow=False):
             c.dot(pts[k][0], pts[k][1], 1.2, col, a=a_)
     return pts
 
-# ---- left: 46 upstream sources feed in
+# ---- left: upstream sources feed in; 5 of the 46 registered have no reader (intro.md)
 SRC_X = 150
 src_dyes = [INDIGO, LEAF, TEAL, TURMERIC, LAC, VERMIL, INDIGO, LEAF, TEAL]
 for i in range(9):
@@ -47,7 +47,7 @@ for i in range(9):
     col = src_dyes[i]
     c.roundel(SRC_X, y, 12, col, halo=False)
     flow((SRC_X + 16, y), (CX - 150, CY + (y - CY) * 0.25), INK_SOFT, 0.9, a_=120, bow=18 * math.sin(i))
-c.text(SRC_X, CY - 240, "46 sources", f_lab, INK, center=True)
+c.text(SRC_X + 24, CY - 240, "41 of 46 sources", f_lab, INK, center=True)
 c.text(SRC_X, CY + 232, "STAC + COG, signed", f_tiny, INK_SOFT, center=True)
 c.text(SRC_X, CY + 247, "on the first miss", f_tiny, INK_SOFT, center=True)
 

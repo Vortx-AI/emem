@@ -27,13 +27,13 @@ def architecture():
     _header(s, "One binary, signed end to end",
             "the same handlers answer MCP and REST · reads need no auth · every write is logged")
 
-    # left: 46 sources feed in
+    # left: the registered sources feed in; 5 of 46 have no reader (intro.md)
     for i in range(9):
         y = CY - 210 + i * 52
         s.roundel(SRCX, y, 13, DYES[i % len(DYES)],
                   inner=["ring", "hatch", "leaf"][i % 3])
         s.flow((SRCX + 18, y), (CX - LR - 60, CY + (y - CY) * 0.25), INK_SOFT, 1.0, op=0.5, bow=16 * math.sin(i))
-    s.text(SRCX, CY - 250, "46 sources", 13, INK, font=MONO, anchor="middle", weight="bold")
+    s.text(SRCX + 30, CY - 250, "41 of 46 sources", 13, INK, font=MONO, anchor="middle", weight="bold")
     s.text(SRCX + 26, CY + 268, "STAC + COG, signed", 11, INK_SOFT, font=MONO, anchor="middle")
     s.text(SRCX + 26, CY + 286, "on the first miss", 11, INK_SOFT, font=MONO, anchor="middle")
 
