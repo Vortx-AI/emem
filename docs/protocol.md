@@ -996,6 +996,15 @@ When a read carries a scope, bi-temporal bound, edges, or
 (`0x03`/`0x04`/`0x05`/`0x06`) is inserted before `0x07` in tag order,
 each the blake3-hex of the field's canonical CBOR (see §7.1).
 
+The example above is short on purpose. A live recall receipt has the same layout, with the
+`0x06` manifest segment and the `0x0b` Merkle segment added:
+
+<img src="media/stills/receipt-preimage.webp" alt="Still from live emem.dev reads on 7 November 2026 at 15:44 UTC. One recall of elevation at Mount Fuji, 3539.04 m, with its receipt preimage rebuilt offline. The stream is 328 bytes. It opens with emem.preimage.v1, a zero byte, u32 7 and the word receipt. Then seven segments follow, each a tag, a u32 length and bytes: 0x01 request_id 01M6VAY5SE7K7ARPYCPG02760R, 31 bytes. 0x02 served_at 2026-11-07T15:44:50Z, 25 bytes. 0x06 manifest_hex, the BLAKE3 of four manifest ids, 69 bytes. 0x07 primitive emem.recall, 16 bytes. 0x08 cells, a list of one cell, defi.zb592.nUkO.zEzE, 29 bytes. 0x09 fact_cids, a list of one fact, qejpz7cg and so on, 61 bytes. 0x0b merkle_hex, the BLAKE3 of the inclusion proof, 69 bytes. The segments 0x03 scope, 0x04 as_of, 0x05 edges and 0x0a field are not in this read, so they are not written. The BLAKE3 digest of the stream is 0ea5c613 and so on, the same digest that /v1/verify_receipt reports. The Ed25519 signature checks as valid offline with the key 777er3yi from /.well-known/emem.json. When served_at changes by one character, from 15:44:50Z to 15:44:51Z, the digest becomes 5cf49f72 and so on, and the same signature fails." width="540">
+
+*One live receipt, rebuilt segment by segment. The offline digest equals the one that `POST /v1/verify_receipt`
+reports, and the signature checks with the published key. A change of one character in `served_at` makes the check
+fail. Data and checks: [media/stills/src/receipt_data.py](media/stills/src/receipt_data.py).*
+
 ### 7.3 Merkle proof attachment
 
 `server.rs:163-165` attaches `merkle_proof` for `fact_cids[0]` only.
