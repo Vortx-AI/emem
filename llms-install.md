@@ -29,7 +29,7 @@ The server has two endpoints:
 
 On `/mcp/full`, send the `nextCursor` value from each page to get the next page.
 The server cuts the pages by size, at about 45,000 bytes each. The number of pages can change when tool descriptions change.
-Some MCP clients read only the first page. On 7 November 2026 the LangChain and Agno adapters read all 9 pages.
+Some MCP clients read only the first page. On 7 November 2026 the LangChain and Agno adapters read every page, which was 9 pages on that date.
 The LlamaIndex, AutoGen, Semantic Kernel and CrewAI adapters read only page 1 (12 tools). See the examples in [`examples/`](examples/).
 
 The two endpoints differ only in the list. You can call any of the 116 by name at either endpoint.
