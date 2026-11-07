@@ -3171,9 +3171,39 @@ note's rows. It refuses with these codes in `details.code`
 | 422 | `no_rows` | The note is a tree kind, but no table row parsed. |
 | 409 | `root_mismatch` | The root that the note states does not match the tree over its rows. |
 | 404 | `row_not_found` | No row has that index or label. `details.rows` gives the row count. |
+| 500 | `path_self_check_failed` | The computed path does not fold to the root. The route sends no path. Report it. |
 
-On 7 November 2026, `GET /v1/tree/<unknown cid>` gave 404 with
-`code: cid_not_found`. [errors.md](errors.md) lists the same codes.
+All codes except `cid_not_found` and `path_self_check_failed` have the
+top-level code `invalid_argument`. [errors.md](errors.md) lists the same
+codes.
+
+#### 9.8.1 Check one row of a live note
+
+The note `qid2s6q7beopjzfijs2k5qjubq` is a `pointer.v1` index of a
+Sentinel-2 `B08.tif` file. Get the note bytes and the path for row 3:
+
+    curl -s -o note.md https://emem.dev/memories/by_attester/slkf7ntk/qid2s6q7beopjzfijs2k5qjubq.md
+    curl -s -o row3.json "https://emem.dev/v1/tree/qid2s6q7beopjzfijs2k5qjubq?row=3"
+    python3 plugins/emem/skills/emem-tokenise-files/scripts/tree_proof.py check row3.json note.md
+
+On 7 November 2026, the route gave 74 rows and a 7-step path. The check
+printed:
+
+    note    MATCH     file_cid=qid2s6q7beopjzfijs2k5qjubq
+    leaf    MATCH     row 3 'level 0 tile 1,3' offset=110154918 length=1502072
+    root    MATCH     path=7 steps root=i7zvkv3uottlhu4nbq7t47nlrwnfrtfd2fzgjrf4wcirvs7wga5q
+
+The same day, these requests gave the refusals in the table:
+
+| request | status | `details.code` |
+|---|---|---|
+| `GET /v1/tree/<unknown cid>` | 404 | `cid_not_found` (top-level code) |
+| `GET /v1/tree/qid2s6q7beopjzfijs2k5qjubq?row=999` | 404 | `row_not_found`, `rows: 74` |
+| `GET /v1/tree/qid2s6q7beopjzfijs2k5qjubq?row=nolabel` | 404 | `row_not_found`, `rows: 74` |
+| `GET /v1/tree/xnmmzslminwbdm72azhgfbfsf4` (an inbox note) | 422 | `not_a_tree`, `kind: ""` |
+
+That inbox note has no `emem:` line in its front matter, so `details.kind`
+is empty.
 
 ---
 
