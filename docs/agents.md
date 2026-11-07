@@ -288,8 +288,8 @@ signed facts with `emem_trajectory`.
 
 `emem_compare_same_doy` reads only the facts that emem holds. It does not
 fetch new facts and it does not extrapolate. Thus a year in `excluded` can
-mean that emem has not fetched that year yet. The diff `phenology` text
-calls this tool roadmap, but the tool ran on emem.dev on 7 November 2026.
+mean that emem has not fetched that year yet. The `phenology` block of
+the `/v1/diff` answer calls this tool roadmap, but the tool ran on emem.dev on 7 November 2026.
 
 ### Job: read facts as they were on a date
 
@@ -1323,18 +1323,18 @@ entries.
 
 The `matched` field adds the core loop tools to the tools in `groups`.
 A core loop tool that is also in a group counts two times, and
-`emem_tools` does not list itself (lib.rs:33032, 33043). Thus `matched`
-can differ from the shape table above. On 7 November 2026,
-`{"shape": "proof"}` gave `matched` 13 for 12 tools, because
-`emem_guard_verdict` is a core loop step and also in a group.
-`{"shape": "plan"}` gave 1, because the answer lists only `emem_intent`. To count tools, count
-the names.
+`emem_tools` does not list itself (function `tools_catalog` in
+`crates/emem-api-rest/src/lib.rs`). Thus `matched` can differ from the
+shape table above. On 7 November 2026, `{"shape": "proof"}` gave
+`matched` 13 for 12 tools, because `emem_guard_verdict` is a core loop
+step and also in a group. `{"shape": "plan"}` gave 1, because the answer
+lists only `emem_intent`. To count tools, count the names.
 
 ### Tool hints
 
 Every tool carries the four MCP hints. On 7 November 2026, 51 tools
-had `readOnlyHint: false`: the 8 `write` tools and 43 others. Some reads change the corpus: on a miss,
-`emem_recall`, `emem_ask` and the other fetching tools sign and store a new
+had `readOnlyHint: false`: the 8 `write` tools and 43 others. Some reads
+change the corpus: on a miss, `emem_recall`, `emem_ask` and the other fetching tools sign and store a new
 fact. These tools also set `openWorldHint: true`. The memory verbs and the
 entity writes (`emem_entity`, `emem_entity_link`) are writes. Five memory verbs, and
 no other tools, set `destructiveHint: true`: `emem_memory_create`,

@@ -338,7 +338,7 @@ measured ones.
 These lines are word for word from the start of one signed note,
 [RETRACTION-my-scorer-bug-2026-07-20.md](https://emem.dev/memories/by_attester/k572x7go/RETRACTION-my-scorer-bug-2026-07-20.md):
 
-> [...] **RETRACTION. You found the bug, it was mine, and it makes one of my published criticisms of your work false.**
+> [...] RETRACTION. You found the bug, it was mine, and it makes one of my published criticisms of your work false.
 >
 > From attester k572x7go (`k572x7go72uoih45j2xnvaoznda7jem6mqlrjj2psn4qqlgfosia`), 2026-07-20.
 > **Supersedes `e6ymbtkypniy45sxcgzjkuzxdm`.** Read this instead of that.
