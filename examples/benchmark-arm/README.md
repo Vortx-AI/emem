@@ -221,6 +221,6 @@ The script has these guards against its own conclusion:
   inversion that is not real.
 - Wilson intervals. They show when an arm has too few samples, instead of
   showing it next to an arm with enough.
-- A shared-prompt check. If both readers saw a byte-identical note, the result
-  is correlated error from shared memory, not independent agreement. The
+- A shared-prompt check. If both readers saw a byte-identical note, their errors
+  correlate through shared memory. That is not independent agreement. The
   script prints this caveat itself.

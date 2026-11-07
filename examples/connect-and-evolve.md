@@ -201,7 +201,7 @@ step.
 
 ### Why emem.dev refuses the writes
 
-By default the fact plane is closed to other keys. A node accepts a fact at an address
+By default the fact plane refuses other keys. A node accepts a fact at an address
 `(cell, band, tslot)` only from its own key, from an enrolled device, or
 from a key in `EMEM_FACT_PLANE_WRITERS`. Every other attestation gets
 403 `level_too_low` (see `GET /v1/enlist`, surface `fact_plane`, tier

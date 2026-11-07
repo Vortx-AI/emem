@@ -106,7 +106,7 @@ Limits that apply to every number below:
 
 The first two rows tie. Our own re-score found that the citation arm shows a
 rounded value. So that arm and plain context measure the same skill: copying a
-number that is already in the context window. Addressing adds nothing that we
+number that is already in the context window. A content address adds nothing that we
 could measure in that arm. If your answer needs one value and the value fits in
 context, plain context is as good as emem and costs less.
 
@@ -175,7 +175,7 @@ make the model better at using it.
 Do not use addressed memory for a query that needs a fast answer. Do not use
 individual tokens for many facts.
 
-The case for addressing is precision at scale. A signed value is 18.3
+The case for a content address is precision at scale. A signed value is 18.3
 characters on average. A six-decimal display is 8.0. So full precision costs
 2.3 times the context, and 256 cells of it do not fit. To hold a region in a
 context window, you must drop the precision that made each fact worth signing.
@@ -205,7 +205,7 @@ So the claim is narrow. Dense embedding similarity fails on homogeneous numeric
 corpora. Lexical retrieval on the same corpus does not fail. If a lexical index
 works on your corpus, you do not need emem for accuracy.
 
-Addressing still gives two things that BM25 does not:
+A content address still gives two things that BM25 does not:
 
 - a citation that a third party can verify offline;
 - a referent that stays valid when someone rewrites or deletes the corpus.
@@ -276,13 +276,13 @@ A caller who needs bit-identity can require gap 0, because the gap is visible.
 "Equal within 4 ULP, measured gap 2" is a verifier. "Equal" that means "close"
 is not.
 
-The code, not this page, enforces the line between what was signed and what was
-not:
+The code, not this page, enforces the line between what the responder signed and
+what it did not sign:
 
 - A leaf fact's `value_verbatim` is the signed preimage. Every digit counts,
   even where only three are meaningful to science. No tolerance applies.
-- A reduction is a different object. Nobody signed the sum, and no summation
-  order was specified for a caller to match. Bit-equality there depends on
+- A reduction is a different object. Nobody signed the sum, and nobody set a
+  summation order for a caller to match. Bit-equality there depends on
   summation order, not on the signature.
 - `delta`, classification and two-parent reductions accumulate nothing. They
   stay exact.
@@ -304,8 +304,8 @@ the byte. Only operations with no accumulation verify exactly.
 
 The most useful thing you can do with this page is to prove it wrong. The arm
 we stand behind runs on your models
-([`examples/benchmark-arm/`](../examples/benchmark-arm/)). The raw data is
-signed and replayable. The same directory holds the scorer that disagreed with
+([`examples/benchmark-arm/`](../examples/benchmark-arm/)). The raw data
+carries signatures, and you can replay it. The same directory holds the scorer that disagreed with
 its own authors. During this study, people found six scoring bugs in two
 separately written instruments. A seventh bug is more likely than not.
 

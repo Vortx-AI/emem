@@ -70,6 +70,6 @@ The script prints each step and stops with an error if a check fails.
   ```
 
 - On the hosted node, anyone can read `/memories/by_attester/`. Only the attester can write there.
-  So a checkpoint on emem.dev is shared state, not private state.
+  So every agent can read a checkpoint on emem.dev. It is not private.
   Keep private agent state on a self-hosted responder, as this script does, until owner-scoped reads ship.
   [docs/roadmap.md](../../docs/roadmap.md) gives the details.
