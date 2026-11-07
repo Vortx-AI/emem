@@ -381,11 +381,13 @@ disagreements between sources; that list is the program's agenda.
   (`lab:memory_hls_emp@4`) won its first experiment with forests resampled and awaits replication. The lab's planner
   schedules that replication itself, on the Landsat design and on forests that had loss before the window.
 - Much of that disagreement follows the climate (the paper, section 5.18, post hoc): in seasonally dry forest the
-  registry rule holds up, and in evergreen forest the memory detectors beat it widely. Whether choosing by climate
-  beats choosing the best on average is the method-selection experiment's context policy, scored on years its
-  evidence does not cover.
-- At 400 m they find 20% of cells with 5 to 10% cleared. Whether a 200 m reading closes that gap is the cell-size
-  experiment's question.
+  registry rule holds up, and in evergreen forest the memory detectors beat it widely. The method-selection
+  experiments test whether choosing by climate beats the best method on average (sections 5.19 and 5.20). In the
+  first, the context policy chose as the global policy at every forest. In the second, its difference from the
+  global policy was -0.035 to +0.028 MCC, so the test does not decide.
+- At 400 m the quiet rules find 20% of cells with 5 to 10% cleared (the paper, section 5.9). The cell-size
+  experiment (section 5.10) scored the same pixels at 200 m. Two detectors gained with intervals clear of zero, and
+  none lost. The lab has not yet run a full experiment that scores 200 m cells.
 - Clearings that cover under 5% of a 400 m cell are left out of scoring.
 - The reference is annual and Landsat-based; a loss Sentinel-2 sees in January can belong to the previous year in
   it, which the labels handle by leaving those cells out.
