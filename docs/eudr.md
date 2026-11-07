@@ -120,30 +120,42 @@ The code is `verdict_support`, `tmf_cross_check` and `statement_of_compliance` i
 
 ## Loss-year histogram
 
-Each plot carries a `loss_year_histogram`.
+Each plot that has at least one sampled cell carries a `loss_year_histogram`.
 It shows how the Hansen loss year spreads across the sampled cells of the plot.
 It has these fields:
 
 | Field | Meaning |
 |---|---|
-| `by_year` | Calendar year mapped to a cell count |
-| `after_cutoff_cells` | Cells with loss after the cut-off year |
-| `no_loss_cells` | Cells with no loss |
-| `unknown_cells` | Cells with no loss-year value |
+| `by_year` | List of `{"year", "cells"}` objects, one for each loss year, in ascending order |
+| `after_cutoff_cells` | Cells with a loss year after `after_cutoff_year` |
+| `after_cutoff_year` | The year of `cut_off_date` in the request (2020 for the regulation date) |
+| `no_loss_cells` | Cells with loss year 0 (no loss) |
+| `unknown_cells` | Cells with no loss-year value, or a negative value |
 | `total_sampled_cells` | All sampled cells |
+| `cell_area_ha` | Area of one cell in hectares |
+| `after_cutoff_area_ha_sampled` | `after_cutoff_cells` times `cell_area_ha` (sampled area, not polygon area) |
+| `basis` | Always `sampled_cells` |
+| `signed_fact_cid` | CID of the signed histogram fact, or null if signing failed |
+| `parents_capped` | True if the plot had more than 1024 distinct loss-year facts |
 
 The endpoint signs the histogram as its own derived fact, `forest_change.lossyear_histogram`.
-That fact has `op: "histogram"`, and its `parents` cite the `forest_change.lossyear` facts
-of the cells.
-The response receipt includes the CID of the histogram fact.
-Thus the breakdown is a signed figure that anyone can make again.
-The same cells give the same bytes, and the receipt binds the result.
+That fact has `op: "histogram"` and `fn_key: "lossyear_histogram@1"`.
+Its `parents` cite the `forest_change.lossyear` facts of the cells, at most 1024, in CID order.
+The endpoint stores the fact and its parents, so each CID resolves at `/v1/facts/<cid>`.
+The response receipt includes the CID of the histogram fact, unless the receipt cap removes it
+(see [Receipts](#receipts)).
+A signing error does not change the verdict. It only leaves `signed_fact_cid` null.
 
-The counts cover only the sampled cells (`basis: "sampled_cells"`).
-To estimate the whole polygon, weight the counts by the plot's
-`sampled_polygon_fraction`.
-On very large plots the endpoint limits the `parents` list and sets `parents_capped`.
-`total_sampled_cells` is always the full count.
+The signed value has the year pairs, the four cell counts and `cutoff_year`.
+The same cells give the same value, so anyone can count the parents again and compare.
+The fact also has `signed_at`, the time of signing.
+Thus each call signs a new fact with a new CID, even when the value does not change.
+
+The counts cover only the sampled cells.
+To estimate the whole polygon, weight the counts by the plot's `sampled_polygon_fraction`.
+`total_sampled_cells` is always the full count, also when `parents_capped` is true.
+The code is `compute_lossyear_tally` and `EUDR_LOSSYEAR_HISTOGRAM_PARENTS_CAP` in
+`crates/emem-api-rest/src/lib.rs`.
 
 ## Visual evidence (opt-in)
 
@@ -330,7 +342,7 @@ The table gives the defaults; both env vars accept 256 to 51,200.
 | Cells in the receipt | 2048 | `EMEM_EUDR_RECEIPT_MAX_CELLS` | The receipt lists the centroid cell of each plot. The response adds `receipt_cells_truncated: true`, `receipt_cells_total` and `receipt_cells_cap`. |
 
 The sort runs only above the cap. It makes two capped calls with the same
-inputs keep the same fact CIDs. The receipts are still not byte-equal,
+inputs keep the same fact CIDs, except the loss-year histogram fact, which is new on each call. The receipts are still not byte-equal,
 because `request_id` and `served_at` change on each call. A capped receipt does not sign every fact, but the endpoint stores every fact.
 Each plot's `per_cell_rows_cid` addresses all of its facts.
 Every fact CID in the response resolves at `/v1/facts/<cid>`.
