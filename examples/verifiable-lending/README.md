@@ -10,7 +10,8 @@ both memos.
 
 - Python 3 (standard library only). No `pip install`, no key, no account.
 - Network access to `https://emem.dev`. The script sends only reads and guard
-  checks. It writes nothing.
+  checks, and no signed writes. On a recall miss, the responder fetches and
+  signs the band itself.
 
 ## What you get
 

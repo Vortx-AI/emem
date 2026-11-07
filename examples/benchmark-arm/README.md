@@ -173,8 +173,10 @@ The script prints its checks in this order:
 
 1. Integrity. It hashes each run file and sidecar against
    `benchmark/PROVENANCE.json`. It also recomputes the address of each
-   sidecar entry (prompts and answers) as `cid == base32(blake3(bytes))`. Without the `blake3` package, it skips the
-   address check and says so.
+   sidecar entry (prompts and answers) as `cid == base32(blake3(bytes))`.
+   Without the `blake3` package, it skips the address check but does not say
+   so. The output then shows 0 for both address counts (`cid==blake3` and
+   `cid MISMATCH`). Install `blake3` before you use those two lines.
 2. Ground truth, two times. It parses the value that the prompt showed from
    the prompt bytes. It resolves the value that emem signed from the
    responder. These can differ: a prompt can show `0.747614` for a signed
@@ -197,8 +199,8 @@ as hits. That made the hit rate about three times too high (0.086 against
 
 ## The inversion scorer
 
-`score_inversion.py` tests one question: when two models agree, is that
-evidence that they are right? Under compression it is not. The script lets
+`score_inversion.py` tests if agreement between two models is evidence that
+they are right. Under compression it is not. The script lets
 you check this finding yourself. Like the differential scorer, it needs a run
 file from the navigatable_worlds directory.
 
@@ -219,8 +221,9 @@ The script has these guards against its own conclusion:
 - One verdict rule for both statistics, at three tolerances: strict, 0.005 and
   0.05. Loose scoring of agreement with strict scoring of accuracy makes an
   inversion that is not real.
-- Wilson intervals. They show when an arm has too few samples, instead of
-  showing it next to an arm with enough.
+- A one-sided Fisher exact test gives the verdict (p < 0.05). The script
+  prints Wilson intervals next to it to show how precise each arm is. The
+  intervals do not give the verdict.
 - A shared-prompt check. If both readers saw a byte-identical note, their errors
   correlate through shared memory. That is not independent agreement. The
   script prints this caveat itself.

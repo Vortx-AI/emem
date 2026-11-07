@@ -132,7 +132,7 @@ The log is append-only. A deletion unpublishes the data. It does not erase it.
 1. `emem_locate` changes a place name into its permanent address (cell64).
 2. `emem_recall` reads the signed facts at that address.
 3. `emem_memory_token` makes a citation token that you can give to another agent.
-4. `emem_verify_receipt` checks a receipt, also one that a different agent fetched.
+4. `emem_verify_receipt` checks a receipt, including one that a different agent fetched.
 
 ## Test prompts
 
@@ -153,6 +153,7 @@ Each receipt has a `preimage_version` field. Read that field and use the rule fo
 
 The byte layout of each version is at [`/v1/verifier_spec`](https://emem.dev/v1/verifier_spec).
 The responder makes that document from the same code that signs receipts, so the two cannot differ.
+The spec lists two rules outside that code separately: the legacy v0 receipt and caller-signed memory writes.
 
 ## Links
 

@@ -62,7 +62,10 @@ The model must use the cell from `emem_locate`.
 - Any LlamaIndex LLM can drive the agent. Change `OpenAI` to the class for
   Anthropic, Gemini or another provider.
 - `/mcp` lists 18 core tools. `https://emem.dev/mcp/full` lists all tools in
-  pages. On 7 November 2026 it had 116 tools in 8 or 9 pages. The count changed with server updates. `McpToolSpec` loaded only the first page (12 or 13 tools). That page did not have
-  `emem_recall`. Keep `/mcp` for this script.
+  pages. On 7 November 2026 it had 116 tools in 9 pages, and 8 pages earlier
+  that day. The server cuts a page at about 45,000 bytes, so the page count
+  and the tools on each page change when the server changes. `McpToolSpec`
+  loaded only the first page (12 tools with 9 pages, 13 with 8). That page did
+  not have `emem_recall`. Keep `/mcp` for this script.
 - [`examples/llamaindex.py`](../llamaindex.py) wraps the REST API instead of
   MCP. This example uses MCP through `llama-index-tools-mcp`.

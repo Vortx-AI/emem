@@ -3,7 +3,7 @@
 The other examples in this repository hand over a geospatial fact.
 This one hands over the state of an agent.
 Run 1 writes a checkpoint as one signed memory file.
-Run 2 uses a different identity in a different process.
+Run 2 is a different process with no key of its own.
 It reads the checkpoint, checks it, and continues the task.
 
 ## What you need
@@ -45,7 +45,7 @@ The script prints each step and stops with an error if a check fails.
    The file goes under the namespace of that agent, `/memories/by_attester/<pubkey8>/`.
    The responder returns a `file_cid` and a signed receipt.
    Run 1 leaves one line behind: the path and the `file_cid`.
-2. Run 2 resumes with a different identity.
+2. Run 2 resumes in a different process with no key of its own.
    It calls `emem_memory_view` on the path and compares the returned `file_cid` with the one from run 1.
    It sends the receipt to `POST /v1/verify_receipt`.
    Only after both checks pass does it read `next_action` and continue.

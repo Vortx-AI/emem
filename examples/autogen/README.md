@@ -21,7 +21,7 @@ console.
 pip install autogen-agentchat 'autogen-ext[openai,mcp]' 'mcp<2'
 ```
 
-Keep `mcp<2`. On 6 November 2026, `autogen-ext` 0.7.5 did not import with
+Keep `mcp<2`. On 7 November 2026, `autogen-ext` 0.7.5 did not import with
 `mcp` 2.3.0 (`cannot import name 'RequestContext'`).
 
 ## Run
@@ -71,5 +71,9 @@ See [Verify the receipt](../../docs/quickstart.md#verify-the-receipt).
 - Any AutoGen model client can drive the agent. Change
   `OpenAIChatCompletionClient` to the client for another provider.
 - `/mcp` lists 18 core tools. `https://emem.dev/mcp/full` lists all tools in
-  pages. On 7 November 2026 it had 116 tools in 8 or 9 pages. The count changed with server updates. `McpWorkbench` loaded only the first page (12 or 13 tools). That page did not have
-  `emem_recall` or `emem_verify_receipt`. Keep `/mcp` for this script.
+  pages. On 7 November 2026 it had 116 tools in 9 pages, and 8 pages earlier
+  that day. The server cuts a page at about 45,000 bytes, so the page count
+  and the tools on each page change when the server changes. `McpWorkbench`
+  loaded only the first page (12 tools with 9 pages, 13 with 8). That page did
+  not have `emem_recall` or `emem_verify_receipt`. Keep `/mcp` for this
+  script.

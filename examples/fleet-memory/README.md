@@ -11,7 +11,8 @@ share no backend and no credentials, and B does not have to trust A.
 - Python 3 and network access to `https://emem.dev`.
 - `requests`. For the offline signature check, also `blake3`, `cbor2` and
   `cryptography`.
-- No key and no account. The script sends only reads.
+- No key and no account. The script sends no signed writes. On a recall
+  miss, the responder fetches and signs the band itself.
 
 ## What you get
 
@@ -67,6 +68,8 @@ the one that does not trust the responder.
 On 7 November 2026, `resolve` returned `contested: true` with two candidates
 for both phrasings. The script takes the first candidate. A real fleet should
 read `corroboration` and `independent_attesters` before it picks one.
+On 7 November 2026 these fields did not break the tie. Both candidates had
+`corroboration: none_attributed` and `independent_attesters: 0`.
 
 ## What the script does not do
 

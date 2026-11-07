@@ -75,13 +75,19 @@ a hunt samples and ranks cells.
 
 ## Notes
 
-- `/mcp/full` sends its tools in pages. On 7 November 2026 it had 116 tools
-  in 8 or 9 pages. The count changed with server updates. The first page
-  had 12 or 13 tools. `MCPClient` in `@mastra/mcp`
-  0.10.12 calls `tools/list` once and does not send the next cursor. So the
-  agent gets only the first page. On 7 November 2026, `mcp.getTools()`
-  returned 12 tools, and `emem_hunt` was one of them. A tool on a later page
-  does not get to the agent.
+- `/mcp/full` sends its tools in pages. On 7 November 2026 it had 116 tools in
+  9 pages, and 8 pages earlier that day. The server cuts a page at about
+  45,000 bytes, so the page count and the tools on each page change when the
+  server changes. The first page had 12 tools with 9 pages, and 13 with 8.
+  `MCPClient` in `@mastra/mcp` 0.10.12 calls `tools/list` once and does not
+  send the next cursor. So the agent gets only the first page. On 7 November
+  2026, `mcp.getTools()` returned 12 tools, and `emem_hunt` was one of them. A
+  tool on a later page does not get to the agent.
+- `emem_verify_receipt` was not on the first page on 7 November 2026. So
+  this agent cannot check a receipt itself. To add a verify step, give the
+  agent a second `MCPClient` on `https://emem.dev/mcp`, which lists the 18
+  core tools. You can also check the receipt offline, see
+  [Verify the receipt](../../docs/quickstart.md#verify-the-receipt).
 - `MCPClient` puts the server name before each tool name. With the server
   name `emem`, the agent sees `emem_emem_hunt`, not `emem_hunt`.
 - Any AI SDK provider that Mastra supports can drive the agent. Change the

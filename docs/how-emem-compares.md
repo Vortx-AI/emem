@@ -18,7 +18,7 @@ responder does not show its author. Its bytes still match its cid.
 
 Status on 7 November 2026:
 
-- Every measurement on this page is from 20 July to 11 August 2026. Nobody has
+- Every study measurement on this page is from 20 July to 11 August 2026. Nobody has
   run them again.
 - Nobody has benchmarked a peer memory product. Section 6 is still correct.
 - The fact token (`emem:fact:<cell64>:<fact_cid>`) and the bundle token have
@@ -82,8 +82,8 @@ table like that would have no evidence behind it.
 
 The study measured four ways to get a fact from storage into a model's answer.
 All four used the same questions, the same two models and the same corpus. A
-stranger can decide correctness without judgement. The value must match the
-signed bytes. The scorer compares the answer to six decimals. Six decimals is
+stranger can decide correctness without judgement. The source must be the
+signed fact. The scorer compares the answer to six decimals. Six decimals is
 our tolerance, not the precision of the source.
 
 Limits that apply to every number below:
@@ -97,7 +97,7 @@ Limits that apply to every number below:
 | independent replication | none |
 | agents in the study | 3, all on the same machine; 2 of them want addressed memory to win |
 
-## 1. Fidelity: does the exact value survive?
+## 1. Fidelity: whether the exact value survives
 
 | architecture | exact | confidently wrong | result |
 |---|---|---|---|
@@ -263,7 +263,7 @@ Two results follow:
 
 - The gaps are one or two representable steps. That is about 1e-16 relative.
   The tightest threshold of any decision in this study is 1e-6.
-- The failure does not grow with N. Accumulation error cancels as often as it
+- The failure does not grow steadily with N. Accumulation error cancels as often as it
   adds. So under strict equality, a caller cannot predict if a sum will verify.
   That looks like a guarantee but behaves like chance, which is worse than a
   stated bound.
