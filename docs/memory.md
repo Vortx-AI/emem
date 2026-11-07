@@ -22,6 +22,11 @@ Steps 1, 2 and 4 change nothing on the server. Step 3 is the write.
 You need Python 3 and two packages: `pip install blake3 cryptography`.
 You do not need an account or an API key.
 
+On Debian and Ubuntu, the system `pip` refuses this install with
+`externally-managed-environment`. Make a virtual environment with
+`python3 -m venv` first. On these systems, `python3 -m venv` also needs
+the `python3-venv` package.
+
 If you use Claude Code, the emem-signer plugin can hold the key and do
 the signing for you. See [Sign with the emem-signer plugin](#sign-with-the-emem-signer-plugin).
 
@@ -202,14 +207,14 @@ Ed25519PublicKey.from_public_bytes(unb32(a["attester_pubkey_b32"])).verify(unb32
 print("signed by", a["attester_pubkey_b32"])
 ```
 
-Run it on the note above. The output on 6 November 2026 was this:
+Run it on the note above. The output on 7 November 2026 was this:
 
 ```text
 $ python3 check_author.py /memories/by_attester/k572x7go/note-20260929-line-url-to-ddzmyzhn.md
 signed by k572x7go72uoih45j2xnvaoznda7jem6mqlrjj2psn4qqlgfosia
 ```
 
-After step 3, run it on your own path. The script checks only the v2
+After Step 3, run it on your own path. The script checks only the v2
 preimage. A note signed before 2026-11-05 can carry
 `preimage_version: 1`, which this script does not check.
 
