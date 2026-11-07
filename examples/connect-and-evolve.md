@@ -162,8 +162,9 @@ receipt binds their CIDs into the signature.
 
 ### 4. Verify a receipt
 
-Every response above has a signed `receipt`. `POST /v1/verify_receipt`
-rebuilds the canonical preimage and checks the Ed25519 signature.
+Every response above has a signed `receipt`. The `jq` filters in steps
+1 to 3 do not show it. `POST /v1/verify_receipt` rebuilds the canonical
+preimage and checks the Ed25519 signature.
 
 ```bash
 RCPT=$(curl -sS -X POST "$EMEM/v1/edges/recall" \
@@ -240,8 +241,11 @@ cargo run --release --bin emem-server
 ```
 
 The first release build takes a long time. On our host it took more
-than 25 minutes. When the node is ready, `curl -s
-http://127.0.0.1:5051/health` returns `"ok":true`.
+than 25 minutes. When the node is ready, this check returns `true`:
+
+```bash
+curl -s http://127.0.0.1:5051/health | jq '.ok'
+```
 
 Refinement settings, from `crates/emem-primitives/src/memory_consolidation.rs`:
 
