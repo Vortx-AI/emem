@@ -25,6 +25,7 @@ read the sections it names.
 
 | Your task | Sections to read |
 |---|---|
+| Check one receipt now, with no code to write | [Check your first receipt](#check-your-first-receipt) |
 | Check a receipt that a responder gave you | [§7 Receipt](#7-receipt), then the Python verifier in [§7.4](#74-offline-verification-python) |
 | Check that a fact is in a signed batch | [§8 Merkle inclusion proof](#8-merkle-inclusion-proof) |
 | Check that a fact or a memory note is in the transparency log | [§9.6 Transparency log](#transparency-log), then the steps in [§9.6.1](#961-check-an-inclusion-proof-by-hand) |
@@ -47,6 +48,60 @@ standard library. Each section above shows how to run it.
 
 The words cell64, tslot, fact, receipt and responder have one meaning
 each. The [glossary](glossary.md) gives it.
+
+## Check your first receipt
+
+Do this before you read the formal sections. It takes four commands and
+needs no key and no package. Run them from the root of a clone of this
+repository.
+
+1. Get a signed answer. This recall reads the elevation of one cell:
+
+   ```sh
+   curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
+     -d '{"cell":"defi.zb592.nUkO.zEzE","bands":["elevation"]}' > recall.json
+   ```
+
+2. Check the signature offline. The script rebuilds the signed bytes
+   from the receipt and checks them with the key on the receipt:
+
+   ```sh
+   python3 plugins/emem/skills/emem-verify-receipt/scripts/verify.py recall.json
+   ```
+
+   It prints `VALID`, the `digest` it rebuilt and the `signer` key.
+
+3. Make sure that the signer is the emem.dev responder. Compare the key
+   from step 2 with the published key:
+
+   ```sh
+   curl -s https://emem.dev/.well-known/emem.json \
+     | python3 -c 'import json,sys; print(json.load(sys.stdin)["responder"]["pubkey_b32"])'
+   ```
+
+4. Optional: ask the responder to check the same receipt. Its digest
+   must be equal to the digest from step 2:
+
+   ```sh
+   python3 -c 'import json; print(json.dumps({"receipt": json.load(open("recall.json"))["receipt"]}))' \
+     | curl -s -X POST https://emem.dev/v1/verify_receipt -H 'content-type: application/json' -d @- \
+     | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["valid"], d["preimage_blake3_hex"])'
+   ```
+
+On 7 November 2026 at 00:39 UTC, step 2 printed `VALID` and step 4
+printed `True` with the same digest. The signer in step 2 and the key in
+step 3 were both `777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka`.
+
+To see a failure, change one signed field and run step 2 again:
+
+```sh
+python3 -c 'import json; d=json.load(open("recall.json")); d["receipt"]["served_at"]="2000-01-01T00:00:00Z"; json.dump(d, open("tampered.json","w"))'
+python3 plugins/emem/skills/emem-verify-receipt/scripts/verify.py tampered.json
+```
+
+The script prints `INVALID` and exits with status 1. [§7](#7-receipt)
+tells which fields the signature covers and how to rebuild the digest
+yourself.
 
 ---
 
