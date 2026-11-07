@@ -100,7 +100,8 @@ has the same content in one column, and all of its text is easy to read at 360 p
 The numbers in these stills are from 7 November 2026. Item 6 in README.md gives a log size from 10 October 2026.
 The still and the text show different sizes, and each is true for its date.
 
-Markup for line 218:
+Markup for line 218. Put a blank line before and after the image. GitHub then starts item 7 as a new list
+that keeps the number 7.
 
 ```html
 <img src="docs/media/stills/log-proof.webp" alt="The Mount Fuji elevation fact, 3539.04 m, was signed in a batch of one fact. That batch is entry 2,463,431 of 3,248,898 in the log. A ladder of 22 hashes is its audit path to the signed tree head, and the Ed25519 signature is valid. One character changed in one hash gives a different root, and inclusion is invalid. A 14-hash consistency proof links the head of size 3,248,892 to the head of size 3,248,898: valid. Live calls to emem.dev on 7 November 2026." width="720">
@@ -159,7 +160,7 @@ from live reads of emem.dev on 7 November 2026. They add an image where README.m
 | README line (7 November 2026) | Proposed | Why |
 |---|---|---|
 | 47, after the paragraph that starts "What each check proves" (the table ends at line 45), before `## Quickstart` | `docs/media/diagrams/data-flow.svg` (6,251 bytes) | The last table row says that a signed fact names its source bytes. The diagram follows one value from a 43.4 MB open file to a fact id. Then it changes one byte and shows that the id changes. |
-| 221, after the paragraph that ends with `/v1/verifier_spec` | `docs/media/diagrams/receipt-check.svg` (6,376 bytes) | The paragraph says that a reader can re-check any receipt. The diagram does it for one live receipt: 8 fields, 328 bytes, a BLAKE3 digest and an Ed25519 check. One changed character makes the check fail. |
+| 221, after the paragraph that ends with "generated from the running code" | `docs/media/diagrams/receipt-check.svg` (6,376 bytes) | The paragraph says that a reader can re-check any receipt. The diagram does it for one live receipt: 8 fields, 328 bytes, a BLAKE3 digest and an Ed25519 check. One changed character makes the check fail. |
 | 308, after the paragraph that ends with "the exact digest to sign" | `docs/media/diagrams/agent-loop.svg` (6,220 bytes) | The paragraph says where an agent uses emem and how it writes. The diagram shows one turn: ask, recall, cite, act, then write back a note signed with the agent's own key. |
 | 312, after "The hosted node runs the binary in this repo" and its `docker run` block | `docs/media/diagrams/architecture.svg` (8,484 bytes) | The section says that one binary runs the node. The diagram shows what that binary does when a call comes in: find, fetch on a miss, hash, sign, log, answer. |
 

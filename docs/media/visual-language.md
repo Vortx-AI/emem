@@ -89,6 +89,8 @@ Before you commit, run `python3 docs/media/stills/src/check_media.py` from the r
 fails when a file is over its size limit or has no row in the table below. It fails when a page gives
 the wrong length for a film. It also fails when a number in a still's alt text is in no saved response.
 A value that a script computes, such as a byte count, goes in its `COMPUTED` list with the code that makes it.
+For [README_MEDIA_PROPOSAL.md](README_MEDIA_PROPOSAL.md), it also checks each byte size, each file name, and
+that README.md still shows the old image on each line a swap names.
 
 ## Media that follows these rules
 

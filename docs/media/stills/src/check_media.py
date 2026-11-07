@@ -9,6 +9,9 @@ Run from the repository root:  python3 docs/media/stills/src/check_media.py
    alt text shows. Commas and signs are ignored.
 4. A paragraph that links a film and says "N seconds" agrees with the film
    length from ffprobe, rounded. Skipped when ffprobe is not installed.
+5. README_MEDIA_PROPOSAL.md: each stated byte size equals the file size, each
+   named file exists, and each swap row names the image that README.md shows
+   on that line today.
 
 Exit status 1 when a check fails.
 """
@@ -22,7 +25,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[4]
 MEDIA = ROOT / "docs/media"
 SRC = MEDIA / "stills/src"
-SKIP_PAGES = {"collaboration-log.md", "README_MEDIA_PROPOSAL.md"}
+SKIP_PAGES = {"collaboration-log.md"}
 
 fails = []
 
@@ -59,6 +62,7 @@ COMPUTED = {
     "area-receipts": {"3349"},  # area_receipts.py: fmean of the 16 merged_facts values
     "experiment-chain": {"10154"},  # experiment_chain.py: len(record.cbor)
     "one-place-many-names": {"13.3"},  # one_place.py: metres() from the first to the fifth locate point
+    "what-crosses": {"13870"},  # what_crosses.py: sum of event_count over the 4 trace segments
 }
 
 
@@ -125,8 +129,27 @@ def check_durations():
                                  f"the file is {length.get(name)}")
 
 
+def check_proposal():
+    text = (MEDIA / "README_MEDIA_PROPOSAL.md").read_text()
+    readme = (ROOT / "README.md").read_text().splitlines()
+    for m in re.finditer(r"`(docs/media/[^`]+)` \(([\d,]+) bytes", text):
+        path, said = ROOT / m.group(1), int(m.group(2).replace(",", ""))
+        size = path.stat().st_size if path.exists() else None
+        if size != said:
+            fails.append(f"proposal: {m.group(1)} is said to be {said} bytes, the file is {size}")
+    for name in sorted(set(re.findall(r"docs/media/[\w./-]+\.(?:webp|mp4|webm|svg|gif)", text))):
+        if not (ROOT / name).exists():
+            fails.append(f"proposal: {name} does not exist")
+    # A swap row names the README line and the image that README.md shows there today.
+    for m in re.finditer(r"^\| (\d+), [^|]*\| `(docs/media/readme/[^`]+)`", text, re.M):
+        line, now = int(m.group(1)), m.group(2)
+        if line > len(readme) or now not in readme[line - 1]:
+            fails.append(f"proposal: README.md line {line} does not show {now}")
+
+
 check_sizes()
 check_listed()
+check_proposal()
 embeds = check_alt_numbers()
 check_durations()
 for f in fails:
