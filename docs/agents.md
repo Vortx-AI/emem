@@ -1613,12 +1613,14 @@ every verdict to a log that anyone can audit offline.
 curl -s https://emem.dev/v1/guard/selfhost | jq -r .skill > SKILL.md
 ```
 
-The MCP tool is `emem_guard_selfhost`. The procedure shows nine
-checkpoints. Seven do not depend on a vendor: the native route, MCP
-`tools/call`, OpenAI-shaped clients, CloudEvents, an OPA-style policy
-point, batch, and the log. Two are hook shapes for agents that you can
-reach only through their host. The page [emem.dev/guard](https://emem.dev/guard)
-shows each one with real output.
+The MCP tool is `emem_guard_selfhost`. The node has nine verdict routes,
+and all of them use one engine. Seven do not depend on a vendor: `/verdict`
+and its alias `/verdict/native`, then `mcp`, `openai`, `cloudevent`,
+`policy` and `batch` under `/verdict/`. Two are hook routes for agents that
+you can reach only through their host: `/verdict/anthropic-hook` and
+`/verdict/claude-code`. The `/log/*` routes are not checkpoints. They let
+anyone fetch the log leaf that a verdict names. The page
+[emem.dev/guard](https://emem.dev/guard) shows each route with real output.
 
 ## Verify a receipt offline
 
