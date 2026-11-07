@@ -1221,6 +1221,15 @@ are enumerated at `/v1/algorithms` and `/v1/topics`.
 and signs each value. Four deterministic decoders read the same place,
 so a disagreement between them is information.*
 
+<img src="media/stills/recall-one-cell.webp" alt="Still from live emem.dev calls on 7 November 2026. A 10 km Sentinel-2 crop of Lake Geneva from 12 October 2026, with a ring on cell defi.zb610.tAhU.hejI at 46.4500 N, 6.5500 E. One recall returned 8 facts from 6 sources, oldest first: climate class Cfb (30 Oct 2018), elevation 368 m (30 Apr 2021), water occurrence 98 percent (1 Jan 2022), land cover class 80, permanent water bodies (28 Oct 2022), NDVI 0.055 with pixel class Water, so not a vegetation reading, and NDWI 0.226 (15 Oct 2026), precipitation 0 mm and air temperature 9.9 degrees C (7 Nov 2026, 09:00 UTC). Green dots mark the 3 facts that are recomputable from the source: elevation, NDVI and NDWI. One receipt covers the 8 fact ids; signature valid, merkle proof valid." width="540">
+
+*Figure 6 applied to one live cell at Lake Geneva on 7 November 2026.
+One recall returned 8 signed facts from 6 sources. Each fact names its
+source and its date. Two of the four decoded kinds appear here:
+spectral indices (NDVI, NDWI) and terrain (elevation). The other 5
+facts come from upstream products, and each says so. Contains modified
+Copernicus Sentinel data 2026.*
+
 ### 10.1 Bands: the 1792-dimension voxel
 
 The band ontology declares **43 cube slots** summing to exactly **1792
