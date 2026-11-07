@@ -77,6 +77,40 @@ The compose health check calls `curl`. The image does not contain `curl` (see th
 `Dockerfile`), so Docker can mark the container unhealthy while the node works. Check the node with `/live` from the
 host.
 
+## Connect a client to your node
+
+Your node serves REST at `/v1/` and MCP at `/mcp`, on the same port. Point your client at
+`http://localhost:5051`.
+
+Read a signed fact with REST. Put the `cell64` from your locate reply in `cell`:
+
+```bash
+curl -sX POST http://localhost:5051/v1/recall \
+    -H 'content-type: application/json' \
+    -d '{"cell":"defi.zb4d7.zb8ec.zf21e","bands":["copdem30m.elevation_mean"]}'
+```
+
+The reply has `facts` and a `receipt`. Each fact has a `memory_token` and a `signer_pubkey_b32`. On your node, the
+signer is the key from `/live`. A client that checks receipts must pin that key, not the key of emem.dev.
+
+List the MCP tools:
+
+```bash
+curl -sX POST http://localhost:5051/mcp \
+    -H 'content-type: application/json' \
+    -H 'accept: application/json, text/event-stream' \
+    -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+On 7 November 2026 these two calls ran against `https://emem.dev`. The recall gave one fact for South Mumbai, and
+`tools/list` gave 18 tools in one page.
+
+To connect an MCP host, use its configuration in [Integrations](integrations.md) and change the URL to
+`http://localhost:5051/mcp`. The example scripts in `examples/` read `EMEM_MCP_URL`. The node accepts every MCP
+method from a request with no `Origin` header, which is what `curl` and the example scripts send. A browser page on
+an origin that is not in the allow-list gets only the read tools. Add its origin to `EMEM_MCP_ALLOWED_ORIGINS` (see
+[Operate a public node](operators/operating.md)).
+
 ## What is in the data directory
 
 All state is under `EMEM_DATA`. The binary default is `./var/emem`. The image sets `/var/emem`.
