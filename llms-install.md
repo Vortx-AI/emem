@@ -104,6 +104,24 @@ Search for `@mcp emem` in the Extensions view, or run this command:
 code --add-mcp '{"name":"emem","type":"http","url":"https://emem.dev/mcp"}'
 ```
 
+## ChatGPT custom GPT
+
+A custom GPT does not use the MCP endpoint. It calls HTTP operations from an OpenAPI schema.
+
+1. In the GPT builder, open Actions and select Import from URL.
+2. Paste `https://emem.dev/openapi.action.json`.
+3. Set Authentication to None and the privacy policy URL to `https://emem.dev/privacy`.
+4. Copy the `custom_gpt_instructions` text from [`examples/openai-gpt-action.json`](examples/openai-gpt-action.json) into the GPT instructions.
+
+On 7 November 2026 the action schema had 39 operations on 38 paths (OpenAPI 3.1.0).
+Do not import `https://emem.dev/openapi.json`. It had 213 operations and 405,695 bytes, which is too large for a GPT.
+The action schema includes one write, `emem_attest` (`POST /v1/attest`). It needs a signature.
+
+The instructions text names some tools that are not in the action schema.
+On 7 November 2026 these were `emem_ask`, `emem_entity`, `emem_change_attribution`, `emem_derive`, `emem_band_raster`, `emem_band_cube`, `emem_cells_in_bbox`, `emem_raster_resolve` and `emem_cube_resolve`.
+The GPT cannot call them. Use the MCP endpoint if you need them.
+We did not test these steps in the GPT builder. We checked the URLs and counts live.
+
 ## Client libraries (optional)
 
 The endpoints above do not need a library. If you want typed clients, install one of these:
