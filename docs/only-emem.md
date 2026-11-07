@@ -17,10 +17,10 @@ use the cell of Mount Fuji, `defi.zb592.nUkO.zEzE`.
 ## Keep disagreement and give it a severity
 
 When two signed facts at the same `(cell, band, tslot)` have different
-values, emem keeps both. It does not choose a winner and it does not average them.
-`emem_memory_contradictions` finds these keys and gives each one a
-`severity` from 0 to 1. An agent can ignore a small disagreement and
-escalate a large one.
+values, emem keeps both. It does not choose a winner and it does not
+average them. `emem_memory_contradictions` finds these keys and gives
+each one a `severity` from 0 to 1. An agent can ignore a small
+disagreement and escalate a large one.
 
 The severity depends on the kind of band
 (`crates/emem-primitives/src/memory_contradictions.rs`):

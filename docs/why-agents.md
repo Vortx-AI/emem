@@ -31,8 +31,8 @@ curl -s -X POST https://emem.dev/v1/locate \
 
 Read `place_label` and `alternatives` before you trust the cell. On
 7 November 2026 this query resolved to a social facility in Soubré, not
-to the town centre. For a real plot, send its coordinates or its polygon,
-not a town name.
+to the town centre. `alternatives` held 5 other matches. For a real
+plot, send its coordinates or its polygon, not a town name.
 
 A `cell64` is a 64-bit address for one patch of ground, about 9.55 m
 across at the equator. It does for a place what a token does for text.
@@ -105,7 +105,7 @@ To give the fact to another agent as one token, see
 A compliance reviewer at another company needs no key and no account to
 read. The reviewer opens the `fact_cid` in a browser:
 
-```
+```text
 https://emem.dev/verify/gkfhjoceoydlojo2dnv3dfozdodhetvvlms2zqutdrxuvmfuronq
 ```
 
