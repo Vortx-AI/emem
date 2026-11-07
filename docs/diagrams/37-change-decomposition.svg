@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" lang="en" viewBox="0 0 900 320" font-family="Helvetica, Arial, sans-serif" role="img" aria-labelledby="t37">
-  <title id="t37">A change at one place is a sum of five terms. Only the first is the world. change_attribution@1 ships a signed ledger of evidence per term; the numeric split is not shipped.</title>
+  <title id="t37">The change at one place is a sum of five terms: the world, the sensor, the geometry, the encoder, and noise. Only the first term is the world. Signed metadata records or pins the other terms. change_attribution@1 ships a signed ledger that lists the evidence for each term. The numeric split of one change among the terms does not ship.</title>
   <rect x="0" y="0" width="900" height="320" fill="#ffffff"/>
   <text x="60" y="38" font-size="20" font-weight="bold" fill="#1a1a1a">The change at a pinned reference is not one event</text>
   <text x="60" y="60" font-size="13" fill="#666666">&#916;z = &#916;_env + &#916;_sensor + &#916;_geo + &#916;_encoder + &#949; &#183; only the first term is the world</text>
