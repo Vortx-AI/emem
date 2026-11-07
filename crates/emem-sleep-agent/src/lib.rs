@@ -199,17 +199,20 @@ pub async fn run_pass(
             continue;
         }
 
-        // Budget gate — never start a call that would breach the cap.
-        if spend >= cfg.budget_usd {
+        let transport = transport.expect("dry_run guard guarantees transport is Some here");
+        let req = LlmRequest::for_merge(cand, cfg);
+
+        // Budget gate: start a call only when its worst case fits the cap.
+        let max_call = transport.max_cost_usd(&req);
+        if spend + max_call > cfg.budget_usd {
             summary.notes.push(format!(
-                "budget cap ${:.4} reached after ${:.4}; stopping this pass early.",
-                cfg.budget_usd, spend
+                "budget cap ${:.4}: spent ${:.4}, next call could cost up to ${:.4}; \
+                 stopping this pass early.",
+                cfg.budget_usd, spend, max_call
             ));
             break;
         }
 
-        let transport = transport.expect("dry_run guard guarantees transport is Some here");
-        let req = LlmRequest::for_merge(cand, cfg);
         let proposal = transport
             .propose_merge(req)
             .await

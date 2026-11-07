@@ -11,6 +11,18 @@ use crate::candidates::Candidate;
 use crate::config::{LlmRoute, SleepAgentConfig};
 use crate::ResponderClient;
 
+/// The most completion tokens a merge call may use. Sent as `max_tokens`
+/// so the cost of one call has an upper bound before it starts.
+pub const MERGE_MAX_COMPLETION_TOKENS: u32 = 4096;
+
+// Nominal blended small-model rates, USD per million tokens. They price
+// both the reported usage and the worst case of a call not yet made.
+const PROMPT_USD_PER_MTOK: f64 = 0.5;
+const COMPLETION_USD_PER_MTOK: f64 = 1.5;
+
+// Chat formatting adds a few tokens per message and for the reply primer.
+const CHAT_OVERHEAD_TOKENS: f64 = 32.0;
+
 /// What the agent hands the LLM: the system instruction plus the rendered
 /// cluster of memory files to reconcile.
 #[derive(Debug, Clone)]
@@ -46,6 +58,17 @@ impl LlmRequest {
         }
         LlmRequest { system, user }
     }
+
+    /// The most a chat-completions call with this request can cost at the
+    /// nominal rates. A byte-level BPE token covers at least one byte, so
+    /// the prompt has no more tokens than bytes; the completion is capped
+    /// by [`MERGE_MAX_COMPLETION_TOKENS`].
+    pub fn nominal_max_cost_usd(&self) -> f64 {
+        let prompt_tokens = (self.system.len() + self.user.len()) as f64 + CHAT_OVERHEAD_TOKENS;
+        let completion_tokens = f64::from(MERGE_MAX_COMPLETION_TOKENS);
+        (prompt_tokens * PROMPT_USD_PER_MTOK + completion_tokens * COMPLETION_USD_PER_MTOK)
+            / 1_000_000.0
+    }
 }
 
 /// The LLM's proposed merge.
@@ -75,6 +98,12 @@ pub enum LlmError {
 #[async_trait]
 pub trait LlmTransport: Send + Sync {
     async fn propose_merge(&self, req: LlmRequest) -> Result<MergeProposal, LlmError>;
+
+    /// The most `propose_merge(req)` can add to the pass spend. The budget
+    /// gate refuses a call when spend plus this value passes the cap.
+    fn max_cost_usd(&self, req: &LlmRequest) -> f64 {
+        req.nominal_max_cost_usd()
+    }
 }
 
 /// The real gateway. Either an OpenAI-compatible chat-completions endpoint
@@ -137,6 +166,7 @@ impl HttpLlmTransport {
                 { "role": "user", "content": req.user },
             ],
             "temperature": 0.2,
+            "max_tokens": MERGE_MAX_COMPLETION_TOKENS,
         });
         let resp = self
             .http
@@ -153,24 +183,39 @@ impl HttpLlmTransport {
             .json()
             .await
             .map_err(|e| LlmError::Malformed(e.to_string()))?;
-        let merged_text = v
-            .pointer("/choices/0/message/content")
-            .and_then(|c| c.as_str())
-            .ok_or_else(|| LlmError::Malformed("no choices[0].message.content".into()))?
-            .trim()
-            .to_string();
-        if merged_text.is_empty() {
-            return Err(LlmError::Malformed("LLM returned empty content".into()));
-        }
-        // Best-effort cost estimate from reported token usage. When the
-        // endpoint does not report usage we leave it at 0.0 rather than
-        // inventing a number.
-        let cost_usd = estimate_cost(&v);
-        Ok(MergeProposal {
-            merged_text,
-            cost_usd,
-        })
+        parse_chat_completion(&v)
     }
+}
+
+/// Read a merge proposal from a chat-completions response. A reply cut at
+/// the token cap is an error: writing half a merge would supersede the
+/// originals with a truncated note.
+fn parse_chat_completion(v: &Value) -> Result<MergeProposal, LlmError> {
+    if v.pointer("/choices/0/finish_reason")
+        .and_then(|r| r.as_str())
+        == Some("length")
+    {
+        return Err(LlmError::Malformed(format!(
+            "merge reply stopped at the {MERGE_MAX_COMPLETION_TOKENS}-token cap; not written"
+        )));
+    }
+    let merged_text = v
+        .pointer("/choices/0/message/content")
+        .and_then(|c| c.as_str())
+        .ok_or_else(|| LlmError::Malformed("no choices[0].message.content".into()))?
+        .trim()
+        .to_string();
+    if merged_text.is_empty() {
+        return Err(LlmError::Malformed("LLM returned empty content".into()));
+    }
+    // Best-effort cost estimate from reported token usage. When the
+    // endpoint does not report usage we leave it at 0.0 rather than
+    // inventing a number.
+    let cost_usd = estimate_cost(v);
+    Ok(MergeProposal {
+        merged_text,
+        cost_usd,
+    })
 }
 
 /// Very rough cost estimate from OpenAI-style `usage` totals at a nominal
@@ -185,9 +230,7 @@ fn estimate_cost(v: &Value) -> f64 {
         .pointer("/usage/completion_tokens")
         .and_then(|t| t.as_f64())
         .unwrap_or(0.0);
-    // $0.50 / 1M in, $1.50 / 1M out — a deliberately conservative blended
-    // small-model rate. Overrideable later; never used to fabricate text.
-    (prompt * 0.5 + completion * 1.5) / 1_000_000.0
+    (prompt * PROMPT_USD_PER_MTOK + completion * COMPLETION_USD_PER_MTOK) / 1_000_000.0
 }
 
 #[async_trait]
@@ -231,6 +274,14 @@ impl LlmTransport for HttpLlmTransport {
             }
         }
     }
+
+    fn max_cost_usd(&self, req: &LlmRequest) -> f64 {
+        match &self.inner {
+            Inner::OpenAi { .. } => req.nominal_max_cost_usd(),
+            // The responder gateway reports no usage, so its calls add 0.0.
+            Inner::Ask { .. } => 0.0,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -248,6 +299,39 @@ mod tests {
     #[test]
     fn estimate_cost_zero_when_no_usage() {
         assert_eq!(estimate_cost(&json!({})), 0.0);
+    }
+
+    #[test]
+    fn nominal_max_cost_bounds_the_reported_cost() {
+        let req = LlmRequest {
+            system: "s".repeat(400),
+            user: "u".repeat(600),
+        };
+        let bound = req.nominal_max_cost_usd();
+        // Most tokens the call can report: one per prompt byte plus
+        // overhead, and the completion cap.
+        let worst = json!({ "usage": {
+            "prompt_tokens": 1000 + CHAT_OVERHEAD_TOKENS as u64,
+            "completion_tokens": MERGE_MAX_COMPLETION_TOKENS,
+        }});
+        assert!((bound - estimate_cost(&worst)).abs() < 1e-12);
+        assert!(bound > 0.0);
+    }
+
+    #[test]
+    fn a_reply_cut_at_the_token_cap_is_not_a_merge() {
+        let v = json!({ "choices": [{
+            "message": { "content": "half a mer" },
+            "finish_reason": "length",
+        }]});
+        let err = parse_chat_completion(&v).unwrap_err();
+        assert!(matches!(err, LlmError::Malformed(_)), "{err}");
+
+        let ok = json!({ "choices": [{
+            "message": { "content": " merged " },
+            "finish_reason": "stop",
+        }]});
+        assert_eq!(parse_chat_completion(&ok).unwrap().merged_text, "merged");
     }
 
     #[test]
