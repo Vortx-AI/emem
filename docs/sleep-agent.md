@@ -9,7 +9,7 @@ It adds to the deterministic refinement loop that already ships in emem.
 | Loop | What it does when it finds a problem |
 |---|---|
 | Deterministic refinement (`EMEM_REFINEMENT_ENABLED`) | Draws a `disagrees_with` edge between the facts that disagree. |
-| Sleep-time agent | In idle periods, asks an LLM to reconcile the conflicting or duplicate notes into one cleaner note. It writes that note back and keeps the old versions. |
+| Sleep-time agent | In idle periods, asks an LLM to merge duplicate notes or to describe a contradiction. It writes the result as a new note and keeps the old versions. |
 
 The agent ships as the standalone crate `crates/emem-sleep-agent`, with one
 binary, `emem-sleep-agentd`. The crate links no emem internals. It drives a
@@ -32,18 +32,17 @@ external agent uses.
 ## How a pass works
 
 ```
-            ┌─────────────────────────── emem-sleep-agentd ───────────────────────────┐
-            │                                                                          │
-  POST /v1/memory_contradictions ─┐                                                    │
-  POST /mcp emem_memory_list_by_kind ──┼─► select_candidates ─► cluster near-dups ─► top-N  │
-  POST /mcp emem_memory_view ──────────┘                              │                     │
-            │                                                    ▼                     │
-            │                       LlmTransport.propose_merge(cluster)  (REAL call)   │
-            │                                                    │                     │
-            │                                                    ▼                     │
-            │              POST /mcp emem_memory_create(canonical_path, merged_text)        │
-            │              → new file_cid shadows old via bi-temporal supersession     │
-            └──────────────────────────────────────────────────────────────────────┘
+emem-sleep-agentd, one pass
+
+  POST /v1/memory_contradictions -----+
+  POST /mcp emem_memory_list_by_kind -+--> select candidates --> keep top N
+  POST /mcp emem_memory_view ---------+            |
+                                                   v
+                         LlmTransport.propose_merge (a real model call)
+                                                   |
+                                                   v
+                POST /mcp emem_memory_create (canonical path, merged text)
+                the new file_cid wins for as_of now; old versions stay
 ```
 
 Each pass has three steps.
@@ -65,7 +64,10 @@ Each pass has three steps.
      `notes/site-1`, `notes/site-2` and `notes/site.md` all become
      `notes/site`. A group with two or more notes is a candidate. A group
      whose total version count reaches the churn threshold is also a
-     candidate.
+     candidate. The agent does not read the version history of a note. It
+     counts each note as one version (`history_len: 1` in `candidates.rs`).
+     Thus only a group of two or more notes becomes a candidate, and
+     `EMEM_SLEEP_AGENT_CHURN_THRESHOLD` has no effect today.
 
    The agent ranks contradictions above churn. It keeps the first
    `EMEM_SLEEP_AGENT_TOPN` candidates.
@@ -79,6 +81,12 @@ Each pass has three steps.
    merged text. The trailer names each source as `path@file_cid`. The agent
    then sends the text with `emem_memory_create` to the canonical path of
    the group.
+
+   A contradiction candidate carries no note. Its canonical path is
+   `/memories/reconciled/<cell>/<band>`. The prompt gives the model only
+   that path, not the values that disagree. The agent writes the result to
+   that path as kind `semantic`, with no provenance trailer. Read such a
+   note as text from a model, not as a check of the facts.
 
 After each pass, the agent prints a `PassSummary`. It shows the mode, the
 candidate counts by source, the merges written, the new CIDs, the spend and
@@ -146,6 +154,12 @@ merged text before you trust this route.
 The agent does not report a value that it cannot parse. It uses the
 default for that variable. For example, `EMEM_SLEEP_AGENT_TOPN=eight` gives
 8 candidates.
+
+Each pass makes one `emem_memory_view` call for each listed note. The
+agent lists up to 256 notes for each kind in `EMEM_SLEEP_AGENT_CHURN_KINDS`.
+With the three default kinds, one dry pass sends up to 772 calls: one
+contradiction scan, three lists and 768 views. Point the agent at your own
+responder, not at a shared public one.
 
 Before the first pass, the agent sends `GET` to `/v1/health`, then
 `/health`, then `/`. If no probe returns a success status, the agent exits
