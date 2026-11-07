@@ -327,8 +327,15 @@ curl -s -X POST https://emem.dev/v1/diff \
 ```
 
 Read `delta_fact.value` and `delta_fact.parents`, the two facts behind the
-delta. `emem_intent` with `"type": "did_change"` does the same job. It also
-needs `window`, two tslots such as `[20484, 20754]`, not dates.
+delta. On 7 November 2026 the value was 0.0770. The responder does not store
+the delta. It has no `fact_cid`, and its `signed_at` is the time of the call.
+The receipt signs the two parent `fact_cid` values, not the delta. To cite
+the change, cite the two parents. A reader can then compute
+`value_b - value_a` (`nd.delta@1`) from the signed facts.
+
+`emem_intent` with `"type": "did_change"` does the same job. It also needs
+`window`, two tslots such as `[20484, 20754]`, not dates. The diff answer is
+in `results[0].result`.
 
 The diff answer also has a `phenology` block. For the call above, on
 7 November 2026, it said that the two readings were 95 days apart in the
@@ -1797,7 +1804,7 @@ empty. `absent` gives `true` only when the window holds a signed
 November 2026, `gt` and `absent` over the window `[1,2]` both gave `false`
 with 0 evidence CIDs. Thus read `evidence` before you report the verdict.
 
-### 2. Get a signed difference between two tslots
+### 2. Get the difference between two tslots
 
 The tslots of a band are not consecutive. The responder stores a slot only
 when a satellite observed the place. Thus take both tslots from a recall.
@@ -1814,10 +1821,11 @@ curl -s -X POST https://emem.dev/v1/diff \
   -d '{"cell":"defi.zb493.xuqA.zcb5f","band":"indices.ndvi","tslot_a":20245,"tslot_b":20490}'
 ```
 
-The response has a `delta_fact` and a `receipt`. The difference is a signed
-fact with `op: "delta"` and the two source facts in `parents`. Cite the
-difference. Do not calculate it again. These two tslots are 120 days apart
-in the season, so read the `phenology` block. See
+The response has a `delta_fact` and a `receipt`. The `delta_fact` has
+`op: "delta"` and the two source facts in `parents`. The receipt signs those
+two parents, not the delta, and the responder does not store the delta. Thus
+cite the two parents. These two tslots are 120 days apart in the season, so
+read the `phenology` block. See
 [See how a value changed](#job-see-how-a-value-changed).
 
 When one of the tslots has no fact, the response is HTTP 404:
