@@ -51,7 +51,7 @@ The response, shortened to the first hotspot:
 
 ```json
 {
-  "schema": "emem.hunt.v1",
+  "schema": "emem.ask.v1",
   "status": "hunter_mode",
   "event": "algal_bloom",
   "algorithm_key": "algal_bloom_chlorophyll_ndci@1",
@@ -87,6 +87,8 @@ The response, shortened to the first hotspot:
 ```
 
 The response also has `input_bands`, `materializer_status`, `caveats`, `recipe`, `agent_hint` and `question`.
+
+A hunt with `region` returns `schema: "emem.ask.v1"`. A hunt with `polygon_bbox` returns `schema: "emem.hunt.v1"`. Both have `status: "hunter_mode"`, so test `status`, not `schema`.
 
 How to read this result:
 
