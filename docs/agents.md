@@ -805,7 +805,8 @@ provenance classes by name, for example
 `unclassified`.
 
 - Each fact has its class in `band_metadata.provenance.class`. The other five
-  classes each have a `caution` string, which names how the class can fail. `direct_sensor` and `deterministic_index` have no `caution`
+  classes each have a `caution` string, which names how the class can
+  fail. `direct_sensor` and `deterministic_index` have no `caution`
   (`ProvenanceClass::caution` in `crates/emem-core/src/bands.rs`). On
   7 November 2026, the Mount Fuji elevation fact had class `direct_sensor`
   and no `caution`.
