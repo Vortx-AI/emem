@@ -120,9 +120,15 @@ curl -s -X POST https://emem.dev/v1/memory_token/resolve \
 ```
 
 The response holds the signed fact in `fact`. It also copies `value` and `unit` to the top level. `cell_matches`
-is `true` when the cell in the token is the cell of the signed fact. If the cells differ, emem refuses the token with
-HTTP 409 and names the correct cell. The response has its own `receipt`. The receiver checks that receipt with the
-step 2 check:
+is `true` when the cell in the token is the cell of the signed fact. If the token names a different valid cell, emem
+refuses the token with HTTP 409 and names the correct cell.
+
+If emem cannot read the cell in the token, it finds the fact by its `fact_cid` only. Then the response is HTTP 200
+with `cell_matches: false` and `degraded: true`, and no cell check occurred. On 7 November 2026, the token above
+gave this result when its cell ended in `xawP`, not `xawO`. Treat `degraded: true` as a failure, and cite
+`canonical_token` from the response.
+
+The response has its own `receipt`. The receiver checks that receipt with the step 2 check:
 
 ```bash
 curl -s -X POST https://emem.dev/v1/memory_token/resolve \
