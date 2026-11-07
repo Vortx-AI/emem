@@ -1373,6 +1373,50 @@ pub fn ar2_seasonal_predict(history: &[f64], lag_12_value: Option<f64>) -> Optio
     Some(pred.clamp(-1.0, 1.0))
 }
 
+/// One month of predictor input: the 30-day month slot
+/// (`Tempo::Medium`), the band-tempo tslot of the observation that
+/// stands for it, its value and its fact CID.
+type MonthSample = (u64, u64, f64, String);
+
+/// Reduce band-tempo observations (sorted by tslot ascending) to one
+/// sample per 30-day month, latest observation wins, and keep the months
+/// in the `lookback_months` window that ends at the latest month.
+///
+/// `indices.ndvi` has a daily tempo, so a raw fact history is a list of
+/// scene days. The AR(2) terms (lag-12, the slope, the one-step forecast)
+/// are defined per month; this is where days become months. Each sample
+/// keeps a real signed value instead of an average so a reader can check
+/// every input against its fact. Months with no observation are absent.
+fn monthly_history(
+    obs: &[(u64, f64, String)],
+    tempo: emem_core::tslot::Tempo,
+    lookback_months: u32,
+) -> Vec<MonthSample> {
+    use emem_core::tslot::{Tempo, Tslot};
+    let mut months: Vec<MonthSample> = Vec::new();
+    for (tslot, value, cid) in obs {
+        let unix = Tslot(*tslot).to_unix_start(tempo);
+        let month = Tslot::from_unix(unix, Tempo::Medium).0;
+        match months.last_mut() {
+            Some(last) if last.0 == month => *last = (month, *tslot, *value, cid.clone()),
+            _ => months.push((month, *tslot, *value, cid.clone())),
+        }
+    }
+    if let Some(latest) = months.last().map(|m| m.0) {
+        let first_kept = latest.saturating_sub(u64::from(lookback_months.saturating_sub(1)));
+        months.retain(|m| m.0 >= first_kept);
+    }
+    months
+}
+
+/// The band-tempo tslot that holds the start of the month after
+/// `latest_month` (a `Tempo::Medium` slot).
+fn next_month_tslot(latest_month: u64, tempo: emem_core::tslot::Tempo) -> u64 {
+    use emem_core::tslot::{Tempo, Tslot};
+    let unix = Tslot(latest_month + 1).to_unix_start(Tempo::Medium);
+    Tslot::from_unix(unix, tempo).0
+}
+
 /// Run the closed-form seasonal NDVI predictor.
 pub async fn jepa_predict(
     mut req: JepaPredictReq,
@@ -1418,9 +1462,10 @@ pub async fn jepa_predict(
         ));
     }
 
-    // 1) Recall every monthly NDVI fact already attested at this cell.
-    //    `indices.ndvi` is Tempo::Medium (~30-day slot) so each fact is
-    //    one calendar month. We don't auto-backfill here — that's a
+    // 1) Recall every NDVI fact already attested at this cell.
+    //    `indices.ndvi` is Tempo::Fast (one-day slot), so
+    //    `monthly_history` groups the facts into 30-day months before the
+    //    predictor runs. We don't auto-backfill here — that's a
     //    separate (slower) call the agent can chain via /v1/backfill —
     //    but we do auto-materialize the latest tslot through the
     //    standard recall path so a brand-new cell still answers.
@@ -1431,12 +1476,17 @@ pub async fn jepa_predict(
         ..Default::default()
     };
     let (resp, materialize_notes) = recall_with_auto_materialize(&req_recall, state).await?;
-    let mut history = primary_history_for_band(&resp, &req.band);
-    // Keep only the most recent `lookback_months` months.
-    if history.len() > req.lookback_months as usize {
-        let drop_n = history.len() - req.lookback_months as usize;
-        history.drain(..drop_n);
-    }
+    let tempo = crate::tempo_for_band(&req.band).ok_or_else(|| {
+        unprocessable(format!(
+            "band {} has no tempo in the band registry; cannot group its facts into months",
+            req.band
+        ))
+    })?;
+    let history = monthly_history(
+        &primary_history_for_band(&resp, &req.band),
+        tempo,
+        req.lookback_months,
+    );
     if history.is_empty() {
         // Distinguish "genuinely no observation" from "the latest observation
         // is a signed Absence" (e.g. every candidate Sentinel-2 scene was
@@ -1460,25 +1510,25 @@ pub async fn jepa_predict(
             req.band, req.cell, req.cell, req.band, req.lookback_months
         )));
     }
-    // Look for a lag-12 sample if any of the available history is 12
-    // tslots before the latest. We DON'T assume a perfect calendar
-    // alignment — we look for the closest tslot to (latest - 12).
-    let latest_tslot = history.last().expect("non-empty").0;
-    let lag12_target = latest_tslot.saturating_sub(12);
+    // Lag-12 is the month closest to (latest month - 12), within one
+    // month, so a missing scene month does not drop the seasonal term.
+    let latest_month = history.last().map(|m| m.0).unwrap_or_default();
+    let lag12_target = latest_month.saturating_sub(12);
     let lag_12_value = history
         .iter()
-        .min_by_key(|(t, _, _)| (*t as i64 - lag12_target as i64).abs())
-        .filter(|(t, _, _)| (*t as i64 - lag12_target as i64).abs() <= 1)
-        .map(|(_, v, _)| *v);
+        .min_by_key(|m| m.0.abs_diff(lag12_target))
+        .filter(|m| m.0.abs_diff(lag12_target) <= 1)
+        .map(|m| m.2);
 
-    let history_values: Vec<f64> = history.iter().map(|(_, v, _)| *v).collect();
-    let history_tslots: Vec<u64> = history.iter().map(|(t, _, _)| *t).collect();
-    let history_cids: Vec<String> = history.iter().map(|(_, _, c)| c.clone()).collect();
+    let history_values: Vec<f64> = history.iter().map(|m| m.2).collect();
+    let history_tslots: Vec<u64> = history.iter().map(|m| m.1).collect();
+    let history_months: Vec<u64> = history.iter().map(|m| m.0).collect();
+    let history_cids: Vec<String> = history.iter().map(|m| m.3.clone()).collect();
 
     let prediction = ar2_seasonal_predict(&history_values, lag_12_value).ok_or_else(|| {
         unprocessable("predictor returned None (history was empty after filtering)")
     })?;
-    let forecast_tslot = latest_tslot + 1;
+    let forecast_tslot = next_month_tslot(latest_month, tempo);
 
     let pubkey = pubkey_b32(state);
     let receipt = state.sign_receipt(
@@ -1504,6 +1554,7 @@ pub async fn jepa_predict(
         "lookback_months_used": history_values.len(),
         "history_values": history_values,
         "history_tslots": history_tslots,
+        "history_month_slots": history_months,
         "history_fact_cids": history_cids,
         "lag_12_value": lag_12_value,
         "lag_12_used": lag_12_value.is_some(),
@@ -1516,6 +1567,7 @@ pub async fn jepa_predict(
         "predictor_form": "y_{t+1} = α · (lag-12 NDVI or recent mean) + β · (last + slope) + γ · recent_mean, clamped to [-1, 1]",
         "forecast_value": prediction,
         "forecast_tslot": forecast_tslot,
+        "forecast_month_slot": latest_month + 1,
         "forecast_horizon_months": req.forecast_horizon_months,
         "forecast_unit": "ndvi",
         "scheme": "closed-form AR(2) seasonal NDVI predictor (not a learned model).",
@@ -1787,6 +1839,47 @@ mod tests {
         let history = vec![-0.5, -0.7, -0.9, -1.0, -1.0, -1.0];
         let pred = ar2_seasonal_predict(&history, Some(-1.0)).expect("should predict");
         assert!(pred >= -1.0, "predictor failed to clamp lower bound");
+    }
+
+    /// Daily NDVI facts become one sample per 30-day month (latest scene
+    /// wins), the lookback counts months rather than facts, lag-12 sits
+    /// 12 months back, and the forecast slot is the next month's first
+    /// day, not the latest day + 1.
+    #[test]
+    fn jepa_history_groups_daily_facts_into_months() {
+        use emem_core::tslot::{Tempo, Tslot};
+        let day = |unix: i64| Tslot::from_unix(unix, Tempo::Fast).0;
+        let month_s = Tempo::Medium.slot_seconds() as i64;
+        let m0 = 20_000_i64; // a 30-day month slot in 2024
+        let at = |m: i64, d: i64| day((m0 + m) * month_s + d * 86_400);
+        let obs: Vec<(u64, f64, String)> = vec![
+            (at(0, 3), 0.30, "a".into()),
+            (at(1, 2), 0.31, "b".into()),
+            (at(12, 1), 0.40, "c".into()),
+            (at(12, 20), 0.42, "d".into()),
+            (at(13, 5), 0.50, "e".into()),
+        ];
+
+        let all = monthly_history(&obs, Tempo::Fast, 24);
+        let months: Vec<u64> = all.iter().map(|m| m.0).collect();
+        let m = |k: i64| (m0 + k) as u64;
+        assert_eq!(months, vec![m(0), m(1), m(12), m(13)]);
+        assert_eq!(all[2].2, 0.42, "the latest scene in a month stands for it");
+        assert_eq!(all[2].3, "d");
+        assert_eq!(all[2].1, at(12, 20), "the sample keeps its own day slot");
+
+        let lag12_target = all.last().unwrap().0 - 12;
+        assert_eq!(lag12_target, m(1), "lag-12 is 12 months back, not 12 days");
+
+        let recent = monthly_history(&obs, Tempo::Fast, 2);
+        let kept: Vec<u64> = recent.iter().map(|m| m.0).collect();
+        assert_eq!(kept, vec![m(12), m(13)], "lookback counts months");
+
+        let fc = next_month_tslot(m(13), Tempo::Fast);
+        assert_eq!(fc, day((m0 + 14) * month_s));
+        assert!(fc - at(13, 5) >= 25, "forecast is about a month ahead");
+
+        assert!(monthly_history(&[], Tempo::Fast, 6).is_empty());
     }
 
     /// AR(2): empty history must surface as `None`, not panic.
