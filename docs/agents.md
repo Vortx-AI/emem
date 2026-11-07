@@ -1042,15 +1042,18 @@ marks an optional field.
 | `/v1/field_series` | `{geometry or bbox or areas or fields, start_date, end_date, index?, sensor?, orbit?, inner_buffer_m?, min_support_px?, min_clear_fraction?, max_scenes?, blocks?, mask_policy?, qa_reject_bits?, memory?}` |
 | `/v1/diff` | `{cell or place, band, tslot_a or date_a, tslot_b or date_b}`. A date is `YYYY-MM-DD` |
 
-`/v1/recall_many` with `compact: true` keeps eight keys on each fact:
-`band`, `confidence`, `fact_cid`, `kind`, `memory_token`, `observed_at`,
-`tslot` and `value`. The call on 7 November 2026 gave these keys.
+`/v1/recall_many` with `compact: true` keeps at most nine keys on each fact:
+`band`, `value`, `unit`, `tslot`, `observed_at`, `kind`, `confidence`,
+`fact_cid` and `memory_token`. A key that the fact does not have stays out.
+For example, a signed Absence has no `value`. The call on 7 November 2026
+for `elevation` and `ndvi` at the Mount Fuji cell gave all nine keys.
 
-`/v1/grid` returns the cells in row order. Each band has `values`,
-`states` (`value`, `absent` or `missing`), `fact_cids`, `absence_cids` and
-`captured_at`. The answer has one `bundle_token` (omitted when you send
-`bundle: false`) and one receipt. Cells
-that did not finish are in `pending` or `skipped`.
+`/v1/grid` returns the cells in row order, north row first. Each band has
+`unit`, `present`, `absent`, `values`, `states` (`value`, `absent` or
+`missing`), `fact_cids`, `absence_cids`, `captured_at` and `bundle_token`.
+Each band has its own `bundle_token`. It is null when you send
+`bundle: false` or when the band has no facts. The answer has one receipt.
+Cells that did not finish are in `pending` or `skipped`.
 
 `/v1/query_region` sets `max_cells` from the bbox area when you do not
 send it. The target is one cell for each 100 km², clamped to 64 to 1024.
