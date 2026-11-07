@@ -107,6 +107,14 @@ This needs Playwright:
 On 7 November 2026, all 25 stills passed. The phone copies of the hero and `what-crosses` have their smallest
 text at 12.0 px. All other stills have theirs at 9.9 px.
 
+The same floor applies to a film. A film is 1080 px wide, so its text must be 30 px or more. The film check seeks
+each page every 0.5 s. It measures all text that is on screen and at least half opaque:
+
+    python docs/media/films/src/text_floor.py
+
+On 7 November 2026, the first run found text of 22 to 29 px in all five films, as small as 7.3 px on a phone.
+All text is now 30 px or more, and `film.py` drew the five films again.
+
 ## Media that follows these rules
 
 Each row gives the question the image answers and the page that shows it. Paths are relative to `docs/media/`.

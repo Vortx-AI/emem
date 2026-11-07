@@ -10,8 +10,8 @@ body { font-family: "DejaVu Sans", system-ui, sans-serif; color:var(--text); }
 .mono { font-family: "DejaVu Sans Mono", ui-monospace, monospace; }
 #steps { position:absolute; left:60px; right:60px; top:48px; display:flex; gap:12px; }
 #steps div { flex:1; height:64px; border-radius:12px; border:2px solid var(--line); color:var(--muted);
-             font-size:26px; display:flex; align-items:center; justify-content:center; gap:10px; }
-#steps div b { font-size:22px; width:34px; height:34px; border-radius:17px; border:2px solid currentColor;
+             font-size:30px; display:flex; align-items:center; justify-content:center; gap:10px; }
+#steps div b { font-size:30px; width:42px; height:42px; border-radius:21px; border:2px solid currentColor;
                display:inline-flex; align-items:center; justify-content:center; }
 #steps div.on { color:var(--text); border-color:var(--id); background:var(--panel); }
 #steps div.done { color:var(--id); }
@@ -19,15 +19,15 @@ body { font-family: "DejaVu Sans", system-ui, sans-serif; color:var(--text); }
 h1 { font-size:46px; font-weight:700; line-height:1.15; margin-bottom:30px; }
 p.say { font-size:32px; line-height:1.35; color:var(--muted); margin-top:24px; }
 .card { background:var(--panel); border:2px solid var(--line); border-radius:18px; padding:26px 32px; }
-.k { font-size:26px; color:var(--muted); margin-bottom:6px; }
+.k { font-size:30px; color:var(--muted); margin-bottom:6px; }
 .v { font-size:36px; }
 .id { color:var(--id); } .ok { color:var(--ok); } .bad { color:var(--bad); } .sig { color:var(--sig); } .tok { color:var(--tok); }
 .row { margin-bottom:20px; }
 .big { font-size:84px; font-weight:700; }
 .pill { display:inline-block; padding:6px 18px; border-radius:30px; border:2px solid currentColor; font-size:32px; font-weight:700; }
 .two { display:flex; gap:24px; } .two > .card { flex:1; min-width:0; }
-#foot { position:absolute; left:60px; right:60px; bottom:18px; font-size:28px; line-height:1.3; color:var(--muted); }
-#ladder div { font-size:27px; line-height:1.5; white-space:pre; color:var(--muted); }
+#foot { position:absolute; left:60px; right:60px; bottom:18px; font-size:30px; line-height:1.3; color:var(--muted); }
+#ladder div { font-size:30px; line-height:1.5; white-space:pre; color:var(--muted); }
 #ladder div.cur { color:var(--text); }
 .hl { background:rgba(255,123,114,0.22); color:var(--bad); }
 </style>
@@ -57,7 +57,7 @@ p.say { font-size:32px; line-height:1.35; color:var(--muted); margin-top:24px; }
   <h1 style="font-size:42px">Hash the entry up the tree. Each step joins one block of other entries.</h1>
   <svg id="bar" width="960" height="250" viewBox="0 0 960 250"></svg>
   <div style="display:flex; gap:30px; align-items:flex-start; margin-top:8px">
-    <div style="width:270px">
+    <div style="width:310px">
       <div class="k">hashes used</div><div class="v"><span class="big" id="kk">0</span><span style="font-size:40px"> of 22</span></div>
       <div class="k" style="margin-top:8px">entries covered</div><div class="v mono id" id="cov"></div>
     </div>
@@ -103,8 +103,8 @@ p.say { font-size:32px; line-height:1.35; color:var(--muted); margin-top:24px; }
   <p class="say" data-in="35.0">emem recorded the fact and did not change it between the two heads. That does not show that the elevation is true.</p>
 </section>
 
-<div id="foot">Live reads from emem.dev on 7 November 2026: recall, log/inclusion, log/entries, log/sth, log/consistency.
-Checked offline with verify_log.py. Elevation: Copernicus GLO-30 DEM.</div>
+<div id="foot">Live reads, emem.dev, 7 November 2026 (recall, log).<br>
+Checked offline with verify_log.py. Copernicus GLO-30 DEM.</div>
 
 <script>
 const L = window.LOG, DUR = 38.0, S0 = 6.0, DT = 0.62;
@@ -160,24 +160,24 @@ function bar(t) {
   { const x1 = X(M), x2 = X(M + 1), w = Math.max(x2 - x1, 5); g += `<rect x="${(x1 + x2) / 2 - w / 2}" y="22" width="${w}" height="86" rx="3" fill="#ffa657"/>`; }
   const lx = clamp(X(M + 0.5), X0, X0 + XW);
   g += `<line x1="${lx}" x2="${lx}" y1="8" y2="22" stroke="#ffa657" stroke-width="4"/>`;
-  g += `<text x="${X0}" y="128" fill="#8b949e" font-size="24" font-family="DejaVu Sans Mono">${fmt(va)}</text>`;
-  g += `<text x="${X0 + XW}" y="128" fill="#8b949e" font-size="24" text-anchor="end" font-family="DejaVu Sans Mono">${fmt(vb)}</text>`;
-  g += `<text x="480" y="128" fill="#8b949e" font-size="24" text-anchor="middle">bar shows ${fmt(vb - va)} entries</text>`;
+  g += `<text x="${X0}" y="128" fill="#8b949e" font-size="30" font-family="DejaVu Sans Mono">${fmt(va)}</text>`;
+  g += `<text x="${X0 + XW}" y="128" fill="#8b949e" font-size="30" text-anchor="end" font-family="DejaVu Sans Mono">${fmt(vb)}</text>`;
+  g += `<text x="480" y="128" fill="#8b949e" font-size="30" text-anchor="middle">bar shows ${fmt(vb - va)} entries</text>`;
   // whole log, with the view window marked
   g += `<rect x="${X0}" y="170" width="${XW}" height="22" rx="4" fill="#161b22" stroke="#30363d" stroke-width="2"/>`;
   const wa = X0 + va / N * XW, wb = Math.max(X0 + vb / N * XW, wa + 3);
   g += `<rect x="${wa}" y="164" width="${wb - wa}" height="34" rx="3" fill="none" stroke="#e6edf3" stroke-width="2"/>`;
   g += `<rect x="${X0 + M / N * XW - 2}" y="170" width="4" height="22" fill="#ffa657"/>`;
-  g += `<text x="${X0}" y="230" fill="#8b949e" font-size="24">whole log: 0 to ${fmt(N)}</text>`;
-  g += `<text x="${X0 + XW}" y="230" fill="#ffa657" font-size="24" text-anchor="end">orange: the Fuji entry</text>`;
+  g += `<text x="${X0}" y="230" fill="#8b949e" font-size="30">whole log: 0 to ${fmt(N)}</text>`;
+  g += `<text x="${X0 + XW}" y="230" fill="#ffa657" font-size="30" text-anchor="end">orange: the Fuji entry</text>`;
   $('bar').innerHTML = g;
   $('kk').textContent = done;
   $('cov').textContent = fmt(done ? L.steps[done - 1].hi - L.steps[done - 1].lo : 1);
-  let rows = '<div style="font-size:22px">hash  joins a block of  side    new hash</div>';
+  let rows = '<div>hash  entries side    new hash</div>';
   for (let i = Math.max(0, done - 4); i < Math.min(22, done + 1); i++) {
     const s = L.steps[i], size = s.b - s.a, cur = i === done || (done === 22 && i === 21);
     const side = s.left ? 'left ' : 'right';
-    rows += `<div class="${cur ? 'cur' : ''}">${String(i + 1).padStart(2, ' ')}  <span class="sig">${fmt(size).padStart(9, ' ')}</span> ${size === 1 ? 'entry  ' : 'entries'} ${side} → <span class="id">${i < done ? s.acc.slice(0, 8) + '…' : '…'}</span></div>`;
+    rows += `<div class="${cur ? 'cur' : ''}">${String(i + 1).padStart(2, ' ')}  <span class="sig">${fmt(size).padStart(9, ' ')}</span> ${side} → <span class="id">${i < done ? s.acc.slice(0, 8) + '…' : '…'}</span></div>`;
   }
   $('ladder').innerHTML = rows;
 }
@@ -204,10 +204,10 @@ function seek(t) {
   // grow: the earlier head, then 6 entries appended at the right end (drawn wide so they show)
   const k = ease((t - 32.6) / 0.8), X0 = 20, XW = 920, old = XW - 60;
   let g = `<rect x="${X0}" y="20" width="${old}" height="60" rx="6" fill="#79c0ff" fill-opacity="0.3" stroke="#79c0ff" stroke-width="2"/>`;
-  g += `<text x="${X0 + old / 2}" y="60" text-anchor="middle" fill="#e6edf3" font-size="26">first ${fmt(L.cons.first)} entries: unchanged</text>`;
+  g += `<text x="${X0 + old / 2}" y="60" text-anchor="middle" fill="#e6edf3" font-size="30">first ${fmt(L.cons.first)} entries: unchanged</text>`;
   for (let i = 0; i < 6; i++) g += `<rect x="${X0 + old + 4 + i * 9.5}" y="20" width="7" height="60" rx="2" fill="#7ee787" opacity="${k}"/>`;
-  g += `<text x="${X0 + XW}" y="118" text-anchor="end" fill="#7ee787" font-size="24" opacity="${k}">+${L.cons.second - L.cons.first} new entries in 40 s</text>`;
-  g += `<text x="${X0}" y="118" fill="#8b949e" font-size="24">not to scale</text>`;
+  g += `<text x="${X0 + XW}" y="118" text-anchor="end" fill="#7ee787" font-size="30" opacity="${k}">+${L.cons.second - L.cons.first} new entries in 40 s</text>`;
+  g += `<text x="${X0}" y="118" fill="#8b949e" font-size="30">not to scale</text>`;
   $('grow').innerHTML = g;
   return { t, step };
 }

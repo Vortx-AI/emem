@@ -14,14 +14,14 @@ h1 { position:absolute; left:60px; right:60px; top:30px; font-size:40px; font-we
 #status .v { color:var(--ok); font-weight:700; }
 .pan { position:absolute; top:146px; width:470px; height:420px; border:2px solid var(--line); border-radius:14px; overflow:hidden; background:var(--panel); }
 .pan svg { width:100%; height:100%; display:block; }
-.cap { position:absolute; top:574px; width:470px; font-size:26px; color:var(--muted); }
-#chart { position:absolute; left:60px; top:628px; width:960px; height:200px; }
-#card { position:absolute; left:60px; right:60px; top:146px; height:478px; opacity:0;
+.cap { position:absolute; top:574px; width:470px; font-size:30px; white-space:nowrap; color:var(--muted); }
+#chart { position:absolute; left:60px; top:628px; width:960px; height:200px; overflow:visible; }
+#card { position:absolute; left:60px; right:60px; top:96px; height:520px; opacity:0;
         background:var(--panel); border:2px solid var(--line); border-radius:18px; padding:26px 34px; }
-#card .k { font-size:26px; color:var(--muted); margin-bottom:6px; }
-#card .row { margin-bottom:24px; font-size:32px; line-height:1.3; }
+#card .k { font-size:30px; color:var(--muted); margin-bottom:6px; }
+#card .row { margin-bottom:18px; font-size:32px; line-height:1.3; }
 .tok { color:var(--tok); } .ok { color:var(--ok); } .bad { color:var(--bad); }
-#foot { position:absolute; left:60px; right:60px; bottom:16px; font-size:26px; line-height:1.3; color:var(--muted); }
+#foot { position:absolute; left:60px; right:60px; bottom:16px; font-size:30px; line-height:1.3; color:var(--muted); }
 </style>
 <script src="season-data.js"></script>
 </head>
@@ -32,13 +32,13 @@ h1 { position:absolute; left:60px; right:60px; top:30px; font-size:40px; font-we
 
 <div class="pan" style="left:60px"><svg id="rgb"></svg></div>
 <div class="pan" style="left:550px"><svg id="ndvi"></svg></div>
-<div class="cap" style="left:60px">Sentinel-2 true colour, 10 m pixels</div>
+<div class="cap" style="left:60px">Sentinel-2, 10 m pixels</div>
 <div class="cap" style="left:550px" id="leg"></div>
 <svg id="chart" viewBox="0 0 960 200"></svg>
 
 <div id="card">
   <div class="row"><div class="k">one POST /v1/field_series, one signed answer, one token</div>
-    <div class="mono tok" style="font-size:27px; line-height:1.35" id="tok"></div></div>
+    <div class="mono tok" style="font-size:30px; line-height:1.35" id="tok"></div></div>
   <div class="row"><div class="k">POST /v1/verify_receipt</div>
     <div class="mono">signature_valid <span class="ok">true</span>&nbsp; merkle_proof_valid <span class="ok">true</span></div></div>
   <div class="row" id="excl"></div>
@@ -88,7 +88,7 @@ el('polygon', { points: pts(S.box), fill: 'none', stroke: '#ffa657', 'stroke-wid
 
 // legend under the NDVI panel
 const leg = document.getElementById('leg');
-leg.innerHTML = 'NDVI, 36 blocks &nbsp;<svg width="130" height="22" style="vertical-align:-4px"><defs><linearGradient id="lg">' +
+leg.innerHTML = 'NDVI &nbsp;<svg width="130" height="22" style="vertical-align:-4px"><defs><linearGradient id="lg">' +
   STOPS.map(([v, c]) => `<stop offset="${v / 0.9}" stop-color="${rgb(c)}"/>`).join('') +
   '</linearGradient></defs><rect width="130" height="22" rx="4" fill="url(#lg)"/></svg> 0 to 0.9';
 
@@ -100,11 +100,11 @@ const X = s => L + (Date.parse(s + 'T00:00:00Z') - d0) / (d1 - d0) * (Rt - L);
 const Y = v => Bt - v / 1.0 * (Bt - Tp);
 for (const v of [0, 0.5, 1.0]) {
   el('line', { x1: L, x2: Rt, y1: Y(v), y2: Y(v), stroke: '#30363d', 'stroke-width': 1.5 }, C);
-  el('text', { x: L - 12, y: Y(v) + 9, fill: '#8b949e', 'font-size': 26, 'text-anchor': 'end', 'font-family': 'DejaVu Sans' }, C).textContent = v.toFixed(1);
+  el('text', { x: L - 12, y: Y(v) + 9, fill: '#8b949e', 'font-size': 30, 'text-anchor': 'end', 'font-family': 'DejaVu Sans' }, C).textContent = v.toFixed(1);
 }
 for (const [s, lab] of [['2024-01-01', 'Jan 2024'], ['2024-07-01', 'Jul'], ['2025-01-01', 'Jan 2025'], ['2025-07-01', 'Jul'], ['2026-01-01', 'Jan 2026']]) {
   el('line', { x1: X(s), x2: X(s), y1: Bt, y2: Bt + 8, stroke: '#30363d', 'stroke-width': 1.5 }, C);
-  el('text', { x: X(s), y: Bt + 36, fill: '#8b949e', 'font-size': 26, 'text-anchor': s === '2026-01-01' ? 'end' : s === '2024-01-01' ? 'start' : 'middle', 'font-family': 'DejaVu Sans' }, C).textContent = lab;
+  el('text', { x: X(s), y: Bt + 36, fill: '#8b949e', 'font-size': 30, 'text-anchor': s === '2026-01-01' ? 'end' : s === '2024-01-01' ? 'start' : 'middle', 'font-family': 'DejaVu Sans' }, C).textContent = lab;
 }
 const exMarks = S.excluded.map(e => {
   const g = el('g', { opacity: 0 }, C), x = X(e.date), y = Bt - 10;
@@ -116,7 +116,7 @@ const dots = R.map(r => el('circle', { cx: X(r.date), cy: Y(r.median), r: 6, fil
 const ring = el('circle', { r: 13, fill: 'none', stroke: '#e6edf3', 'stroke-width': 3, opacity: 0 }, C);
 
 document.getElementById('intro').textContent = `Sentinel-2 had ${S.candidates} candidate dates over this box.`;
-document.getElementById('tok').textContent = S.token.slice(0, 32) + '\n' + S.token.slice(32);
+document.getElementById('tok').textContent = S.token.slice(0, 32) + "\n" + S.token.slice(32, 58) + "\n" + S.token.slice(58);
 document.getElementById('tok').style.whiteSpace = 'pre';
 document.getElementById('excl').innerHTML = `<span class="bad">&#x2715;</span> ${S.excluded.length} more dates had too few clear pixels. The answer lists each one with its reason.`;
 

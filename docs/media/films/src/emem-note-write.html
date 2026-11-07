@@ -9,9 +9,9 @@ html,body { width:1080px; height:960px; background:var(--bg); overflow:hidden; }
 body { font-family: "DejaVu Sans", system-ui, sans-serif; color:var(--text); }
 .mono { font-family: "DejaVu Sans Mono", ui-monospace, monospace; }
 #steps { position:absolute; left:60px; right:60px; top:48px; display:flex; gap:12px; }
-#steps div { flex:1; height:64px; border-radius:12px; border:2px solid var(--line); color:var(--muted);
-             font-size:26px; display:flex; align-items:center; justify-content:center; gap:10px; }
-#steps div b { font-size:22px; width:34px; height:34px; border-radius:17px; border:2px solid currentColor;
+#steps div { flex:1 1 auto; padding:0 10px; height:64px; border-radius:12px; border:2px solid var(--line); color:var(--muted);
+             font-size:30px; display:flex; align-items:center; justify-content:center; gap:10px; }
+#steps div b { font-size:30px; width:42px; height:42px; border-radius:21px; border:2px solid currentColor;
                display:inline-flex; align-items:center; justify-content:center; }
 #steps div.on { color:var(--text); border-color:var(--id); background:var(--panel); }
 #steps div.done { color:var(--id); }
@@ -19,14 +19,14 @@ body { font-family: "DejaVu Sans", system-ui, sans-serif; color:var(--text); }
 h1 { font-size:48px; font-weight:700; line-height:1.15; margin-bottom:30px; }
 p.say { font-size:32px; line-height:1.35; color:var(--muted); margin-top:24px; }
 .card { background:var(--panel); border:2px solid var(--line); border-radius:18px; padding:26px 32px; }
-.k { font-size:24px; color:var(--muted); margin-bottom:6px; }
+.k { font-size:30px; color:var(--muted); margin-bottom:6px; }
 .v { font-size:34px; }
 .h { font-size:30px; line-height:1.3; }
 .id { color:var(--id); } .ok { color:var(--ok); } .bad { color:var(--bad); } .sig { color:var(--sig); } .tok { color:var(--tok); }
 .mu { color:var(--muted); }
 .row { margin-bottom:20px; }
-.req { font-size:28px; color:var(--muted); }
-#foot { position:absolute; left:60px; right:60px; bottom:22px; font-size:29px; line-height:1.3; color:var(--muted); }
+.req { font-size:30px; color:var(--muted); }
+#foot { position:absolute; left:60px; right:60px; bottom:22px; font-size:30px; line-height:1.3; color:var(--muted); }
 .pill { display:inline-block; padding:6px 18px; border-radius:30px; border:2px solid currentColor; font-size:30px; font-weight:700; }
 .strike { text-decoration: line-through; text-decoration-thickness:3px; }
 .mark { background:rgba(255,123,114,0.18); color:var(--bad); }
