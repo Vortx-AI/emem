@@ -176,8 +176,8 @@ takes the cells as `a` and `b`. `/v1/trajectory` needs a window:
 
 An empty answer must say why it is empty. `recall` returns
 `bands_already_attested_at_cell`, so a caller can tell a wrong query from
-an empty place. `compare_bands` returns `bands_with_no_history` for bands
-that the responder has never signed at any cell.
+an empty place. `compare_bands` returns `bands_with_no_history` for a
+band that has no signed fact at that cell (reason `EmptyHistory`).
 
 ## Verify a receipt offline
 
