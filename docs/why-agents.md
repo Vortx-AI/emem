@@ -61,7 +61,9 @@ The value 0 means "not forest at the 2020-12-31 cut-off". The band name
 is `jrc_gfc2020.forest_2020`: an underscore between publisher and
 product, a dot before the measure. The responder does not guess a
 misspelled band. The dotted spelling `jrc.gfc2020.forest_2020` gets the
-error `band_not_in_registry`.
+error `band_not_in_registry`. For some near misses, the error suggests
+names but does not use them. See
+[unknown band keys](./agents.md#unknown-band-keys-and-short-names).
 
 Zero is a useful answer, not a miss. Under the EUDR, the 2020 baseline
 decides if a plot is in scope. A cell with no forest at the cut-off

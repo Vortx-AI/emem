@@ -1557,9 +1557,28 @@ back with `status: "materialized"` and an Absence `fact_cid`. A timeout
 does not become an Absence, because the upstream did not answer. There is
 no observation to sign.
 
+### Unknown band keys and short names
+
 A band key that the registry does not know gets an error before any fetch.
 On 7 November 2026, a recall with `"bands":["foo.bar"]` returned HTTP 400
 with `code: "band_not_in_registry"`. Use `GET /v1/bands` for the valid keys.
+
+The error can suggest names, but the responder does not use them for you.
+It looks at the part of the key before the first dot. If wired bands share
+that part, `details.did_you_mean` lists them. On 7 November 2026, at the
+Soubré cell `defi.zb441.zbe5e.zd3ca`:
+
+| Requested key | Result |
+|---|---|
+| `jrc_gfc2020.forest_202` | 400, `did_you_mean` lists `jrc_gfc2020.forest_2020` |
+| `jrc.gfc2020.forest_2020` | 400, no `did_you_mean` (no wired band starts with `jrc.`) |
+| `elevation` | 200, a fact for `copdem30m.elevation_mean` |
+
+A small fixed list of short names maps to one band each. Examples are
+`ndvi` to `indices.ndvi` and `temperature` to `weather.temperature_2m`.
+The full list is `band_short_name_alias` in
+`crates/emem-api-rest/src/lib.rs`. The answer names the full band, so
+cite that name.
 
 ---
 
