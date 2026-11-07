@@ -24,6 +24,7 @@ check that you can run offline. The step-by-step checks are in
 | The key that a memory note names wrote it | [protocol §7.5.1](./protocol.md#751-check-a-notes-authorship-by-hand) |
 | A fact is in the batch that the receipt signs | [protocol §8](./protocol.md#8-merkle-inclusion-proof) |
 | A signed tree head commits a log entry | [protocol §9.6.1](./protocol.md#961-check-an-inclusion-proof-by-hand) |
+| The log only grew since a head you kept | [protocol §9.6.1.1](./protocol.md#9611-check-a-consistency-proof-by-hand) |
 | A `fact_cid` matches the fact bytes | [protocol §5.5](./protocol.md#55-recompute-a-fact_cid-by-hand) |
 | Which code answered you | [section 1](#1-which-code-answered-you) |
 | What each refusal means | [errors](./errors.md) |
@@ -460,7 +461,7 @@ You can check all of the above from outside:
 2. Verify the Ed25519 signature against the attester key, offline
    ([protocol §7.4](./protocol.md#74-offline-verification-python)).
 3. Pin an STH. Later, get a consistency proof and fold it yourself
-   ([protocol §9.6](./protocol.md#transparency-log)).
+   ([protocol §9.6.1.1](./protocol.md#9611-check-a-consistency-proof-by-hand)).
 4. Read `/v1/log/entries` and check what else is in the tree.
 5. Check an organisation attestation again with `dig` or `curl` against the
    domain, without us. The DNS form is in [section 6](#6-organisation-verification-and-why-not-oauth).

@@ -29,6 +29,7 @@ read the sections it names.
 | Check a receipt that a responder gave you | [§7 Receipt](#7-receipt), then the Python verifier in [§7.4](#74-offline-verification-python) |
 | Check that a fact is in a signed batch | [§8 Merkle inclusion proof](#8-merkle-inclusion-proof) |
 | Check that a fact or a memory note is in the transparency log | [§9.6 Transparency log](#transparency-log), then the steps in [§9.6.1](#961-check-an-inclusion-proof-by-hand) |
+| Check that the log only grew since a head you kept | The steps in [§9.6.1.1](#9611-check-a-consistency-proof-by-hand) |
 | Calculate a `fact_cid` from a fact | The steps in [§5.5](#55-recompute-a-fact_cid-by-hand), then [§3 CID](#3-cid-and-factcid) and [§4 CBOR](#4-cbor-canonicalisation) for the rules |
 | Change a latitude and a longitude into a cell64 | [§1 Cell64](#1-cell64-the-spatial-primitive) |
 | Change a time into a tslot | [§2 Tslot](#2-tslot-temporal-addressing) |
@@ -46,7 +47,7 @@ standard library. Each section above shows how to run it.
 |---|---|---|
 | Receipt signature | `emem-verify-receipt/scripts/verify.py` | [§7.4](#74-offline-verification-python) |
 | Note authorship | `emem-multi-agent-handoff/scripts/verify_note.py` | [§7.5.1](#751-check-a-notes-authorship-by-hand) |
-| Signed tree head, inclusion or consistency proof | `emem-transparency-log/scripts/verify_log.py` | [§9.6.1](#961-check-an-inclusion-proof-by-hand) |
+| Signed tree head, inclusion or consistency proof | `emem-transparency-log/scripts/verify_log.py` | [§9.6.1](#961-check-an-inclusion-proof-by-hand), [§9.6.1.1](#9611-check-a-consistency-proof-by-hand) |
 
 The words cell64, tslot, fact, receipt and responder have one meaning
 each. The [glossary](glossary.md) gives it.
@@ -2427,8 +2428,90 @@ python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py inclusio
 
 The `inclusion` command checks the STH inside the inclusion response.
 Compare its `root_b32` with the step 1 STH yourself. The same script
-also checks a consistency proof between two STHs. Step 7 is not in the
-script.
+also checks a consistency proof between two STHs (§9.6.1.1). Step 7 is
+not in the script.
+
+##### 9.6.1.1 Check a consistency proof by hand
+
+This check shows that the log only grew between two heads. It needs an
+STH that you kept from an earlier time. A new client has no such STH, so
+this check gives it nothing.
+
+1. Keep an STH from `GET /v1/log/sth`. Call its size `m`.
+2. Later, get a new STH. Call its size `n`. Verify the signatures of
+   both STHs with steps 2 and 3 of §9.6.1.
+3. Get the proof:
+   `curl -s 'https://emem.dev/v1/log/consistency?first=<m>&second=<n>'`.
+   The answer holds `first_size`, `second_size`, `first_root_b32`,
+   `second_root_b32` and `consistency_proof_b32`.
+4. Do not trust `first_root_b32` from the answer. Use the root from the
+   STH that you kept.
+5. Run the RFC 6962 §2.1.2 algorithm below. It rebuilds the old root and
+   the new root from the proof. The old root must equal your kept root.
+   The new root must equal the root of the step 2 STH.
+
+If `m` is a power of two, the old root is the first node of the proof.
+The responder does not send it, so the script adds it. If `m` equals
+`n`, the proof is empty and the two roots must be equal. The script
+below does not handle that case. The Rust function is
+`translog::verify_consistency` in `crates/emem-attest/src/translog.rs`.
+
+Save the three answers as `old.json`, `new.json` and `cons.json`. Then
+run this script with Python 3 and the `blake3` package:
+
+```python
+import base64, json, sys
+from blake3 import blake3
+
+def b32(s):
+    return base64.b32decode(s.upper() + "=" * (-len(s) % 8))
+
+old = json.load(open(sys.argv[1]))["sth"]    # the STH you pinned
+new = json.load(open(sys.argv[2]))["sth"]    # a later STH
+prf = json.load(open(sys.argv[3]))           # /v1/log/consistency answer
+
+m, n = old["tree_size"], new["tree_size"]
+old_root, new_root = b32(old["root_b32"]), b32(new["root_b32"])
+proof = [b32(h) for h in prf["consistency_proof_b32"]]
+assert (prf["first_size"], prf["second_size"]) == (m, n)
+assert 0 < m < n and proof
+
+def node(l, r):
+    return blake3(b"\x01" + l + r).digest()
+
+if m & (m - 1) == 0:                 # m is a power of two:
+    proof = [old_root] + proof       # the old root is the first node
+fn, sn = m - 1, n - 1
+while fn % 2 == 1:                   # skip the old tree's right edge
+    fn >>= 1; sn >>= 1
+fr = sr = proof[0]
+for c in proof[1:]:
+    assert sn != 0                   # proof too long
+    if fn % 2 == 1 or fn == sn:      # c is a left sibling in both trees
+        fr, sr = node(c, fr), node(c, sr)
+        while fn % 2 == 0 and fn != 0:
+            fn >>= 1; sn >>= 1
+    else:                            # c is a right sibling, new tree only
+        sr = node(sr, c)
+    fn >>= 1; sn >>= 1
+assert sn == 0
+assert fr == old_root, "old root differs: the log changed its history"
+assert sr == new_root, "new root differs from the later STH"
+print("CONSISTENT", m, "->", n)
+```
+
+```sh
+python3 check_consistency.py old.json new.json cons.json
+```
+
+On 7 November 2026 this script passed against emem.dev. The kept STH
+had `tree_size` 3,243,767 (signed at 00:28:18Z). The new STH had
+`tree_size` 3,245,195 (signed at 01:47:53Z). The proof had 20 hashes.
+A proof from size 4,096 (a power of two) to the same head also passed,
+with 10 hashes. A kept root with one changed character made the script
+stop with "old root differs". The plugin command
+`verify_log.py consistency old.json new.json cons.json` also checks both
+STH signatures. It gave VALID for the same three files.
 
 #### 9.6.2 Witnesses, and what they do not prove
 
