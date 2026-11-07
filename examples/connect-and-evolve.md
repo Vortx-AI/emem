@@ -520,7 +520,7 @@ A plain store keeps facts. This loop also connects facts with typed
 edges that have a start time (`valid_from`) and an optional end time
 (`valid_to`). It records a disagreement as an edge and a contested
 marker, so the memory changes over time. A signed attestation covers
-every edge, and the store only appends edges. The loop deletes no fact. You can
-still audit what the memory held before. The contested marker is an
-unsigned overlay row on the node, not a signed record. For the full
-agent guide, see [../docs/agents.md](../docs/agents.md).
+every edge, and the store only appends edges. The loop deletes no
+fact. You can still audit what the memory held before. The contested
+marker is an unsigned overlay row on the node, not a signed record.
+For the full agent guide, see [../docs/agents.md](../docs/agents.md).
