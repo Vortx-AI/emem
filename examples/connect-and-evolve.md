@@ -201,7 +201,7 @@ https://emem.dev/verify.
 ## Part 2: run the full loop on a local node
 
 Part 2 writes. It needs a node that accepts your keys. We ran it on 7
-November 2026 on a local node built from this repository (version
+November 2026 on a local node built from commit `49443d9a` (version
 2.4.4, release build). The output below comes from that run. Fact CIDs
 and keys are new on every run.
 

@@ -26,7 +26,7 @@ Run 1 gets a new temporary `HOME`, so the script does not use your agent key.
 That responder has its own temporary data directory and its own key.
 The script does not touch emem.dev or a real identity, and it deletes everything on exit.
 
-On 7 November 2026 we ran `run.sh` end to end with `ememdev` 2.4.4 and an `emem-server` built from this branch.
+On 7 November 2026 we ran `run.sh` end to end with `ememdev` 2.4.4 and an `emem-server` built from commit `49443d9a`.
 It took 1.5 seconds and printed this (the `<pubkey8>` changes on each run):
 
 ```text
@@ -47,8 +47,8 @@ The `file_cid` is the same on each run, because it is a hash of the checkpoint b
 ### Why the script does not use `ememdev write`
 
 `ememdev write` in 2.4.4 signs the v1 write digest.
-The responder refuses the v1 digest for every write since 5 November 2026 (commit `23fa7fd6`).
-The refusal has `reason: "v1_retired"`. We saw this refusal from the local node on 7 November 2026.
+The code on `main` refuses the v1 digest for every write since 5 November 2026 (commit `23fa7fd6`).
+The refusal has `reason: "v1_retired"`. We saw this refusal from a local node built from commit `49443d9a` on 7 November 2026.
 So the script signs the v2 digest with `ememdev sign --verb create --base absent`.
 Then it sends `emem_memory_create` itself.
 `--base absent` tells the responder that nothing is at the path yet.

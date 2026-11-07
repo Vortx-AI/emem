@@ -49,9 +49,8 @@ curl -sX POST https://emem.dev/v1/recall \
 # 3539.042236328125
 ```
 
-The value is in metres. It is the value of the Copernicus GLO-30 pixel (30 m) that contains the centre
-of the cell. The band
-name ends in `_mean`, but the responder reads one pixel.
+The value is in metres. It is the value of the Copernicus GLO-30 pixel (30 m) that contains
+the centre of the cell. The band name ends in `_mean`, but the responder reads one pixel.
 
 ### Python
 
@@ -313,9 +312,12 @@ jq -n --arg p "$P" --arg t "$NOTE" --slurpfile a attester.json \
 ```
 
 Do not use `ememdev write` from 2.4.4. It signs the retired v1 digest.
-Since 5 November 2026 the responder refuses that digest with `reason: "v1_retired"`.
-On 7 November 2026 we ran these commands against a local node built from this branch, not against emem.dev.
-The `sign` pair stored the note. `ememdev write` got the `v1_retired` refusal.
+The code on `main` refuses that digest for every verb since commit `23fa7fd6` (5 November 2026),
+with `reason: "v1_retired"`. The `memory_write` entry of `/v1/verifier_spec` still says the responder
+accepts v1 for `create`. That text is out of date.
+On 7 November 2026 we ran these commands against a local node built from commit `49443d9a`, not
+against emem.dev. The `sign` command and the `curl` request stored the note. `ememdev write` got the
+`v1_retired` refusal.
 
 Only the key that wrote a note can supersede it or delete it. Thus, test with a key that you keep.
 [Memory substrate](./memory.md) gives the wire format, the verbs and the signing preimage.
