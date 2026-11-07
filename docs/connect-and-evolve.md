@@ -67,6 +67,8 @@ known". An empty list means that no edge exists. It is not a failure.
 
 Leave out `pred`, or send `""`, to read edges with any relation. Add
 `as_of_tslot` to read the edges that were true at that tslot.
+Send `limit` to set the maximum number of edges. The default is 100. The
+responder clamps the value to the range 1 to 1000 (`edges.rs`).
 
 The responder signs the recall receipt like all other receipts. Its preimage
 includes the CIDs of the returned edges, so you can verify it offline.
@@ -144,10 +146,13 @@ not run it.
 
 Send a signed attestation envelope to `POST /v1/edges`. Its `edges[]`
 array must not be empty. The edge leaves go into the Merkle root that the
-signature covers. The answer gives `edge_cids` and `edge_count`.
+signature covers. The answer gives `edge_cids` and `edge_count`. Each
+signing key can write about 240 times a minute, with a burst of 60, by
+default. Above that rate the answer is HTTP 429 `rate_limited`.
 
-An edge has no `(cell, band, tslot)` address. Thus a caller can sign an
-edge with its own key. For example, a second agent can record that it
+An edge has no `(cell, band, tslot)` address. Thus the `fact_plane_closed`
+gate, which keeps callers off fact addresses, does not stop an envelope
+that has only edges. A caller can sign an edge with its own key. For example, a second agent can record that it
 disagrees with a fact from the first agent. Do not use the steps for a
 signed note here, because a note signs a different digest. The envelope
 and its preimage are in
@@ -179,15 +184,19 @@ it is off by default, and emem.dev does not turn it on.
 
 When the loop runs, it does these steps:
 
-1. It runs the contradiction scan. The scan counts only different
-   attesters. It leaves out one attester that changed its upstream source.
+1. It runs the contradiction scan with
+   `include_same_attester_sources: false`. Thus the scan counts only
+   facts from different attesters. Two facts from one attester that
+   changed its upstream source do not count. The default scan for a
+   caller counts them.
 2. It skips each contradiction with a severity below the minimum.
 3. For each remaining contradiction, it pairs the fact with the lowest
    confidence and the fact with the highest confidence.
 4. It writes a signed `disagrees_with` edge between the two facts. `subj`
    is the smaller CID. `valid_from` is the tslot of the contradiction.
-   The edge `confidence` is the severity of the contradiction, and the
-   responder key signs the edge.
+   The edge `confidence` is the severity of the contradiction. The edge
+   `note` gives the severity, the kind and the band. The responder key
+   signs the edge.
 5. It marks the fact with the lower confidence as contested. A recall
    shows this mark in `contested`.
 
