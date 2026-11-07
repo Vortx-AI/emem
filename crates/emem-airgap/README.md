@@ -27,6 +27,20 @@ We ran the `emem-airgap` and `emem-encode` binaries directly on 7 November 2026.
 We took them from the published `latest` images (linux/amd64). We did not run
 any `docker` command on this page.
 
+We ran the quickstart steps with these binaries and the script defaults.
+The defaults are `exec.trace.v1` and `generic.linux-host`. On a host with no
+readable `/sys/kernel/tracing`, the record verifies, but it cites no trace.
+The `exec.trace.v1` profile requires the `syscall` layer. The run report lists
+the trace under `refused_traces` and names the missing layer. To see a cited
+trace on such a host, set the profile first:
+
+```bash
+EMEM_AIRGAP_PROFILE=host.counters.v1 sh quickstart.sh ./mynode
+```
+
+[Which profile to capture under](#which-profile-to-capture-under) gives the
+reason.
+
 ## Read more
 
 - [What a custody record proves](#what-a-custody-record-proves) and what it does not.
@@ -529,8 +543,8 @@ The decoder runs with `--cap-drop ALL`, and its claim is that it can do almost
 nothing. The encoder needs a tracefs mount and the privilege to read it. With
 one image, an operator could copy the encoder's flags onto the decoder and lose
 the decoder's claim with no warning. Two images keep the two postures apart.
-The crate shares the schema, the identity file and the signing code, so no
-code is duplicated.
+The two binaries share the schema, the identity file and the signing code from
+one crate, so they duplicate no code.
 
 ### Run the encoder once
 
@@ -623,7 +637,7 @@ docker run --rm \
 The decoder that reads `/host/traces` must then use
 `--profile orbital.counters.v1` too.
 
-### Streaming and restarts
+### Capture on a timer and survive restarts
 
 With `--interval`, the encoder captures one window every N seconds. Each window
 chains to the last by content id, so you can detect a dropped or reordered
@@ -754,7 +768,11 @@ bits:
   apply is worse than a refusal.
 - The node refuses the same directory for `--input` and `--output`. Otherwise
   it takes custody of its own records, and the count grows each run: one
-  payload became two records, then five, then eleven.
+  payload became two records, then five, then eleven. The node makes this
+  check after it writes `join_request.<node8>.json` into `--output`. If you
+  give one directory twice, delete that join request from it before the next
+  run. Otherwise the next correct run records the join request as a payload.
+  We saw this on 7 November 2026.
 
 The node does not encrypt anything. It does not decide if your clock is right.
 It does not make the payload trustworthy. It records custody, and it says which
