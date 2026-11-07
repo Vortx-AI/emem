@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 816" width="640" height="816" role="img" aria-labelledby="t d">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 902" width="640" height="902" role="img" aria-labelledby="t d">
   <title id="t">From a place to a fact that another agent checks</title>
   <desc id="d">Six steps from top to bottom. 1 Place: the name Mount Fuji. locate gives 2 Cell: defi.zb592.nUkO.zEzE, one square of about 10 m. recall gives 3 Fact: copdem30m.elevation_mean equals 3539.04 m, with a fact_cid that is the BLAKE3 hash of its canonical CBOR bytes. 4 Receipt: the responder signs a hash of its answer with Ed25519. 5 Token: emem:fact plus the cell and the fact_cid, one line of text. 6 Another agent resolves the token to the same signed bytes and checks the receipt offline. A signature shows who signed, not that the value is true. Values from emem.dev on 7 November 2026.</desc>
   <defs>
@@ -9,88 +9,90 @@
   <style>
     .sans { font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace; }
-    .h { font-size: 19px; font-weight: 600; fill: #e6edf3; }
-    .term { font-size: 17px; font-weight: 600; fill: #e6edf3; }
-    .ex { font-size: 15px; fill: #79c0ff; }
-    .ok { font-size: 15px; fill: #7ee787; }
-    .txt { font-size: 15px; fill: #8b949e; }
-    .verb { font-size: 13px; fill: #8b949e; }
-    .num { font-size: 14px; font-weight: 600; fill: #79c0ff; }
+    .h { font-size: 21px; font-weight: 600; fill: #e6edf3; }
+    .term { font-size: 20px; font-weight: 600; fill: #e6edf3; }
+    .ex { font-size: 18px; fill: #79c0ff; }
+    .cid { font-size: 16px; fill: #79c0ff; }
+    .ok { font-size: 18px; fill: #7ee787; }
+    .txt { font-size: 18px; fill: #8b949e; }
+    .verb { font-size: 16px; fill: #8b949e; }
+    .num { font-size: 17px; font-weight: 600; fill: #79c0ff; }
     .box { fill: #161b22; stroke: #30363d; stroke-width: 1; }
     .ring { fill: #0d1117; stroke: #79c0ff; stroke-width: 1.5; }
     .flow { stroke: #8b949e; stroke-width: 1.5; fill: none; }
   </style>
 
-  <rect x="0" y="0" width="640" height="816" rx="12" fill="#0d1117"/>
-  <text class="sans h" x="24" y="38">From a place to a fact that another agent checks</text>
+  <rect x="0" y="0" width="640" height="902" rx="12" fill="#0d1117"/>
+  <text class="sans h" x="24" y="40">From a place to a fact that another agent checks</text>
 
   <!-- 1 place -->
-  <rect class="box" x="24" y="60" width="592" height="92" rx="8"/>
-  <circle class="ring" cx="48" cy="88" r="14"/>
-  <text class="sans num" x="48" y="93" text-anchor="middle">1</text>
-  <text class="sans term" x="76" y="94">Place</text>
-  <text class="mono ex" x="200" y="94">"Mount Fuji"</text>
-  <text class="sans txt" x="76" y="122">You give a place name, or a latitude and a longitude.</text>
+  <rect class="box" x="24" y="60" width="592" height="102" rx="8"/>
+  <circle class="ring" cx="48" cy="90" r="15"/>
+  <text class="sans num" x="48" y="96" text-anchor="middle">1</text>
+  <text class="sans term" x="76" y="97">Place</text>
+  <text class="mono ex" x="196" y="97">"Mount Fuji"</text>
+  <text class="sans txt" x="76" y="132">You give a place name, or a latitude and a longitude.</text>
 
-  <path class="flow" d="M48 152 V176" marker-end="url(#a)"/>
-  <text class="mono verb" x="62" y="170">POST /v1/locate</text>
+  <path class="flow" d="M48 162 V186" marker-end="url(#a)"/>
+  <text class="mono verb" x="62" y="180">POST /v1/locate</text>
 
   <!-- 2 cell -->
-  <rect class="box" x="24" y="178" width="592" height="92" rx="8"/>
-  <circle class="ring" cx="48" cy="206" r="14"/>
-  <text class="sans num" x="48" y="211" text-anchor="middle">2</text>
-  <text class="sans term" x="76" y="212">Cell</text>
-  <text class="mono ex" x="200" y="212">defi.zb592.nUkO.zEzE</text>
-  <text class="sans txt" x="76" y="240">One square of about 10 m. Every agent that asks</text>
-  <text class="sans txt" x="76" y="260">about this square gets the same address, the cell64.</text>
+  <rect class="box" x="24" y="188" width="592" height="102" rx="8"/>
+  <circle class="ring" cx="48" cy="218" r="15"/>
+  <text class="sans num" x="48" y="224" text-anchor="middle">2</text>
+  <text class="sans term" x="76" y="225">Cell</text>
+  <text class="mono ex" x="196" y="225">defi.zb592.nUkO.zEzE</text>
+  <text class="sans txt" x="76" y="253">One square of about 10 m. Every agent that asks</text>
+  <text class="sans txt" x="76" y="277">about this square gets the same address, the cell64.</text>
 
-  <path class="flow" d="M48 270 V294" marker-end="url(#a)"/>
-  <text class="mono verb" x="62" y="288">POST /v1/recall</text>
+  <path class="flow" d="M48 290 V314" marker-end="url(#a)"/>
+  <text class="mono verb" x="62" y="308">POST /v1/recall</text>
 
   <!-- 3 fact -->
-  <rect class="box" x="24" y="296" width="592" height="92" rx="8"/>
-  <circle class="ring" cx="48" cy="324" r="14"/>
-  <text class="sans num" x="48" y="329" text-anchor="middle">3</text>
-  <text class="sans term" x="76" y="330">Fact</text>
-  <text class="mono ex" x="200" y="330">copdem30m.elevation_mean = 3539.04 m</text>
-  <text class="sans txt" x="76" y="358">Its id, the fact_cid, is the BLAKE3 hash of its bytes:</text>
-  <text class="mono ex" x="76" y="378">qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq</text>
+  <rect class="box" x="24" y="316" width="592" height="102" rx="8"/>
+  <circle class="ring" cx="48" cy="346" r="15"/>
+  <text class="sans num" x="48" y="352" text-anchor="middle">3</text>
+  <text class="sans term" x="76" y="353">Fact</text>
+  <text class="mono ex" x="196" y="353">copdem30m.elevation_mean = 3539.04 m</text>
+  <text class="sans txt" x="76" y="381">Its id, the fact_cid, is the BLAKE3 hash of its bytes:</text>
+  <text class="mono cid" x="76" y="405">qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq</text>
 
-  <path class="flow" d="M48 388 V412" marker-end="url(#a)"/>
-  <text class="mono verb" x="62" y="406">in the same answer</text>
+  <path class="flow" d="M48 418 V442" marker-end="url(#a)"/>
+  <text class="mono verb" x="62" y="436">in the same answer</text>
 
   <!-- 4 receipt -->
-  <rect class="box" x="24" y="414" width="592" height="92" rx="8"/>
-  <circle class="ring" cx="48" cy="442" r="14"/>
-  <text class="sans num" x="48" y="447" text-anchor="middle">4</text>
-  <text class="sans term" x="76" y="448">Receipt</text>
-  <text class="mono ex" x="200" y="448">signer 777er3yi…womvka</text>
-  <text class="sans txt" x="76" y="476">The responder signs a hash of its answer with Ed25519.</text>
-  <text class="sans txt" x="76" y="496">The receipt lists the fact_cid of each fact it covers.</text>
+  <rect class="box" x="24" y="444" width="592" height="102" rx="8"/>
+  <circle class="ring" cx="48" cy="474" r="15"/>
+  <text class="sans num" x="48" y="480" text-anchor="middle">4</text>
+  <text class="sans term" x="76" y="481">Receipt</text>
+  <text class="mono ex" x="196" y="481">signer 777er3yi…womvka</text>
+  <text class="sans txt" x="76" y="509">The responder signs a hash of its answer with Ed25519.</text>
+  <text class="sans txt" x="76" y="533">The receipt lists the fact_cid of each fact it covers.</text>
 
-  <path class="flow" d="M48 506 V530" marker-end="url(#a)"/>
-  <text class="mono verb" x="62" y="524">memory_token field</text>
+  <path class="flow" d="M48 546 V570" marker-end="url(#a)"/>
+  <text class="mono verb" x="62" y="564">memory_token field</text>
 
   <!-- 5 token -->
-  <rect class="box" x="24" y="532" width="592" height="92" rx="8"/>
-  <circle class="ring" cx="48" cy="560" r="14"/>
-  <text class="sans num" x="48" y="565" text-anchor="middle">5</text>
-  <text class="sans term" x="76" y="566">Token</text>
-  <text class="sans txt" x="200" y="566">one line of text that names one fact</text>
-  <text class="mono ex" x="76" y="596">emem:fact:defi.zb592.nUkO.zEzE:qejpz7cg…2jjbplq</text>
+  <rect class="box" x="24" y="572" width="592" height="102" rx="8"/>
+  <circle class="ring" cx="48" cy="602" r="15"/>
+  <text class="sans num" x="48" y="608" text-anchor="middle">5</text>
+  <text class="sans term" x="76" y="609">Token</text>
+  <text class="sans txt" x="196" y="609">one line of text that names one fact</text>
+  <text class="mono cid" x="76" y="644">emem:fact:defi.zb592.nUkO.zEzE:qejpz7cg…2jjbplq</text>
 
-  <path class="flow" d="M48 624 V648" marker-end="url(#a)"/>
-  <text class="mono verb" x="62" y="642">you send the token</text>
+  <path class="flow" d="M48 674 V698" marker-end="url(#a)"/>
+  <text class="mono verb" x="62" y="692">you send the token</text>
 
   <!-- 6 another agent -->
-  <rect class="box" x="24" y="650" width="592" height="92" rx="8" style="stroke:#2ea043"/>
-  <circle class="ring" cx="48" cy="678" r="14" style="stroke:#7ee787"/>
-  <text class="sans num" x="48" y="683" text-anchor="middle" style="fill:#7ee787">6</text>
-  <text class="sans term" x="76" y="684">Another agent</text>
-  <text class="sans ok" x="236" y="684">checks it without trust in you</text>
-  <text class="sans txt" x="76" y="712">It resolves the token to the same signed bytes, then</text>
-  <text class="sans txt" x="76" y="732">checks the receipt offline with the responder's public key.</text>
+  <rect class="box" x="24" y="700" width="592" height="102" rx="8" style="stroke:#2ea043"/>
+  <circle class="ring" cx="48" cy="730" r="15" style="stroke:#7ee787"/>
+  <text class="sans num" x="48" y="736" text-anchor="middle" style="fill:#7ee787">6</text>
+  <text class="sans term" x="76" y="737">Another agent</text>
+  <text class="sans ok" x="250" y="737">checks it without trust in you</text>
+  <text class="sans txt" x="76" y="765">It resolves the token to the same signed bytes, then</text>
+  <text class="sans txt" x="76" y="789">checks the receipt offline with the responder's public key.</text>
 
-  <text class="sans txt" x="24" y="774">A signature shows who signed. It does not show that the value is true.</text>
-  <text class="sans verb" x="24" y="796">Values from emem.dev on 7 November 2026.</text>
+  <text class="sans txt" x="24" y="838">A signature shows who signed.</text>
+  <text class="sans txt" x="24" y="862">It does not show that the value is true.</text>
+  <text class="sans verb" x="24" y="888">Values from emem.dev on 7 November 2026.</text>
 </svg>

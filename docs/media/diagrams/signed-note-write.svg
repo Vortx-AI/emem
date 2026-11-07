@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 880" width="640" height="880" role="img" aria-labelledby="t d">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 944" width="640" height="944" role="img" aria-labelledby="t d">
   <title id="t">Write a signed note: refused first, then accepted</title>
   <desc id="d">Your notes live in /memories/by_attester/ followed by the first 8 characters of your public key. Only that key can write there. Anyone can read a note, except a note of kind vault, which is stored encrypted. The operator can still read a vault note, so do not write a secret in any note. Sequence between your agent and the emem responder: 0, make an Ed25519 key on your machine. 1, send emem_memory_create over MCP with no signature. 2, the responder refuses with an MCP isError result whose details.code is memory_attestation_required, and details.how_to_sign gives the exact 32-byte digest for that write. 3, sign the digest with your key. 4, send the same body again with an attester block that holds pubkey_b32 and sig_b32. 5, the responder checks the signature, stores the note and adds it to the log. A write from any other key into your folder is refused with details.code memory_namespace_violation. Over MCP a refusal is an isError result, not an HTTP status.</desc>
   <defs>
@@ -15,86 +15,87 @@
   <style>
     .sans { font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace; }
-    .h { font-size: 19px; font-weight: 600; fill: #e6edf3; }
-    .term { font-size: 16px; font-weight: 600; fill: #e6edf3; }
-    .ex { font-size: 14px; fill: #79c0ff; }
-    .bad { font-size: 14px; fill: #ff7b72; }
-    .ok { font-size: 14px; fill: #7ee787; }
-    .txt { font-size: 15px; fill: #8b949e; }
-    .small { font-size: 13px; fill: #8b949e; }
-    .num { font-size: 13px; font-weight: 600; fill: #0d1117; }
+    .h { font-size: 21px; font-weight: 600; fill: #e6edf3; }
+    .term { font-size: 19px; font-weight: 600; fill: #e6edf3; }
+    .ex { font-size: 17px; fill: #79c0ff; }
+    .bad { font-size: 17px; fill: #ff7b72; }
+    .ok { font-size: 17px; fill: #7ee787; }
+    .txt { font-size: 18px; fill: #8b949e; }
+    .small { font-size: 16px; fill: #8b949e; }
+    .num { font-size: 16px; font-weight: 600; fill: #0d1117; }
     .box { fill: #161b22; stroke: #30363d; stroke-width: 1; }
     .life { stroke: #30363d; stroke-width: 2; stroke-dasharray: 5 5; }
   </style>
 
-  <rect x="0" y="0" width="640" height="880" rx="12" fill="#0d1117"/>
+  <rect x="0" y="0" width="640" height="944" rx="12" fill="#0d1117"/>
   <text class="sans h" x="24" y="38">Write a signed note: refused first, then accepted</text>
 
   <!-- namespace panel -->
-  <rect class="box" x="24" y="58" width="592" height="120" rx="8"/>
-  <text class="sans term" x="44" y="84">Your folder (namespace)</text>
-  <text class="mono ex" x="44" y="108">/memories/by_attester/&lt;pk8&gt;/notes.md</text>
-  <text class="sans txt" x="44" y="132">&lt;pk8&gt; is the first 8 characters of your public key.</text>
-  <text class="sans txt" x="44" y="151">Only that key can write here. Anyone can read, except</text>
-  <text class="sans txt" x="44" y="170">a note of kind vault: it is stored encrypted.</text>
+  <rect class="box" x="24" y="58" width="592" height="136" rx="8"/>
+  <text class="sans term" x="44" y="86">Your folder (namespace)</text>
+  <text class="mono ex" x="44" y="111">/memories/by_attester/&lt;pk8&gt;/notes.md</text>
+  <text class="sans txt" x="44" y="136">&lt;pk8&gt; is the first 8 characters of your public key.</text>
+  <text class="sans txt" x="44" y="160">Only that key can write here. Anyone can read, except</text>
+  <text class="sans txt" x="44" y="184">a note of kind vault: it is stored encrypted.</text>
 
   <!-- lanes -->
-  <rect class="box" x="24" y="186" width="200" height="44" rx="8"/>
-  <text class="sans term" x="124" y="214" text-anchor="middle">Your agent</text>
-  <rect class="box" x="416" y="186" width="200" height="44" rx="8"/>
-  <text class="sans term" x="516" y="214" text-anchor="middle">emem responder</text>
-  <line class="life" x1="124" y1="230" x2="124" y2="704"/>
-  <line class="life" x1="516" y1="230" x2="516" y2="704"/>
+  <rect class="box" x="24" y="202" width="200" height="44" rx="8"/>
+  <text class="sans term" x="124" y="230" text-anchor="middle">Your agent</text>
+  <rect class="box" x="416" y="202" width="200" height="44" rx="8"/>
+  <text class="sans term" x="516" y="230" text-anchor="middle">emem responder</text>
+  <line class="life" x1="124" y1="246" x2="124" y2="724"/>
+  <line class="life" x1="516" y1="246" x2="516" y2="724"/>
 
   <!-- 0 make a key -->
-  <rect class="box" x="24" y="250" width="300" height="56" rx="8"/>
-  <circle cx="44" cy="278" r="11" fill="#8b949e"/>
-  <text class="sans num" x="44" y="283" text-anchor="middle">0</text>
-  <text class="sans txt" x="62" y="274">Make an Ed25519 key on your</text>
-  <text class="sans txt" x="62" y="294">machine. Nobody issues it.</text>
+  <rect class="box" x="24" y="266" width="340" height="62" rx="8"/>
+  <circle cx="44" cy="294" r="12" fill="#8b949e"/>
+  <text class="sans num" x="44" y="299" text-anchor="middle">0</text>
+  <text class="sans txt" x="62" y="291">Make an Ed25519 key on your</text>
+  <text class="sans txt" x="62" y="314">machine. Nobody issues it.</text>
 
   <!-- 1 unsigned write -->
-  <circle cx="144" cy="338" r="11" fill="#79c0ff"/>
-  <text class="sans num" x="144" y="343" text-anchor="middle">1</text>
-  <text class="mono ex" x="164" y="343">emem_memory_create</text>
-  <line x1="124" y1="358" x2="512" y2="358" stroke="#79c0ff" stroke-width="2" marker-end="url(#ag)"/>
-  <text class="sans small" x="164" y="378">over MCP tools/call, with no signature</text>
+  <circle cx="144" cy="354" r="12" fill="#79c0ff"/>
+  <text class="sans num" x="144" y="359" text-anchor="middle">1</text>
+  <text class="mono ex" x="164" y="359">emem_memory_create</text>
+  <line x1="124" y1="374" x2="512" y2="374" stroke="#79c0ff" stroke-width="2" marker-end="url(#ag)"/>
+  <text class="sans small" x="164" y="394">over MCP tools/call, with no signature</text>
 
   <!-- 2 refusal -->
-  <circle cx="496" cy="414" r="11" fill="#ff7b72"/>
-  <text class="sans num" x="496" y="419" text-anchor="middle">2</text>
-  <text class="mono bad" x="476" y="419" text-anchor="end">memory_attestation_required</text>
-  <line x1="516" y1="434" x2="128" y2="434" stroke="#ff7b72" stroke-width="2" marker-end="url(#ar)"/>
-  <text class="sans small" x="476" y="454" text-anchor="end">isError result; details.how_to_sign</text>
-  <text class="sans small" x="476" y="472" text-anchor="end">holds the 32-byte digest for this write</text>
+  <circle cx="496" cy="430" r="12" fill="#ff7b72"/>
+  <text class="sans num" x="496" y="435" text-anchor="middle">2</text>
+  <text class="mono bad" x="476" y="435" text-anchor="end">memory_attestation_required</text>
+  <line x1="516" y1="450" x2="128" y2="450" stroke="#ff7b72" stroke-width="2" marker-end="url(#ar)"/>
+  <text class="sans small" x="476" y="470" text-anchor="end">isError result; details.how_to_sign</text>
+  <text class="sans small" x="476" y="492" text-anchor="end">holds the 32-byte digest for this write</text>
 
   <!-- 3 sign -->
-  <rect class="box" x="24" y="494" width="300" height="56" rx="8"/>
-  <circle cx="44" cy="522" r="11" fill="#79c0ff"/>
-  <text class="sans num" x="44" y="527" text-anchor="middle">3</text>
-  <text class="sans txt" x="62" y="518">Sign that digest with your</text>
-  <text class="sans txt" x="62" y="538">key, on your machine.</text>
+  <rect class="box" x="24" y="514" width="340" height="62" rx="8"/>
+  <circle cx="44" cy="542" r="12" fill="#79c0ff"/>
+  <text class="sans num" x="44" y="547" text-anchor="middle">3</text>
+  <text class="sans txt" x="62" y="539">Sign that digest with your</text>
+  <text class="sans txt" x="62" y="562">key, on your machine.</text>
 
   <!-- 4 signed write -->
-  <circle cx="144" cy="582" r="11" fill="#79c0ff"/>
-  <text class="sans num" x="144" y="587" text-anchor="middle">4</text>
-  <text class="sans small" x="164" y="587">the same body, plus an attester block</text>
-  <line x1="124" y1="602" x2="512" y2="602" stroke="#79c0ff" stroke-width="2" marker-end="url(#ag)"/>
-  <text class="mono ex" x="164" y="622">{pubkey_b32, sig_b32}</text>
+  <circle cx="144" cy="602" r="12" fill="#79c0ff"/>
+  <text class="sans num" x="144" y="607" text-anchor="middle">4</text>
+  <text class="sans small" x="164" y="607">the same body, plus an attester block</text>
+  <line x1="124" y1="622" x2="512" y2="622" stroke="#79c0ff" stroke-width="2" marker-end="url(#ag)"/>
+  <text class="mono ex" x="164" y="642">{pubkey_b32, sig_b32}</text>
 
   <!-- 5 accepted -->
-  <circle cx="496" cy="658" r="11" fill="#7ee787"/>
-  <text class="sans num" x="496" y="663" text-anchor="middle">5</text>
-  <text class="sans ok" x="476" y="663" text-anchor="end">signature checks: note stored</text>
-  <line x1="516" y1="678" x2="128" y2="678" stroke="#7ee787" stroke-width="2" marker-end="url(#ak)"/>
-  <text class="sans small" x="476" y="698" text-anchor="end">and added to the transparency log</text>
+  <circle cx="496" cy="678" r="12" fill="#7ee787"/>
+  <text class="sans num" x="496" y="683" text-anchor="middle">5</text>
+  <text class="sans ok" x="476" y="683" text-anchor="end">signature checks: note stored</text>
+  <line x1="516" y1="698" x2="128" y2="698" stroke="#7ee787" stroke-width="2" marker-end="url(#ak)"/>
+  <text class="sans small" x="476" y="718" text-anchor="end">and added to the transparency log</text>
 
   <!-- other key -->
-  <rect class="box" x="24" y="724" width="592" height="70" rx="8" style="stroke:#da3633"/>
-  <text class="sans txt" x="44" y="752">A write from any other key into your folder is refused:</text>
-  <text class="mono bad" x="44" y="778">details.code memory_namespace_violation</text>
+  <rect class="box" x="24" y="744" width="592" height="70" rx="8" style="stroke:#da3633"/>
+  <text class="sans txt" x="44" y="772">A write from any other key into your folder is refused:</text>
+  <text class="mono bad" x="44" y="798">details.code memory_namespace_violation</text>
 
-  <text class="sans small" x="24" y="822">Do not write a secret in any note, vault included. The log keeps every write.</text>
-  <text class="sans small" x="24" y="842">The digest binds the verb, the path, the body and the version it replaces.</text>
-  <text class="sans small" x="24" y="862">Over MCP a refusal is an isError tool result, not an HTTP status.</text>
+  <text class="sans small" x="24" y="850">Do not write a secret in any note, vault included.</text>
+  <text class="sans small" x="24" y="872">The log keeps every write. The digest binds the verb,</text>
+  <text class="sans small" x="24" y="894">the path, the body and the version it replaces.</text>
+  <text class="sans small" x="24" y="916">Over MCP a refusal is an isError tool result, not an HTTP status.</text>
 </svg>

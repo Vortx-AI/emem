@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 650" width="640" height="650" role="img" aria-labelledby="t d">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 694" width="640" height="694" role="img" aria-labelledby="t d">
   <title id="t">The two time filters on a read</title>
   <desc id="d">A chart. The horizontal axis is ground time, the tslot: when a value was true on the ground. The vertical axis is signed time, signed_at: when emem signed the fact. as_of_tslot is a vertical line and keeps the facts to its left. as_of_signed_at is a horizontal line and keeps the facts below it. With both filters set, the read uses only the facts in the lower left area. One fact in that area is kept. A fact observed after the as_of_tslot date is not kept. A fact signed after the as_of_signed_at date, for example a later fetch, is not kept. as_of_tslot asks what was true on the ground on a date. as_of_signed_at asks what emem knew on a date. With a filter set, the receipt signs an as_of block, so another node can replay the read.</desc>
   <defs>
@@ -9,16 +9,16 @@
   <style>
     .sans { font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace; }
-    .h { font-size: 19px; font-weight: 600; fill: #e6edf3; }
-    .axis { font-size: 14px; fill: #8b949e; }
-    .val { font-size: 15px; fill: #e6edf3; }
-    .small { font-size: 13px; fill: #8b949e; }
-    .tf { font-size: 15px; fill: #ffa657; }
-    .sf { font-size: 15px; fill: #d2a8ff; }
-    .keep { font-size: 13px; fill: #79c0ff; }
+    .h { font-size: 22px; font-weight: 600; fill: #e6edf3; }
+    .axis { font-size: 17px; fill: #8b949e; }
+    .val { font-size: 17px; fill: #e6edf3; }
+    .small { font-size: 16px; fill: #8b949e; }
+    .tf { font-size: 18px; fill: #ffa657; }
+    .sf { font-size: 18px; fill: #d2a8ff; }
+    .keep { font-size: 16px; fill: #79c0ff; }
   </style>
 
-  <rect x="0" y="0" width="640" height="650" rx="12" fill="#0d1117"/>
+  <rect x="0" y="0" width="640" height="694" rx="12" fill="#0d1117"/>
   <text class="sans h" x="24" y="38">The two time filters on a read</text>
 
   <!-- kept area -->
@@ -29,12 +29,12 @@
   <path d="M100 430 H604" stroke="#8b949e" stroke-width="1.5" marker-end="url(#ax)"/>
   <path d="M100 430 V72" stroke="#8b949e" stroke-width="1.5" marker-end="url(#ax)"/>
   <text class="sans axis" x="352" y="456" text-anchor="middle">ground time (tslot): when it was true</text>
-  <text class="sans axis" x="0" y="0" transform="translate(80 251) rotate(-90)" text-anchor="middle">signed time (signed_at): when emem knew it</text>
+  <text class="sans axis" x="0" y="0" transform="translate(80 258) rotate(-90)" text-anchor="middle">signed time (signed_at): when emem knew it</text>
 
   <!-- as_of_tslot -->
   <line x1="380" y1="82" x2="380" y2="430" stroke="#ffa657" stroke-width="2" stroke-dasharray="6 5"/>
   <text class="mono tf" x="388" y="96">as_of_tslot</text>
-  <text class="sans small" x="388" y="114">keeps facts to the left</text>
+  <text class="sans small" x="388" y="119">keeps facts to the left</text>
 
   <!-- as_of_signed_at -->
   <line x1="100" y1="250" x2="600" y2="250" stroke="#d2a8ff" stroke-width="2" stroke-dasharray="6 5"/>
@@ -46,20 +46,22 @@
   <text class="sans keep" x="246" y="345">kept</text>
 
   <circle cx="490" cy="370" r="8" fill="none" stroke="#8b949e" stroke-width="2"/>
-  <text class="sans small" x="490" y="396" text-anchor="middle">observed later:</text>
-  <text class="sans small" x="490" y="413" text-anchor="middle">not kept</text>
+  <text class="sans small" x="490" y="394" text-anchor="middle">observed later:</text>
+  <text class="sans small" x="490" y="415" text-anchor="middle">not kept</text>
 
   <circle cx="150" cy="170" r="8" fill="none" stroke="#8b949e" stroke-width="2"/>
-  <text class="sans small" x="166" y="166">signed later, for example a</text>
-  <text class="sans small" x="166" y="183">later fetch: not kept</text>
+  <text class="sans small" x="166" y="164">signed later, for example</text>
+  <text class="sans small" x="166" y="186">a later fetch: not kept</text>
 
   <!-- legend -->
   <rect x="24" y="484" width="592" height="88" rx="8" fill="#161b22" stroke="#30363d"/>
   <text class="mono tf" x="44" y="516">as_of_tslot</text>
-  <text class="sans val" x="210" y="516">asks what was true on the ground on a date</text>
+  <text class="sans val" x="228" y="516">asks what was true on the ground on a date</text>
   <text class="mono sf" x="44" y="550">as_of_signed_at</text>
-  <text class="sans val" x="210" y="550">asks what emem knew on a date</text>
+  <text class="sans val" x="228" y="550">asks what emem knew on a date</text>
 
-  <text class="sans small" x="24" y="604">Set one filter, both, or none. With none, the read gives the current state.</text>
-  <text class="sans small" x="24" y="626">With a filter set, the receipt signs an as_of block, so another node can replay the read.</text>
+  <text class="sans small" x="24" y="604">Set one filter, both, or none.</text>
+  <text class="sans small" x="24" y="626">With none, the read gives the current state.</text>
+  <text class="sans small" x="24" y="648">With a filter set, the receipt signs an as_of block,</text>
+  <text class="sans small" x="24" y="670">so another node can replay the read.</text>
 </svg>

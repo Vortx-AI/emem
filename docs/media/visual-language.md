@@ -40,7 +40,10 @@ Do not use colour as the only signal. Write the word too, for example `valid` or
   also repeat what the foot line says.
 - Stills are laid out at 800 px and rendered at 1080 / 800 scale. Then the smallest text, 22 px in the
   layout, is about 10 px on a phone. The heading is about 20 px.
-- Diagrams in SVG keep the smallest text at 13 px in a 640 px view box.
+- Diagrams in SVG keep the smallest text at 16 px in a 640 px view box, which is about 8.5 px on a phone.
+  Body text is 18 px. Break a long line into two lines rather than make the text smaller.
+- Before you commit a diagram, run `docs/media/diagrams/src/check_text.py` on it. It lists text that
+  leaves the card or overlaps other text.
 
 ## Layout
 
