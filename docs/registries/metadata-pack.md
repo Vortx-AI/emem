@@ -38,7 +38,7 @@ The live values are from 7 November 2026.
 | Name | emem | `server.json` `name` |
 | Publisher | Vortx AI | `server.json` `x-emem.operator` |
 | Registry namespace | `io.github.Vortx-AI/emem` | `server.json` |
-| Version | 2.4.4 | `Cargo.toml`, MCP `initialize` `serverInfo.version` |
+| Version | 2.4.5 | `Cargo.toml`, MCP `initialize` `serverInfo.version` |
 | Endpoint | `https://emem.dev/mcp`, MCP Streamable HTTP, protocol `2025-11-25` | MCP `initialize` |
 | Tools on `/mcp` | 18 core tools on one page, with no `nextCursor` | `tools/list` on `/mcp` |
 | Tools on `/mcp/full` | All 116 tools (18 core, 98 extended) over 9 pages | `tools/list` on `/mcp/full`, follow `nextCursor` |
