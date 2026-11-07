@@ -966,7 +966,7 @@ value and found none. `reason_cid` names the reason. Defined in
 ```rust
 struct NegativeFact {
     cell: String, band: String, tslot: u64,
-    reason_cid: ReasonCid,              // evidence (e.g. an S1 scene CID)
+    reason_cid: ReasonCid,              // base32 of BLAKE3(reason text)[0..16]
     confidence: f32,
     sources: Vec<Source>,               // ≥1
     schema_cid: SchemaCid,
@@ -1188,10 +1188,11 @@ served   qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq
 MATCH
 ```
 
-At 00:59 UTC on 7 November 2026, a recall with no `bands` field at
-that cell gave 358 facts: 355 primary facts and 3 absences. The script
-gave `MATCH` for each of the 358 facts. That set included a vector
-value with NaN entries and one fact with `served_via`.
+At 03:27 UTC on 7 November 2026, a recall with no `bands` field at
+that cell gave 369 facts: 366 primary facts and 3 absences. The script
+gave `MATCH` for each of the 369 facts. That set included a vector
+value with NaN entries and one fact with `served_via`. The count grows
+when the responder stores new facts at the cell.
 
 For an absence you can also check `reason_cid`. Hash the `reason` text
 with BLAKE3, keep the first 16 bytes, and encode them as in step 5
