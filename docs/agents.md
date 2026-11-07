@@ -114,14 +114,17 @@ can come back cut. See [If emem cuts an MCP answer](#if-emem-cuts-an-mcp-answer)
 ### If emem cuts an MCP answer
 
 An MCP answer has a size limit of 24,000 bytes by default
-(`EMEM_MCP_RESPONSE_BUDGET_BYTES`). The limit covers the text and
+(`EMEM_MCP_RESPONSE_BUDGET_BYTES`). An operator can set it from 2,048 to
+1,000,000 bytes. The limit covers the text and
 `structuredContent` together. A cut answer has an `_emem_truncation` block:
 
 | Field | What it tells you |
 |---|---|
-| `omitted_fields` | Each field that the answer left out. |
+| `omitted_fields` | Each field that the answer left out, with a stub. The list stops at 32 fields; `omitted_fields_total` then gives the full count. |
 | `budget_bytes` | The share of one copy, text or `structuredContent`. Thus it can show 12,000 or less. |
 | `fetch` | Often, the call that returns the rest. It can be `null`, or drop some arguments. |
+| `reason` | One sentence that says what to do next. It changes with `fetch` and with paging. |
+| `next` | When present, a list of calls, each a `verb` and a `noun`. |
 
 If `fetch` is `null`, send the same arguments to the REST route. REST has no
 size limit.
