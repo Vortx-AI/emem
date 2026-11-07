@@ -6,7 +6,7 @@ and answers questions about real places with signed facts from the shared memory
 ## Install
 
 ```bash
-pip install autogen-agentchat autogen-ext[openai,mcp]
+pip install autogen-agentchat 'autogen-ext[openai,mcp]' 'mcp<2'
 ```
 
 ## Run
@@ -28,10 +28,9 @@ export EMEM_MCP_URL="https://emem.dev/mcp"
    `McpWorkbench` and `StreamableHttpServerParams`.
 2. Auto-discovers all emem MCP tools (locate, recall, compare, verify, etc.).
 3. Creates an AutoGen `AssistantAgent` with a geospatial verification system message.
-4. Asks whether Helsinki Airport, Finland (60.3172, 24.9633) appears to be
-   low-lying or flood-prone.
-5. The agent recalls elevation, land cover, surface water, and summarises
-   with signed `fact_cid`s from the receipts.
+4. Asks the agent to resolve South Mumbai, recall its elevation, and
+   verify the receipt.
+5. The agent shows each step: locate, recall, verify.
 
 ## Notes
 

@@ -7,7 +7,7 @@ signed facts from the shared memory, citing receipts any agent can re-verify.
 ## Install
 
 ```bash
-pip install 'crewai[tools]' 'mcp[cli]'
+pip install 'crewai[tools]' 'crewai-tools[mcp]'
 ```
 
 ## Run

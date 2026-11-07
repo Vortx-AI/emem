@@ -34,24 +34,26 @@ QUESTION = (
 async def main():
     llm = ChatOpenAI(model="gpt-4.1-mini")
 
-    async with MultiServerMCPClient(
+    # Since langchain-mcp-adapters 0.1.0 the client is not a context manager;
+    # get_tools() opens a session for each tool call.
+    client = MultiServerMCPClient(
         {
             "emem": {
                 "transport": "streamable_http",
                 "url": EMEM_MCP_URL,
             }
         }
-    ) as client:
-        tools = client.get_tools()
-        print(f"Loaded {len(tools)} emem tools via MCP\n")
+    )
+    tools = await client.get_tools()
+    print(f"Loaded {len(tools)} emem tools via MCP\n")
 
-        agent = create_react_agent(llm, tools)
+    agent = create_react_agent(llm, tools)
 
-        response = await agent.ainvoke({"messages": [("user", QUESTION)]})
+    response = await agent.ainvoke({"messages": [("user", QUESTION)]})
 
-        for msg in response["messages"]:
-            if hasattr(msg, "content") and msg.content:
-                print(f"[{msg.type}] {msg.content}\n")
+    for msg in response["messages"]:
+        if hasattr(msg, "content") and msg.content:
+            print(f"[{msg.type}] {msg.content}\n")
 
 
 if __name__ == "__main__":

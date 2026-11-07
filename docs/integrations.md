@@ -121,11 +121,25 @@ The other folders use the same steps with these values:
 |---|---|---|---|
 | `langchain/` | `pip install langchain-mcp-adapters langgraph langchain-openai` | `MultiServerMCPClient` | `/mcp` |
 | `llamaindex/` | `pip install llama-index-tools-mcp llama-index-llms-openai llama-index-core` | `BasicMCPClient` | `/mcp` |
-| `autogen/` | `pip install autogen-agentchat 'autogen-ext[openai,mcp]'` | `McpWorkbench` | `/mcp` |
-| `crewai/` | `pip install 'crewai[tools]' 'mcp[cli]'` | `MCPServerAdapter` | `/mcp/full` |
+| `autogen/` | `pip install autogen-agentchat 'autogen-ext[openai,mcp]' 'mcp<2'` | `McpWorkbench` | `/mcp` |
+| `crewai/` | `pip install 'crewai[tools]' 'crewai-tools[mcp]'` | `MCPServerAdapter` | `/mcp/full` |
 | `semantic-kernel/` | `pip install semantic-kernel` | `MCPStreamableHttpPlugin` | `/mcp` |
-| `agno/` | `pip install agno openai` | `MCPTools` | `/mcp` |
+| `agno/` | `pip install agno openai fastmcp` | `MCPTools` | `/mcp` |
 | `mastra/` | `npm install`, then `npx tsx emem_mcp_geospatial_agent.ts` | `MCPClient` from `@mastra/mcp` | `/mcp/full` |
+
+On 7 November 2026 each Python example ran with these installs in a new virtual environment, up to the first
+model call. That call failed because the key was not real. Four results changed the examples:
+
+| Folder | Result on 7 November 2026 |
+|---|---|
+| `langchain/` | Loads 18 tools. langchain-mcp-adapters 0.3.2 does not accept `async with` on its client, so the script now calls `get_tools()` directly. |
+| `llamaindex/` | Loads 18 tools. llama-index-core 0.14.25 has `FunctionAgent` in `llama_index.core.agent.workflow`. The script now imports it from there. |
+| `autogen/` | Runs with `mcp<2`. With mcp 2.3.0, autogen-ext 0.7.5 fails on import (`RequestContext`). |
+| `crewai/` | Runs with `crewai-tools[mcp]`. Without it, `MCPServerAdapter` asks to install a package and stops. |
+| `agno/` | Runs with `fastmcp`. agno 3.1.12 builds its MCP connection with that package. |
+| `semantic-kernel/` | Fails. semantic-kernel 1.47.0 accepts one type for each parameter, and `emem_echo_verify` and `emem_intent` give lists of types. |
+
+The `mastra/` example did not run, because this check had no Node.js.
 
 Set `EMEM_MCP_URL` to point a script at your own node (see
 [Connect a client to your node](self-host.md#connect-a-client-to-your-node)). On 7 November 2026, `tools/list` on `/mcp` returned 18
