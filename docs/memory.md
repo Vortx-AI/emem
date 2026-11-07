@@ -245,6 +245,11 @@ After your first note, you can edit it, supersede it or delete it. Each
 of these is a signed write with its own body and `base`. The table in
 [Signed writes and namespaces](#signed-writes-and-namespaces) gives them for each verb.
 
+`signer_sign_write` refuses `supersede`, `delete` and `rename`. To sign
+one of these, change `sign_note.py`: the tool name, the arguments, and
+the verb, body and `base` from that table. Keep the check against the
+digest in the refusal.
+
 ## Endpoints in the substrate
 
 | Layer | Endpoint | Wire shape | Returns |
