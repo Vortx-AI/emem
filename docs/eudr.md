@@ -66,12 +66,46 @@ This endpoint does not use WRI-Sims driver attribution or RADD SAR alerts.
 
 ### From cells to a plot verdict
 
-The plot verdict combines the cell verdicts and applies the 0.5 ha minimum area of
-Article 2(4).
-If `failing_area_ha < 0.5`, the plot gets `below_mmu` instead of `fail`.
-The DDS total counts a `below_mmu` plot as compliant.
+Each cell gets a verdict first.
+A cell is forest at the cut-off when JRC GFC2020 calls it forest.
+It is also forest when Hansen `treecover2000` is 10 % or more and Hansen shows no loss up to the cut-off year.
+
+| Cell state | Cell verdict |
+|---|---|
+| No JRC value and no Hansen `treecover2000` value | `indeterminate` |
+| Not forest at the cut-off | `not_in_scope` |
+| Forest at the cut-off, Hansen loss year after the cut-off year | `fail` |
+| Forest at the cut-off, no Hansen loss after it | `pass` |
+
 A cell that lost its forest at or before the cut-off year was not forest at the cut-off.
 Its verdict is `not_in_scope`, never `pass`.
+
+The plot verdict then uses the first rule that applies:
+
+1. Every cell is `not_in_scope`: the plot is `not_in_scope`.
+2. More than half of the cells are `indeterminate`: the plot is `indeterminate`.
+3. No cell is `fail`: the plot is `pass`.
+4. Otherwise the plot is `fail`, and the 0.5 ha minimum area of Article 2(4) applies.
+
+A plot with no sampled cell is `indeterminate`.
+For rule 4, `failing_area_ha` is the failing fraction of the sampled cells times the plot area.
+If `failing_area_ha` is less than 0.5, the plot gets `below_mmu` in place of `fail`.
+For example, 10 failing cells out of 100 give 0.1 ha on a 1 ha plot (`below_mmu`).
+The same count gives 1 ha on a 10 ha plot (`fail`).
+
+A `not_in_scope` plot has `deforestation_free_non_forest: true` when no cell carries a `refinement_applied` value.
+A natural-cause loss, `sims_natural_cause`, is one such value.
+
+The DDS verdict combines the plot verdicts by the first rule that applies:
+
+1. A plot is `fail`: the DDS is `fail`.
+2. Every plot is `pass`, `below_mmu`, or `not_in_scope` with `deforestation_free_non_forest: true`: the DDS is `pass`.
+3. Every plot is `not_in_scope`: the DDS is `not_in_scope`.
+4. Otherwise the DDS is `indeterminate`.
+
+Thus the DDS counts a `below_mmu` plot as compliant.
+The code is `eudr_verdict_for`, `aggregate_plot_verdict` and `mmu_demote` in
+`crates/emem-api-rest/src/lib.rs`.
 
 ### When the responder holds the statement for review
 
