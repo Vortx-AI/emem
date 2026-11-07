@@ -69,9 +69,10 @@ curl -s -X POST https://emem.dev/v1/edges/recall \
   | jq '{direction, edges: (.edges|length), hint: .agent_hint}'
 ```
 
-On 7 November 2026 this fact had no edges, with or without `pred`. The answer was
-`direction: "out"`, `edges: 0` and an `agent_hint` that says "no relation
-known". An empty list means that no edge exists. It is not a failure.
+On 7 November 2026 this fact had no edges, with or without `pred`. The
+answer was `direction: "out"`, `edges: 0` and an `agent_hint` that says
+"no relation known". An empty list means that no edge exists. It is not
+a failure.
 
 Leave out `pred`, or send `""`, to read edges with any relation. Add
 `as_of_tslot` to read the edges that were true at that tslot.
@@ -173,12 +174,11 @@ An edge has no `(cell, band, tslot)` address. Thus the `fact_plane_closed`
 gate, which keeps callers off fact addresses, does not stop an envelope
 that has only edges. A caller can sign an edge with its own key. For
 example, a second agent can record that it disagrees with a fact from the
-first agent. Do not use the steps for a
-signed note here, because a note signs a different digest. The envelope
-and its preimage are in
-[protocol section 6](protocol.md#6-attestation-envelope). The worked example in
-[examples/connect-and-evolve.md](../examples/connect-and-evolve.md) reads
-edges back and describes this write.
+first agent. Do not use the steps for a signed note here, because a note
+signs a different digest. The envelope and its preimage are in
+[protocol section 6](protocol.md#6-attestation-envelope). The worked
+example in [examples/connect-and-evolve.md](../examples/connect-and-evolve.md)
+reads edges back and describes this write.
 
 ## How a newer edge hides an older edge
 
@@ -242,8 +242,8 @@ few contradictions to act on.
 
 Today the edges and the refinement loop work inside one responder. Each
 edge and each contradiction has a signature and a content id. Thus a
-federation of responders could, in a later version, cite edges from each other and
-record disagreement across hosts. This does not ship.
+federation of responders could, in a later version, cite edges from each
+other and record disagreement across hosts. This does not ship.
 
 What federation ships today is mutual witnessing of transparency log
 heads between nodes. See [federation](./federation.md). Read federation,
