@@ -1453,8 +1453,9 @@ Look at `/v1/data_availability` before you select a window.
 `tools/list` on `/mcp` shows the 18 `core` tools in one page (about 77 KB of descriptors), on 7 November 2026.
 `/mcp/full` advertises all 116 (about 355 KB over 9 pages on 7 November 2026). Send
 `{"tier": "core"}`, `"extended"` or `"all"` to change the list on either
-endpoint. The `extended` and `all` lists come in pages: follow `nextCursor`. `tools/call` runs any tool by name on both endpoints, so a short
-list costs you no tools.
+endpoint. The `extended` and `all` lists come in pages: follow
+`nextCursor`. `tools/call` runs any tool by name on both endpoints, so a
+short list costs you no tools.
 
 Every tool declares one shape in `_meta` under `dev.emem/shape`. The shape
 is the form of the answer. The table lists all 116 tools on 7 November
@@ -1514,13 +1515,15 @@ other tools, set `destructiveHint: true`: `emem_memory_create`,
 `emem_memory_rename`. The reason for each hint is in
 `integrations/chatgpt/tool-annotations.md`.
 
-MCP input schemas have no top-level `anyOf` or `oneOf`, because the
-Claude.ai MCP client accepts only `{type, properties, required}`. The wire
-schemas are in `crates/emem-mcp/src/lib.rs`.
+MCP input schemas have no top-level `anyOf`, `oneOf` or `allOf`. The
+Anthropic tool validator, which Claude.ai connectors use, refuses them at
+the root. A unit test (`every_input_schema_is_well_formed_json`) keeps it so.
+The wire schemas are in `crates/emem-mcp/src/lib.rs`.
 
 ### Writes that MCP does not carry
 
-There is no MCP tool for `POST /v1/attest` or `POST /v1/attest_cbor`.
+There is no MCP tool for `POST /v1/attest`, `POST /v1/attest_cbor` or
+`POST /v1/attest_traced` (the device write path, which adds an OS trace).
 These routes take an attestation that you sign with your own Ed25519
 key, from a process that you control. The MCP tool call carries JSON only,
 and `/v1/attest_cbor` takes canonical CBOR bytes.
