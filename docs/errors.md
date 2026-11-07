@@ -284,9 +284,10 @@ Their codes are not in the enum.
 
 | Code | HTTP | When |
 |---|---|---|
-| `not_found` | 404 | No route matches the path. `did_you_mean` suggests near paths. With no `Accept` header, or an `Accept` header that contains `text/html`, the body is an HTML page with no `code`. |
+| `not_found` | 404 | No route matches the path. `did_you_mean` suggests near paths. With no `Accept` header, or an `Accept` header that contains `text/html`, the body is an HTML page with no `code`. curl sends `Accept: */*` by default, so curl gets JSON. |
 | `method_not_allowed` | 405 | The path exists but not for that method. The `allow` header and body field list the methods it answers. With an `Accept` header that contains `text/html`, the body is an HTML page. With no `Accept` header, the body is JSON. |
-| `overloaded` | 503 | The server is at its cap of requests in flight. It refused the request at once and did not queue it. `Retry-After: 1`. |
+| `overloaded` | 503 | The server is at its cap of requests in flight: `EMEM_MAX_INFLIGHT`, default 128, limits 8 to 4096. It refused the request at once and did not queue it. `Retry-After: 1`. |
+| `overloaded` | 503 | Only `POST /v1/eudr_dds`, `/v1/field_burn_scar` and `/v1/field_actual_et`. These routes run 3 requests at a time (`EMEM_EUDR_MAX_INFLIGHT`, limits 1 to 64). Up to 4 times that number wait for a slot. A request gets this 503 when the wait is full, or when no slot frees in 30 s (`EMEM_EUDR_QUEUE_SECS`, at most 120). `Retry-After: 1`. |
 
 ## Memory and entity write refusals
 
