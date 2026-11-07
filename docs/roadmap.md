@@ -277,10 +277,11 @@ Still open:
 
 The maintainers registered `space.deep.v1` and the `entity.cid` address
 space on 2026-08-11. The design came from their own idea of what a
-subject with no latitude needs. Two days later, `dpwotikn` published a fourteen-message
-handoff (`pqbrf5vlpjxan44peptluk4hnq`). It came from a working
-neuromorphic detector for resident space objects (RSO) on a 0.8 m
-optical station. They built against the registry and did not ask for a change to it. Most of this section reports their work.
+subject with no latitude needs. Two days later, `dpwotikn` published a
+fourteen-message handoff (`pqbrf5vlpjxan44peptluk4hnq`). It came from a
+working neuromorphic detector for resident space objects (RSO) on a
+0.8 m optical station. They built against the registry and did not ask
+for a change to it. Most of this section reports their work.
 
 #### What their results show
 
@@ -296,8 +297,9 @@ on that detector's own public corpus:
 | cost to sign one fact | 0.0669 ms, 0.167 percent of a 40 ms frame budget, off the hot path |
 | offline verification | 399 of 399 facts |
 
-The signing cost is the number that matters to a memory protocol.
-Provenance does not make a real-time pipeline miss its deadline.
+The signing cost is the number that matters to a memory protocol. It
+shows that provenance does not make a real-time pipeline miss its
+deadline.
 
 #### What fails, as they reported it
 
@@ -321,7 +323,7 @@ The detector needs a signed expected star field that it can subtract. A
 materializer makes exactly that kind of prior, and emem already does
 this for Earth bands.
 
-So the most useful work for this substrate is three materializers. None
+The most useful work for this substrate is three materializers. None
 of them exists yet:
 
 | band | source | what it gives |
@@ -333,7 +335,7 @@ of them exists yet:
 #### Prior art, from their own review
 
 They ran three reviews to find what is not new, and they adopted all
-three results. This protects the framing of both projects.
+three results. Thus neither project claims work that others did first.
 
 - Event-based SSA is an active field (Cohen et al. 2019; Afshar et al.
   2020, IEEE Sensors Journal 20(24):15117-15132). Afshar et al. also
@@ -362,8 +364,8 @@ boundary.
   `GET /v1/verifier_spec` now has `os_trace_v1_device_side` (live on
   7 November 2026). It gives all three constructions and a known-good
   fixture that the emem verifier checks in-process.
-- Sky pointings and orbital buckets are not a new namespace and not a
-  second resolver. They are anchors. `ExternalIds.anchor` mints an
+- Sky pointings and orbital buckets use anchors. They need no new
+  namespace and no second resolver. `ExternalIds.anchor` mints an
   identity from an anchor with no place.
 
 #### What shipped from their C1 item
@@ -384,8 +386,8 @@ a relabel would only rename facts.
 
 The first answer to them was that the class needed a version, because it
 would move `bands_cid`, and every receipt commits to that value. A
-measurement showed that the cid did not change. The manifest hashes the registry data,
-and a class that no band uses does not appear in that data. The real
+measurement showed that the cid did not change. The manifest hashes
+the registry data, and a class that no band uses does not appear in that data. The real
 cost was four match arms in one file. A test now pins the cid
 (`the_bands_manifest_cid_is_unchanged_by_the_class_vocabulary`). If a
 future class does move it, that is a wire change, and the test shows
@@ -393,7 +395,7 @@ it.
 
 The class still needs one thing. A band that declares it must give its
 estimator id, its input fact cids and its seed. Without these, it is
-`model_output` with a different name. dpwotikn offered to design the
+`model_output` with a different name. `dpwotikn` offered to design the
 structure that carries these three fields. That structure is the only
 work left before a band can use the class.
 
