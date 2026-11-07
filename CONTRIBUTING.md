@@ -39,8 +39,17 @@ delete it. Do not leave a placeholder. An empty result must tell
 
 **Receipts must round-trip.** Any change to a primitive's response, signing
 preimage, or fact-CBOR layout must keep `verify_receipt` green against
-old receipts. Run `cargo test -p emem-fact` and replay a receipt from
-`var/demos/` before you open the PR.
+old receipts. Before you open the PR, run `cargo test -p emem-fact`.
+Then check a saved response from `var/demos/` with the offline verifier:
+
+```bash
+python3 plugins/emem/skills/emem-verify-receipt/scripts/verify.py \
+  var/demos/<UTC>/<step>.resp.json
+```
+
+It prints `VALID` and exits 0, or prints `INVALID` and exits 1. Exit 3
+means the receipt has a segment the script does not rebuild. Then use
+`POST /v1/verify_receipt`.
 
 **Open licences, open data.** Every dependency stays MIT, Apache-2.0, BSD
 or ISC. No CI job checks licences, so check a new dependency yourself.
