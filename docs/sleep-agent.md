@@ -130,8 +130,10 @@ URL or model counts as not set. If `OPENAI_API_KEY` and
 This is also true when `OPENAI_API_KEY` is empty. Then the agent does not
 read `EMEM_SLEEP_AGENT_LLM_API_KEY`, and it runs without an LLM.
 
-The transport sends a standard `messages` body and reads
-`choices[0].message.content`. The agent estimates the cost from the `usage`
+The transport sends a `POST` with the key as a bearer token. The body has
+the model, a system message, a user message and `temperature: 0.2`. The
+transport reads `choices[0].message.content` and trims it. A status that
+is not a success, or empty text, is an error. The agent estimates the cost from the `usage`
 token counts that the model returns. `llm.rs` sets a fixed rate: USD 0.50
 for each million prompt tokens and USD 1.50 for each million completion
 tokens. Only the budget cap uses this estimate. It never changes the text.
@@ -145,15 +147,18 @@ export EMEM_SLEEP_AGENT_USE_ASK=1
 The agent also accepts `true`, in any letter case.
 
 The agent sends the merge prompt to the `/v1/ask` endpoint of the
-responder. The operator's responder configuration then chooses the model,
+responder that it reads notes from. The body is `{"question": ...}`, with
+the system text and the user text joined by a blank line. `/v1/ask`
+accepts `question` as another name for `q`. The operator's responder configuration then chooses the model,
 and you do not need a separate key. The agent records the cost as 0.0,
 because the responder does its own metering.
 
 `/v1/ask` answers questions about places. Nobody designed it to rewrite
 notes. The transport uses the `answer` text as the merge. When the response
 has no `answer` field, the transport uses the `summary` text. When it gets
-no text, the transport refuses and the candidate gets no merge. An empty
-`answer` string also gives a refusal, even when `summary` has text.
+no text, the transport refuses, and the pass stops (see
+[When a call fails](#when-a-call-fails)). An `answer` string that is empty
+or only spaces also gives a refusal, even when `summary` has text.
 
 On 7 November 2026, emem.dev did not answer a merge request. We sent
 `POST /v1/ask` with a two-note merge question. The response had
@@ -200,6 +205,25 @@ cap. When the spend is equal to or more than the cap, the pass stops and
 adds a note to the summary. The next pass selects candidates again. The
 check happens before the call, so the last call of a pass can take the
 spend above the cap.
+
+## When a call fails
+
+One failed LLM call or one refused write stops the whole pass
+(`run_pass` in `lib.rs` returns the error with `?`). The agent does not
+skip to the next candidate.
+
+- Merges that the pass wrote before the error stay written.
+- The agent prints the error, not the `PassSummary`. The message starts
+  with `LLM transport error:` or `responder transport error:`.
+- A single pass then exits with code 1.
+- In loop mode, the next pass selects the same candidates in the same
+  order. If the first candidate fails each time, no later candidate gets
+  a merge.
+
+A responder that refuses unattested writes, such as emem.dev, refuses the
+write of the first candidate (see the note at the top of this page). With
+a paid LLM route, each pass then pays for one model call and writes
+nothing.
 
 ## Old versions stay readable
 
