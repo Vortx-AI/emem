@@ -10,9 +10,9 @@ responder signs them. Above the substrate are the agents. They read,
 cite, write and stream memory with the same ed25519 receipts as every
 other primitive.
 
-This page is the wire reference. The agents guide ([agents.md](agents.md))
-covers the read-side rosetta; this document covers everything the agent
-puts back.
+This page is the wire reference for what an agent writes back. The
+[agents guide](agents.md) covers reads. It also maps the terms of other
+memory libraries, such as mem0, Letta and LangGraph, to emem endpoints.
 
 ## Write your first signed note
 
@@ -283,7 +283,8 @@ manifest, so old vectors still recall and verify. The responder makes no
 new vectors. On a cell with no stored vector, `view=encoder` returns 404.
 The 404 names the retirement and points to `view="cube"`.
 
-The pre-rename prefixes `memt:`, `memb:`, and `meme:` still resolve.
+Tokens with the old prefixes still resolve. The server reads `memt:` as
+`emem:fact:`, `memb:` as `emem:bundle:` and `meme:` as `emem:entity:`.
 
 ## The kinds
 
@@ -297,8 +298,8 @@ gets the shape of the Anthropic memory tool.
 | `semantic` | Durable learned facts. "Mato Grosso has tropical climate." | infinite |
 | `procedural` | Playbooks, how-to notes. "When user asks flood risk, call /v1/water + /v1/elevation." | infinite |
 | `resource` | Generic durable scratchpad. The default Anthropic memory-tool target. | 90 days |
-| `vault` | An AEAD-sealed entry, stored encrypted in its own tree and never indexed by search or the contradiction scan. | infinite |
-| `core` | A persona block, listed first by `emem_memory_view`. Parsed by the server but not in the tool schemas' `kind` enum. | infinite |
+| `vault` | An AEAD-sealed entry, stored encrypted in its own tree and never indexed by search or the contradiction scan. Of the memory tools, only `emem_memory_create` lists it in its `kind` enum. | infinite |
+| `core` | A persona block, listed first by `emem_memory_view`. | infinite |
 
 A `vault` entry reads back as ciphertext unless the caller sends a
 `vault_capability`. This is an ed25519 signature over
