@@ -66,9 +66,12 @@ cameras, and the live-frame call took 2.9 s.
 On 7 November 2026 at 01:34 UTC, the call above took 1.1 s. It counted
 7 cars, 11 people, 1 bus and 1 truck, from a camera 184 m away.
 The perception routes have a 120 s time limit (`EMEM_PERCEPTION_TIMEOUT_S`,
-clamped to 40..600). Most other routes have a 40 s limit. Past the limit, the
-server returns a typed 504. The limit is high because clip detection runs on a
-shared GPU, and a busy GPU can make a call slow.
+clamped to 40..600). Most other routes have a 40 s limit (`EMEM_TIMEOUT_SECS`).
+Past the limit, the server returns a typed 504. The limit is high because clip
+detection runs on a shared GPU, and a busy GPU can make a call slow.
+The same variable also sets how long the server waits for the perception
+service, clamped to 5..600. Thus a value below 40 stops the wait first. Then
+the server returns a 502 with "the perception service did not answer".
 
 The response names the camera that it used and the distance to that camera. It
 also says why the server chose that camera. A count from a camera 300 m away is
