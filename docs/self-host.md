@@ -207,18 +207,19 @@ Each default below comes from the code on 7 November 2026.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `EMEM_DISABLE_LANCE` | unset | `1` makes `find_similar` and memory search use a full scan. |
+| `EMEM_DISABLE_LANCE` | unset | `1` or `true` makes `find_similar` and memory search use a full scan. |
 | `EMEM_SSE_MAX_SUBS` | `256` | The maximum number of subscribers on `/v1/memory/sse`. More get HTTP 503. |
 | `EMEM_MEMORY_SEARCH_POLL_SECS` | `60` | How often the search indexer looks for new notes. |
 | `EMEM_MEMORY_SEARCH_MODEL_DIR` | `$EMEM_DATA/models/bge-base-en-v1.5` | The BGE model for memory search. `EMEM_TOPIC_MODEL_DIR` also works. |
-| `EMEM_MEMORY_TTL_ENABLED` | unset | `1` starts the TTL pass. |
+| `EMEM_MEMORY_TTL_ENABLED` | unset | `1` starts the TTL pass. Each value other than empty, `0`, `false` or `no` also starts it. |
 | `EMEM_MEMORY_TTL_INTERVAL_SECS` | `3600` | How often the TTL pass runs. |
 | `EMEM_MEMORY_TTL_RESOURCE_DAYS` | `90` | The TTL of a `resource` note. `0` means no expiry. |
 | `EMEM_MEMORY_TTL_EPISODIC_DAYS` | `30` | The TTL of an `episodic` note. |
 | `EMEM_MEMORY_TTL_SEMANTIC_DAYS` | `0` | The TTL of a `semantic` note. |
 | `EMEM_MEMORY_TTL_PROCEDURAL_DAYS` | `0` | The TTL of a `procedural` note. |
 | `EMEM_MEMORY_TTL_CORE_DAYS` | `0` | The TTL of a `core` note. |
-| `EMEM_MEMORY_CONSOLIDATION_ENABLED` | unset | `1` starts the daily combine pass, which merges old episodic notes into one note. |
+| `EMEM_MEMORY_TTL_VAULT_DAYS` | `0` | The TTL of a `vault` note. |
+| `EMEM_MEMORY_CONSOLIDATION_ENABLED` | unset | `1` starts the daily combine pass, which merges old episodic notes into one note. It accepts the same values as `EMEM_MEMORY_TTL_ENABLED`. |
 | `EMEM_MEMORY_CONSOLIDATION_INTERVAL_SECS` | `86400` | How often the combine pass runs. |
 | `EMEM_MEMORY_CONSOLIDATION_MIN_FILES` | `50` | The minimum number of episodic notes in one folder before the combine pass runs. |
 | `EMEM_MEMORY_CONSOLIDATION_MIN_AGE_DAYS` | `7` | The combine pass skips notes newer than this. |
@@ -227,7 +228,7 @@ Each default below comes from the code on 7 November 2026.
 | `EMEM_RECALL_EDGES_PER_FACT` | `32` | The maximum edges per fact for `recall` with `include:["edges"]`. |
 | `EMEM_RECALL_EDGES_TOTAL_CAP` | `256` | The maximum edges in total for `recall` with `include:["edges"]`. |
 
-The TTL pass and the combine pass are off by default. You can run each of them again with the same result. The TTL pass
+The four edge variables accept values from 1 to 1000000. The TTL pass and the combine pass are off by default. You can run each of them again with the same result. The TTL pass
 moves an expired path from `emem.memory_files` to `emem.memory_files_expired`. It does not delete the note bytes,
 which stay in `emem.memory_file_blobs`. The combine pass writes one `semantic` note at `.consolidated/<unix_ts>.md`. It
 marks each source note with `superseded_by`. Memory search needs the BGE model; without it, `/v1/memory/search`
