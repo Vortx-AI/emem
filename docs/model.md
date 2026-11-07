@@ -129,7 +129,7 @@ O = (a, b, t, v, u, p, s)
 
 | Element | Meaning | Wire mechanism |
 |---|---|---|
-| `a` | address | cell64, a 64-bit canonical cell (about 9.55 m at the equator); the code fixes antimeridian and pole handling |
+| `a` | address | cell64, a 64-bit canonical cell. At the equator each side is about 9.55 m. Away from the equator, the east-west side is shorter. The codec defines the antimeridian and pole cases |
 | `b` | band | typed channel from the content-addressed bands manifest (`bands_cid`) |
 | `t` | valid time | `tslot`, relative to the tempo of the band; paired with the transaction time `signed_at` inside `p` |
 | `v` | value | scalar or vector, with `unit`, encoded as canonical CBOR |
@@ -225,12 +225,12 @@ and the provenance class carry the epistemic status.
 
 ### Operations
 
-Each operation below exists on the wire. Together they are an algebra:
-applications compute over the memory, and they also read from it.
+Each operation below exists on the wire. With them, an application can
+read the memory and also compute over it.
 
 | Operation | Endpoint or mechanism that ships |
 |---|---|
-| `recall(M, a, t)` | `POST /v1/recall` with `as_of_tslot` or `as_of_signed_at`; `deterministic` or `provenance` filters the result by provenance |
+| `recall(M, a, t)` | `POST /v1/recall` with `as_of_tslot` or `as_of_signed_at`; `deterministic` or `provenance` keeps only the facts of the given provenance classes |
 | `diff(M, a, b, t1, t2)` | `POST /v1/diff` (one band, two times); `/v1/state_diff` (embedding delta); `/v1/temporal_route` (ranked by staleness) |
 | `merge(O1..On)` | `POST /v1/memory_bundle`: one signed envelope, one name to cite for the set |
 | `verify(O)` | `POST /v1/verify_receipt`, or offline from the receipt bytes |
