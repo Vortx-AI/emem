@@ -2075,6 +2075,7 @@ segment. It signs no other field of the request or the answer:
 | `lat` and `lng` | Two points in the same cell (about 10 m) get the same receipt. | Keep the original coordinates if the sub-cell position matters. |
 | `bands`, `tslot`, `intent` | The receipt does not show that the facts answer your question. | Check the band and tslot of each fact yourself. |
 | The values | A responder can print `value: 0.99` next to a `fact_cid` whose body holds `0.059`, and the receipt still verifies. | The cid commits to the value. Check it with the next script. |
+| `cost`, `intent`, `responder_key_epoch`, and the top-level `registry_cid` and `schema_cid` of the receipt | A relay can change them, and the receipt still verifies. | Do not use them as evidence. Read the registry and schema ids from `source_versions`, which the manifest digest signs. |
 
 ### Check a value against its content id
 
