@@ -5,12 +5,13 @@ This page takes you from nothing to a signed answer that you check yourself. Rea
 ## What you need
 
 - `curl` and `jq` for the REST examples.
-- Python 3.9 or later for the SDK examples. TypeScript, Go and Rust examples are also on this page.
+- Python 3.9 or later for the SDK examples.
+- Optional: Node 24, Go 1.18 or later, or Rust with `cargo`, for the TypeScript, Go and Rust examples.
 - A key only for the one write example. The page marks it.
 
 ## What you get
 
-- The elevation at one 10 m cell on Mount Fuji, as a signed fact.
+- The elevation at one cell on Mount Fuji, as a signed fact. A cell is about 10 m on each side.
 - A receipt that you check in your own process, with no call to emem.dev.
 - A token that gives the same signed fact to another agent.
 
