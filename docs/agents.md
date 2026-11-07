@@ -88,6 +88,7 @@ so an extended tool also works on `/mcp`.
 | [Check your draft before you send it](#job-check-your-draft-before-you-send-it) | `emem_guard_verdict` | `POST /v1/guard/verdict` | core | no |
 | [Find the shared identity of an object](#job-find-the-shared-identity-of-an-object) | `emem_entity_resolve` | `POST /v1/entity/resolve` | core | no |
 | [Give an object a shared identity](#job-give-an-object-a-shared-identity) | `emem_entity` | `POST /v1/entity` | core | yes, tier T3 |
+| [Bind one more name to an identity](#job-bind-one-more-name-to-an-identity) | `emem_entity_link` | `POST /v1/entity/alias` | core | yes, tier T3 |
 | [Find places that look alike](#job-find-places-that-look-alike) | `emem_find_similar` | `POST /v1/find_similar` | core | no |
 | [Compare two places](#job-compare-two-places) | `emem_compare` | `POST /v1/compare` | extended | no |
 | [Read conclusions that other agents signed at a place](#job-read-conclusions-that-other-agents-signed-at-a-place) | `emem_inferences` | `POST /v1/inferences` | extended | no |
@@ -620,8 +621,8 @@ lists each tier and the check that gets a key to it. Anchor the object with
 `place`, `cell`, or `lat` and `lng`. When the responder knows a stable
 external id (`gers`, `osm` or `wikidata` in `external_ids`), that id decides
 the identity. Thus two labels for one object give the same `entity_cid`. To
-bind one more label to an identity that exists, use `emem_entity_link`. It
-is also a write to the shared space.
+bind one more label to an identity that exists, see
+[Bind one more name to an identity](#job-bind-one-more-name-to-an-identity).
 
 A signed mint returns `created`, `entity_token`, `entity` and `receipt`.
 Give `entity_token` (`emem:entity:<entity_cid>`) to other agents. A new mint
@@ -630,6 +631,33 @@ anchors the identity, or `weak` when only the label does. A mint of an
 identity that exists stores nothing new. It returns `created: false` and
 the stored record. These fields come from `post_entity` in
 `crates/emem-api-rest/src/lib.rs`. We did not send a signed mint.
+
+### Job: bind one more name to an identity
+
+This is a write to the shared identity space. It needs a key at tier
+`T3_declared`, the same as a mint. The REST path is `/v1/entity/alias`, not
+`/v1/entity/link`.
+
+```json
+{"name": "emem_entity_link", "arguments": {"entity_token": "emem:entity:<entity_cid>", "alias": "Fujisan"}}
+```
+
+```bash
+curl -s -X POST https://emem.dev/v1/entity/alias \
+  -H 'content-type: application/json' \
+  -d '{"entity_token":"emem:entity:<entity_cid>","alias":"Fujisan"}'
+```
+
+Give `entity_cid` or `entity_token`. Give `alias`, `external_ids` (`gers`,
+`osm`, `wikidata`), or both. `stance` is `asserts` (the default) or
+`disputes`. A dispute goes beside the binding it answers and deletes
+nothing. The signature check runs before the responder reads the body. So an
+unsigned call gets the same refusal as an unsigned mint, with the digest in
+`details.how_to_sign`. A signed link to an unknown `entity_cid` returns 404
+`cid_not_found`. A signed link returns `ok`, `stance`, `entity_cid`,
+`entity_token`, `aliases_added`, `asserted_by` and `receipt`. These fields
+come from `post_entity_alias` in `crates/emem-api-rest/src/lib.rs`. We did not
+send this call on 7 November 2026.
 
 ### Job: find places that look alike
 
