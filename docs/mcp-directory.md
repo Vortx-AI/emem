@@ -16,8 +16,8 @@ The counts and sizes come from emem.dev on 7 November 2026.
 
 ## Description
 
-emem is shared, verifiable memory for AI agents. It gives each thing one identity that every agent resolves
-the same way. Two agents that use different words then refer to the same object.
+emem gives AI agents a memory that they share and can verify. It gives each thing one identity that every
+agent resolves the same way. Two agents that use different words then refer to the same object.
 
 - A place resolves to one canonical address, the `cell64`.
 - An observation becomes one signed fact, with a `fact_cid`.
@@ -131,12 +131,12 @@ dispatch. Only the size of the `tools/list` answer changes.
 
 An MCP host loads every listed descriptor into the model context when it connects. That is why `/mcp`
 lists the core tools in a single page (about 75 KB). With the whole catalog, the full 116 cost about 346 KB
-of every conversation, also of conversations that do not use Earth observation.
+in every conversation. That includes conversations that do not use Earth observation.
 
 An explicit `{"tier":"core"|"extended"|"all"}` parameter overrides the endpoint default. For example, `/mcp`
 with `{"tier":"all"}` lists all 116 tools, over several pages.
 
-### Call a tool that is not listed
+### Call a tool that the list leaves out
 
 The tier only changes the list. `tools/call` ignores the tier at both endpoints, so you can call each of the
 116 tools by name from `/mcp`. Three tools help you find the rest:
