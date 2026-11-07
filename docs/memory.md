@@ -1034,6 +1034,13 @@ curl -s -X POST https://emem.dev/v1/recall \
 
 The response held one fact, signed on 28 September 2026, with value 4.9.
 Without the filter, the same cell held newer PM2.5 facts from October.
+
+Under a filter, `current_by_band` names the newest fact inside the
+bound, not the newest fact today. The responder computes it from the
+facts that the filter keeps (`recall.rs`). In this read, it named the
+28 September fact. Without the filter, it named a fact signed at
+08:16 UTC on 7 November 2026.
+
 The receipt carries the bound:
 
 ```json
@@ -1047,9 +1054,11 @@ byte for byte.
 
 With `"as_of_signed_at":"2026-09-01T00:00:00Z"` the same read returned
 no facts and a 200 status. The `temporal_advice` block
-explains the empty answer. At 03:20 UTC on 7 November 2026, it said
-that the cell held 369 facts and that the bound removed all of them. This count grows as the
-cell gets new facts.
+explains the empty answer. At 08:49 UTC on 7 November 2026, it said
+that the cell held 372 facts and that the bound removed all of them.
+This count grows as the cell gets new facts. The response also had a
+`materialize_notes` entry with `reason: as_of_signed_at_in_the_past`,
+because the responder did not fetch new data for this read.
 
 ### Errors and edge cases
 
