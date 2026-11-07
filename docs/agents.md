@@ -1358,9 +1358,13 @@ and [protocol.md](protocol.md).
 
 ## Algorithms
 
-The algorithm registry holds standard agronomic and hydrological indices,
-for example NDVI, NBR, NDWI, walkability, heat index and RUSLE. On
-7 November 2026, 8 entries had a `parameters` block of named numbers. For
+The algorithm registry holds recipes that combine signed bands into
+agronomic and hydrological scores. Examples are `vegetation_class_from_ndvi@1`,
+`burn_severity_from_dnbr@1`, `walkability_score@1`, `heat_index@2` and
+`rusle_soil_erosion@1`. On 7 November 2026 it held 172 recipes. The list
+returns 20 per page by default. Send `?page=N&page_size=100` and follow `pagination.next_url`.
+
+On the same day, 8 entries had a `parameters` block of named numbers. For
 each parameter, `learned_from` gives `value`, `rationale` and `basis`
 (`literature` or `operational_default`).
 
@@ -1393,9 +1397,11 @@ here. The facts that they signed still recall and verify.
 Tessera (`geotessera`, 128-D, annual) came from `dl2.geotessera.org` as an
 upstream fact. emem did not run it in-process. emem.dev also retires this
 band through `EMEM_RETIRED_BANDS`. Stored vectors still recall and verify,
-but the responder fetches no new vectors. Thus each recipe over Tessera
-reports `here.status: stored_only`. A node that serves the band reports
-`runs`.
+but the responder fetches no new vectors. On 7 November 2026, 26 recipes
+read a `geotessera` band. 23 reported `here.status: stored_only`. 3 reported
+`cannot_run`: two need reference vectors that no file on emem.dev holds, and
+`clay_prithvi_tessera_triple_consensus@1` needs a route that is gone. A node
+that serves the band reports `runs` for the 23.
 
 ---
 
