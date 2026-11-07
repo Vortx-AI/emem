@@ -217,6 +217,11 @@ The workflow installs the `mcp-publisher` CLI and runs `mcp-publisher publish` a
 from `server.json`, so bump it there before you tag. On 7 November 2026 the registry listed 2.4.4 as the
 latest version, published on 18 October 2026.
 
+The registry also publishes the free text in `server.json`. Check that text before you tag. On 7 November
+2026 its `x-emem.directoryCompliance.toolListing` note gave older sizes: about 64 KB for `/mcp`, and 7 pages
+and about 290 KB for `/mcp/full`. emem.dev measured 75 KiB, 9 pages and 346 KiB on the same day. The tool
+counts in the note (18 and 116) were correct.
+
 The directory at `https://github.com/mcp` reads the official registry on its own schedule. A new version
 can take minutes or hours to show there.
 
