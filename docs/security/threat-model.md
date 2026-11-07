@@ -38,8 +38,8 @@ The sections below give the details and the tests for each row.
   apply" to keys that nobody had enrolled. The attester registry only counted
   keys. `/v1/enlist` said that no caller could write a fact by any route,
   which was false.
-- Now: storage closes the plane by default. It admits three kinds of key: the responder
-  key, a trace-enrolled device with its trace, and a key in
+- Now: storage closes the plane by default. It admits three kinds of key:
+  the responder key, a trace-enrolled device with its trace, and a key in
   `EMEM_FACT_PLANE_WRITERS`. It refuses all others with 403 `level_too_low`,
   on every route. `EMEM_FACT_PLANE_OPEN=1` opens the plane on purpose, and the
   server logs this at boot.
@@ -115,7 +115,7 @@ The sections below give the details and the tests for each row.
 - `emem_entity_resolve("Trafalgar Square")` returned 3 distinct objects,
   `contested: true`, none attributed. That was the state before the fix.
   A reader now sees it, and the server does not silently pick the first
-  append. On 7 November 2026 (03:05 UTC) `POST /v1/entity/resolve` with
+  append. On 7 November 2026 (07:30 UTC) `POST /v1/entity/resolve` with
   `{"text":"Trafalgar Square"}` still returned 3 candidates,
   `contested: true`, each with `independent_attesters: 0`.
 - Before the fix, the redb `put_batch` wrote the canonical index with no
@@ -146,8 +146,9 @@ The sections below give the details and the tests for each row.
 - T3 means "callable at a declared endpoint". One such key is still one
   vote in the shared space. A count of independent keys raises the cost of an
   attack from one key to N endpoints. It does not make the cost infinite.
-  T4 and T5 are the real limit. On 7 November 2026 the server computed T4 on
-  demand and did not compute T5 (`/v1/enlist` says so).
+  T4 and T5 are the real limit. On 7 November 2026 (07:30 UTC) the server computed T4 on
+  demand and did not compute T5. In `GET /v1/enlist`, the field
+  `computed_here.T5_corroborated` is `false`.
 - The boot panic (`PathAndQuery::from_static`, right after the ACME
   cached-cert event) did not have a backtrace. The production unit
   (`deploy/systemd/emem-server.service`) runs the server in a container. It

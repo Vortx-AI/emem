@@ -2629,8 +2629,8 @@ On 6 November 2026 these steps passed against emem.dev. The STH had
 That entry was leaf 2,463,431, with an audit path of 22 hashes. Its
 1,235 CBOR bytes hashed to the entry hash, and its `batch_root` was the
 receipt's Merkle root. On 7 November 2026 the same steps passed again
-for the same entry, at `tree_size` 3,243,767, and at 02:19 UTC at
-`tree_size` 3,245,735.
+for the same entry at three sizes: 3,243,767, 3,245,735 (02:19 UTC) and
+3,247,662 (07:27 UTC).
 
 The Claude Code plugin ships a verifier for steps 2, 3 and 6. It needs
 no packages. It does step 5 only when the response has no
@@ -2736,6 +2736,7 @@ stop with "old root differs". The plugin command
 STH signatures. It gave VALID for the same three files. At 02:19 UTC
 both scripts passed again, from a head kept at 3,245,579 to 3,245,735,
 with a proof of 15 hashes.
+At 07:27 UTC both passed from 3,247,646 to 3,247,662, with 13 hashes.
 
 #### 9.6.2 Witnesses, and what they do not prove
 
@@ -2838,11 +2839,17 @@ for w in json.load(open(sys.argv[1]))["witnesses"]:
 ```
 
 For step 4, put one row in the shape of an STH answer. Then get a new
-STH and a consistency proof from the row's size to the new size:
+STH and a consistency proof from the row's size to the new size. The
+commands below use the first `org_vouched` row, because step 5 is about
+that row. Do not use the first row of the list. It is often the
+`self_operator` row for the current head, and then the two sizes are
+equal. Each row has `entries_behind_current`. When it is 0, the sizes
+are equal and `check_consistency.py` stops at `assert 0 < m < n`. Then
+compare the row's `root_b32` with the STH `root_b32`. They must be equal.
 
 ```sh
 python3 check_witness.py witnesses.json
-jq '{sth: .witnesses[0]}' witnesses.json > old.json
+jq '{sth: (.witnesses | map(select(.tier == "org_vouched")) | .[0])}' witnesses.json > old.json
 curl -s https://emem.dev/v1/log/sth > new.json
 curl -s 'https://emem.dev/v1/log/consistency?first=<old size>&second=<new size>' > cons.json
 python3 check_consistency.py old.json new.json cons.json
@@ -2861,6 +2868,13 @@ proof from 3,245,195 to the STH at 3,245,579 gave CONSISTENT. The
 eudr.dev document lists it with role `transparency_log_witness`. Its
 `organisation.legal_name` is `VORTX AI PRIVATE LIMITED`. The emem
 repository is in the `Vortx-AI` GitHub organisation.
+
+At 07:27 UTC the steps passed again. Five rows were VALID: three
+`self_operator`, one `org_vouched` and one `key_only`. The first row
+was the `self_operator` row for the current head, 3,247,662. The
+`org_vouched` row was at 3,247,643, 19 entries behind. Its consistency
+proof to 3,247,662 gave CONSISTENT. The eudr.dev document still listed
+the key with the same role and `legal_name`.
 
 #### 9.6.3 Memory writes in the log
 
