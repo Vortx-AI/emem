@@ -328,10 +328,22 @@ For the container, use `docker logs -f emem`.
 
 ### Big area queries
 
-`/v1/query_region` takes at most 4096 cells, as a `bbox:` or a `cells:` list, and returns at most 65,536 facts. At a
-cell pitch of about 10 m, 4096 cells cover about 6.4 km by 6.4 km at the equator. For a bigger area, get the cells
-in pages from `/v1/cells_in_bbox` (4096 cells per page at most). Then send each page to `/v1/recall_many` (256 cells
-per call at most) with a `budget_ms`.
+`/v1/query_region` reads stored facts only. It does not fetch from upstreams. It returns at most 65,536 facts. The
+area that one call covers depends on the request field:
+
+| Field | Cells | Area |
+|---|---|---|
+| `bbox`, an array `[west, south, east, north]` | A sample. By default, 64 to 1024 cells, from the area. `max_cells` sets 1 to 1024. | Any size |
+| `geometry: "bbox:..."` | Every cell in the box, 4096 at most | About 0.55 km by 0.55 km |
+| `geometry: "cells:..."` | The listed cells, 4096 at most | The listed cells |
+
+The cell pitch is about 9.55 m. On 7 November 2026, emem.dev accepted a `bbox:` geometry of 0.005 degrees on each
+side near Tokyo. It refused 0.0058 degrees with `invalid_cell`. That error text says the cap covers 6.4 km. That
+figure is wrong: 4096 cells form a square of 64 by 64 cells.
+
+To read every cell of a bigger area, get the cells in pages from `/v1/cells_in_bbox` (4096 cells per page at most).
+Then send each page to `/v1/recall_many` (256 cells per call at most) with a `budget_ms`. `/v1/recall_many` fetches a
+missing band from its upstream.
 
 ### The topic router
 
@@ -397,11 +409,9 @@ curl -sS http://127.0.0.1:5051/v1/coverage_matrix | jq '.bands[] | select(.band=
 
 ### The node refuses an attestation
 
-Search the log for the reason:
-
-```bash
-journalctl --user -u emem-server | grep AttestationInvalid
-```
+The node does not log the reason. It returns the reason to the client. In most cases the answer is HTTP 422 with
+code `bad_signature` and a message that starts with `attestation verification failed:`. A subject outside every
+address space gives HTTP 400 with code `unaddressable_subject`.
 
 The usual causes are leaves in the wrong order before the Merkle root, or a signature over the wrong preimage.
 `crates/emem-fact/tests/round_trip.rs` tests both. Reproduce the problem there first.
@@ -432,7 +442,7 @@ limit. Use `EMEM_TLS_STAGING=1` while you test.
 | Risk | What reduces it now |
 |---|---|
 | A build removes the file permission | `scripts/redeploy.sh` applies `setcap` again. A system unit can use `AmbientCapabilities=`. |
-| WorldPop takes 2 to 4 seconds per cell | The cap on `/v1/query_region` limits how many cells one call reads. |
+| A slow upstream, such as the WorldPop Stats API, holds a large recall open | `/v1/recall_many` takes 256 cells at most. `budget_ms` returns the cells that are ready. `EMEM_MATERIALIZE_PER_MIN` caps upstream reads. |
 | DMSP-OLS stops at 2013 | The dataset ends there. `/v1/data_availability` says so. |
 | A topic model load takes more than 90 seconds | The node starts anyway. Run `scripts/install-topic-model.sh` before the first start. |
 
