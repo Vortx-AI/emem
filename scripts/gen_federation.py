@@ -22,8 +22,8 @@ f_sub = c.font(FONT_MONO, 12)
 f_lab = c.font(FONT_MONO, 11)
 f_tiny = c.font(FONT_MONO, 10)
 
-c.text(56, 50, "One memory, many responders", f_title, INK)
-c.text(58, 86, "every node signs under its own key · every node resolves the same id", f_sub, INK_SOFT)
+c.text(84, 50, "One memory, many responders", f_title, INK)
+c.text(86, 86, "every node signs under its own key · every node resolves the same id", f_sub, INK_SOFT)
 
 # ---- responder ring
 N = 8
@@ -113,7 +113,7 @@ c.text(CX - R - 116, CY - 150 + 30, "verifies offline", f_tiny, INK_SOFT, center
 
 # ---- legend
 ly = H - 64
-lx = 70
+lx = 96
 c.circle(lx, ly, 8, outline=INK, fill=INDIGO, w=1.4); c.seal(lx + 7, ly - 7, 4.6)
 c.text(lx + 18, ly - 7, "responder (its own key)", f_lab, INK); lx += 18 + c.textw("responder (its own key)", f_lab) + 30
 c.line((lx, ly), (lx + 26, ly), LEAF, 1.4); c.text(lx + 32, ly - 7, "resolves same id", f_lab, INK); lx += 32 + c.textw("resolves same id", f_lab) + 28
