@@ -34,8 +34,11 @@ Do not use colour as the only signal. Write the word too, for example `valid` or
 ## Type
 
 - Sans text: DejaVu Sans, then `system-ui`. Code, ids and routes: DejaVu Sans Mono, then `ui-monospace`.
-- Films are 1080 px wide. The smallest text is 22 px, and body text is 32 px or more. Then the text is
-  readable on a phone screen of 360 px.
+- A phone shows a 1080 px image at about 360 px, so all text becomes one third of its size.
+- Films are 1080 px wide. Body text is 32 px or more, which is about 11 px on a phone. The foot line is
+  22 px, which is about 7 px on a phone. The page text next to the film must repeat what the foot line says.
+- Stills are laid out at 800 px and rendered at 1080 / 800 scale. Then the smallest text, 22 px in the
+  layout, is about 10 px on a phone. The heading is about 20 px.
 - Diagrams in SVG keep the smallest text at 13 px in a 640 px view box.
 
 ## Layout
@@ -55,7 +58,8 @@ Do not use colour as the only signal. Write the word too, for example `valid` or
 
 ## Stills
 
-- A still is 1080 px wide and 300 KB or less, in WebP. It uses the same colours, type and cards as a film.
+- A still is 1080 px wide and 300 KB or less, in WebP. Before you commit it, scale it to 360 px wide and
+  read every line. It uses the same colours, type and cards as a film.
 - Draw a still from saved live responses, not from typed values. Keep the responses and the script in
   [stills/src/](stills/src/), so anyone can draw it again. The script checks that the values agree, for example
   that the scene id in the image headers equals the scene id in the series row.

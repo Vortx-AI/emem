@@ -75,7 +75,7 @@ bad_root = vl.root_from_inclusion(leaf, m, n, bad_path)
 assert bad_root is not None and bad_root != root
 bad_root_b32 = base64.b32encode(bad_root).decode().lower().rstrip("=")
 
-W = 1080
+W = 800  # CSS px; rendered at 1080/W so the text stays readable on a 360 px phone
 
 
 def hm(t):
@@ -84,7 +84,9 @@ def hm(t):
 
 def ladder():
     """One row per path hash, hash 1 at the bottom. Bar length is log2 of the entries it covers."""
-    cw, cx, top, row, maxb = 1000, 500, 50, 27, 400
+    cw, top, row = W - 130, 50, 27
+    cx = cw // 2
+    maxb = cx - 30
     ch = top + row * len(sib) + 60
     g = [f'<text x="{cx}" y="30" class="ax" text-anchor="middle" style="fill:#e6edf3">root</text>']
     big = max(b - a for a, b in sib).bit_length()
@@ -119,7 +121,8 @@ h1{{font-size:44px;line-height:1.2;margin:0 0 10px}}
 .ax{{fill:#8b949e;font:22px "DejaVu Sans",system-ui,sans-serif}}
 .key{{color:#8b949e;font-size:23px;margin-top:6px}}
 .cards{{display:flex;gap:18px;margin-top:14px;align-items:stretch}}
-.card{{background:#0d1117;border:1px solid #30363d;border-radius:10px;padding:14px 18px;flex:1}}
+.card{{background:#0d1117;border:1px solid #30363d;border-radius:10px;padding:14px 18px;flex:1;min-width:0}}
+.card .mono.val{{white-space:nowrap;overflow:hidden;text-overflow:clip}}
 .lab{{color:#8b949e;font-size:22px;margin:0 0 4px}}
 .arrow{{align-self:center;color:#8b949e;font-size:34px}}
 .ok{{color:#7ee787}} .bad{{color:#ff7b72}} .sig{{color:#d2a8ff}} .id{{color:#79c0ff}}
@@ -136,14 +139,14 @@ h1{{font-size:44px;line-height:1.2;margin:0 0 10px}}
 <div class="key">Each bar is one hash in the proof. It stands for a block of entries to the left or right of the
 path. Bar length is on a log scale. Hash the fact up through all {len(path)} and you get the root.</div>
 <div class="cards">
-<div class="card"><div class="lab">root you compute</div><div class="mono id val">{sth1['root_b32'][:16]}…</div>
+<div class="card"><div class="lab">root you compute</div><div class="mono id val">{sth1['root_b32'][:8]}…</div>
 <div class="lab" style="margin-top:8px">inclusion</div><div class="mono ok val">valid</div></div>
 <div class="card"><div class="lab">signed tree head, {hm(sth1['signed_at'])} UTC</div>
 <div class="val">size <span class="mono">{n:,}</span></div>
 <div class="lab" style="margin-top:8px">Ed25519 by <span class="mono sig">{sth1['responder_pubkey_b32'][:8]}…</span></div>
 <div class="mono ok val">valid</div></div>
 <div class="card"><div class="lab">change 1 character in hash {bad_i + 1} (red bar)</div>
-<div class="mono bad val">{bad_root_b32[:16]}…</div>
+<div class="mono bad val">{bad_root_b32[:8]}…</div>
 <div class="lab" style="margin-top:8px">inclusion</div><div class="mono bad val">invalid</div></div>
 </div></div>
 
@@ -152,14 +155,14 @@ path. Bar length is on a log scale. Hash the fact up through all {len(path)} and
 <div class="cards">
 <div class="card"><div class="lab">head you pinned, {hm(sth0['sth']['signed_at'])} UTC</div>
 <div class="val">size <span class="mono">{int(sth0['sth']['tree_size']):,}</span></div>
-<div class="mono id val">{sth0['sth']['root_b32'][:16]}…</div></div>
+<div class="mono id val">{sth0['sth']['root_b32'][:8]}…</div></div>
 <div class="arrow">→</div>
 <div class="card" style="flex:.8"><div class="lab">consistency proof</div><div class="val">{len(proof)} hashes</div>
 <div class="mono ok val">valid</div></div>
 <div class="arrow">→</div>
 <div class="card"><div class="lab">later head, {hm(sth1['signed_at'])} UTC</div>
 <div class="val">size <span class="mono">{n:,}</span></div>
-<div class="mono id val">{sth1['root_b32'][:16]}…</div></div>
+<div class="mono id val">{sth1['root_b32'][:8]}…</div></div>
 </div>
 <div class="key">{n - int(sth0['sth']['tree_size'])} entries were added in between. No earlier entry changed, or the proof would fail.</div>
 </div>
@@ -175,7 +178,7 @@ html_path = out.with_suffix(".html")
 html_path.write_text(page)
 with sync_playwright() as p:
     b = p.chromium.launch()
-    pg = b.new_page(viewport={"width": W, "height": 800}, device_scale_factor=1)
+    pg = b.new_page(viewport={"width": W, "height": 800}, device_scale_factor=1080 / W)
     pg.goto(html_path.as_uri(), wait_until="load")
     png = pg.screenshot(full_page=True)
     b.close()

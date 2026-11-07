@@ -27,7 +27,7 @@ fs = json.loads((DATA / "field_series.json").read_text())
 vr = json.loads((DATA / "verify_receipt.json").read_text())
 rows = fs["rows"]
 box = fs["receipt"]
-W = 1080
+W = 800  # CSS px; rendered at 1080/W so the text stays readable on a 360 px phone
 
 
 def headers(name):
@@ -71,7 +71,7 @@ def fmt_date(s):
 
 
 def chart():
-    cw, ch, l, r, t, b = 1000, 430, 70, 20, 20, 60
+    cw, ch, l, r, t, b = W - 130, 400, 60, 16, 20, 60
     d0, d1 = dt.date(2024, 1, 1), dt.date(2026, 1, 1)
     span = (d1 - d0).days
 
@@ -164,7 +164,7 @@ html_path = out.with_suffix(".html")
 html_path.write_text(page)
 with sync_playwright() as p:
     b = p.chromium.launch()
-    pg = b.new_page(viewport={"width": W, "height": 800}, device_scale_factor=1)
+    pg = b.new_page(viewport={"width": W, "height": 800}, device_scale_factor=1080 / W)
     pg.goto(html_path.as_uri(), wait_until="load")
     png = pg.screenshot(full_page=True)
     b.close()

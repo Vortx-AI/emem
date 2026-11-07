@@ -22,7 +22,7 @@ fs = json.loads((D / "find_similar.json").read_text())
 vr = json.loads((D / "verify_receipt.json").read_text())
 rc = fs["receipt"]
 seed = fs["resolved_from"]["key"]
-W = 1080
+W = 800  # CSS px; rendered at 1080/W so the text stays readable on a 360 px phone
 
 # Short names from place_label_cached. Points with no cached label, or a label we do not shorten, show coordinates only.
 NAMES = {"Kirdāsah, Giza, Egypt": "Giza, Egypt", "Al Ḩawāmidīyah, Giza, Egypt": "Giza, Egypt",
@@ -61,7 +61,7 @@ def tile(name, title, sub, cls=""):
     date = hdr["x-emem-scene-datetime"][:10]
     return f"""<div class="t {cls}">
   <div class="imgw"><img src="data:image/png;base64,{b64}"><div class="cross"></div></div>
-  <div class="tt">{title}</div><div class="ts">{sub}</div><div class="td">Sentinel-2, {date}</div>
+  <div class="tt">{title}</div><div class="ts">{sub}</div><div class="td">Sentinel-2<br>{date}</div>
 </div>"""
 
 
@@ -121,7 +121,7 @@ html_path = out.with_suffix(".html")
 html_path.write_text(page)
 with sync_playwright() as p:
     b = p.chromium.launch()
-    pg = b.new_page(viewport={"width": W, "height": 800}, device_scale_factor=1)
+    pg = b.new_page(viewport={"width": W, "height": 800}, device_scale_factor=1080 / W)
     pg.goto(html_path.as_uri(), wait_until="load")
     png = pg.screenshot(full_page=True)
     b.close()

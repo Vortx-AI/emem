@@ -25,9 +25,9 @@ These add an image where README.md has none today. They remove nothing.
 
 | README line (7 November 2026) | Proposed | Why |
 |---|---|---|
-| 218, after item 6 in "Why you can trust it" | `docs/media/stills/log-proof.webp` (189,188 bytes) | Item 6 says that a reader can prove one entry under a signed head and that the log only grows. The still shows both for one live fact: a 22-hash inclusion path and a 14-hash consistency proof. |
-| 90, after step 3 of the quick start ("Read a signed measurement") | `docs/media/stills/recall-one-cell.webp` (197,332 bytes) | Step 3 reads one band at one place. The still shows what one `recall` holds at one cell: 8 facts from 6 sources, each with its own date and class, under one receipt. |
-| 291, after the first paragraph of "Earth is the first corpus, not the limit" | `docs/media/stills/ndvi-two-seasons.webp` (203,294 bytes) | The paragraph says that public archives fill the memory. The still shows one signed `field_series` answer: 17 clear Sentinel-2 scenes over two seasons, and the 8 cloudy scenes it left out. |
+| 218, after item 6 in "Why you can trust it" | `docs/media/stills/log-proof.webp` (249,976 bytes) | Item 6 says that a reader can prove one entry under a signed head and that the log only grows. The still shows both for one live fact: a 22-hash inclusion path and a 14-hash consistency proof. |
+| 90, after step 3 of the quick start ("Read a signed measurement") | `docs/media/stills/recall-one-cell.webp` (255,266 bytes) | Step 3 reads one band at one place. The still shows what one `recall` holds at one cell: 8 facts from 6 sources, each with its own date and class, under one receipt. |
+| 291, after the first paragraph of "Earth is the first corpus, not the limit" | `docs/media/stills/ndvi-two-seasons.webp` (236,182 bytes) | The paragraph says that public archives fill the memory. The still shows one signed `field_series` answer: 17 clear Sentinel-2 scenes over two seasons, and the 8 cloudy scenes it left out. |
 
 The numbers in these stills are from 7 November 2026. Item 6 in README.md gives a log size from 10 October 2026.
 The still and the text show different sizes, and each is true for its date.

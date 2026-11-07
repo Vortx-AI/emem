@@ -115,7 +115,7 @@ scene_b64 = base64.b64encode(buf.getvalue()).decode()
 km = (x1 - x0) / 1000
 scene_day = dt.datetime.fromisoformat(hdr["x-emem-scene-datetime"].replace("Z", "+00:00")).strftime("%-d %B %Y")
 
-W = 1080
+W = 800  # CSS px; rendered at 1080/W so the text stays readable on a 360 px phone
 page = f"""<!doctype html><meta charset="utf-8"><style>
 body{{margin:0;background:#0d1117;color:#e6edf3;font:30px/1.3 "DejaVu Sans",system-ui,sans-serif;width:{W}px}}
 .wrap{{padding:40px}}
@@ -123,7 +123,7 @@ h1{{font-size:44px;line-height:1.2;margin:0 0 10px}}
 .q{{color:#8b949e;font-size:26px;margin-bottom:24px}}
 .mono{{font-family:"DejaVu Sans Mono",ui-monospace,monospace}}
 .head{{display:flex;gap:24px;align-items:stretch}}
-.head img{{width:{side}px;height:{side}px;border-radius:10px;border:1px solid #30363d}}
+.head img{{width:250px;height:250px;flex:none;border-radius:10px;border:1px solid #30363d}}
 .panel{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px 24px}}
 .lab{{color:#8b949e;font-size:22px;margin:0 0 4px}}
 .big{{font-size:32px;margin-bottom:16px}}
@@ -133,8 +133,8 @@ h1{{font-size:44px;line-height:1.2;margin:0 0 10px}}
 .row{{display:flex;gap:16px;margin-bottom:14px;position:relative}}
 .dot{{width:20px;height:20px;border-radius:50%;background:#0d1117;border:3px solid #8b949e;margin-top:8px;flex:none;z-index:1}}
 .dot.rc{{border-color:#7ee787;background:#7ee787}}
-.when{{width:160px;flex:none;color:#8b949e;font-size:22px;padding-top:6px}}
-.body{{flex:1;background:#161b22;border:1px solid #30363d;border-radius:10px;padding:10px 18px}}
+.when{{width:130px;flex:none;color:#8b949e;font-size:22px;padding-top:6px}}
+.body{{flex:1;min-width:0;background:#161b22;border:1px solid #30363d;border-radius:10px;padding:10px 18px}}
 .top{{display:flex;justify-content:space-between;gap:12px}}
 .name{{font-size:28px}} .val{{font-size:30px;font-family:"DejaVu Sans Mono",ui-monospace,monospace;text-align:right}}
 .sub{{color:#8b949e;font-size:22px;margin-top:2px}}
@@ -146,9 +146,9 @@ h1{{font-size:44px;line-height:1.2;margin:0 0 10px}}
 {when(min(facts, key=lambda f: f['observed_at']))} and {when(max(facts, key=lambda f: f['observed_at'])).split(',')[0]}. One receipt signs all of them.</div>
 <div class="head">
 <img src="data:image/png;base64,{scene_b64}" alt="">
-<div class="panel" style="flex:1">
+<div class="panel" style="flex:1;min-width:0">
 <div class="lab">place</div><div class="big">Lake Geneva</div>
-<div class="lab">cell64 (about 10 m square)</div><div class="big mono id">{cell}</div>
+<div class="lab">cell64 (about 10 m square)</div><div class="big mono id" style="font-size:28px">{cell}</div>
 <div class="lab">centre</div><div class="big mono">{c['lat_deg']:.4f}° N<br>{c['lng_deg']:.4f}° E</div>
 <div class="lab">receipt over {len(rc['fact_cids'])} fact_cids, by <span class="mono sig">{rc['responder_pubkey_b32'][:8]}…</span></div>
 <div class="big mono ok" style="margin-bottom:0">signature valid<br>merkle proof valid</div>
@@ -167,7 +167,7 @@ html_path = out.with_suffix(".html")
 html_path.write_text(page)
 with sync_playwright() as p:
     b = p.chromium.launch()
-    pg = b.new_page(viewport={"width": W, "height": 800}, device_scale_factor=1)
+    pg = b.new_page(viewport={"width": W, "height": 800}, device_scale_factor=1080 / W)
     pg.goto(html_path.as_uri(), wait_until="load")
     png = pg.screenshot(full_page=True)
     b.close()
