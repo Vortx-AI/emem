@@ -186,8 +186,9 @@ for disagreement between sources, and an offline refinement loop.
    minutes. It spot-checks four sampled leaves under that head
    (`EMEM_WITNESS_SAMPLES`, default 4). For an origin listed in
    `entries_private.json`, the job checks inclusion only and does not
-   read the entries. `geo.qa` asked for this on 2026-11-06. An independent witness also
-   co-signs the emem.dev head. On 7 November 2026 at 02:29 UTC, one
+   read the entries. `geo.qa` asked for this on 2026-11-06. The job does
+   the same when the entries route of a peer answers 401 or 403. An
+   independent witness also co-signs the emem.dev head. On 7 November 2026 at 02:29 UTC, one
    independent operator (`eudr.dev`) witnessed it. Its newest co-signed
    head was 5 entries behind the current head, so
    `head_is_witnessed_by_independent_operator` was false

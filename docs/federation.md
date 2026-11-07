@@ -387,7 +387,10 @@ against the head the route returns. Then it proves that head extends the
 co-signed head. A peer can ask that its entries stay private. For an origin
 in `~/.config/emem/entries_private.json`, the job checks inclusion only and
 does not read the entries. `geo.qa` asked for this, because from
-2026-11-06 its node logs reads about a partner's private area.
+2026-11-06 its node logs reads about a partner's private area. The job
+also checks inclusion only when the entries route of a peer answers 401 or
+403 (`audit_custody` in `scripts/witness_peers.py`). It does not count that
+answer as a custody failure.
 
 In September `/v1/log/inclusion` ignored `tree_size`, so the
 first draft failed every proof against the older root. On 7 November 2026 the
