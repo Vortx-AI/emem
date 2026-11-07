@@ -229,8 +229,9 @@ From zero to a signed, cite-able answer in three calls:
 The still above is one live `recall` with eight named bands, drawn by
 [`stills/src/recall_cell.py`](media/stills/src/recall_cell.py). Each fact
 keeps its own source and `observed_at`. Before the named recall, a recall
-at this cell with no `bands` list returned two facts. A bare recall returns
-only what is already stored, so name the bands that you need. Contains
+at this cell with no `bands` list returned two facts. A bare recall at a
+cell that already holds facts returns only those facts. At an empty cell it
+fetches elevation and air temperature. Name the bands that you need. Contains
 modified Copernicus Sentinel data 2026.
 
 That is the whole loop. Everything below is depth on each step.
@@ -512,8 +513,8 @@ Contains modified Copernicus Sentinel data 2024.
 `GET /v1/bands` lists the `geotessera` materializer as retired. But on
 7 November 2026, a `find_similar` call with the key `Tromso` signed a new
 vector for the seed cell. The answer showed it in `materialize_notes` with
-status `materialized`. The retired-band filter applies to `recall` only, not
-to the `find_similar` seed path. A call can also be slow. At 10:31 UTC a
+status `materialized`. The `find_similar` seed path does not check the
+retired-band list. A call can also be slow. At 10:31 UTC a
 `Tromso` call with `k` 3 returned `compute_timeout` after 40 s.
 
    ### Verify
