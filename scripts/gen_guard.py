@@ -101,7 +101,7 @@ def checkpoints():
         avoid.append((lx, y, 74))
     _ground(s, avoid=avoid)
     _header(s, "Nine doors, one decision",
-            "seven belong to nobody · the same evidence yields the same verdict through every one")
+            "seven routes need no vendor · a test checks that the same evidence gets the same verdict on every route")
 
     for i, (lab, sub, col, open_) in enumerate(doors):
         y = ys[i]

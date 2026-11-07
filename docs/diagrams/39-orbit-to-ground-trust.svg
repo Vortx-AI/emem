@@ -84,7 +84,7 @@
 <rect x="600" y="306" width="136" height="22" rx="11" fill="#2e8c84" opacity="0.15"/><text x="668" y="321" text-anchor="middle">signature_invalid</text>
 <text x="750" y="321" class="h dim" font-size="12">…seventeen named refusals</text>
 </g>
-<text x="600" y="352" class="h dim" font-size="12">The gate applies only to enrolled devices.</text>
+<text x="600" y="352" class="h dim" font-size="12">Only enrolled devices go through the gate. The archive does not.</text>
 
 <!-- drift scoring chip -->
 <rect x="580" y="385" width="420" height="52" rx="26" fill="#d59a2a" opacity="0.13" stroke="#d59a2a" stroke-width="1.5"/>

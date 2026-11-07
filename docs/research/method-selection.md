@@ -226,7 +226,7 @@ Results are in the companion paper, section 5.20. In short:
   global champion, and the context policy 0.308. Neither interval with forests resampled excludes zero (-0.162 to +0.041
   and -0.035 to +0.028), so neither decides. The first experiment's gain, carried by one forest, did not repeat.
 - **The registered independent test is still to come.** CL1 is a panel of model readers over these forests. For this
-  same selection, it tests the local policy against the global one. The emem responder agent drew CL1 on 6 November.
+  same selection, it tests the local policy against the global one. The emem responder agent drew CL1 on 6 November 2026.
   Nobody has scored it yet.
 - **The flag.** The champion was flagged wrong at three forests, and at all three it scored below its own mean. That
   count decides nothing, and without the unflagged forests' rate it is not evidence that the flag works.
