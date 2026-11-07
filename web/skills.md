@@ -257,13 +257,14 @@ uses a bundled copy of `@noble/hashes` 1.5.0 and `@noble/curves` 1.6.0
 
 ## 3. `find-similar-places`: given a place, return neighbours by embedding
 
-`/v1/find_similar` ranks cells by cosine over a stored 128-D
-surface-texture embedding (`geotessera`, 2024 vintage by default) and
-returns top-K neighbours with cell64, lat/lng, cached place labels and
-scores. **The embedding band is retired on emem.dev**: stored vectors
-still answer, and none are computed. A seed with no stored vector
-returns `cid_not_found`, and asking `/v1/recall` for the band returns
-`band_retired_at_this_responder`; retrying changes neither.
+`/v1/find_similar` ranks cells by cosine similarity. It uses a stored
+128-D surface-texture embedding (`geotessera`, 2024 vintage by default).
+It returns up to `k` neighbours, each with cell64, lat/lng, a cached
+place label and a score. **emem.dev retired the embedding band.** The
+responder still answers from stored vectors, but it computes no new
+ones. A seed with no stored vector returns `cid_not_found`. A
+`/v1/recall` for the band returns `band_retired_at_this_responder`. A
+retry changes neither result.
 
 ```sh
 BASE=https://emem.dev
@@ -276,15 +277,19 @@ curl -s -X POST $BASE/v1/find_similar -H 'content-type: application/json' \
         else [.neighbors[] | {cell, score, place: .place_label_cached}] end'
 ```
 
+On 7 November 2026 this returned 11 neighbours for `k: 12`. Ten were
+other cells of Bengaluru, with scores from 0.93 to 0.86.
+
 ### Pitfalls
 
-- Call find_similar directly to test coverage. `/v1/recall` on the
-  retired band can come back empty for a seed find_similar still
+- To test coverage, call find_similar directly. `/v1/recall` on the
+  retired band can return nothing for a seed that find_similar still
   answers.
-- The similarity is surface texture (vegetation, urban density, water),
-  not climate or society. The top neighbours of a city are often other
-  cells of the same city; ask for a larger `k` to reach elsewhere.
-- `band: "geotessera.2020"` (2017 to 2024) picks a vintage, and
+- The similarity is surface texture (vegetation, urban density, water).
+  It is not climate or society. The top neighbours of a city are often
+  other cells of the same city. Ask for a larger `k` to reach other
+  places.
+- `band: "geotessera.2020"` (2017 to 2024) selects a vintage.
   `mode: "hamming"` uses the binary index.
 
 ---
@@ -292,27 +297,36 @@ curl -s -X POST $BASE/v1/find_similar -H 'content-type: application/json' \
 ## 4. `scene-thumbnail`: visual preview
 
 `GET /v1/cells/{cell64}/scene.png` returns a small true-colour
-Sentinel-2 chip at a cell; `GET /v1/scene.png?bbox=w,s,e,n` crops one
-to a plot at native 10 m, up to 1024 px a side. The `x-emem-scene-*`
-headers name the scene, capture time, cloud cover and CRS.
+Sentinel-2 chip at a cell. `GET /v1/scene.png?bbox=w,s,e,n` crops a
+scene to a plot at native 10 m, up to 1024 px a side. The
+`x-emem-scene-*` response headers give the scene id, capture time,
+cloud cover and CRS.
 
 ```sh
 BASE=https://emem.dev
-curl -sf -D headers.txt -o plot.png "$BASE/v1/scene.png?bbox=75.80,30.90,75.804,30.903"
+curl -sf -D headers.txt -o plot.png \
+  "$BASE/v1/scene.png?bbox=75.80,30.90,75.804,30.903&datetime=2025-10-01/2025-10-31&max_cloud=30"
 grep -i '^x-emem-scene' headers.txt
 ```
 
-A picture is a view, not a signed artifact. For pixels a third party can
-re-hash, use `POST /v1/band_raster` (the `emem-field-tokens` skill).
+On 7 November 2026 this returned scene
+`S2C_MSIL2A_20251028T053951_R005_T43REQ_20251028T084920` with 1.96 %
+cloud. Without `datetime` and `max_cloud`, the same bbox returned
+502 `scene_upstream_failed` ("no valid red pixels"). If you get that
+error, give a date window or raise `max_cloud`.
+
+A picture is a view, not a signed artifact. For pixels that a third
+party can hash again, use `POST /v1/band_raster` (the
+`emem-field-tokens` skill).
 
 ---
 
 ## 5. `recall-many-cells`: batch a recall across N places
 
-`POST /v1/recall_many` takes a list of cell64s and bands and returns
-per-cell facts with per-cell receipts. Cap is 256 cells per call. Pass
-`budget_ms` for a partial answer (`converged: false`, typed `pending[]`)
-instead of a timeout.
+`POST /v1/recall_many` takes a list of cell64s and bands. It returns
+the facts and a receipt for each cell. The limit is 256 cells for each
+call. Give `budget_ms` to get a partial answer instead of a timeout. A
+partial answer has `converged: false` and a typed `pending[]` list.
 
 ```sh
 BASE=https://emem.dev
@@ -324,16 +338,25 @@ curl -sf -X POST $BASE/v1/recall_many -H 'content-type: application/json' \
   }' | jq '{converged, by_cell: [.by_cell | to_entries[] | {cell: .key, facts: (.value.facts | length)}]}'
 ```
 
+`facts` counts every stored reading of the band at the cell, not only
+the latest. On 7 November 2026 the first cell had 13
+`weather.temperature_2m` facts.
+
 ---
 
 ## 6. `area-recall`: recall across an area
 
 `POST /v1/recall_polygon` samples cells inside an area and recalls the
-bands at each. Pass `place` (free text), `polygon_bbox` (an object
-with named corners; arrays are refused) or `polygon_geojson`. A polygon
-alone sets the area and masks the sample to its boundary; `geojson` and
-`geometry_geojson` are aliases. Returns `by_cell`,
-`cells_sampled`, `coverage_fraction`, `area_km2` and per-cell receipts.
+bands at each cell. Give one of these fields:
+
+| Field | What it is |
+|---|---|
+| `place` | Free text, for example a region name. |
+| `polygon_bbox` | An object with named corners. The responder refuses an array (400 `invalid_argument`). |
+| `polygon_geojson` | A GeoJSON polygon. It sets the area and masks the sample to its boundary. `geojson` and `geometry_geojson` are aliases. |
+
+The response has `by_cell`, `cells_sampled`, `coverage_fraction`,
+`area_km2` and a receipt for each cell.
 
 ```sh
 BASE=https://emem.dev
@@ -344,20 +367,28 @@ curl -sf -X POST $BASE/v1/recall_polygon -H 'content-type: application/json' \
   }' | jq '{cells_sampled, facts_returned, converged, coverage_fraction, area_km2}'
 ```
 
-A sample is not the area: report `coverage_fraction` with any
-aggregate, and note that there is no aggregate receipt, only per-cell
-ones.
+On 7 November 2026 this sampled 16 cells over 120.05 km2, and
+`coverage_fraction` was 0.0000133. A sample is not the area. Give
+`coverage_fraction` with any mean or total that you compute. There is
+no receipt for a total, only one receipt for each cell.
 
 ---
 
 ## 7. `trajectory-over-time`: time series at one cell
 
 `POST /v1/trajectory` returns the stored readings for one cell and band
-over a window, as `series[]` of `{tslot, slot_start, value, fact_cid,
-token}`. `slot_start` is the YYYY-MM-DD the band's tempo slot starts on (the
-fact carries the scene's own capture date) and `token` is the point's
-`emem:fact:` handle. It does not fetch past readings that were never stored;
-`POST /v1/backfill` does.
+over a window. Each item of `series[]` has these fields:
+
+| Field | What it is |
+|---|---|
+| `tslot` | The time slot of the reading. |
+| `slot_start` | The YYYY-MM-DD on which the band's tempo slot starts. The fact itself carries the scene's capture date. |
+| `value` | The reading. |
+| `fact_cid` | The content id of the signed fact. |
+| `token` | The `emem:fact:` handle for the point. |
+
+Trajectory does not fetch past readings that the responder did not
+store. `POST /v1/backfill` does that.
 
 ```sh
 BASE=https://emem.dev
@@ -367,7 +398,9 @@ curl -sf -X POST $BASE/v1/trajectory -H 'content-type: application/json' \
   | jq '{points: (.series | length), series: [.series[] | {slot_start, value, token}]}'
 ```
 
-`window: [start_tslot, end_tslot]` works in place of the two dates.
+On 7 November 2026 this returned 8 points. The first had `slot_start`
+2025-10-09. You can use `window: [start_tslot, end_tslot]` in place of
+the two dates.
 
 ---
 
@@ -387,11 +420,16 @@ curl -sf -X POST $BASE/v1/field_actual_et -H 'content-type: application/json' \
   | jq '{verdict, et_mm, et_m3_per_ha, coverage}'
 ```
 
-`field_burn_scar` answers `burn`, `signal_only`, `no_burn` or
-`inconclusive` (too few clear Sentinel-2 dates; retry after the
-warm-up). `field_actual_et` sums MODIS MOD16 8-day composites over one
-463 m pixel; it is water used, not irrigation applied. Both return the
-fact cids they used and a receipt.
+`field_burn_scar` gives one of these verdicts: `burn`, `signal_only`,
+`no_burn` or `inconclusive`. `inconclusive` means too few clear
+Sentinel-2 dates. Try again after the warm-up. `field_actual_et` sums
+MODIS MOD16 8-day composites over one 463 m pixel. The result is the
+water that the crop used, not the irrigation applied. Both calls return
+the fact cids that they used and a receipt.
+
+On 7 November 2026 the burn call gave `signal_only` with 0 burn events
+over 16 cells. The ET call gave `complete`, 148.04 mm
+(1480.38 m3/ha), with coverage 1.0.
 
 ---
 
