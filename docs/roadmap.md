@@ -143,72 +143,72 @@ notebook, call REST or MCP from it.
 
 ## Where it is going
 
-emem is a protocol, not a single service. The end state is a federation
-of independent responders. They resolve the same ids to the same bytes,
-cite each other, and record where they disagree. One account of the
-world is a claim. Several independent accounts that verify against each
-other are a record.
+emem is a protocol, not a single service. The target is a federation of
+independent responders. Each responder resolves the same ids to the same
+bytes, cites the others, and records where they disagree. One account of
+the world is a claim. Several independent accounts that verify against
+each other are a record.
 
 Multi-host routing and read federation do not ship. `EMEM_PEERS` names
 the peers that this node witnesses, and no read path resolves against
-them. The witness mesh does ship, and it has run in both directions since
-2026-09-02.
+them. The witness mesh ships. It has run since 2026-09-02, and it worked
+in both directions on 2026-09-05 ([`federation.md`](federation.md) §8a).
 
-These parts ship today, and the staged work builds on them:
+The staged work builds on parts that ship today: content addressing,
+signed receipts, and an append-only attestation log with per-fact Merkle
+proofs. Also a multi-writer attest endpoint, typed temporal links, scores
+for disagreement between sources, and an offline refinement loop.
 
-- content addressing
-- signed receipts
-- an append-only attestation log with per-fact Merkle proofs
-- a multi-writer attest endpoint
-- typed temporal links
-- scores for disagreement between sources
-- an offline refinement loop
+| Step | Status on 7 November 2026 |
+|---|---|
+| 1. Receipts that name their log leaf, and heads gossiped between responders | ships |
+| 2. Signed absence proofs that a reader can check | not built |
+| 3. A public attester spec | not built |
+| 4. Quorum reads across responders | design only |
 
-The staged work:
-
-1. **Receipts that name their log leaf.** The public transparency log
+1. Receipts that name their log leaf. The public transparency log
    shipped on 2026-07-10 under `/v1/log/*`. It has signed tree heads,
    consistency and inclusion proofs, entry enumeration and witness
-   co-signing. The receipt part ships: a receipt's `merkle_proof` names
-   the `log_entry_hash` of its attestation, and `/v1/log/inclusion`
-   proves that entry (see
+   co-signing. A receipt's `merkle_proof` names the `log_entry_hash` of
+   its attestation, and `/v1/log/inclusion` proves that entry (see
    [A2A item 1](#1-chain-the-receipt-to-the-transparency-log-ships)).
-   The second part is to gossip heads between responders, so that a
-   split view cannot survive. The gossip part runs now:
-   `emem-witness.timer` co-signs the head of a peer every 15 minutes and spot-checks four leaves under it. An independent witness
-   co-signs the emem.dev head. See [`federation.md`](federation.md) §8a.
-2. **Signed absence proofs.** Change "no fact here" from a signed
-   statement into a non-membership proof that a reader can check.
-3. **A public attester spec.** Partners and customers can then run their
+   Heads also go between responders, so that a split view cannot
+   survive. `emem-witness.timer` co-signs the head of a peer every 15
+   minutes. It spot-checks four sampled leaves under that head
+   (`EMEM_WITNESS_SAMPLES`, default 4). An independent witness co-signs
+   the emem.dev head. See [`federation.md`](federation.md) §8a.
+2. Signed absence proofs. Today a responder signs an `Absence` statement
+   when it has no value for a cell. An example is open ocean in the
+   Copernicus DEM. The open item is a non-membership proof. A reader can
+   check it and does not have to trust the responder.
+3. A public attester spec. With it, partners and customers can run their
    own signing nodes against the write path that exists now.
-4. **Quorum reads across responders.** Content addressing makes
-   agreement easy to check: the same canonical bytes give the same id,
-   with k signatures. [`federation.md`](federation.md) has the design.
+4. Quorum reads across responders. Content addressing makes agreement
+   easy to check: the same canonical bytes give the same id, with k
+   signatures. [`federation.md`](federation.md) has the design.
 
-Federation can come later, because the fact ids will not move.
+Federation can come later, because the fact ids will not change.
 [Issues](https://github.com/Vortx-AI/emem/issues) track the near-term
 work.
 
 ## Open research
 
-emem works end to end today. This section lists what it does not do
-yet, so that a contributor or an agent can see the edges and pick one
-up. Each item says what ships and what is still open.
+emem works end to end today. This section lists what it does not do yet.
+A contributor or an agent can see the edges and pick one item up. Each
+item says what ships and what is still open.
 
 Two threads run through the list. The first is the substrate: memory
 that an agent can trust, carry between vendors and verify without a
-callback. The second is the worlds at
+callback to the responder. The second is the worlds at
 [`/worlds`](https://emem.dev/worlds). They are not the product. They
 show that a memory can be generated and checkable at the same time.
 
 Each item must pass one test: does it make emem memories more trusted,
-portable or verifiable? Recall makes an agent convenient. Verifiable
-memory makes it accountable, and a regulated business needs that before
-it lets agents run on their own. Plausible answers get cheaper to
-generate. A shared account of the physical world that is measured,
-signed and checkable by an absent party stays scarce. Each item below
-helps an agent inherit that account, so that it does not observe the
-world again.
+portable or verifiable? A regulated business needs verifiable memory
+before it lets agents run on their own. Plausible answers become cheaper
+to generate. A measured, signed account of the physical world that an
+absent party can check does not. Each item below helps an agent use that
+account, so that the agent does not observe the world again.
 
 ### Change attribution: why did this place's readout move
 
