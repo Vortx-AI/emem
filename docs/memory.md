@@ -263,7 +263,7 @@ digest in the refusal.
 | State (single encoder) | `POST /v1/state` | `{cell, encoder?, view?, tslot?, as_of_tslot?, as_of_signed_at?, scope?}` | a stored embedding vector and a memory_token; no encoder runs now (see below), so it answers only from vectors signed before the retirement |
 | State (full cube) | `POST /v1/state` view=cube | same, plus `materialize?`, `families?`, `include_reserved?` | 1792-D state vector, per-slot coverage, `state_cid` and an `emem:bundle:` token |
 | State fan-out | `POST /v1/state_multi` | `{cell, encoders?, tslot?, as_of_*?, scope?, vectors?, include?}` | per encoder: `dim`, `l2_norm`, `fact_cid`, `memory_token`, `tslot`; the floats only with `vectors:true` or `include:["vectors"]`. Empty by default, since no encoder is live |
-| State delta | `POST /v1/state_diff` | `{cell, encoder?, tslot_a, tslot_b}`; the two tslots must differ | `dim`, `delta_vector`, `l2_norm_of_delta`, `cosine_a_b`, and the fact_cid and memory_token of each side. The default `encoder` is `geotessera`; each side reads the year band `geotessera.YYYY` for its tslot, named in `band_a` and `band_b`. emem.dev retires all these bands, so a diff works only where the responder holds both vintages (see below) |
+| State delta | `POST /v1/state_diff` | `{cell, encoder?, tslot_a, tslot_b}`; the two tslots must differ | `dim`, `delta_vector`, `l2_norm_of_delta`, `cosine_a_b`, and the fact_cid and memory_token of each side. The default `encoder` is `geotessera`. A side whose tslot is a Tessera vintage (1 January of 2017 to 2025) reads the year band `geotessera.YYYY`. Any other side reads the `encoder` band. `band_a` and `band_b` name the band each side read. emem.dev retires all these bands, so a diff works only where the responder holds both vintages (see below) |
 | Memory token | `POST /v1/memory_token` | `{cell, fact_cid, band?, observed_on?}` | `emem:fact:<cell>:<fact_cid>` and `cell_token` (`emem:cell:<cell>`); with `band` and `observed_on`, also a `descriptor_token` |
 | Memory token resolve | `POST /v1/memory_token/resolve` | `{token}` | full signed fact body |
 | Memory token resolve, batch | `POST /v1/memory_token/resolve_many` | `{tokens}` (1 to 256) | one resolved item per token |
@@ -1039,8 +1039,10 @@ still works, because it needs no model. An index failure returns 500.
 
 ## Contradiction detection
 
-`POST /v1/memory_contradictions` (also `GET` with query parameters)
-finds addresses where signed facts disagree. An address here is one
+`POST /v1/memory_contradictions` finds addresses where signed facts
+disagree. The `GET` form takes the same fields as query parameters, with
+two differences. It takes `cell_prefix` only, not `cell` or `cell64`. It
+takes the window as `window_lo` and `window_hi`, not `window_unix_s`. An address here is one
 `(cell, band, tslot)` key.
 
 ### How the index works
@@ -1132,8 +1134,12 @@ It stops reading facts after 8,000 ms
 `scan_truncated: true` and a `resume_after` value in the form
 `cell|band|tslot`. Send that value back to continue after that key. If
 the value names no key in the scan, the response has
-`resume_not_found: true` and no records. Start again without it. A
-`band` filter or a narrower `cell_prefix` also gives complete coverage.
+`resume_not_found: true` and no records. Start again without it.
+
+The key cap applies before the `band` filter, and the response does not
+flag it. `scan_truncated` reports only the time budget. A `band` filter
+skips other keys fast, so it usually stays inside the time budget. Only
+a narrower `cell_prefix` keeps the scan under the key cap.
 
 The scan skips these keys:
 
@@ -1149,7 +1155,7 @@ The score depends on the band kind:
 |---|---|
 | Scalar (`indices.ndvi`, `modis.lst_day_8day`, …) | `(max - min) / range`, clamped to [0, 1]. `range` is the `value_range` width in the bands registry. With no range, it is `max(max - min, 1)` |
 | Vector (embeddings) | `1 - mean` of the pairwise cosine values, clamped to [0, 1] |
-| Categorical | `1 - max_class_share`. Text, integer or byte values use this. Whole numbers do too, but only in `esa_worldcover.lc_2021`, `landcover`, `surface_water.transition_class` and `s2.scl` |
+| Categorical | `1 - max_class_share`. Text or byte values use this, and a mix of text and integer values. Integer values score as scalars, with one exception: non-negative whole numbers in `esa_worldcover.lc_2021`, `landcover`, `surface_water.transition_class` and `s2.scl` score as categorical |
 | Mixed / unknown | `1.0` (flag for human review) |
 
 Each record gives the scorer it used in `kind`: `scalar`, `vector`,

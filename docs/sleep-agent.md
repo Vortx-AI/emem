@@ -61,9 +61,10 @@ Each pass has three steps.
      higher.
    - Churn. The agent lists the notes of the configured kinds
      (`emem_memory_list_by_kind`). It groups them by a normalized path stem.
-     The stem is the path without the file extension, trailing digits,
-     trailing `-`, `_` or spaces, and a trailing `(copy)`
-     (`normalize_stem` in `lib.rs`). Thus `notes/site-1`, `notes/site-2`
+     The stem is the last path part up to its first dot. Then trailing
+     digits, trailing `-`, `_` or spaces, and a trailing `(copy)` come off
+     (`normalize_stem` in `lib.rs`). The first dot is not always the
+     extension: `notes/v1.2-final` becomes `notes/v`. Thus `notes/site-1`, `notes/site-2`
      and `notes/site.md` all become `notes/site`. A group with two or more notes is a candidate. A group
      whose total version count reaches the churn threshold is also a
      candidate. The agent does not read the version history of a note. It
@@ -71,8 +72,12 @@ Each pass has three steps.
      Thus only a group of two or more notes becomes a candidate, and
      `EMEM_SLEEP_AGENT_CHURN_THRESHOLD` has no effect today.
 
-   The agent ranks contradictions above churn. It keeps the first
-   `EMEM_SLEEP_AGENT_TOPN` candidates.
+   The agent ranks candidates by a score (`candidates.rs`). A
+   contradiction scores `1 + severity`, so at least 1.3 with the default
+   minimum. A churn group scores `0.5 + 0.01 × n`, where `n` is the number
+   of notes. Thus contradictions usually rank first, but a churn group of
+   more than 80 notes outranks a contradiction of severity 0.3. The agent
+   keeps the first `EMEM_SLEEP_AGENT_TOPN` candidates.
 
 2. **Rewrite and merge** (`llm.rs`). The agent puts the candidate group into
    a reconcile prompt and sends it to the configured `LlmTransport`. The

@@ -282,8 +282,9 @@ The table gives the defaults; both env vars accept 256 to 51,200.
 | Fact CIDs in the receipt | 2048 | `EMEM_EUDR_RECEIPT_MAX_FACTS` | The receipt keeps the first 2048 CIDs in sort order. The response adds `receipt_fact_cids_capped: true`, `receipt_fact_cids_total` and `receipt_fact_cids_cap`. |
 | Cells in the receipt | 2048 | `EMEM_EUDR_RECEIPT_MAX_CELLS` | The receipt lists the centroid cell of each plot. The response adds `receipt_cells_truncated: true`, `receipt_cells_total` and `receipt_cells_cap`. |
 
-Because of the sort, two calls with the same inputs sign the same bytes.
-A capped receipt does not sign every fact, but the endpoint stores every fact.
+The sort runs only above the cap. It makes two capped calls with the same
+inputs keep the same fact CIDs. The receipts are still not byte-equal,
+because `request_id` and `served_at` change on each call. A capped receipt does not sign every fact, but the endpoint stores every fact.
 Each plot's `per_cell_rows_cid` addresses all of its facts.
 Every fact CID in the response resolves at `/v1/facts/<cid>`.
 
