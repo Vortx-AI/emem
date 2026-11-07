@@ -302,7 +302,10 @@ Tokens with the old prefixes still resolve. The server reads `memt:` as
 
 Each memory file has a `kind` from the CoALA and LangMem agent-memory
 ontology. The default is `resource`. A caller that does not send `kind`
-gets the shape of the Anthropic memory tool.
+gets the shape of the Anthropic memory tool. `emem_memory_create` also
+stores an unknown `kind` as `resource` and returns no error.
+`emem_memory_list_by_kind` refuses an unknown `kind` with 400
+`invalid_argument`.
 
 | `kind` | Purpose | TTL default |
 |---|---|---|
@@ -325,24 +328,32 @@ The TTL pass (`EMEM_MEMORY_TTL_ENABLED=1`) runs every hour
 (`EMEM_MEMORY_TTL_INTERVAL_SECS`). It moves expired files from
 `memory_files` to `memory_files_expired`. The blob stays in
 `memory_file_blobs`, which is content-addressed and never deletes.
+The pass also adds `expired` to the path history and sends an `expired`
+event. It skips a file with no recorded `signed_at`.
 To change the TTL for one kind, set
 `EMEM_MEMORY_TTL_{CORE,RESOURCE,EPISODIC,SEMANTIC,PROCEDURAL,VAULT}_DAYS`
 (0 means infinite).
 
 The merge pass (`EMEM_MEMORY_CONSOLIDATION_ENABLED=1`) runs every 24
-hours (`EMEM_MEMORY_CONSOLIDATION_INTERVAL_SECS`). It looks at each
-directory `/memories/by_attester/<pubkey>/<sub>/`. A directory qualifies
-when it holds at least 50 episodic files
-(`EMEM_MEMORY_CONSOLIDATION_MIN_FILES`) older than 7 days
-(`EMEM_MEMORY_CONSOLIDATION_MIN_AGE_DAYS`). For each such directory, the
+hours (`EMEM_MEMORY_CONSOLIDATION_INTERVAL_SECS`). It groups files by
+their directory below `/memories/by_attester/`. It counts only
+`episodic` files that are older than 7 days
+(`EMEM_MEMORY_CONSOLIDATION_MIN_AGE_DAYS`) and not yet superseded.
+A directory qualifies when it holds at least 50 such files
+(`EMEM_MEMORY_CONSOLIDATION_MIN_FILES`). For each such directory, the
 pass does three things:
 
-1. It joins the file bodies in time order.
-2. It signs the result as a `semantic` file at `.consolidated/<unix_ts>.md`.
+1. It joins the file bodies, oldest first. A line
+   `--- <path> signed_at=<time> ---` comes before each body.
+2. It writes the result as a `semantic` file at `.consolidated/<unix_ts>.md`
+   in that directory. The responder signs this file with its own key. The
+   file has no `attester` block, so it is not your signed note.
 3. It writes `superseded_by: <consolidated_cid>` into the metadata of
    each original file.
 
-You can still read the originals through `memory_file_history`.
+The original bytes do not change. To list the versions of a path, call
+`emem_memory_view` with `{"path": ..., "view": "history"}`. To read one
+version, call `emem_memory_view` with its `file_cid`.
 
 Both passes are off unless the operator turns them on. emem.dev turns
 on neither, so files there do not expire and the responder does not
