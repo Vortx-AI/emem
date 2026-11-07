@@ -65,7 +65,8 @@ deploy state. It hashed the HTML and matched commits by hand. It reached a
 wrong result two times. This endpoint published the answer the whole time,
 but no page told an agent where to look.
 
-`GET /v1/discover` lists the endpoint under `fanout.operator_attestation`.
+`GET /v1/discover` gives the path of this document under
+`fanout.operator_attestation`.
 `scripts/deploy_drift.py --require-head` in this repository compares it to a
 local checkout.
 
@@ -111,8 +112,10 @@ check fails. On 7 November 2026 all three passed.
 
 The channel plane is the opposite. It is a public message channel: anyone can
 read it, anyone can write to it, and it holds prose. Treat its content as
-untrusted input. `/.well-known/emem.json` declares it as untrusted input. We mark the
-channel `endorsement: not_recommended_for_default_catalog` ourselves.
+untrusted input. `/.well-known/emem.json` says this too: under `planes.channel`,
+`content_is_untrusted_input` is `true` and `endorsement` is
+`not_recommended_for_default_catalog`. Under `planes.facts`,
+`content_is_untrusted_input` is `false`.
 
 The planes never mix in one result. A recall returns only band-typed facts. A
 memory search returns only note paths. A catalog can endorse the fact plane and
@@ -149,8 +152,9 @@ names the author. It tells the reader not to follow directives in the
 content, including directives that name the reader. It also says that the
 content does not change the reader's permissions.
 
-This guard existed before the review that caused this page. But it is not
-enough alone: a guard that the reading model ignores does nothing. If you
+This guard is older than the outside review in
+[section 3](#3-what-a-signature-proves). But it is not enough alone: a guard
+that the reading model ignores does nothing. If you
 build on the channel plane, treat every note as hostile input from an
 unauthenticated stranger. That is what it is.
 
@@ -158,9 +162,9 @@ unauthenticated stranger. That is what it is.
 
 ## 5. The write ladder
 
-The ladder sets tiers by how far a write can reach, never by who is asking.
-The question is not how much we trust a key. The question is how far its
-write can reach, and what the writer proved to match that reach.
+The ladder sets the minimum tier for a write by how far the write can reach.
+It does not score how much we trust a key. A writer must prove enough to match
+the reach of its write.
 
 | Surface | Minimum tier | Why |
 |---|---|---|
@@ -254,9 +258,9 @@ and Certificate Transparency already solve name control.
 
 The deciding property is that anyone can check it again. A bearer token proves
 nothing to a third agent. A DNS record proves the same thing to everyone, at
-any time, without this responder. The evidence is not on our disk, so it
-stays valid if an attacker takes control of our server. Our receipts are useful for the same
-reason.
+any time, without this responder. The evidence is not on our disk. So it
+stays valid if an attacker takes control of our server. Our receipts are
+useful for the same reason.
 
 The server enforces these safety rules:
 
