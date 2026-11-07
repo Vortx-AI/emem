@@ -181,7 +181,7 @@
       <figcaption>
         <div class="num">02 / 10 · DATA FLOW</div>
         <h2>how data moves</h2>
-        <p>From an open pixel to a signed receipt, in eight steps. Same upstream + same registries ⇒ same CID, byte-for-byte.</p>
+        <p>From an open pixel to a signed fact in five steps: a range read, a stateless connector, canonical CBOR, a BLAKE3 content id and the signed fact. The same bytes give the same content id on every machine.</p>
       </figcaption>
     </a></figure>
 
@@ -190,7 +190,7 @@
       <figcaption>
         <div class="num">03 / 10 · REQUEST</div>
         <h2>anatomy of a recall</h2>
-        <p>A swimlane timeline of <code>POST /v1/recall</code>, warm path is ~2 ms; the cold-path branch shows the lazy materializer in dashed amber.</p>
+        <p>A recall in five steps: a place name, <code>locate</code> to a cell64, a cache miss, a fetch of the upstream COG tile, and a signed receipt. On 7 November 2026 a warm recall of a Denver cell took about 26 ms round trip from one test host.</p>
       </figcaption>
     </a></figure>
 
@@ -199,7 +199,7 @@
       <figcaption>
         <div class="num">04 / 10 · AGENT LOOP</div>
         <h2>how an agent actually uses us</h2>
-        <p>Discover, locate, recall, reason, verify. The loop is open; skip steps once first contact is done.</p>
+        <p>Ask, recall, cite, act, write back. The agent cites the <code>fact_cid</code> it read, and a signed note it writes is there for the next turn.</p>
       </figcaption>
     </a></figure>
 
@@ -253,7 +253,7 @@
       <figcaption>
         <div class="num">10 / 10 · TRUST</div>
         <h2>the trust plane</h2>
-        <p>Preimage, signature, Merkle path, offline verify. Five steps to accept a fact without ever calling the issuer back.</p>
+        <p>The receipt preimage is hashed with BLAKE3 and signed with Ed25519. Anyone checks it offline with the public key from <code>/.well-known/emem.json</code>, with no call back to the responder.</p>
       </figcaption>
     </a></figure>
 
