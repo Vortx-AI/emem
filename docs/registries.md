@@ -545,14 +545,38 @@ The backends that route a question (`topics-v0.json` `_routing._backends`):
 | `model2vec` | Fallback. `minishlab/potion-base-8M`, a static token-lookup embedder (256-D, about 32 MB, no ONNX dependency). |
 | `keyword` | Deterministic substring search over `aliases[]` and `key`. Select it with `EMEM_TOPIC_BACKEND=keyword`. It also runs as a precision pass before the transformer backends. |
 
-The cosine threshold is `0.35`. Change it with `EMEM_TOPIC_THRESHOLD`. A
-question gets at most 5 topics.
+`route` in `crates/emem-api-rest/src/topic_router.rs` picks the topics for
+a question in these steps:
 
-The threshold has a `_threshold_learned_from` block in `topics-v0.json`. It
-names the evaluation set (`tests/comprehensive/questions_v2.json`, 105
-questions) and the procedure. To derive the threshold for your own set, run a
-precision-recall sweep with `EMEM_TOPIC_BACKEND=keyword
-EMEM_TOPIC_THRESHOLD=<x>`. Pick the `x` that gives the highest precision at
+1. A question that matches the out-of-scope list (`OUT_OF_SCOPE_PATTERNS`)
+   gets no topic.
+2. The keyword pass finds each topic whose key or alias is a word in the
+   question. These topics come first.
+3. A transformer backend gives each topic a cosine score. It keeps a topic
+   when the score is at least the threshold and within the margin of the
+   best score.
+4. It adds at most 2 of these topics after keyword matches. With no keyword
+   match, it adds at most 4.
+5. The result has at most 5 topics.
+
+The `keyword` backend does steps 1, 2 and 5 only. It ignores the threshold
+and the margin.
+
+| Setting | Default | How to change it |
+|---|---|---|
+| Cosine threshold | `0.35` | `EMEM_TOPIC_THRESHOLD`, else `_routing.threshold` in `topics-v0.json` |
+| Margin below the best score | `0.05` | `EMEM_TOPIC_MARGIN`, a value from 0 to 1 |
+| Topics the transformer adds | 2 after keyword matches, 4 alone | `EMEM_TOPIC_EMBED_EXTRA="2,4"` |
+| Topics per question | 5 | `_routing.max_topics_per_question` in `topics-v0.json` |
+| Old rule (before 11 October 2026) | off | `EMEM_TOPIC_LEGACY=1` removes the margin and the limit on added topics |
+
+The `_threshold_learned_from` block in `topics-v0.json` names the evaluation
+set `tests/comprehensive/questions_v2.json` and says it has 105 questions. On
+7 November 2026 the file had 132 questions. The block also says to sweep the
+threshold with `EMEM_TOPIC_BACKEND=keyword`. That sweep changes nothing,
+because the keyword backend ignores the threshold. To tune the threshold for
+your own questions, use the `ort` or `model2vec` backend. Sweep
+`EMEM_TOPIC_THRESHOLD` and pick the value with the highest precision at
 recall >= 0.80.
 
 The registry has two inverse lookups:
