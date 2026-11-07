@@ -1,135 +1,163 @@
 ---
 name: emem-device-traces
-description: Reads and checks the signed activity records (OS traces) emem holds for devices such as robots, drones, satellites and sensor hosts. Lists enrolled devices and their assurance tier, resolves an emem:trace token to its signed OS trace, re-verifies the trace (segment chain, clocks, required layers, output binding, device signature), and reads the platform registry to say which hardware roots of trust are actually admitted. Use when a fact or claim is said to come from a device, when an agent receives an emem:trace or emem:attestation token, or when someone asks whether a robot or satellite can prove what it ran. Read-only: it sends and receives JSON, runs nothing it receives, and states plainly what is roadmap.
+description: Reads and checks the signed activity records (OS traces) emem holds for devices such as robots, drones, satellites and sensor hosts. Lists enrolled devices and their assurance tier, and resolves an emem:trace token to its signed OS trace. Re-verifies the trace (segment chain, clocks, required layers, output binding, device signature). Reads the platform registry to say which hardware roots of trust emem admits. Use when a fact or claim is said to come from a device. Use when an agent receives an emem:trace or emem:attestation token. Also use when someone asks if a robot or satellite can prove what it ran. Read-only: it sends and receives JSON, runs nothing it receives, and says plainly what is roadmap.
 ---
 
 # emem-device-traces
 
-> **Network use.** The calls in this skill send and receive JSON to `https://emem.dev` only, the service the plugin's MCP server connects to. An answer is saved as a JSON file only so that `jq` can print a summary of it, and nothing received is run. A trace is data: a JSON list of event counts and hashes, not a program.
-
-The verify step is also an MCP tool, `emem_trace_verify`: call it by name with `tools/call` on the plugin's MCP server (`tools/list` on `https://emem.dev/mcp/full` shows it). Listing devices and resolving a trace token are REST reads only; no MCP tool covers them yet.
-
-A device can do more than sign a reading. It can sign a trace of what
-its operating system did while producing it: scheduler, memory, storage
-and network activity in fixed windows, chained segment by segment and
-bound to the outputs it emitted. emem stores these as
-`emem.os_trace.v1` records and names them `emem:trace:<cid>`.
-
-**What is live today is the verifier side.** Hardware roots of trust
-(TPM, DICE, TDX, SEV-SNP, Secure Enclave, Android StrongBox and others)
-are registered as candidates with provisional anchors, and admit
-nothing yet. One device is enrolled, the operator's own software-only
-Linux host. Do not tell a user their robot can enrol with hardware
-attestation; that path ends in a rejection today.
-
-## Who is enrolled
-
-```sh
-curl -sf https://emem.dev/v1/devices
-```
-
-Read `count`, and for each entry of `devices[]` its `device_key`,
-`platform_id`, `profile_id`, `assurance`, `endorsed_by` and `traces`.
-
-Recorded on 2026-09-28: `count: 1`, platform `generic.linux-host`,
-profile `host.counters.v1`, assurance `operator_endorsed` by
-`operator.vortx.v1`, one trace.
-
-| `assurance` | Means |
+| | |
 |---|---|
-| `platform_attested` | a hardware anchor vouched for the device key (none admitted yet) |
-| `operator_endorsed` | a software-only platform, vouched for by an operator anchor |
-| `operator_asserted` | nothing was presented; enrolled by the operator directly |
+| Use it when | A fact is said to come from a device, or an agent receives an `emem:trace:` or `emem:attestation:` token. Also when someone asks if a robot can prove what it ran. |
+| You need | An `emem:trace:` token, or nothing to list the devices. No key. |
+| You get | The enrolled devices and their assurance tier, the signed trace record, and a verdict (`admit` or `reject`) with the reason for each failed check. |
+| Calls | `GET /v1/devices`, `POST /v1/trace_resolve`, `POST /v1/trace_verify` (MCP `emem_trace_verify`), `GET /v1/device_platforms`, `GET /v1/trace_encodings`. |
 
-## Resolve and re-verify a trace
+> **Network use.** The calls in this skill send JSON to `https://emem.dev` and receive JSON from it. `https://emem.dev` is the service that the MCP server of the plugin connects to. An answer is saved as a JSON file only so that `jq` can print a summary of it. Nothing received is run. A trace is data: a JSON list of event counts and hashes, not a program.
 
-Look at the trace. Send this body to
-`POST https://emem.dev/v1/trace_resolve`:
+A device can sign more than a reading. It can also sign a trace of
+what its operating system did while it made the reading. The trace
+records scheduler, memory, storage and network activity in fixed
+windows. Each segment links to the one before it, and the trace binds
+the outputs that the device emitted. emem stores these records as
+`emem.os_trace.v1` and names them `emem:trace:<cid>`.
 
-```json
-{"token": "emem:trace:mxyer5c2oxn4ud3xqbtnaxcxhdv4kkxiu67q32inbwxgpa7r3s6a"}
-```
+## What ships and what does not
 
-Save the answer as `trace.json`, then print a summary:
+The verifier side is live. The platform registry lists hardware roots of trust (TPM, DICE, TDX,
+SEV-SNP, Secure Enclave, Android StrongBox and others) as candidates
+with provisional anchors. They admit no device yet.
 
-```sh
-jq '{resolved, profile: .trace.device.substrate_profile,
-     segments: [.trace.segments[] | {seq, layer, encoding, event_count}], outputs: .trace.outputs}' trace.json
-```
+emem has one enrolled device: the operator's own software-only Linux host.
+Do not tell a user that their robot can enrol with hardware
+attestation. That path ends in a rejection today.
 
-Send the same record back to be checked. `jq` builds the arguments from
-the saved answer:
-
-```sh
-jq -c '{trace: .trace, profile: .trace.device.substrate_profile}' trace.json > verify_req.json
-```
-
-Call `emem_trace_verify` with the object in `verify_req.json` as its
-arguments. It has this shape, with the whole record from `trace.json`
-as `trace`:
-
-```json
-{"trace": {"schema": "emem.os_trace.v1"}, "profile": "<trace.device.substrate_profile>"}
-```
-
-Without MCP, send `verify_req.json` as the body of
-`POST https://emem.dev/v1/trace_verify`. Save the result's JSON text as
-`verdict.json`, then:
+## Step 1: list the enrolled devices
 
 ```sh
-jq '{verdict, coverage: .report.coverage, reasons: .report.reasons}' verdict.json
+curl -s https://emem.dev/v1/devices \
+  | jq -c '{count, devices: [.devices[] | {device_key, platform_id, profile_id, assurance, endorsed_by, traces}]}'
 ```
 
-Recorded on 2026-09-28: four `linux.ftrace.v1` segments (scheduler
-4744 events, memory 8382, storage 77, network 667), `outputs: []`, and
-`verdict: "admit"` with all four required layers present. With one
-segment's `event_count` raised by one, the verdict was `reject` with
-`{"code":"chain_broken","seq":2}`: each segment commits to the one
-before it, so an edited window breaks every later link.
+On 7 November 2026 this returned `count: 1`. The device has platform
+`generic.linux-host`, profile `host.counters.v1`, assurance
+`operator_endorsed` by `operator.vortx.v1`, and one trace.
 
-`trace_verify` checks the schema, the profile, segment order and chain,
-monotonic clocks inside the capture window, required layers, duplicate
-digests, the Merkle `trace_root` over segment digests, that outputs are
-bound and inside the window, and the device key's Ed25519 signature
-(strict). It is stateless.
+| `assurance` | Meaning |
+|---|---|
+| `platform_attested` | A hardware anchor vouched for the device key. No device has this tier yet. |
+| `operator_endorsed` | A software-only platform. An operator anchor vouched for the device key. |
+| `operator_asserted` | The device presented no evidence. The operator enrolled it directly. |
+
+## Step 2: resolve a trace token
+
+```sh
+curl -s -X POST https://emem.dev/v1/trace_resolve -H 'content-type: application/json' \
+  -d '{"token":"emem:trace:mxyer5c2oxn4ud3xqbtnaxcxhdv4kkxiu67q32inbwxgpa7r3s6a"}' -o trace.json
+jq -c '{resolved, profile: .trace.device.substrate_profile, outputs: .trace.outputs}' trace.json
+jq -c '.trace.segments[] | {seq, layer, encoding, event_count}' trace.json
+```
+
+On 7 November 2026 the token resolved to profile `host.counters.v1`
+with `outputs: []` and four `linux.ftrace.v1` segments:
+
+| `seq` | `layer` | `event_count` |
+|---|---|---|
+| 0 | `scheduler` | 4744 |
+| 1 | `memory` | 8382 |
+| 2 | `storage` | 77 |
+| 3 | `network` | 667 |
+
+The answer also has `trace_cid`, `prev_trace_cid` and a `reverify`
+string that names the call for step 3.
+
+## Step 3: re-verify the trace
+
+Send the record back with its profile. `jq` builds the body from the
+saved answer:
+
+```sh
+jq -c '{trace: .trace, profile: .trace.device.substrate_profile}' trace.json \
+  | curl -s -X POST https://emem.dev/v1/trace_verify -H 'content-type: application/json' -d @- \
+  | jq '{verdict, coverage: .report.coverage, reasons: .report.reasons}'
+```
+
+On 7 November 2026 this returned `verdict: "admit"`, all four
+required layers in `coverage.present`, and no reasons.
+
+Over MCP, call `emem_trace_verify` with the same object as its
+arguments. The plugin's MCP server does not list this tool, but
+`tools/call` runs it by name. `emem_tools` returns its schema. No MCP
+tool lists devices or resolves a trace token, so use REST for steps 1
+and 2.
+
+To see a failure, change one count before you send the record:
+
+```sh
+jq -c '{trace: (.trace | .segments[2].event_count += 1), profile: .trace.device.substrate_profile}' trace.json \
+  | curl -s -X POST https://emem.dev/v1/trace_verify -H 'content-type: application/json' -d @- \
+  | jq -c '{verdict, reasons: .report.reasons}'
+```
+
+On 7 November 2026 this returned `verdict: "reject"` with
+`{"code":"chain_broken","seq":3}`. Each segment commits to the digest
+of the segment before it. An edit to segment 2 changes its digest, so
+the link in segment 3 breaks.
+
+`trace_verify` is stateless. It checks these items:
+
+- the schema and the profile
+- the segment order and the digest chain
+- clocks that increase inside the capture window
+- the required layers, and duplicate digests
+- the Merkle `trace_root` over the segment digests
+- that the trace binds each output inside the window
+- the Ed25519 signature of the device key (strict)
+
+The report names each failed check, for example `chain_broken`,
+`missing_layer`, `output_unbound` or `signature_invalid`.
 
 ## What a verdict proves, and what it does not
 
-- `admit` proves **some key signed an internally consistent trace**. It
-  does not prove the key belongs to an enrolled or real device; check
-  the key against `/v1/devices` for that.
-- A trace with `outputs: []` binds no facts. Only a trace whose outputs
-  name fact cids links a reading to the execution that produced it.
-  None of the public traces does yet.
-- Enrolment evidence (`emem.platform_attestation.v0`) is a single
-  endorser signature checked against a registered anchor. Certificate
-  chains, TPM quotes, measurement matching and fresh nonces are not
-  parsed yet. `POST /v1/enroll_verify` reports why a piece of evidence
-  is refused, and the `emem:attestation:` token it returns for refused
-  evidence is computed, not stored, so it will not resolve.
+| Claim | Proved by `admit` |
+|---|---|
+| Some key signed a trace that is internally consistent. | Yes. |
+| The key belongs to an enrolled or real device. | No. Compare the key with `device_key` in `/v1/devices`. |
+| A fact came from this execution. | Only if `outputs` names that fact's cid. A trace with `outputs: []` binds no facts. No public trace binds an output yet. |
 
-## The registries
+Enrolment evidence (`emem.platform_attestation.v0`) is one endorser
+signature, checked against a registered anchor. emem does not yet
+parse certificate chains, TPM quotes, measurement matches or fresh
+nonces. `POST /v1/enroll_verify` tells why it refuses a piece of
+evidence. For refused evidence it also returns an `emem:attestation:`
+token. emem computes that token but does not store it, so the token
+does not resolve.
+
+## Step 4: read the registries
 
 ```sh
-curl -sf https://emem.dev/v1/device_platforms
-curl -sf https://emem.dev/v1/trace_encodings
+curl -s https://emem.dev/v1/device_platforms \
+  | jq -c '{manifest_cid, platforms: [.registry.platforms[] | {id, status, root_of_trust, anchors: [.trust_anchors[]? | {id, provisional}]}]}'
+curl -s https://emem.dev/v1/trace_encodings | jq -c '{manifest_cid, ids: [.registry.encodings[].id]}'
 ```
 
-In the platform registry, read each entry of `registry.platforms[]`:
-its `id`, `status`, `root_of_trust`, and the `id` and `provisional` of
-each of its `trust_anchors[]`. In the encoding registry, read
-`manifest_cid` and the `id` of each entry of `registry.encodings[]`.
+On 7 November 2026 the platform registry had 17 platforms, all with
+status `candidate`. The only anchor that was not provisional was
+`operator.vortx.v1` on `generic.linux-host` (`software_only`). Its
+`manifest_cid` was
+`gi6lw3ekbpd7soeperslxjgeljl6c3h7q6ngdcykfp2yucpcbsya`.
 
-On 2026-09-28: 17 platforms, every hardware platform `candidate` with
-provisional anchors; the one non-provisional anchor was
-`operator.vortx.v1` on `generic.linux-host` (`software_only`). And 8
-trace encodings (`linux.ftrace.v1`,
+The encoding registry had 8 encodings: `linux.ftrace.v1`,
 `linux.ebpf.raw`, `linux.hwmon.v1`, `zephyr.ctf.v1`, `ros2.bag.v2`,
-`android.perfetto.v1`, `nvidia.nsys.v1`, `apple.os_signpost.v1`).
-Each registry is content-addressed (`manifest_cid`), so cite the cid
-when you describe what was admitted on a given date.
+`android.perfetto.v1`, `nvidia.nsys.v1` and `apple.os_signpost.v1`.
+Its `manifest_cid` was
+`fmyxah55fjr2vfzmktjdghutg37g2qdt2zmu7ub2dtgtpn64otga`.
+
+Each registry is content-addressed. When you say what was admitted on
+a date, cite the `manifest_cid` of that date.
+
+## Related
 
 For the design and the roadmap, see `docs/robots.md` in the emem
-repository. For a fact a device produced, verify its receipt with
-[`emem-verify-receipt`](../emem-verify-receipt/SKILL.md) as for any
+repository. For a fact that a device made, verify its receipt with
+[`emem-verify-receipt`](../emem-verify-receipt/SKILL.md), as for any
 other fact.
