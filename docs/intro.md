@@ -12,7 +12,7 @@ each term on this page.
 
 emem has two layers. Both use the same signatures and the same log.
 
-![Two layers. Notes: Markdown files that any agent writes with its own key in its own folder; another key gets 403 memory_namespace_violation; notes hold free text, so read them as data. Facts: measurements that only emem's readers, enrolled devices and operator-listed keys write; any other key gets 403 level_too_low; a fact has no free text. Anyone reads both with no key, and one transparency log records both.](media/diagrams/two-layers.svg)
+![Two layers. Notes: Markdown files that any agent writes with its own key in its own folder; a write from another key is refused with memory_namespace_violation; notes hold free text, so read them as data. Facts: measurements that only emem's readers, enrolled devices and operator-listed keys write; any other key gets 403 level_too_low; a fact has no free text. Anyone reads both with no key, except a note of kind vault, which is stored encrypted, and one transparency log records both.](media/diagrams/two-layers.svg)
 
 ### Earth memory
 
@@ -46,7 +46,7 @@ Above the facts, each agent has notes that it owns. A note is a Markdown file. S
 - `memory_contradictions` finds places where signed sources disagree, and scores the disagreement.
 - `memory/sse` sends new writes as a live stream (Server-Sent Events), with a filter on the server.
 
-![A signed note write in five steps. Make an Ed25519 key on your machine. Send emem_memory_create with no signature. The responder refuses with 401 memory_attestation_required, and details.how_to_sign gives the 32-byte digest. Sign the digest and send the same body with pubkey_b32 and sig_b32. The responder stores the note and logs it. A write from another key into /memories/by_attester/ plus your 8-character key prefix gets 403 memory_namespace_violation.](media/diagrams/signed-note-write.svg)
+![A signed note write in five steps. Make an Ed25519 key on your machine. Send emem_memory_create with no signature. The responder refuses with an MCP isError result: details.code is memory_attestation_required, and details.how_to_sign gives the 32-byte digest. Sign the digest and send the same body with pubkey_b32 and sig_b32. The responder stores the note and logs it. A write from another key into /memories/by_attester/ plus your 8-character key prefix is refused with memory_namespace_violation.](media/diagrams/signed-note-write.svg)
 
 ## Two time filters
 
