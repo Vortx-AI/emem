@@ -26,7 +26,7 @@
 </g>
 
 <!-- title -->
-<text x="800" y="52" text-anchor="middle" class="h" font-size="33" font-weight="bold">Satellites as a source of truth for the machines on the ground</text>
+<text x="800" y="52" text-anchor="middle" class="h" font-size="33" font-weight="bold">Satellite data as checkable evidence for machines on the ground</text>
 <text x="800" y="82" text-anchor="middle" class="h dim" font-size="17" font-style="italic">one trust path from orbit to ground: enrolled by key, checked by execution trace, kept in a log that witnesses co-sign</text>
 
 <!-- ══ ORBIT column ══ -->
@@ -104,7 +104,7 @@
 <text x="600" y="644">emem:bundle:&lt;bundle_cid&gt;     one pass, one handle</text>
 <text x="600" y="666">emem:entity:&lt;entity_cid&gt;     one name per object</text>
 </g>
-<text x="600" y="692" class="h dim" font-size="12.5">Byte-identical from any replica: the address is the content.</text>
+<text x="600" y="692" class="h dim" font-size="12.5">Entity ids hash an anchor; the other three hash the bytes.</text>
 
 <!-- ══ GROUND column ══ -->
 <text x="1330" y="130" text-anchor="middle" class="h dim" font-size="15" letter-spacing="3">GROUND · THE MULTI-AGENT SYSTEM</text>
