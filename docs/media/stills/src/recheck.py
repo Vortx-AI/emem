@@ -15,8 +15,8 @@
    in log-proof.webp to it, and checks both offline with the plugin's
    verify_log.py.
 
-Read-only calls, about one per token plus three for what-crosses, two for the CBOR bytes and two for the log, with a 0.5 s
-pause between calls. Standard library only. Exit 0 when every check passed.
+Read-only calls, about one per token plus three for what-crosses, two for
+the CBOR bytes and two for the log, with a 0.5 s pause between calls. Standard library only. Exit 0 when every check passed.
 """
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ SAVED_CBOR = [
     ("banvya7hgenuowjggkgguezvltxtefp6jgihocwkgcbddyvqv6bq", ROOT / "docs/media/stills/src/data/wire/fact.cbor"),
     ("qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq", ROOT / "docs/media/films/src/data/one-byte/fact-live.cbor"),
 ]
-VERIFY_LOG =ROOT / "plugins/emem/skills/emem-transparency-log/scripts/verify_log.py"
+VERIFY_LOG = ROOT / "plugins/emem/skills/emem-transparency-log/scripts/verify_log.py"
 BASE = "https://emem.dev"
 TOKEN = re.compile(r"emem:(?:fact|bundle):[a-z0-9]+(?:\.[A-Za-z0-9]+)*(?::[a-z2-7]{52})?")
 

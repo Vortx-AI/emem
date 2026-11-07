@@ -262,8 +262,8 @@ durable lengths:
 | `cid64` | 8 | 13 | `crates/emem-codec/src/cid64.rs:9-11` | short visible ID for inline text |
 | `FactCid` | 32 | 52 | `crates/emem-cache/src/sled_hot.rs:813-820` (`fact_cid_of`) | durable storage and signing |
 
-One BLAKE3 call makes the full 32-byte hash (`blake3_32`, cbor.rs:78).
-`cid64` is its first 8 bytes. `FactCid` is all 32 bytes.
+`fact_cid_of` hashes the canonical CBOR once with BLAKE3 and encodes all 32 bytes.
+`cid64` is the first 8 bytes of a 32-byte CID (cid64.rs:9-11).
 
 ### 3.1 cid64
 
