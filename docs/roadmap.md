@@ -1039,10 +1039,9 @@ n8n node on an `n8n-*` tag, and no such tag exists yet.
 
 #### Launch
 
-The SDK publish is done. On 7 November 2026, `ememdev` on PyPI and
-`@vortxai/emem` on npm were both at 2.4.4. The launch waits for the
-registry listings. It leads
-with the claim that anyone can check: the same token resolves to the
+The SDKs are on their registries. On 7 November 2026, `ememdev` on PyPI
+and `@vortxai/emem` on npm were both at 2.4.4. The launch waits for the
+registry listings. It leads with the claim that anyone can check: the same token resolves to the
 same bytes for anyone, and the receipt verifies offline. Planned assets:
 
 - the one-call example at the top of the README

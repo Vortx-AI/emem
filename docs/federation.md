@@ -437,8 +437,8 @@ returned:
 Thus nearly all witness keys have no vouching. The lag changes from
 minute to minute. At 07:02 UTC on the same day,
 `freshest_independent_operator_entries_behind` was 23 and
-`freshest_independent_witness_entries_behind` was 2. The tier counts were
-the same.
+`freshest_independent_witness_entries_behind` was 2. At 08:13 UTC, both
+fields were 38. The tier counts were the same each time.
 
 The outbound direction also ran that day. `GET /v1/log/witnesses` on
 `https://geo.qa/emem` at 07:55 UTC showed that emem.dev's key
@@ -525,7 +525,7 @@ emem refuses these, each for a stated reason:
 | Attack | State | Why |
 |---|---|---|
 | A node serves wrong bytes | closed | the reader checks the BLAKE3 hash against the id, with no trust in anyone; a hostile node can withhold bytes, not forge them |
-| Split view | closed by §8a, open until independent witnesses keep up | a node that shows two histories fails a consistency proof at one of its witnesses. On 7 November 2026 emem.dev had one independent operator domain. At 02:29 UTC `head_is_witnessed_by_independent_operator` was `false`. That operator's freshest co-signature was 5 entries behind |
+| Split view | closed by §8a, open while independent witnesses lag the head | a node that shows two histories fails a consistency proof at one of its witnesses. On 7 November 2026 emem.dev had one independent operator domain, and its newest co-signature was behind the head. "Measured state" in §8a gives the values |
 | Sybil writes | open, and identity cannot close it | anyone can make unlimited Ed25519 keys, so a count of signatures is worthless |
 
 The answer to sybil writes is not an identity gate. That gate would cost the
@@ -534,7 +534,7 @@ network's: `trust: caller_decides`. Sybils add signatures, not credibility.
 The network owes the reader the evidence to judge:
 
 - who signed;
-- what they proved (the T0 to T5 ladder; T5 is not computed yet, §5a);
+- what they proved (the T0 to T5 ladder; the code does not compute T5 yet, §5a);
 - whether a third party can check that proof again (DNS or `.well-known`, §5a);
 - where signers disagree.
 
