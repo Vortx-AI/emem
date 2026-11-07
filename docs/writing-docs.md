@@ -45,8 +45,17 @@ Use a bundle to send many facts in one line."
 
 Two scripts check Markdown. Both need only Python 3.
 
-`scripts/doc_lint.py` is the gate in CI. It checks every doc for dashes, a short list of buzzwords and links that do
-not resolve. A pull request cannot merge when it fails.
+`scripts/doc_lint.py` is the gate in CI. The `doc-lint` job runs it on each push and each pull request. It reads
+`README.md`, `CONTRIBUTING.md` and `docs/**/*.md`. It finds these problems:
+
+- em and en dashes,
+- words from a short buzzword list, and words that describe an era of machine intelligence,
+- relative links that do not resolve,
+- text that gives `fact_cid` as the truncated `[..16]` digest.
+
+Five older pages have a fixed dash limit in the script. Their dash count can only go down. When the script finds a
+problem, the `doc-lint` job fails. On 7 November 2026, `main` has no branch protection, so a failed check does not
+block a merge by itself. The reviewer must look at the checks.
 
 `scripts/ste_lint.py` checks the STE rules above: sentence length, words from the replace list, filler words, passive
 voice, "-ing" forms, phrasal verbs and contractions.
@@ -75,5 +84,6 @@ ASD-STE100 dictionary. When the team decides that a word is a defined technical 
 
 ## Pages the STE lint skips
 
-The STE lint skips the collaboration log, the changelog, the archived whitepapers and the agent notes. These are records.
-We keep their text as it is.
+The STE lint skips six records: the collaboration log, the changelog, the two whitepapers (`whitepaper-v1.md` and
+`whitepaper-v2.md`), the agent notes and the test results in `tests/comprehensive/results/`. We keep their text as it is.
+The list is `skip_paths` in `scripts/ste_lint_rules.json`.
