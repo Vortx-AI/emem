@@ -423,8 +423,15 @@ curl -s -X POST https://emem.dev/v1/recall \
 ```
 
 The answer held one NDVI fact, at tslot 20589. The receipt signs the bound in
-`receipt.as_of` (`{"valid_time": 20600}`). A past `as_of_signed_at` does not
-fetch new data. Details:
+`receipt.as_of` (`{"valid_time": 20600}`).
+
+A bound before every fact gives an empty `facts` list with status 200, not a
+404. `temporal_advice.facts_at_cell_unbounded` counts the facts that the bound
+removed. On 7 November 2026 it was 377 at this cell. A past `as_of_signed_at`
+does not fetch new data. Its `materialize_notes` entry has `reason`
+`as_of_signed_at_in_the_past` and `retryable` false. An early `as_of_tslot`
+still tries a fetch. At tslot 100 the note had `reason_class` `upstream_error`
+and `retryable` true. Details:
 [Read what was true, or what emem knew, on a date](only-emem.md#read-what-was-true-or-what-emem-knew-on-a-date).
 
 ### Job: check a yes or no claim about a place
