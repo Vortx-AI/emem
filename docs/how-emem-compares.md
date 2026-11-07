@@ -28,11 +28,10 @@ Status on 7 November 2026:
 ### The signed study is the authority
 
 Our [benchmark page](benchmarks.md) shows only a cid for the scorecard and
-copies none of its numbers. Then a correction at the source changes both places
-at the same time. This page copies the numbers,
-because a scorecard needs them. So a re-score can make a number here old while
-the signed source is already correct. If this page and the cid disagree, the cid
-is correct and this page has a bug.
+copies none of its numbers. So a correction at the source cannot make that page
+wrong. This page copies the numbers, because a scorecard needs them. So a
+re-score can make a number here old while the signed source is already correct.
+If this page and the cid disagree, the cid is correct and this page has a bug.
 
 The study expects one re-score. Its scorer compared values at a 1e-6 tolerance,
 because `recall` gave it a float. `recall` now gives the exact decimal string,
@@ -135,6 +134,9 @@ there were no confident value errors in 280 arm-model observations.
 
 ## 3. Cost: two of four axes go against us
 
+In this section, a token is an emem citation (`emem:fact:...`). An LLM token
+is the text unit that a model reads and that a context window counts.
+
 | axis | individual tokens | bundled | context | lowest cost |
 |---|---|---|---|---|
 | citation size | 84 chars / 51 LLM tokens | 38 chars / 23 LLM tokens, any N | grows with the values | bundle |
@@ -227,10 +229,9 @@ answers match no cell.
 ## 5. A finding that is true without emem
 
 When a summariser compresses the context, agreement between two models does not
-show that they are correct.
-The summariser keeps the range endpoints and drops the single values. Both
-readers answer with an endpoint. They agree with each other, and both are
-wrong.
+show that they are correct. The summariser keeps the range endpoints and drops
+the single values. Both readers answer with an endpoint. They agree with each
+other, and both are wrong.
 
 | measure | value |
 |---|---|
@@ -269,8 +270,8 @@ Two results follow:
   The tightest threshold of any decision in this study is 1e-6.
 - The failure does not grow steadily with N. Accumulation error cancels as
   often as it adds. So under strict equality, a caller cannot predict if a sum
-  will verify. That looks like a guarantee but behaves like chance, which is worse
-  than a stated bound.
+  will verify. That looks like a guarantee but behaves like chance. That is
+  worse than a stated bound.
 
 So the tolerance is back, with a limit, and the response always shows it:
 
