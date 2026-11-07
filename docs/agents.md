@@ -434,7 +434,12 @@ curl -s -X POST https://emem.dev/v1/memory_token/resolve \
 ```
 
 `value`, `unit` and `band` are at the top level. The full signed body is in
-`fact`.
+`fact`. Quote `value_verbatim`, the exact decimal string that emem signed.
+On 7 November 2026 it was `"3539.042236328125"`. A JSON number can lose
+digits when you copy it. If the cell in the token is a different valid
+cell, the answer is HTTP 409. If emem cannot read the cell, it uses the
+cell of the signed fact, with `degraded: true` and `cell_matches: false`.
+Read `cell_matches` before you trust the address.
 
 ### Job: cite many facts with one token
 
@@ -449,7 +454,10 @@ curl -s -X POST https://emem.dev/v1/memory_bundle \
 ```
 
 Read `bundle_token` (`emem:bundle:<bundle_cid>`) and `fact_cids`. emem
-recalls each triple, so it fetches a missing fact first.
+recalls each triple, so it fetches a missing fact first. To bind facts that
+you already hold, send `fact_cids` in place of `triples`. Send one of the two
+fields, not both. A member that emem cannot bind has a `miss_reason` in
+`citations`.
 
 ### Job: verify a receipt
 
@@ -489,6 +497,9 @@ curl -s -X POST https://emem.dev/v1/memory_contradictions \
 ```
 
 On 7 November 2026 the scan read 44,705 keys and returned 3 contradictions.
+All 3 were `same_attester_provider_substitution`, because the default scan
+counts disagreement inside one attester too. Send
+`"include_same_attester_sources": false` to count only different attesters.
 Its time budget stopped it before the end of the corpus
 (`scan_truncated: true`). Send the `resume_after` value back to continue
 the scan. The `agent_hint` text says `(whole corpus)`. That means that you
