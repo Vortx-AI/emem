@@ -8990,12 +8990,13 @@ async fn well_known_emem_agents() -> Response {
         // domain vouches for these keys", and shipping one roster to every
         // self-hoster would have them attesting to keys they never chose.
         let explicit = std::env::var("EMEM_AGENTS_WELL_KNOWN").ok();
-        let data_dir = std::env::var("EMEM_DATA").unwrap_or_else(|_| "/var/emem".to_string());
         let candidates: Vec<String> = match &explicit {
             Some(p) => vec![p.clone()],
             None => vec![
                 "config/emem-agents.json".to_string(),
-                format!("{}/emem-agents.json", data_dir.trim_end_matches('/')),
+                emem_core::data_dir::data_path("emem-agents.json")
+                    .to_string_lossy()
+                    .into_owned(),
             ],
         };
         let mut path = candidates[0].clone();
@@ -36101,11 +36102,8 @@ fn splats_root() -> std::path::PathBuf {
         // default named a path that exists on exactly one machine, so a
         // self-hoster who did not set EMEM_SPLATS_DIR got 404s from a route
         // the site advertises as hosted.
-        .unwrap_or_else(|_| {
-            let data = std::env::var("EMEM_DATA").unwrap_or_else(|_| "/var/emem".to_string());
-            format!("{}/splats-site", data.trim_end_matches('/'))
-        })
-        .into()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| emem_core::data_dir::data_path("splats-site"))
 }
 
 /// Parse a single `Range: bytes=<start>-<end>` spec against a known content length.
@@ -65592,6 +65590,53 @@ fn coverage_page<'a>(
 mod reported_bug_tests {
     use super::*;
 
+    /// crop_stress_score@1 in algorithms-v0.json is a fixed weighted sum.
+    /// The hunter text said it z-scores against a rolling baseline, which
+    /// no code computes.
+    #[test]
+    fn the_crop_stress_hunter_text_matches_the_registry_formula() {
+        let spec = ranking_spec_for(ask_foundation::HunterKind::CropStress).expect("spec");
+        assert!(
+            !spec.interpretation.contains("z-score"),
+            "{}",
+            spec.interpretation
+        );
+        assert!(
+            !spec.interpretation.contains("baseline"),
+            "{}",
+            spec.interpretation
+        );
+        let reg: serde_json::Value =
+            serde_json::from_str(include_str!("../../emem-core/data/algorithms-v0.json")).unwrap();
+        let algo = reg["algorithms"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["key"] == "crop_stress_score@1")
+            .expect("crop_stress_score@1 in the registry");
+        for input in algo["inputs"].as_array().unwrap() {
+            let w = format!("{:.2}", input["weight"].as_f64().unwrap());
+            assert!(
+                spec.interpretation.contains(&w),
+                "weight {w} missing: {}",
+                spec.interpretation
+            );
+        }
+    }
+
+    /// Two paths read EMEM_DATA with a `/var/emem` default while the rest of
+    /// the node uses `./var/emem` (emem_core::data_dir).
+    #[test]
+    fn the_splats_root_follows_the_shared_data_dir_default() {
+        if std::env::var("EMEM_SPLATS_DIR").is_ok() {
+            return;
+        }
+        assert_eq!(splats_root(), emem_core::data_dir::data_path("splats-site"));
+        let src = include_str!("lib.rs");
+        let bad = ["unwrap_or_else(|_| \"/var/", "emem\".to_string())"].concat();
+        assert!(!src.contains(&bad), "a second EMEM_DATA default remains");
+    }
+
     /// The write path refuses v1 for every verb (`v1_retired`), so the
     /// verifier spec must not tell a signer that v1 still works for create.
     #[test]
@@ -70906,7 +70951,7 @@ fn ranking_spec_for(kind: ask_foundation::HunterKind) -> Option<RankingSpec> {
             primary_band: "indices.ndvi",
             gate: None,
             higher_is_hotter: false,
-            interpretation: "lower NDVI in growing season = stress; the full algorithm z-scores against a per-polygon rolling baseline",
+            interpretation: "lower NDVI in growing season = stress; the full algorithm is a weighted sum: 0.40 NDVI, 0.35 NDMI, 0.15 high-temperature sigmoid, 0.10 low-precipitation sigmoid (crop_stress_score@1). It is a relative ranking, not a calibrated stress level.",
         },
         K::OilSlick => return None,
     };
