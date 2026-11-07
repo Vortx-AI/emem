@@ -37,6 +37,12 @@ sources: `dynamic_world.v1`, `openet.30m.daily`, `tropomi.s5p.ch4`, `tropomi.s5p
 emem needs no corpus loaded in advance. When you ask about a new cell, emem reads the public archive, signs the
 value, stores it and returns it. So each cell on Earth can give a signed answer from the first request.
 
+<img src="media/stills/wired-bands.webp" alt="What emem can fetch for a new place, from one live call to GET /v1/materializers on 7 November 2026. It lists 113 band names. 89 have a history window. ERA5 reanalysis through Open-Meteo goes from 1940 to now, NASA POWER from 1981, MODIS from 2000, CAMS air quality from 2013, Sentinel-1 from 2014, Sentinel-2 bands and indices (34 names, 10 m) from 2018, and Open-Meteo marine from 2022. Closed windows include Köppen 1980 to 2016, JRC surface water 1984 to 2021, JRC tropical moist forest 1990 to 2023, TerraClimate normals 1991 to 2020, Hansen forest change 2000 to 2024, WorldPop 2000 to 2020, the JRC forest map 2020 and ESA WorldCover 2021. 24 names have no history window: the current met.no weather, the latest Overture release, SoilGrids, Copernicus DEM, GMRT, protected areas and FIRMS fires. A read inside a window can still return a signed absence. The agent card counts 115, because two opera_dist names are missing from this list." width="540">
+
+The image groups all rows of the live list by source. A read inside a window can still return a signed absence, for
+example under cloud or over the sea. On 7 November 2026, `/v1/materializers` listed 113 names. The agent card
+counted 115, because the list leaves out the two `opera_dist` names.
+
 ### Agent memory
 
 Above the facts, each agent has notes that it owns. A note is a Markdown file. Six verbs handle notes:
