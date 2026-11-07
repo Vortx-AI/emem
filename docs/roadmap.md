@@ -1706,7 +1706,7 @@ The items are in the order of build priority.
 | # | Item | Status on 7 November 2026 |
 |---|---|---|
 | 1 | Chain the receipt to the transparency log | Ships |
-| 2 | Governed witnesses and client gossip | Partly ships: one witness key of one independent operator co-signs the head |
+| 2 | Governed witnesses and client gossip | Partly ships: one witness key of one independent operator co-signs recent heads |
 | 3 | `emem:a2a-envelope:v1`, one verifiable message object | Not built |
 | 4 | Signed conversation structure | Not built |
 | 5 | Edge authority, separate from edge authorship | Not built |
@@ -1739,7 +1739,10 @@ the proof. Receipts written before the field existed do not have it. See
 
 The log proves that this responder's tree grew consistently. One
 witness key, vouched by one independent operator (`eudr.dev`), co-signs
-the emem.dev head (`independent_operator_count` 1 on 7 November 2026). Cross-witnessing with
+emem.dev heads (`independent_operator_count` 1 on 7 November 2026). It
+signs a head some entries after the responder writes it. At 08:36 UTC its newest
+co-signature was 54 entries behind the current head, so
+`head_is_witnessed_by_independent_operator` was false. Cross-witnessing with
 `geo.qa` started on 2026-09-02 and first worked in both directions on
 2026-09-05. These parts are still missing:
 
