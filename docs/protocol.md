@@ -29,7 +29,7 @@ read the sections it names.
 | Check a receipt that a responder gave you | [§7 Receipt](#7-receipt), then the Python verifier in [§7.4](#74-offline-verification-python) |
 | Check that a fact is in a signed batch | [§8 Merkle inclusion proof](#8-merkle-inclusion-proof) |
 | Check that a fact or a memory note is in the transparency log | [§9.6 Transparency log](#transparency-log), then the steps in [§9.6.1](#961-check-an-inclusion-proof-by-hand) |
-| Calculate a `fact_cid` from a fact | [§3 CID](#3-cid-and-factcid), [§4 CBOR](#4-cbor-canonicalisation), [§5 Fact](#5-fact) |
+| Calculate a `fact_cid` from a fact | The steps in [§5.5](#55-recompute-a-fact_cid-by-hand), then [§3 CID](#3-cid-and-factcid) and [§4 CBOR](#4-cbor-canonicalisation) for the rules |
 | Change a latitude and a longitude into a cell64 | [§1 Cell64](#1-cell64-the-spatial-primitive) |
 | Change a time into a tslot | [§2 Tslot](#2-tslot-temporal-addressing) |
 | Sign a memory write | [§7.5 Signed memory writes](#75-capability-binding-for-memory-writes) |
@@ -582,11 +582,14 @@ struct PrimaryFact {
 }
 ```
 
+Serde skips `unit`, `uncertainty` and `served_via` when they are
+`None`. The fact then has no key for them, not a `null`.
+
 `served_via` records which compute tier made the value (`tier`,
 `model`, `device`, and an optional `fallback_reason` and
 `model_blake2b_hex`). The responder does not set it now. Only older
-facts from the retired foundation-model tier carry it. Serde skips it
-when it is `None`, so facts without it keep their CID.
+facts from the retired foundation-model tier carry it. Because serde
+skips it when it is `None`, facts without it keep their CID.
 
 Worked example (Fast-tempo NDVI composite over a single Sentinel-2 capture):
 
@@ -596,7 +599,7 @@ Worked example (Fast-tempo NDVI composite over a single Sentinel-2 capture):
   "cell": "dedi.zaf00.bafi.baba",
   "band": "indices.ndvi",
   "tslot": 19797,
-  "value": 0.42, "unit": null, "confidence": 0.95,
+  "value": 0.42, "confidence": 0.95,
   "sources": [{ "scheme": "sentinel_s2_l2a",
                 "id": "https://…/T43PFT_20240315T101031_B08_10m.tif ; https://…/T43PFT_20240315T101031_B04_10m.tif",
                 "captured_at": "2024-03-15T10:10:31Z" }],
@@ -910,9 +913,9 @@ signed some absences before it stored reason text. For those, `reason` is
 `null`.
 
 The reason codes in `crates/emem-api-rest/src/lib.rs` on 7 November
-2026 are below. The code is the text before the first colon. The
-`nightlights` band is retired on emem.dev (`RETIRED_UPSTREAM_GONE_BANDS`),
-so emem.dev no longer emits `dmsp_ols_out_of_bounds`. Old absences
+2026 are below. The code is the text before the first colon. emem.dev
+retired the `nightlights` band (`RETIRED_UPSTREAM_GONE_BANDS`), so it
+no longer emits `dmsp_ols_out_of_bounds`. Old absences
 with that code still verify.
 
 | Reason code | When the responder emits it |
@@ -952,6 +955,135 @@ does not have to guess why a recall came back empty.
 rename_all = "snake_case")]`. The CBOR shape is one map. The key
 `"kind"` holds `"primary"`, `"derivative"` or `"absence"`, and the
 fields of the variant follow in the same map.
+
+A recall response gives each fact as JSON. That JSON is not the signed
+byte form. It differs from the CBOR map in four ways:
+
+| In the served JSON | In the signed CBOR |
+|---|---|
+| Keys are in alphabetical order, also inside `sources` and `served_via`. | Keys are in struct declaration order, with `kind` first (§4.2). |
+| Extra keys: `fact_cid`, `cid_v1`, `memory_token`, `observed_at`, `signer_pubkey_b32`, `band_metadata`, `value_verbatim`, and `reason` on an absence. | These keys are not there. The responder adds them after it signs (`enrich_facts_with_cid`, `enrich_facts_with_metadata`). |
+| `signer` is an array of 32 numbers. | `signer` is a CBOR array of 32 unsigned integers, not a byte string. |
+| A NaN inside a vector value is `null`, because JSON has no NaN. | The NaN is the float `f9 7e 00`. |
+
+`cid_v1` is the same digest as `fact_cid` in IPFS CIDv1 form. Its bytes
+are `01 55 1e 20` (version 1, raw codec, BLAKE3, 32 bytes) and then the
+digest. The text form is base32 with a leading `b`.
+
+### 5.5 Recompute a fact_cid by hand
+
+In plain words: you can rebuild the signed bytes of a fact from the
+JSON that a recall gives you. Then you hash them and compare the result
+with `fact_cid`. No key and no responder code is necessary.
+
+1. Recall a fact.
+
+   ```sh
+   curl -s -X POST https://emem.dev/v1/recall \
+     -H 'content-type: application/json' \
+     -d '{"cell":"defi.zb592.nUkO.zEzE","bands":["copdem30m.elevation_mean"]}' \
+     -o recall.json
+   ```
+
+2. Remove the served-only keys from the table in §5.4.
+3. Put the remaining keys in struct order, with `"kind"` first. Remove
+   each optional key that is absent or `null`.
+4. Encode the map as CBOR with the rules in §4.2. Use the shortest
+   float form that keeps the exact value.
+5. Hash the bytes with BLAKE3. Encode the 32-byte digest as lowercase
+   base32 with no padding.
+6. Compare the result with `fact_cid`. They must be equal.
+
+This script does steps 2 to 6 for a primary fact or an absence. It
+needs Python 3 and the `blake3` package (`pip install blake3`).
+
+```python
+import base64, json, struct, sys
+from blake3 import blake3
+
+def head(major, n):
+    if n < 24: return bytes([major << 5 | n])
+    for code, fmt in ((24, ">B"), (25, ">H"), (26, ">I"), (27, ">Q")):
+        if n < 1 << (8 * struct.calcsize(fmt)):
+            return bytes([major << 5 | code]) + struct.pack(fmt, n)
+
+def enc_float(x):
+    if x != x: return b"\xf9\x7e\x00"
+    for tag, fmt in ((0xf9, ">e"), (0xfa, ">f")):
+        try:
+            b = struct.pack(fmt, x)
+        except OverflowError:
+            continue
+        if struct.unpack(fmt, b)[0] == x: return bytes([tag]) + b
+    return b"\xfb" + struct.pack(">d", x)
+
+def enc(v):
+    if v is True: return b"\xf5"
+    if v is False: return b"\xf4"
+    if isinstance(v, int): return head(0, v) if v >= 0 else head(1, -1 - v)
+    if isinstance(v, float): return enc_float(v)
+    if isinstance(v, str): b = v.encode(); return head(3, len(b)) + b
+    if isinstance(v, list): return head(4, len(v)) + b"".join(enc(x) for x in v)
+    return head(5, len(v)) + b"".join(enc(k) + enc(x) for k, x in v.items())
+
+ORDER = {
+    "primary": ["cell", "band", "tslot", "value", "unit", "confidence",
+                "uncertainty", "sources", "derivation", "privacy_class",
+                "schema_cid", "signer", "signed_at", "served_via"],
+    "absence": ["cell", "band", "tslot", "reason_cid", "confidence",
+                "sources", "schema_cid", "signer", "signed_at"],
+}
+SOURCE = ["scheme", "id", "cid", "hash", "captured_at", "url"]
+SERVED_VIA = ["tier", "model", "device", "fallback_reason", "model_blake2b_hex"]
+
+def pick(obj, keys):
+    return {k: obj[k] for k in keys if obj.get(k) is not None}
+
+fact = json.load(open(sys.argv[1]))["facts"][int(sys.argv[2])]
+body = {"kind": fact["kind"], **pick(fact, ORDER[fact["kind"]])}
+body["sources"] = [pick(s, SOURCE) for s in body["sources"]]
+if "derivation" in body:
+    body["derivation"] = pick(body["derivation"], ["fn_key", "args"])
+if "served_via" in body:
+    body["served_via"] = pick(body["served_via"], SERVED_VIA)
+if isinstance(body.get("value"), list):
+    body["value"] = [float("nan") if x is None else x for x in body["value"]]
+
+digest = blake3(enc(body)).digest()
+cid = base64.b32encode(digest).decode().rstrip("=").lower()
+print("computed", cid)
+print("served  ", fact["fact_cid"])
+print("MATCH" if cid == fact["fact_cid"] else "MISMATCH")
+```
+
+Run it on the first fact:
+
+```sh
+python3 recompute_fact_cid.py recall.json 0
+```
+
+On 7 November 2026 the output was:
+
+```text
+computed qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq
+served   qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq
+MATCH
+```
+
+On the same day, a recall with no `bands` field at that cell gave 355
+facts: 352 primary facts and 3 absences. The script gave `MATCH` for
+all 355. That set included vector values with NaN entries and one
+fact with `served_via`.
+
+For an absence you can also check `reason_cid`. Hash the `reason` text
+with BLAKE3, keep the first 16 bytes, and encode them as in step 5
+(§5.3). All three absences matched.
+
+The script does not handle a derivative fact. For a derivative, use the
+`DerivativeFact` field order in §5.2. A `MISMATCH` means that the
+served JSON is not the signed fact. It can also mean that your
+encoder breaks a rule in §4.2. Do not trust the value until you find
+which one.
 
 ---
 
