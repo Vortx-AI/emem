@@ -235,8 +235,17 @@ geometry. The WKB decoder is in Rust, with no GEOS and no GDAL.
 checks again every 24 hours (`RELEASE_TTL`).
 
 The same client reads the `divisions/division_area` theme for `/v1/locate` place polygons
-(`division_polygon_near`). It keeps the polygons that contain the point. An exact name match
-wins, and among those the highest admin level wins. With no name match, the smallest polygon wins.
+(`division_polygon_with_subtype`). It keeps the polygons that contain the point. The first rule
+that has a candidate picks the polygon. "Smallest" and "largest" compare bbox areas.
+
+1. The caller asks for a subtype, such as `country`, and a polygon of that subtype has the exact
+   name. The largest of these wins.
+2. A polygon has the exact name. The highest admin level wins, then the largest.
+3. The caller asks for a subtype, and a polygon has that subtype. The smallest wins.
+4. A polygon name contains the name, or the name contains it. The smallest wins.
+5. No name matches. The smallest polygon wins.
+
+When no polygon contains the point, the connector returns no polygon.
 
 ### terraclimate.rs: NCSS CSV with failover
 
