@@ -435,13 +435,15 @@ over 16 cells. The ET call gave `complete`, 148.04 mm
 
 ## 9. `eudr-due-diligence`: a signed EUDR statement for a plot
 
-`POST /v1/eudr_dds` evaluates plots against Regulation (EU) 2023/1115:
-JRC GFC2020 forest at the 2020-12-31 cut-off plus Hansen GFC loss year,
-per sampled cell, with a JRC TMF cross-check reported beside the
-verdict. It returns an Annex II shaped envelope with a per-plot verdict
-(`pass`, `fail`, `not_in_scope`, `indeterminate`, `below_mmu`), signed
-fact cids for every per-cell verdict, and explicit legality and
-degradation disclaimers.
+`POST /v1/eudr_dds` checks plots against Regulation (EU) 2023/1115. For
+each sampled cell, it reads JRC GFC2020 forest at the 2020-12-31 cut-off
+and the Hansen GFC loss year. It reports a JRC TMF cross-check beside the
+verdict.
+
+The response is an Annex II shaped envelope. It gives each plot a verdict:
+`pass`, `fail`, `not_in_scope`, `indeterminate` or `below_mmu`. It gives
+signed fact cids for each per-cell verdict. It also states what it does
+not check: legality and forest degradation.
 
 ```sh
 BASE=https://emem.dev
@@ -456,21 +458,25 @@ curl -sf -m 300 -X POST $BASE/v1/eudr_dds -H 'content-type: application/json' \
                                         tmf_agreement: .tmf_cross_check.agreement}]}'
 ```
 
-A cold plot can take minutes: warm it with a recall of
-`jrc_gfc2020.forest_2020`, `forest_change.lossyear` and
-`forest_change.treecover2000` on one cell first. The schema is at
-`GET /v1/schemas/eudr_dds.json`; the plugin's `emem-eudr-due-diligence`
-skill walks the response.
+On 7 November 2026 this point plot gave `pass`, support `moderate`,
+TMF agreement `1.0`, and `review_required: false`.
 
-Every sampled cell's facts are stored. Each plot's `per_cell_rows_cid`
-is blake3 hex over one line per cell,
+A plot that no call read before can take minutes. To make it faster,
+first recall `jrc_gfc2020.forest_2020`, `forest_change.lossyear` and
+`forest_change.treecover2000` on one cell. `GET /v1/schemas/eudr_dds.json`
+is the response schema. The request schema is `EudrDdsReq` in
+`GET /openapi.json`. The plugin's `emem-eudr-due-diligence` skill explains
+each response field.
+
+The responder stores the facts of each sampled cell. Each plot has a
+`per_cell_rows_cid`. It is BLAKE3 hex over one line per cell:
 `<cell>|<verdict>|<fact_cids joined by ,>\n`. Send
-`per_cell_detail: "anchor"` to leave the rows out and keep the cid, or
-`rows` (default) to inline them. Page the rows with `per_cell_offset`
-and follow `per_cell_next_offset` until it is `null`. Coverage is
-`sampled_polygon_fraction`, never a count of rows. Read the top-level
-`statement_of_compliance_signable` before you offer a statement for
-signature.
+`per_cell_detail: "anchor"` to leave the rows out and keep the cid. Send
+`rows` (the default) to include them. To page the rows, send
+`per_cell_offset` and follow `per_cell_next_offset` until it is `null`.
+`sampled_polygon_fraction` gives the coverage. A count of rows does not.
+Read the top-level `statement_of_compliance_signable` before you offer a
+statement for signature.
 
 ---
 
@@ -485,12 +491,18 @@ jq '{ocr: .}' ocr.json \
   | jq '{verdict: .result.verdict, rows: [.result.rows[] | {analyte, result_mg_kg, mrl_mg_kg, exceeds_printed_mrl}]}'
 ```
 
-The OCR receipt (`emem.ocr.v1`) signs which image, engine and language
-produced the text; the parse receipt (`emem.doc_parse.v1`) signs the
-text hash and the result hash. `POST /v1/land_record_parse` reads
-owners, parcel ids, areas, places and dates from land records the same
-way. The OCR text is a reading, not a fact: check it before trusting a
-parsed verdict.
+The OCR receipt (domain `emem.ocr.v1`) signs the image, the engine and
+the language that made the text. The parse receipt (`emem.doc_parse.v1`)
+signs the text hash and the result hash. `POST /v1/land_record_parse`
+reads owners, parcel ids, areas, places and dates from a land record in
+the same way. The OCR text is a reading, not a fact. Check the text
+before you trust a parsed verdict.
+
+A parse can miss a value that the page shows. On 7 November 2026, a test
+table printed an MRL of 0.01 mg/kg on each row. The OCR text put the MRL
+column below the other columns. The parse then gave the verdict
+`no_mrl_printed`. The plugin's `emem-document-evidence` skill lists the
+limits and the error codes.
 
 ---
 
@@ -505,21 +517,26 @@ OLD=$(jq .sth.tree_size old_sth.json); NEW=$(jq .sth.tree_size new_sth.json)
 curl -sf "$BASE/v1/log/consistency?first=$OLD&second=$NEW" | jq '{first_size, second_size, proof: (.consistency_proof_b32 | length)}'
 ```
 
-RFC 6962 over BLAKE3: leaf `blake3(0x00 || entry_hash)`, node
-`blake3(0x01 || left || right)`. The STH is signed over
-`PreimageV1("emem.translog.sth.v1")`. The plugin's
-`emem-transparency-log` skill ships `verify_log.py`, which checks all
-three offline. `GET /v1/log/witnesses` lists independent
-co-signatures.
+The log is RFC 6962 with BLAKE3. A leaf is `blake3(0x00 || entry_hash)`.
+A node is `blake3(0x01 || left || right)`. The responder signs the signed
+tree head (STH) over `PreimageV1("emem.translog.sth.v1")`. The plugin's
+`emem-transparency-log` skill has `verify_log.py`. It checks the head,
+the inclusion proof and the consistency proof offline.
+
+`GET /v1/log/witnesses` lists the co-signatures. Read
+`independent_operator_count` to know how many separate operators
+co-sign. On 7 November 2026 it was 1, for a tree of 3,245,134 entries.
 
 ---
 
 ## 12. `heat-solve-at-a-cell`: a 2-D heat-equation forecast
 
 `POST /v1/heat_solve` runs an explicit finite-difference heat equation
-over the cell's 3 x 3 MODIS land-surface-temperature stencil and returns
-the centre's forecast, with the input fact cids and the algorithms and
-bands manifest cids a peer needs to re-run it bit for bit.
+(`heat_equation_2d@1`). Its input is the MODIS land-surface temperature
+(`modis.lst_day_8day`) on the 3 x 3 cells around the cell. It returns the
+forecast for the centre cell. It also returns the 9 input fact cids and
+the algorithms and bands manifest cids. With these, a peer can run the
+solve again and get the same bits.
 
 ```sh
 BASE=https://emem.dev
@@ -528,23 +545,28 @@ curl -sf -X POST $BASE/v1/heat_solve -H 'content-type: application/json' \
   | jq '{n_steps, hours_ahead, forecast_k, forecast_unit, delta_k, input_fact_cids}'
 ```
 
-`hours_ahead` is capped at 168; `diffusivity_m2_per_s` defaults to 1e-6
-(urban surfaces).
+`hours_ahead` must be more than 0 and not more than 168 (one week). A
+larger value returns 400 `invalid_argument`. `diffusivity_m2_per_s` is
+1e-6 by default, a value for urban surfaces. On 7 November 2026 this call
+gave `forecast_k` 299.13 and `delta_k` 0.0103.
 
 ---
 
 ## 13. `dashboard-tile`: an area over time, with its uncertainty and its evidence
 
-A tile about a field, a plot or a catchment should not be one pixel's line.
-`POST /v1/field_series` reads every pinned Sentinel-2 overpass in the window
-over the polygon, masks each pixel by its scene classification, and gives per
-scene the share of the area the sky let through (`clear_fraction`) and the
-distribution over the clear pixels inside it. Chart the `median` with a
-`p10`..`p90` band, draw `quality: partial` points lighter, and list
-`excluded` scenes as gaps with their reason. The scenes, mask, formula and
-quantile rule are pinned in the signed record behind `token`. For years
-before Sentinel-2, send `"sensor":"landsat"`: the same rows from Landsat 8
-and 9 at 30 m, from 2013, signed as `landsat_index_series@1`.
+A tile about a field, a plot or a catchment must show more than the line
+of one pixel. `POST /v1/field_series` reads each pinned Sentinel-2 scene
+in the date window over the polygon. It masks each pixel with the scene
+classification. For each scene, it gives `clear_fraction`, the share of
+the area without cloud. It also gives the distribution of the clear
+pixels.
+
+Chart the `median` with a band from `p10` to `p90`. Draw the points with
+`quality: partial` in a lighter colour. Show each `excluded` scene as a
+gap, with its reason. The signed record behind `token` pins the scenes,
+the mask, the formula and the quantile rule. For years before
+Sentinel-2, send `"sensor":"landsat"`. You get the same rows from
+Landsat 8 and 9 at 30 m, from 2013, signed as `landsat_index_series@1`.
 
 ```sh
 BASE=https://emem.dev
@@ -557,26 +579,32 @@ curl -sf -X POST $BASE/v1/field_series -H 'content-type: application/json' \
          anomaly, trend: .trend.slope_per_year, cautions}'
 ```
 
-What the tile states beside the line, each already computed:
+On 7 November 2026 this call gave 21 rows, 5 excluded scenes and a trend
+of -0.0297 per year. The first excluded scene had the reason "28% of the
+area clear, under the 40% floor".
 
-- `anomaly`: the latest scene against earlier years' scenes within 30 days of
-  its day of year. This is the number for "is it greener than usual", because
-  a seasonal index compared across seasons measures the season.
-- `trend`: Theil-Sen slope with Kendall's S and p, seasonal cycle NOT removed.
-  `cautions` says when the seasonal swing dwarfs it.
-- `change_map`: GeoJSON blocks, latest against its same-season partner
-  (`pairing`), ready for a map layer.
-- `estimand`: support (10 m pixels inside the polygon), statistic, operator,
-  mask, unit. Put it in the tile's footnote.
+The response also computes these values. Show them beside the line:
 
-**Several fields on one chart.** Send `areas: [{id, geometry | bbox}]`, up to
-6, in place of `geometry`. Each area is its own signed series with its own
-`token`, and `chart_rows` carries every area's scenes in one table (`date`,
-`area`, `median`, `p10`, `p90`, `clear_fraction`, `quality`), sorted by date.
-Draw one line per area. Areas have their own scene dates, so do not join them
-on date. Over MCP, `emem_intent {type: "area_over_time", areas, start_date,
-end_date}` takes the same list, and a dashboard card can call it as its live
-query.
+- `anomaly`: the latest scene minus the median of earlier years' scenes
+  within 30 days of its day of year. Use this number for "is it greener
+  than usual". An index compared across seasons measures the season.
+- `trend`: a Theil-Sen slope with Kendall's S and p. The trend does NOT
+  remove the seasonal cycle. `cautions` tells you when the seasonal swing
+  is much larger than the trend.
+- `change_map`: GeoJSON blocks. It compares the latest scene with a scene
+  from the same season (`pairing`). Use it as a map layer.
+- `estimand`: the support (10 m pixels inside the polygon), the
+  statistic, the operator, the mask and the unit. Put it in the footnote
+  of the tile.
+
+**Several fields on one chart.** Send `areas: [{id, geometry | bbox}]`,
+up to 6, in place of `geometry`. Each area gets its own signed series
+and its own `token`. `chart_rows` puts the scenes of all areas in one
+table, sorted by date. Its columns are `date`, `area`, `median`, `p10`,
+`p90`, `clear_fraction` and `quality`. Draw one line for each area. Each
+area has its own scene dates, so do not join areas on date. Over MCP,
+`emem_intent {type: "area_over_time", areas, start_date, end_date}`
+takes the same list. A dashboard card can use it as its live query.
 
 **Indices.** `index` is `ndvi` (default), `ndwi`, `ndmi` (`lswi` is an
 alias), or `evi`, all from Sentinel-2. `vv`, `vh` and `vh_vv` read
@@ -594,39 +622,42 @@ block noisy, so read `cautions` before you colour a map by it.
 **Pixel rules.** `inner_buffer_m` (0 to 60, default 0) counts a pixel
 only when its centre is that far inside the edge. `min_support_px` (4 to
 30, default 30) is the fewest pixels a scene may rest on. Each answer
-carries `polygon_cid`, an id over the outline rounded to about 1 cm,
-beside `aoi_cid`, the bbox hash the receipt binds.
+carries `polygon_cid`, an id over the outline rounded to about 1 cm. The
+receipt binds a different id, `receipt.field.aoi_cid`, the hash of the
+bbox.
 
 **Many fields in one window.** Send `fields: [{id, geometry}]`, up to
-500, in place of `geometry`. Each scene is read once over the fields'
-joint box, which must fit in 512 px a side. The `fields` block has one
+500, in place of `geometry`. The responder reads each scene once over
+the joint box of the fields. That box must fit in 512 px a side. The `fields` block has one
 row per field and scene.
 
 **Scene check (optical only).** A scene the cloud mask passed, but both
 neighbouring scenes refute in the same direction, gets
-`quality: "suspect"` and a `scene_check` object. It stays in the rows
-and is left out of the trend. In a `fields` answer the rows get a
+`quality: "suspect"` and a `scene_check` object. The scene stays in the
+rows, but the trend does not use it. In a `fields` answer the rows get a
 `suspect` column, and `suspect_dates` lists the dates where a large
 share of the fields failed the check. Radar takes no scene check,
 because a sudden drop there is often a flood.
 
 For one cell's stored readings, `POST /v1/trajectory` returns rows with
-`slot_start`, `value` and an `emem:fact:` `token` per point. Over MCP both are
-`emem_field_series` and `emem_trajectory`, callable by name through `tools/call`.
+`slot_start`, `value` and an `emem:fact:` `token` for each point. Over
+MCP, the two tools are `emem_field_series` and `emem_trajectory`. Call
+them by name through `tools/call`.
 
 ---
 
 ## 14. `storyboard`: frames an animated explainer can play, each one checkable
 
-Two kinds of frame come back signed, so every scene of an animation cites what
-it shows.
+The responder signs two kinds of frame. Thus each scene of an animation
+can cite what it shows.
 
 **The field, frame by frame.** Each `field_series` row carries
-`block_medians`, the area cut into `blocks.per_side` squared blocks in
-`blocks.order`, with each block's quad in `blocks.quads` (WGS-84, from the
-inverse projection). One row is one frame: colour the quads by the medians,
-title it with the row's `date` and `clear_fraction`, and end on `change_map`.
-A null block was under cloud in that frame; leave it grey, never fill it in.
+`block_medians`. These are the medians of `blocks.per_side` squared
+blocks that cover the area, in the order `blocks.order`. `blocks.quads` gives the quad of each block
+(WGS-84, from the inverse projection). One row is one frame. Colour the
+quads by the medians. Use the `date` and `clear_fraction` of the row as
+the title. End on `change_map`. A null block was under cloud in that
+frame. Show it grey, and do not fill it in.
 
 **The reasoning, step by step.** `POST /v1/ask` returns `reasoning.states[]`,
 one `emem:state:` per stage (`located`, `routed`, `recalled`, `composed` when
@@ -634,9 +665,13 @@ a time-window recipe ran, `scored`). Each state commits to the stage before it
 and to the facts it added. The `scored` state also commits to the values it
 computed. Each state has `says`, one sentence that tells what the stage did.
 Use it as the caption of the scene.
-`GET /v1/state/{cid}` returns the bytes and recomputes the address
-(`address_holds`). The same inputs give the same token, so two renders of one
-explainer show exactly which step changed.
+`GET /v1/state/{cid}` returns the bytes and calculates the address
+again (`address_holds`). The same inputs give the same token. Thus two
+renders of one explainer show which step changed.
+
+On 7 November 2026 this question gave five states: `located`, `routed`,
+`recalled`, `composed` and `scored`. The first state resolved with
+`address_holds: true`.
 
 ```sh
 BASE=https://emem.dev
