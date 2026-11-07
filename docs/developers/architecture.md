@@ -22,9 +22,10 @@ One Rust binary, `emem-server`, listens on one port (default
 
 - HTTP REST. `/openapi.json` lists 194 paths, 183 of them under `/v1/`
   (7 November 2026).
-- MCP JSON-RPC at `POST /mcp`. The registry has 116 tools: 18 core
-  and 98 extended. `tools/list` on `/mcp` gives the 18 core tools.
-  `tools/list` on `/mcp/full` gives all 116.
+- MCP JSON-RPC at `POST /mcp`. On 7 November 2026 the registry has
+  116 tools: 18 core and 98 extended. `tools/list` on `/mcp` gives the
+  18 core tools. `tools/list` on `/mcp/full` gives 12 tools on each
+  page. Follow `nextCursor` through 9 pages to get all 116.
 
 No GPU or model sidecar runs. Earlier versions ran Clay, Prithvi,
 Galileo and JEPA-v2 on a sidecar. Facts that those models signed still
@@ -98,14 +99,14 @@ is a patch target, not a member.
 | emem-core | Registries and core types: bands, algorithms, functions, sources, topics, schema, taxonomy, manifest, tslot, cell |
 | emem-cli | 10 binaries: `emem`, `emem-server`, `emem-sled-slim`, `emem-demo`, `emem-livedemo`, `emem-realdemo`, `emem-connect-demo`, `emem-purge-fnkey`, `emem-demo-device`, `emem-ask-eval` |
 | emem-storage | `MaterializingStorage` (cache, fetch and log together), `Server`, `AttesterRegistry`, `AttestationLog` |
-| emem-mcp | MCP tool registry (116 tools) |
+| emem-mcp | MCP tool registry (116 tools on 7 November 2026) |
 | emem-codec | cell64, cid64, tslot text, vec64, Hilbert curve, geo, alphabet |
 | emem-cache | Hot store: redb for facts, sled for memory trees and side indexes |
 | emem-intent | `Intent` enum (8 variants) and a rule-based planner |
 | emem-fact | `Fact`, `Receipt` and `Attestation` CBOR types, signing |
 | emem-attest | Merkle roots and paths, receipt and attestation preimages |
 | emem-claim | `Claim` predicate (band, `Op`, value, tslot; no signature) |
-| emem-cubes | AgriSynth `.npz` loader and Lance index reader |
+| emem-cubes | Path handle for AgriSynth `.npz` cubes; `tools/load_cube.py` (Python) parses the file |
 | emem-trace | Device execution trace schema (`emem.os_trace.v1`) and its verifier |
 | emem-guard | Verdict server for AI inference hooks; a separate binary |
 | emem-airgap | Air-gapped node: a folder in, a folder out, no network |
@@ -119,9 +120,10 @@ connects the cache to the fetch `Dispatcher` and to the
 ## Invariants
 
 - **CID rule.** `FactCid = base32_nopad_lower(blake3(canonical_cbor(fact)))`.
-  It is the full 32-byte digest, 52 characters. The 16-byte rule (26
-  characters) applies only to `entity_cid` and `bundle_cid`. Those
-  anchor a reference and do not bind a whole body. This page stated the
+  It is the full 32-byte digest, 52 characters. Reference ids use the
+  16-byte rule (26 characters), for example `entity_cid`, `bundle_cid`,
+  the memory `file_cid`, `ReasonCid` and `review_cid`. `FactCid` never
+  uses it. This page stated the
   16-byte rule for facts until 2026-08-13.
 - **Receipt rule.** Each primitive response carries a `Receipt` with an
   Ed25519 signature over the canonical preimage. An empty `cells` or
@@ -255,8 +257,11 @@ The dispatch table is `band_materializer_meta` in
 ### find_similar (corpus scan)
 
 `POST /v1/find_similar` reads the query vector. The vector comes inline
-or from `load_cell_vec(key, band)`. The function then walks the whole
-index. It applies the band filter and an optional `Claim` predicate,
+or from `load_cell_vec(key, band)`. The function first tries an ANN
+search in the Lance index (`<EMEM_DATA>/lance/`). When the node has no
+Lance index, or `EMEM_DISABLE_LANCE=1` turns it off, the function walks
+the whole index.
+The full walk applies the band filter and an optional `Claim` predicate,
 loads each candidate and scores it by cosine. It keeps one result for
 each cell and signs the top k as `emem.find_similar`. The router adds
 latitude and longitude, the nearest GeoNames place (up to 25 km) and
@@ -300,15 +305,27 @@ compares the root with `att.batch_root` and checks the signature with
 `verify_strict` against the attester key.
 
 A failure returns `StorageError::AttestationInvalid` with the reason.
-On success the storage does four writes:
+
+Next comes the fact-plane check. An attestation that writes an address
+(cell, band, tslot) must come from an admitted key. The admitted keys
+are the responder key, a device that the OS-trace gate enrolled, and a
+key in `EMEM_FACT_PLANE_WRITERS`. Any other key gets `LevelTooLow` with
+a message that starts `fact_plane_closed`. `EMEM_FACT_PLANE_OPEN=1`
+turns the check off on a test node.
+
+Then the storage does these writes:
 
 1. `cache.put_many`, the index and the fact bodies.
 2. `log.append`, the CBOR record, its hash and an fsync.
 3. `persist_fact_proofs`, best effort.
-4. `attesters.record_attestation`, best effort.
+4. The multi-attester index, best effort. It keeps each distinct CID at
+   a key, so the contradictions primitive can find disagreement.
+5. The scope index, best effort, only when the attestation has a scope.
+6. `attesters.record_attestation`, best effort.
+7. The temporal edges of the attestation, best effort.
 
-A failure in step 3 or 4 does not fail the write. The verifier gates
-steps 1 and 2.
+A failure in steps 3 to 7 does not fail the write. The verifier and the
+fact-plane check gate steps 1 and 2.
 
 ## The trust plane
 
@@ -405,8 +422,10 @@ enough.
 
 - Record format: `[u32_LE len][CBOR bytes][32-byte blake3(CBOR)]`.
 - Segment cap: 1 GiB (`SEGMENT_BYTES = 1 << 30`). A new segment opens
-  at the cap.
-- Each sealed segment ends with `segment_hash = blake3(all_records)`.
+  at the cap and at each process start.
+- A segment sealed at the cap ends with
+  `segment_hash = blake3(all_records)`. A segment closed by a restart
+  has no `segment_hash`.
 - `append()` calls fsync before it returns.
 - `verify()` hashes each sealed segment again and reports mismatches.
 
@@ -471,10 +490,20 @@ Examples are `materialize_ornl_modis_band`, `materialize_power_band`,
 `materialize_jrc_gsw_layer`, `materialize_esa_worldcover_2021` and
 `materialize_koppen`.
 
-`sources-v0.json` declares 46 source schemes. Five have no
-materializer: `dynamic_world.v1`, `openet.30m.daily`,
-`tropomi.s5p.ch4`, `tropomi.s5p.no2` and `viirs.dnb.monthly`. A recall
-of their bands returns a typed `MaterializeMiss` Absence.
+`sources-v0.json` declares 46 source schemes. On 7 November 2026, ten
+of them feed no band in `GET /v1/materializers`:
+
+- `dynamic_world.v1`, `openet.30m.daily`, `tropomi.s5p.ch4`,
+  `tropomi.s5p.no2` and `viirs.dnb.monthly`.
+- `ghsl.builtup.r2023a` and `ghsl.population.r2023a`.
+- `model.prithvi_eo2_300m_tl`, `model.clay_v1_5` and
+  `model.galileo_v1`. These needed the GPU sidecar, which no longer
+  runs (see `GpuSidecar` above).
+
+A recall of a band with no materializer returns no fact. Its
+`materialize_notes[]` entry has `status:"skipped"`, and the node signs
+no Absence. For example, a recall of `ghsl` at Paris gives
+`reason_class:"unknown_band"`.
 
 ## The physics solvers
 
@@ -493,12 +522,15 @@ the process:
 ## The agent surface
 
 REST and MCP serve the same primitives. `POST /mcp` is JSON-RPC 2.0,
-from `crates/emem-mcp/src/lib.rs` (116 tools). `tools/list` on `/mcp`
-gives the 18 core tools. `tools/list` on `/mcp/full` gives all 116.
+from `crates/emem-mcp/src/lib.rs` (116 tools on 7 November 2026).
+`tools/list` on `/mcp` gives the 18 core tools. `tools/list` on
+`/mcp/full` gives 12 tools on each page, so a client follows
+`nextCursor` through 9 pages to get all 116.
 Both endpoints run any tool by name through `tools/call`.
 
-MCP is not read-only. It has signed writes, for example
-`emem_memory_create`, `emem_derive`, `emem_entity` and `emem_backfill`.
+MCP is not read-only. The caller signs `emem_memory_create`,
+`emem_derive` and `emem_entity`. `emem_backfill` makes facts that the
+responder fetches and signs.
 Raw attestations (`POST /v1/attest`, `POST /v1/attest_cbor`) are REST
 only.
 
@@ -514,8 +546,9 @@ These well-known endpoints publish what the node can do:
 A new client usually calls these in order:
 
 1. `GET /v1/agent_card`: the tool order to use.
-2. `GET /v1/manifests`: the CIDs of bands, algorithms, sources, schema,
-   registry and topics.
+2. `GET /v1/manifests`: 10 manifest CIDs. They cover the registry,
+   schema, bands, algorithms, functions, sources, topics, substrates,
+   device platforms and trace encodings.
 3. `GET /v1/grid_info`: the cell grid (about 10 m at the equator).
 4. `GET /v1/data_availability`: which bands have history.
 5. `POST /v1/locate {"place":"<place>"}`: place to cell64. The lookup
@@ -548,6 +581,7 @@ items are:
   geocoder.sled/           place lookup cache
   tile_store/              local raster copies (EMEM_TILE_STORE_GB)
   lance/                   vector indexes for find_similar and memory search
+  models/                  optional BGE model for the topic router and memory search
   acme.cache/              Let's Encrypt state, when TLS is on
 ```
 
@@ -561,7 +595,7 @@ Receipts from such a process verify only until it restarts.
 |---------|----------|
 | Lock on `cache.sled/` | The server holds an exclusive lock. Stop the server before you run tools such as `emem-purge-fnkey`. |
 | Materializer timeout (`EMEM_MATERIALIZER_TIMEOUT_SECS`, default 14 s) | The recall returns the facts it has and a `materialize_notes[]` entry `{band, status:"skipped", reason, reason_class:"timeout", retryable:true, absence:false}`. A timeout is unknown, not a confirmed absence, so the node signs nothing. A true "no data here" returns `status:"materialized"` with a signed Absence `fact_cid`. |
-| Attestation rejected | `StorageError::AttestationInvalid` with the reason (root mismatch or bad signature). The cache and the log do not change. |
+| Attestation rejected | `StorageError::AttestationInvalid` with the reason (root mismatch or bad signature), or `LevelTooLow` `fact_plane_closed` for a key that may not write an address. The cache and the log do not change. |
 | Upstream 502 or 503 | `FetchError::Transport`. The materializer returns the error, or signs a `NegativeFact` with a `ReasonCid` (for example, Cop-DEM over water). |
 | `EMEM_SCAN_CELL_LIMIT` reached (default 10 000 rows per prefix walk) | The node logs `scan_cell_limit_hit` with target `emem::storage`. A normal cell has one fact for each band and tslot, so the limit points to a schema error or an attack. |
 | Topic router warm-up takes more than 90 s | The server starts. The first `/v1/ask` call can wait until the router is ready. |
