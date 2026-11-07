@@ -34,6 +34,8 @@ QUESTION = (
 async def main():
     llm = ChatOpenAI(model="gpt-4.1-mini")
 
+    # Since langchain-mcp-adapters 0.1.0 the client is not a context manager;
+    # get_tools() opens a session for each tool call.
     client = MultiServerMCPClient(
         {
             "emem": {

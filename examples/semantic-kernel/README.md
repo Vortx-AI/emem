@@ -69,6 +69,15 @@ do this.
 an independent check. For an independent check, verify the receipt offline.
 See [Verify the receipt](../../docs/quickstart.md#verify-the-receipt).
 
+## Known issue
+
+On 7 November 2026 this script stops in `kernel.add_plugin` with
+semantic-kernel 1.47.0. Two `/mcp` tools give a parameter a list of types:
+`emem_echo_verify.claimed_value` is `["string", "number"]`, and
+`emem_intent` has two more. Semantic Kernel accepts only one type for each
+parameter, so the plugin does not load. The other framework examples load
+the same tools.
+
 ## Notes
 
 - Any Semantic Kernel chat service can drive the model. Change

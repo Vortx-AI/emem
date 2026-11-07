@@ -1,638 +1,394 @@
 # emem data sources
 
-## How sources flow into facts
+This page tells you where the node gets each value, and how to add a new source.
+The facts here come from the code at version 2.4.4 and from emem.dev on 7 November 2026.
 
-The `emem-fetch` crate exposes typed connectors over an anonymous open-data
-corpus — every default provider is keyless. The `emem-api-rest` crate calls
-into those connectors (and a parallel set of inline HTTPS-JSON materializers
-that live in `lib.rs`) to materialize facts on demand. Lazy materialization
-(`EMEM_AUTO_MATERIALIZE=1`, on by default in production) makes a `/v1/recall`
-miss kick off an upstream fetch, sign the resulting value as the responder's
-own Primary attestation, and persist it forever — so the next caller hits the
-hot cache. This is the read → attest → cache loop that lets every cell on
-Earth answer cite-ably from day one.
+## How a miss becomes a fact
 
-![open pixel → signed receipt, in eight steps](/docs/diagrams/02-data-flow.svg)
-*The path a single value takes from an upstream tile to a citable fact. Same upstream + same registries ⇒ same CID, byte-for-byte.*
+The node holds no data when it starts. A recall for a cell and band that it does not hold is a miss.
+On a miss, the node reads the value from an open archive, signs it, and stores it. The next
+caller gets the stored fact. This is lazy materialization. `EMEM_AUTO_MATERIALIZE` controls it,
+and it is on by default.
 
-## Materialization flow
+All default sources are keyless. The node needs no account and no API key to read them.
+
+![The path of one value in six steps: an open pixel is read with an HTTP Range request, a stateless connector makes a PrimaryFact or Derivative, canonical CBOR encodes it, BLAKE3 gives its content id, and the responder signs the fact. The same bytes give the same content id on every machine.](/docs/diagrams/02-data-flow.svg)
+*The path of one value from an upstream tile to a fact you can cite. The same upstream and the same registries give the same CID.*
 
 ```text
-GET /v1/recall {cell, band, tslot}
-       │
-       ▼
-sled hot lookup (cell, band, tslot) ──► fact_cid?
-       │            ┌─ hit  ──► get_facts → return fact + Receipt
-       └─ miss ─────┤
-                    ▼
-             EMEM_AUTO_MATERIALIZE != 0?
-                    │
-                    ▼
-         try_materialize_bands match arm for `band`
-                    │
-                    ▼
-           connector dispatch
-              ├─ STAC search (Element84 / MS PC)
-              ├─ COG range read (Cop-DEM, ESA WC, Hansen, JRC GSW)
-              ├─ HTTPS JSON REST (Open-Meteo, NASA POWER, met.no, ORNL DAAC, ISRIC, GMRT)
-              ├─ Parquet S3 row-group prune (Overture)
-              ├─ NCSS CSV (TerraClimate)
-              ├─ TAR/ZIP central-dir read (DMSP-OLS, Köppen)
-              └─ Overpass QL (WDPA)
-                    │
-                    ▼
-           parse → compute → PrimaryFact OR signed Absence
-                    │
-                    ▼
-           sign as responder + put_attestation (sled persist)
-                    │
-                    ▼
-           return fact + Receipt (CID, signed_at, fn_key, source URL)
+POST /v1/recall {cell, band, tslot}
+       |
+       v
+look up (cell, band, tslot) in facts.redb
+       |-- hit  --> return the fact and a receipt
+       |-- miss
+       v
+EMEM_AUTO_MATERIALIZE is not 0 or false?
+       |
+       v
+try_materialize_bands: one match arm per band
+       |
+       v
+read the upstream, one of:
+   STAC search, then a COG range read (Sentinel-2, Sentinel-1)
+   COG range read (Copernicus DEM, ESA WorldCover, Hansen, JRC, CHIRPS, WorldPop)
+   JSON REST (Open-Meteo, NASA POWER, MET Norway, ORNL DAAC, ISRIC, GMRT)
+   Parquet row groups on S3 (Overture)
+   NCSS CSV (TerraClimate)
+   ZIP central directory, then a cached TIFF (Koppen-Geiger)
+   Overpass QL (protected areas)
+       |
+       v
+parse, compute, then a Primary fact or a signed Absence
+       |
+       v
+sign as the responder and store in facts.redb
+       |
+       v
+return the fact and a receipt
 ```
 
-Per-upstream timeout: **30 s** (`EMEM_MATERIALIZER_TIMEOUT_SECS`, clamp 2..240).
-Gateway timeout: **180 s** (`EMEM_TIMEOUT_SECS`, clamp 1..600). The latter
-covers the whole `/v1/recall` round-trip including any temporal-recipe
-fan-out (3+ windows × ~8 samples for `flood_risk@2` cold).
+Two timeouts apply. The values are in `crates/emem-api-rest/src/lib.rs`.
 
-## Live connector inventory
+| Variable | Default | Range | Covers |
+|---|---|---|---|
+| `EMEM_MATERIALIZER_TIMEOUT_SECS` | `14` | 2 to 240 s | One upstream read |
+| `EMEM_TIMEOUT_SECS` | `40` | 1 to 600 s | The whole request, with all its upstream reads |
 
-The `emem-fetch` crate ships 16 data connector modules (chirps, cog,
-copernicus_dem, dmsp_ols, esa_cci_biomass, esa_worldcover, firms, ftw,
-geonames, gmrt, hansen_gfc, jrc_gfc2020, jrc_gsw, jrc_tmf, koppen, overture,
-radd_alerts, terraclimate, wdpa, worldpop, wri_gdm_drivers) and 13 utility
-modules (admin1, admin2, admin3, cache_window, connectors, countries, lib,
-pois, proj, stac, template). The remainder of the live ingest surface is
-inline materializers inside `crates/emem-api-rest/src/lib.rs` that hit JSON
-REST endpoints directly without a dedicated fetch module. Both classes are
-listed below.
+[operating.md](../operators/operating.md) lists every other variable.
 
-`crates/emem-core/data/sources-v0.json` declares 46 source schemes; the
-universal STAC + COG sampler (`cog.rs`) handles the majority of raster
-sources. The hosted responder reports its live coverage at
-`/v1/materializers` (20 materializer registrations today), so an agent can
-ask the running responder which subset of the declared schemes is wired
-right now without grepping this document.
+## What the node can read today
 
-| Connector             | Where         | Source                    | Read path                                         | Bands populated                                                                 | License                          |
-|-----------------------|---------------|---------------------------|---------------------------------------------------|---------------------------------------------------------------------------------|----------------------------------|
-| `chirps.rs`           | emem-fetch    | UCSB CHC (data.chc.ucsb.edu) | HTTPS Range on daily COG (~6.5 MB f32, NoData=-9999) | `chirps.precip_daily_mm` (±50° lat, 0.05°, 1981→present, ~30 d final-quality lag) | Public domain (UCSB CHC)         |
-| `cog.rs`              | emem-fetch    | (any COG source)          | HTTPS Range, Deflate(8)/LZW(5), predictor 1/2/3   | sampler used by every raster connector                                          | (per source)                     |
-| `connectors.rs`       | emem-fetch    | dispatcher                | reqwest + Range, no gzip, 90 s pool-idle          | (HTTPS / GCS / IPLD plumbing)                                                   | n/a                              |
-| `dmsp_ols.rs`         | emem-fetch    | NOAA NCEI V4              | TAR head + gzipped TIFF, cached locally          | `nightlights.dmsp_ols_avg_dn`                                                   | Public domain (NOAA NGDC)        |
-| `firms.rs`            | emem-fetch    | NASA FIRMS bulk CSV       | HTTPS GET + 60-min `RwLock` cache                 | `firms.active_fires`                                                            | Public domain (NASA)             |
-| `hansen_gfc.rs`       | emem-fetch    | earthenginepartners GCS   | COG range, LZW strips, 10° tiles                  | `forest_change.{lossyear, treecover2000, gain}`                                 | Public (Hansen et al.)           |
-| `koppen.rs`           | emem-fetch    | Figshare ZIP              | central-dir partial + cached PackBits TIFF        | `climate.koppen_geiger_present_day`                                             | CC-BY-4.0                        |
-| `overture.rs`         | emem-fetch    | Overture S3 (us-west-2)   | Parquet row-group prune + WKB centroid            | `overture.{buildings,places,transportation}.count`, `overture.transportation.road_length_m` | ODbL / CDLA-Permissive-2.0       |
-| `terraclimate.rs`     | emem-fetch    | UI THREDDS NCSS + RDA     | CSV REST, packed-int unpacking                    | `terraclimate.{ppt,tmax,tmin,vap,pet,aet,…}_normal`                             | CC0 / public domain              |
-| `worldpop.rs`         | emem-fetch    | WorldPop /v1/services/stats | JSON REST (sync, 2-4 s/cell)                    | `population.count`, `population.density_mean`                                   | CC-BY-4.0                        |
-| `wdpa.rs`             | emem-fetch    | OSM Overpass              | QL `is_in` server-side point-in-poly              | `protected.is_protected_area`                                                   | ODbL (OSM)                       |
-| `stac.rs`             | emem-fetch    | Element84 / MS PC         | POST `intersects: Point`, SAS-token cache         | (scene discovery for S2/S1/Cop-DEM/Landsat)                                     | Copernicus open / per-scene      |
-| `proj.rs`             | emem-fetch    | (no network)              | hand-rolled WGS84↔UTM (Snyder 1987)               | feeds Sentinel pixel sampling                                                   | n/a                              |
-| `template.rs`         | emem-fetch    | (no network)              | URL `{var}` interpolation                         | feeds dispatcher                                                                | n/a                              |
-| `cache_window.rs`     | emem-fetch    | (no network)              | in-flight fetch coalescing via `tokio::Notify`    | suppresses duplicate concurrent fetches                                         | n/a                              |
-| inline `gmrt`         | api-rest:10235| NOAA GMRT PointServer     | JSON REST                                         | `gmrt.topobathy_mean`                                                           | CC-BY-4.0 (MGDS)                 |
-| inline `ornl_modis`   | api-rest:12313| ORNL DAAC TESViS          | JSON REST                                         | `modis.{ndvi_mean, lst_day_8day, lst_night_8day, et_8day, gpp_8day, lai_8day, burned_area_monthly}` | Public domain (NASA / ORNL DAAC) |
-| inline `nasa_power`   | api-rest:11510| NASA POWER                | JSON REST                                         | `power.{t2m, t2m_min, t2m_max, precip, rh2m, allsky_sw, ws10m}`                  | Public domain (NASA POWER)       |
-| inline `weather`      | api-rest:11351| MET Norway locationforecast| JSON REST (no key, ECMWF + EUMETSAT-fed)         | `weather.{temperature_2m, cloud_cover, precipitation_mm, wind_speed_10m}`        | NLOD 2.0                         |
-| inline `cams`         | api-rest:11668| Open-Meteo air-quality    | JSON REST                                         | `cams.{pm25, pm10, no2, o3, so2, co, aod_550}`                                  | CC-BY-4.0                        |
-| inline `era5`         | api-rest:11798| Open-Meteo era5 archive   | JSON REST                                         | `era5.*` history bands                                                          | CC-BY-4.0                        |
-| inline `marine`       | api-rest:11917| Open-Meteo marine API     | JSON REST                                         | `marine.*` wave/SST scalars                                                     | CC-BY-4.0                        |
-| inline `soilgrids`    | api-rest:14490| ISRIC SoilGrids 2.0       | JSON REST (one call per property)                 | `soilgrids.{soc, phh2o, clay, sand, bdod, nitrogen}_0_30cm`                      | CC-BY-4.0                        |
-| inline `viirs.fire.nrt` | api-rest:14278| NASA FIRMS (delegates to firms.rs) | bulk CSV via `firms.rs`                  | `firms.active_fires`                                                            | Public domain (NASA)             |
-| inline `s2`           | api-rest:12880| MPC, then Element84 STAC + COG | STAC search ≤40 % cloud, ≤30 d lookback, then `cog.rs` | `s2.B01..B12`, `s2.B8A`, `s2.scl`, `indices.{ndvi,ndwi,mndwi,evi,nbr,ndmi,savi,bsi,ndbi}` | Copernicus open data             |
-| inline `s1`           | api-rest:13219| MS PC STAC + COG          | STAC + SAS asset, dB conversion `10·log10(VV)`    | `sentinel1_raw` (VV slot)                                                       | Copernicus open data             |
-| inline `geotessera`   | api-rest:10609| dl2.geotessera.org        | HTTP range on .npy (~640 B/cell)                  | `geotessera`, `geotessera.{2017..2024}`, `geotessera.multi_year`, `geotessera.bin128` | Apache-2.0                       |
-| inline `cop_dem`      | api-rest:10091| Open-Meteo elevation      | JSON REST (Cop-DEM 90 m wrap)                     | `copdem30m.elevation_mean` (Primary on land, Absence over water)                | Public domain (Open-Meteo)       |
-| inline `jrc_gsw`      | api-rest:13323| JRC GSW v1.4 GCS COG      | Range read via `cog.rs`                           | `surface_water.recurrence`                                                      | JRC open                         |
-| inline `esa_worldcover` | api-rest:13625| ESA WorldCover S3 COG    | Range read via `cog.rs`                           | `landcover.{tree,shrub,grass,crop,built,bare,snow_ice,water}`                   | CC-BY-4.0                        |
-| inline `temporal_diff`| api-rest:14944| (derives from parents)    | computes Δ from two `geotessera` parents          | `temporal_diff`                                                                 | n/a (derivative)                 |
-| `ftw.rs`              | emem-fetch    | Fields of The World (source.coop) | PMTiles HTTP range reads + MVT decode             | `/v1/field_boundaries` + `include:["ftw_fields"]` on `/v1/recall_polygon` (~3.17 B field polygons, 10 m, 241 countries) | CC-BY-4.0                        |
-| `geonames.rs`         | emem-fetch    | GeoNames cities-5000 (embedded)   | `include_bytes!` 5.5 MB gzip → 68 581 records     | layer 3 of `/v1/locate` cascade (no network)                                    | CC-BY-4.0                        |
-| `overture.rs` divisions | emem-fetch  | Overture `divisions/division_area`| Parquet row-group prune + WKB polygon decode      | polygon resolver for `/v1/locate` (replaces Nominatim polygon round-trip)       | ODbL                             |
+The node publishes its band registrations at `GET /v1/materializers`. The list has pages, 20 entries
+by default and 100 at most. On 7 November 2026, emem.dev listed 113 registrations on 2 pages.
 
-The line numbers are at time-of-writing (2026-05-08); the `match` dispatcher
-is at `try_materialize_bands` in `crates/emem-api-rest/src/lib.rs`. Grep
-`fn materialize_` in that file for the live set.
-
-## Connector deep dives
-
-### cog.rs — the universal COG sampler
-
-Pure-Rust point sampler (`crates/emem-fetch/src/cog.rs`, ~1 k LoC). Reads only
-the IFD + the single tile that covers the requested pixel: a Sentinel-2 scene
-is ~1 GB but a per-cell recall touches a few hundred KB.
-
-Wire-level steps:
-
-1. Range-read the first 64 KiB of the COG.
-2. Parse TIFF header + IFD0 entries.
-3. Pull `TileOffsets` / `TileByteCounts` from the buffer; refetch a wider
-   header window if the IFD's external arrays sit past 64 KiB (bounded 8-retry
-   loop). JRC GSW's 40 000 × 40 000 px tile has its IFD ~86 MB in; the loop
-   handles it.
-4. Compute world↔pixel transform from `ModelPixelScale` + `ModelTiepoint`.
-5. Caller passes a world coord already in the COG's CRS (WGS84↔UTM is
-   `proj.rs`'s job); we map to `(col, row)`, find the containing tile,
-   range-read it, decompress, undo predictor, extract one pixel.
-
-What's supported:
-
-- Compression: Deflate(8), LZW(5).
-- Predictor: 1 (no predictor), 2 (horizontal differencing), 3 (FP shuffle —
-  the MS PC Sentinel-1 RTC f32 backscatter format).
-- Bits per sample: 8, 16, 32.
-- Endian: little-endian only (Sentinel-2 / -1 ship LE).
-- Planar config: chunky only.
-
-What's NOT supported:
-
-- BigTIFF.
-- JPEG2000 / WebP / CCITT compressions.
-- Big-endian TIFF.
-- Planar separation (each band in its own strip stack).
-
-Strip-mode is synthesized as one-row tiles so Hansen GFC's 40 000-strip
-TIFFs read through the same sampler as Sentinel-2's tile-mode COGs.
-
-### overture.rs — parquet vector aggregation
-
-Anonymous S3 (`overturemaps-us-west-2`, region `us-west-2`), monthly
-snapshots. The pure-Rust read path:
-
-- Per-release file list fetched once via S3 ListObjectsV2 XML and held in
-  memory.
-- Per-file parquet footer (1-2 KB) cached on first touch.
-- Per-row-group bbox stats (`xmin/xmax/ymin/ymax`) used to prune row groups
-  before any geometry decode — a 10 m cell typically reads one row group.
-- WKB decoder hand-rolled: Point (places), LineString (transportation
-  segments), Polygon centroid (buildings). No GEOS, no GDAL, no PyO3.
-
-`EMEM_OVERTURE_RELEASE` pins a release tag; otherwise the connector
-auto-discovers the latest with a 24 h TTL on the S3 ListObjectsV2 call
-(`overture.rs:66`, `RELEASE_TTL`).
-
-What's NOT supported: full Polygon / MultiPolygon decoding, divisions theme,
-mixed-CRS data (Overture is WGS84 throughout).
-
-### terraclimate.rs — NCSS CSV with failover
-
-University of Idaho Climatology Lab's TerraClimate is published as NetCDF-4
-with chunked (gzip + shuffle) variables. NetCDF chunk indices sit deep in the
-file and the chunks are deeply filtered, so a clean COG-style range read is
-not possible. The connector instead uses the **NetCDF Subset Service (NCSS)**
-that THREDDS exposes — a CSV REST surface that returns one row per timestep:
-
-```text
-http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/
-  agg_terraclimate_<var>_1950_CurrentYear_GLOBE.nc
-  ?var=<var>&latitude=<lat>&longitude=<lng>
-  &time_start=1991-01-01T00:00:00Z&time_end=2020-12-01T00:00:00Z
-  &accept=csv
+```sh
+curl -s 'https://emem.dev/v1/materializers?page_size=100&summary=true' \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["pagination"]["total"])'
 ```
 
-NCSS returns the **packed integer** stored in the NetCDF; the connector
-applies the `scale_factor` / `add_offset` / `_FillValue` linear unpacking on
-the client side (`PackedScale::unpack_real` at `terraclimate.rs:157`).
+Each entry gives the band, the upstream wire path, the derivation function key, and the history
+window. Use this list, not this page, to learn what a running node serves.
 
-The 2026-05-08 hardening added failover. `NCSS_BASES`
-(`terraclimate.rs:101-104`) is a two-element list — UI primary, NCAR RDA
-secondary — and the connector tries them in order on Transport errors. The
-receipt's `Source.url` records which mirror actually answered, so a verifier
-can replay against either.
+`crates/emem-core/data/sources-v0.json` declares 46 source schemes. Some have no materializer. See
+[Declared schemes that no code reads](#declared-schemes-that-no-code-reads).
 
-`NORMAL_WINDOW = (1991, 2020)` (`terraclimate.rs:80`) is the WMO-standard
-30-year normal currently in force. Bumping to 2001-2030 in 2031 requires
-editing this one tuple.
+## Connector modules in emem-fetch
 
-What's NOT supported: yearly anomalies (the connector returns the 1991-2020
-mean only); raw monthly time series for arbitrary years (NCSS supports it,
-but no materializer is wired); upstream NetCDF range reads.
+The `emem-fetch` crate has 36 modules and the crate root, `lib.rs`. Most modules read one upstream.
+The others hold shared tools and embedded gazetteers.
 
-### worldpop.rs — REST not COG
+### Modules that read an upstream
 
-WorldPop publishes its global mosaic as a single ~870 MB GeoTIFF at
-`data.worldpop.org/.../ppp_2020_1km_Aggregated.tif`. The hosting Apache
-instance advertises `Accept-Ranges: bytes` but does **not** actually honour
-`Range:` requests — every request returns `HTTP/1.1 200 OK` with the full
-`Content-Length: 869715253` body instead of `206 Partial Content`. Verified
-live with `curl -v` against multiple sub-ranges. That makes `cog.rs`
-unusable here.
+| Module | Upstream | How it reads | Bands or use |
+|---|---|---|---|
+| `chirps.rs` | UCSB CHC CHIRPS 2.0 | Range read on a daily or monthly COG | `chirps.precip_daily_mm` |
+| `copernicus_dem.rs` | Copernicus DEM GLO-30 on AWS Open Data | URL helpers for the COG sampler | `copdem30m.elevation_mean` |
+| `dmsp_ols.rs` | NOAA NCEI DMSP-OLS V4 | TAR header, then a gzipped TIFF, cached | `nightlights.*`, retired in the code |
+| `esa_cci_biomass.rs` | ESA CCI Biomass v7.0 on CEDA | GeoTIFF range read, 10 degree tiles | `esa_cci_biomass` |
+| `esa_worldcover.rs` | ESA WorldCover 2021 v200 on S3 | URL helpers for the COG sampler | `esa_worldcover.lc_2021` |
+| `firms.rs` | NASA FIRMS bulk CSV | HTTPS GET, cached for 60 minutes | `firms.active_fires` |
+| `ftw.rs` | Fields of The World on Source Cooperative | PMTiles range reads, MVT decode | `/v1/field_boundaries` |
+| `gmrt.rs` | GMRT PointServer | JSON REST | `gmrt.topobathy_mean` |
+| `hansen_gfc.rs` | Hansen GFC v1.13 on GCS | Range read on strip TIFFs, 10 degree tiles | `forest_change.*`, `hansen.*` |
+| `jrc_gfc2020.rs` | JRC Global Forest Cover 2020 | COG range read at the version `LATEST/` lists | `jrc_gfc2020.forest_2020` |
+| `jrc_gsw.rs` | JRC Global Surface Water v1.4 | URL helpers for the COG sampler | `surface_water.*` |
+| `jrc_tmf.rs` | JRC Tropical Moist Forest v2025 | Tile download and cache | `jrc_tmf.*` |
+| `koppen.rs` | Beck et al. 2018 on Figshare | ZIP central directory, then a cached TIFF | `koppen` |
+| `overture.rs` | Overture Maps on S3, `us-west-2` | Parquet row-group pruning, WKB decode | `overture.*`, place polygons for `/v1/locate` |
+| `terraclimate.rs` | TerraClimate on THREDDS NCSS | CSV REST, two mirrors | `terraclimate.*_normal*` |
+| `wdpa.rs` | OSM Overpass, `boundary=protected_area` | Overpass QL `is_in` | `protected`, `protected.is_protected_area` |
+| `wikidata.rs` | Wikidata | HTTPS JSON | Prominence evidence for the geocoder |
+| `worldpop.rs` | WorldPop | Per-country COG, then the stats API as a fallback | `population` |
+| `wri_gdm_drivers.rs` | WRI and Google DeepMind drivers of forest loss, on Zenodo | Pixel read from a local copy at `EMEM_WRI_GDM_CACHE` | `wri_gdm.driver_class` |
 
-The connector falls back to WorldPop's **synchronous `/v1/services/stats`
-JSON endpoint** (`runasync=false`). For each per-cell recall it sends a
-~1 km × 1 km AOI and gets back `{"data":{"total_population":<n>}}` in 2-4 s.
-The integration covers ~100 100-m WorldPop pixels around the cell centre,
-giving "people inside the 1 km² window centred on this cell" which equals
-"density at this cell, persons · km⁻²".
+### Modules with no open read path
 
-Honest empties: `total_population == 0` over ocean / unpopulated terrain
-surfaces as `WorldPopError::EmptyAoi` so the materializer can sign Absence
-rather than persist a synthetic zero. The 2020 vintage is hardcoded today.
+Two modules exist, but the node cannot read their data. For a cell inside the coverage, the
+recall gets an error and the node signs nothing. Only RADD signs an Absence, and only for a cell
+outside its belt (latitude more than 30 degrees from the equator, `radd_alerts.rs`). OPERA never
+signs an Absence: with or without a token, the recall gets an error (`lib.rs`,
+`materialize_opera_dist_band`).
 
-What's NOT supported: any year other than 2020; the constrained product (the
-synchronous endpoint serves the unconstrained dataset); polygon AOIs (only
-the cell-centred 1 km² window is wired).
+| Module | Upstream | Why there is no read |
+|---|---|---|
+| `radd_alerts.rs` | RADD forest alerts on the GFW data API | The raster tiles are on Requester-Pays S3. An anonymous GET gets 403. |
+| `opera_dist.rs` | NASA OPERA DIST-ALERT-HLS V1 | It needs a NASA Earthdata token. Without `EMEM_EARTHDATA_TOKEN`, the reason is `not_enabled`. With a token, `fetch_alert` returns `NotImplemented`. |
 
-### dmsp_ols.rs — TAR + cached TIFF, frozen 1992-2013
+### Shared tools and embedded data
 
-NOAA NCEI archive at `www.ngdc.noaa.gov/eog/data/web_data/v4composites/`.
-Each `F<sat><year>.v4.tar` is a USTAR archive whose first entry is the
-216-byte TFW (world file) and second entry is a gzipped average-visible-band
-radiance TIFF (~100 MB compressed → ~692 MB uncompressed: 43 200 × 16 800 px,
-1 byte per pixel uint8).
-
-Wire path:
-
-1. Range-read first 2 KiB of the tar, parse both header blocks, capture TFW
-   payload (gives pixel scale + tiepoint without parsing GeoTIFF tags) and
-   the second entry's `comp_size` field.
-2. Range-read the gzip payload `[1536, 1536 + comp_size - 1]`. We never
-   download more than the avg_vis layer.
-3. `flate2::read::GzDecoder::read_to_end` to inflate ~692 MB into memory.
-4. Atomic-rename the inflated TIFF to
-   `<EMEM_DATA>/cache/dmsp_ols_v4/F<sat><year>.avg_vis.tif`. Subsequent
-   recalls bypass the network.
-5. Per-cell sampling parses the cached TIFF (LZW + Predictor 2 + strip
-   layout) via `cog::sample_pixel`.
-
-Honest defaults:
-
-- `avg_vis = 0` is the documented "no-light / background" sentinel — over
-  open ocean, dark sky, or genuinely unlit terrain. That IS a meaningful
-  Primary fact; downstream change-detection treats 0 as a real value. This
-  is **different** from `population` semantics where 0 surfaces as Absence.
-- Coverage `-65° S` to `75° N` (16 800 rows × 0.00833° per row); cells
-  outside that window return Absence not zero.
-- Default year 2013 (sensor F18, the most recent v4 publication).
-
-### hansen_gfc.rs — strip TIFF, 10° tiles, three sub-bands
-
-Source: `earthenginepartners-hansen` GCS bucket, version `v1.12` (the
-2000-2024 annual update released 2025-05). Three `forest_change.*` sub-bands:
-
-- `forest_change.lossyear`     (uint8, `0` = no loss, `1..=24` = years 2001..=2024)
-- `forest_change.treecover2000` (uint8, 0..=100 % canopy cover at 30 m)
-- `forest_change.gain`          (uint8 0/1, frozen 2000-2012 mask)
-
-Tiles are 10° × 10° at 0.00025° (~30 m at the equator), 40 000 × 40 000 px
-each. Naming convention is the **top-left corner** — `Hansen_GFC-2024-v1.12_<layer>_<lat>_<lon>.tif`
-where lat is `00N`, `10S`, …, and lon is `000E`, `010W`, …. A point at
-lat=-3.0, lng=-60.5 lives in tile `00N_070W` (top edge at 0°N, west edge at
-70°W).
-
-The TIFFs are stripped (one strip per row, 40 000 strips per file), LZW +
-Predictor 1, single-band uint8. `cog.rs` synthesizes one-row tiles from the
-strip tags, so the same sampler reads them.
-
-Honest defaults: `lossyear = 0` is a meaningful Primary fact ("on-land pixel
-with no canopy loss observed 2001-2024"); upstream tile not found
-(Antarctica below 60°S; dataset bounded ±60° to ~80°N) returns
-`HansenGfcError::TileNotFound`, materializer signs Absence.
-
-### koppen.rs — ZIP central-dir partial + cached PackBits TIFF
-
-Source: Beck et al. 2018 (Sci Data 5, 180214), Figshare ndownloader file
-12407516. Published artefact is a ~71 MB ZIP containing twelve GeoTIFFs at
-three resolutions. The 1-km present-day raster
-(`Beck_KG_V1_present_0p0083.tif`, 43 200 × 21 600 px, uint8, PackBits) is the
-canonical product for "what climate zone is this?".
-
-Wire path:
-
-1. Range-read the last ~64 KiB to locate the End-of-Central-Directory
-   record, walk the central directory to the present-day TIFF entry,
-   capture local-header offset + compressed/uncompressed sizes.
-2. Range-read the local file header (~80 B) to skip past name + extra fields.
-3. Range-read the deflate stream (~5.7 MB) and inflate to ~22 MB. The result
-   is a small self-contained TIFF.
-4. Atomic-rename to `<EMEM_DATA>/cache/koppen/Beck_KG_V1_present_0p0083.tif`.
-5. Per-cell sampling PackBits-decodes the single 4 320 × 2 160 tile that
-   contains the requested pixel and reads one byte. The integer 1..=30 maps
-   to a Köppen-Geiger class string via the `KOPPEN_CLASSES` const at
-   `koppen.rs:59`.
-
-Honest defaults: pixel value 0 means "outside the land mask" (open ocean,
-polar interior); fetcher returns `KoppenError::NoData` so the materializer
-signs Absence rather than picking a default class.
-
-### stac.rs — POST search with Point intersects
-
-Two anonymous catalogs:
-
-- **Element84** (`earth-search.aws.element84.com/v1/search`) — Sentinel-2
-  L2A, Sentinel-1 GRD, Cop-DEM, Landsat, NAIP. Asset URLs are public AWS
-  Open Data S3 paths.
-- **MS Planetary Computer** (`planetarycomputer.microsoft.com/api/stac/v1/search`)
-  — same S2/S1 surfaces plus `sentinel-1-rtc` (the only free RTC-format S1
-  catalog with proper UTM-projected COG tiles). Asset URLs are Azure Blob
-  URLs that need a free anonymous SAS token; the connector caches the token
-  for 50 min.
-
-Sentinel-2 reads Planetary Computer first and Element84 when it fails
-(`EMEM_S2_CATALOGUES`). The two serve different DNs for the same scene:
-Element84 has removed ESA's `BOA_ADD_OFFSET`, Planetary Computer has not, so
-reflectance is `(DN + offset) * 1e-4` with offset 0 for Element84 and -1000
-for Planetary Computer scenes from processing baseline 04.00. A scene that
-states no baseline is refused. Each fact's `derivation.args` ends with the
-catalogue and the offset. Planetary Computer's COGs pack 15-bit samples,
-which `cog.rs` reads. `band_raster@1` and `s2_median_composite@1` store DNs
-on Element84's harmonised scale from either catalogue (0 stays no-data), and
-each source in the record names its `catalogue` and `dn_offset`, so a rebuild
-reads the same asset and applies the same term.
-
-A single cell searches with **`intersects: Point`**, not `bbox`. A bbox query
-can match neighbouring tiles in MGRS overlap zones. A many-cell read
-(`recall_many`, `recall_polygon`, `/v1/grid`) asks once for the cells' bbox
-and keeps, per cell, the items whose footprint holds the point: the same
-test a point search runs, one request instead of one per cell. A truncated
-page, or an item with no footprint, falls back to the point search. A
-backfill lists every pass in its window with one search and signs each clear
-pass once. A catalogue that rate-limits is left alone for its `Retry-After`
-(60 s when it gives none).
-
-What's NOT supported: server-side reprojection, signed-URL chains beyond MS
-PC's SAS token, any catalog requiring an account.
-
-### wdpa.rs — OSM Overpass workaround
-
-The Protected Planet REST API (`api.protectedplanet.net/v3`) is the canonical
-WDPA query surface but every endpoint, including read-only
-`protected_areas?per_page=1`, returns `401 Unauthorized` even for anonymous
-callers. The token is gated behind a Protected Planet account request, which
-violates the no-key-gated-default-build rule.
-
-The open substitute is **OSM `boundary=protected_area`** via the public
-Overpass API. OSM crowdsources the WDPA designations; every PA carries a
-`protect_class` integer that maps 1:1 to IUCN category codes (1 = Ia/Ib,
-2 = II, …, 6 = VI). Overpass `is_in()` does point-in-polygon server-side and
-returns the matching `area` records' tags as a small JSON document — perfect
-for per-cell lazy materialise.
-
-Verified live: a query centred on (44.4, -110.6) returns Yellowstone with
-`protect_class=2`, `protected_area=national_park`, `wikidata=Q351`,
-matching WDPA ID 374 883 (NPS official). A query centred on (30.0, -150.0)
-in the North Pacific gyre returns zero matches.
-
-Per-cell64 cache mitigates the 1 req/sec Overpass rate limit: every cell pays
-at most one Overpass call, then hits the signed Primary or Absence forever.
-
-`Ok(Some(WdpaMatch))` carries `wdpa_id + name + iucn_category + designation +
-country_iso3 + marine`. `Ok(None)` is the meaningful confirmed-no answer (the
-cell does not fall inside any OSM-mapped PA) — the materializer signs this
-as a NegativeFact, not an unsigned silence.
-
-What's NOT supported: the WDPA-specific fields outside what OSM tags surface
-(GIS-area-from-shapefile, year of last assessment, IUCN management category
-detail). Those would require Protected Planet auth.
-
-### ftw.rs — agricultural field boundaries from Fields of The World
-
-Fields of The World publishes a global product of ~3.17 billion agricultural-
-field polygons (241 countries, 10 m resolution, CC-BY-4.0) as a single PMTiles
-archive on Source Cooperative S3 (`data.source.coop`). emem reads it lazily:
-the bundle is ~2.14 TB but each bbox query touches only the covering Web-
-Mercator tiles.
-
-Wire-level path:
-
-1. Process-wide `AsyncPmTilesReader` against `global.pmtiles` with an
-   in-memory `HashMapCache` for PMTiles directory entries.
-2. Bbox → covering `(z, x, y)` range via the canonical OSM slippy-map
-   formula. Auto-shrinks zoom (z=14 default, capped by archive `max_zoom`)
-   when the polygon would exceed a 16-tile-per-query cap — each step down
-   is a 4× tile reduction.
-3. Each tile blob is decompressed by the PMTiles reader (gzip) and
-   decoded by `mvt-reader` to vector features. Tile-local coordinates
-   (0..extent) are projected to WGS84 with the inverse-Mercator formula.
-4. The blake3 hash of concatenated decompressed tile bytes is the
-   provenance source CID — a verifier replays the same tile fetch and
-   reproduces it byte-for-byte.
-
-Surface:
-
-- `POST /v1/field_boundaries` — pure-fetch shape, returns a GeoJSON
-  FeatureCollection + provenance (source CID, provider URL, license,
-  attribution). Place name or polygon_bbox.
-- `POST /v1/recall_polygon` with `include: ["ftw_fields"]` — supplements
-  the per-cell fan-out response with the per-field polygons in one
-  envelope.
-- MCP tool: `emem_field_boundaries`.
-
-License: CC-BY-4.0 on the global product. The benchmark CC-BY-NC
-countries (Latvia, Portugal) are not consumed; only the uniformly
-CC-BY-4.0 global product is read.
-
-### geonames.rs — embedded populated-places gazetteer
-
-The `/v1/locate` cascade resolves place names through five layers
-(`wide_bbox_lookup` → `embedded_gazetteer_lookup` → **geonames** →
-sled cache → Photon → Nominatim). The geonames layer is GeoNames'
-cities-5000 cut: every populated place on Earth with population
-≥ 5 000 (68 581 records as of 2026-05-11), embedded as a 5.5 MB gzip
-in `crates/emem-fetch/data/cities5000.txt.gz` via `include_bytes!`
-and decompressed + indexed once on first lookup into a static
-HashMap keyed by ASCII-folded normalized name.
-
-Lookup behaviour:
-
-- ASCII diacritic fold ("São Paulo" ↔ "Sao Paulo" → same key).
-- Every alternate name in column 3 is a lookup key too — `"Bombay"`
-  hits Mumbai's record.
-- Population-ranked disambiguation: when "Springfield" hits 17
-  cities, the most-populous wins. The full candidate list is
-  available via `lookup_candidates()` for ambiguity-aware callers.
-
-A geonames hit emits `via: "geonames"` in the locate response.
-Polygon geometry for the resolved place comes from
-`overture.rs::division_polygon_near` (see below); no external
-geocoder is touched for either coord or boundary.
-
-For non-city named features (national parks, lakes, transboundary
-basins, archipelagos), geonames is intentionally not the answer —
-the cascade falls through to Photon / Nominatim.
-
-License: CC-BY-4.0. Attribution string surfaces in every receipt
-that hit this layer.
-
-### overture.rs `divisions/division_area` — admin polygon resolver
-
-Overture's divisions theme covers countries, regions, counties,
-localities, boroughs, neighborhoods, and microhoods worldwide
-(ODbL). The resolver
-(`OvertureClient::division_polygon_near(lat, lng, name_hint)`):
-
-1. Lists `theme=divisions/type=division_area` parquet shards once
-   per release (already cached in `OvertureClient`).
-2. For a query anchored at `(lat, lng)` with a name hint, builds a
-   half-degree search bbox and prunes row groups via the parquet
-   `bbox` column statistics.
-3. Decodes each row's WKB Polygon / MultiPolygon, runs a point-in-
-   polygon ray-cast against the anchor, and keeps every containing
-   row.
-4. Picks the best match by **exact-name match + admin-level rank**:
-   normalized `names.primary == normalized hint` first, with the
-   highest `subtype` rank (country > region > county > localadmin >
-   locality > borough > dependency > macrohood > neighborhood >
-   microhood) winning. So `"Manhattan"` lands on the borough
-   (`locality` subtype), not on a neighborhood inside it. When no
-   name match exists, the smallest containing polygon wins —
-   best-effort behaviour for queries whose GeoNames primary string
-   doesn't appear in Overture's vocabulary.
-5. Memoizes the result in-process keyed by `(round(lat·100),
-   round(lng·100), normalized_name_hint)`. First call cold ~5 s
-   (footer prefetch over ~250 shards), warm ~12 ms. Cached `None`
-   results too, so places Overture doesn't carry don't repeat the
-   full scan on every retry.
-
-The cascade uses this from three branches of `locate_inner`
-(`embedded`, `geonames`, `cache`) — Overture is the preferred
-polygon source; Nominatim is the long-tail fallback only when
-Overture has no covering match.
-
-Returned `DivisionMatch` carries the GERS id (citable source CID),
-the primary name, subtype, the GeoJSON geometry, and the bbox tuple
-in `(min_lat, max_lat, min_lng, max_lng)` order. Surfaced in
-`/v1/locate` and `/v1/recall_polygon` as
-`polygon_bbox.source: "overture_division_area"`.
-
-## Deferred / unwired schemes
-
-These appear in `sources-v0.json` with templates but have no live
-materializer in api-rest. A `/v1/recall` for their bands returns a signed
-Absence with reason `unavailable_capability` today.
-
-| Scheme | Why it is deferred |
+| Module | Does |
 |---|---|
-| `openet.30m.daily` | Source S3 bucket returns `NoSuchBucket`; the URL template in the registry is stale. Needs an upstream re-discovery before any wiring work. |
-| `dynamic_world.v1` | Requires Google Earth Engine OAuth, which violates the no-keys posture of the default open-data build. |
-| `tropomi.s5p.ch4` | Published as chunked NetCDF, not COG. The pure-Rust open-data build has no NetCDF decoder. |
-| `tropomi.s5p.no2` | Same NetCDF-not-COG blocker as `tropomi.s5p.ch4`. |
-| `viirs.dnb.monthly` | Every upstream path (`eogdata.mines.edu/.../vcmcfg/...`) requires NASA Earthdata Login; auth-gated. |
+| `cog.rs` | Reads one pixel or one window from a COG. Every raster connector uses it. |
+| `stac.rs` | STAC POST search on Element84 and Microsoft Planetary Computer |
+| `proj.rs` | WGS84 to UTM, so the COG sampler gets coordinates in the scene CRS |
+| `connectors.rs` | HTTPS, GCS and IPLD fetch plumbing per `ConnectorKind` |
+| `template.rs` | Fills `{name}` variables in source URL templates |
+| `cache_window.rs` | Joins concurrent fetches of the same source into one |
+| `tile_store.rs` | Keeps whole local copies of the static forest rasters |
+| `latency.rs` | Times each stage of a cold read |
+| `parcels.rs` | Removes overlaps and duplicates from a set of field polygons |
+| `countries.rs`, `admin1.rs`, `admin2.rs`, `admin3.rs`, `geonames.rs`, `pois.rs` | Embedded GeoNames gazetteers for `/v1/locate` |
+| `lib.rs` | The crate root and the connector framework |
 
-### Tessera multi-vintage status
+## Materializers in emem-api-rest
 
-The Tessera mirror at `dl2.geotessera.org` is anonymous but rate-limited.
-The 2024 vintage serves reliably today; the multi-vintage stack
-`geotessera.{2017..2024}` is partial — older vintages return 429s during
-backfill windows. The materializer signs the vintage that came back and
-the receipt's `Source.url` pins which one; recall against a partial
-vintage surfaces a signed Absence with reason `upstream_no_data` rather
-than backfilling from an adjacent year.
+Some upstreams have no module in `emem-fetch`. The materializer in `crates/emem-api-rest/src/lib.rs`
+calls the JSON API itself. To find them all, search that file for `async fn materialize_`. Add
+`materialize_algorithm_band`, which is not `async`. Other `fn materialize_` names, such as
+`materialize_budget_per_min`, `materialize_share` and `materialize_inflight`, are helpers, not
+materializers.
 
-### Köppen-Geiger archetype seed
+| Function | Upstream | Bands |
+|---|---|---|
+| `materialize_weather_current` | MET Norway locationforecast 2.0 | `weather.*` |
+| `materialize_power_band` | NASA POWER | `power.*` |
+| `materialize_cams_band` | Open-Meteo air quality (CAMS) | `cams.*` |
+| `materialize_era5_band` | Open-Meteo archive (ERA5) | `era5.*` |
+| `materialize_marine_band` | Open-Meteo marine | `marine.*` |
+| `materialize_modis_ndvi`, `materialize_ornl_modis_band` | ORNL DAAC MODIS subsets | `modis.*` |
+| `materialize_soilgrids_band` | ISRIC SoilGrids 2.0 REST | `soilgrids.*_0_30cm` |
+| `materialize_sentinel2_band` | Planetary Computer, then Element84 STAC, then `cog.rs` | `s2.*`, `indices.*` |
+| `materialize_sentinel1_vv` | Planetary Computer Sentinel-1 RTC | `sentinel1_raw` |
+| `materialize_temporal_diff` | Two stored parent facts | `temporal_diff:<band>:<window>` |
+| `materialize_algorithm_band` | The input bands of an algorithm, read with a recall | `<algorithm>@<version>`, such as `flood_risk@2` |
 
-`crates/emem-core/data/climate_archetype_centroids_v1.json` ships a v1
-seed of 12 type localities — one per Köppen-Geiger primary zone, sourced
-from the Beck et al. 2018 reference dataset. The `climate_archetype_triple@1`
-algorithm consumes this seed; a query that lands in a zone not covered by
-the v1 seed returns a signed Absence with reason
-`archetype_seed_unavailable`.
+`materialize_algorithm_band` runs the `evaluation` expression of the algorithm in
+`algorithms-v0.json`. On 7 November 2026, 74 of the 172 algorithms had one. When an input is
+missing, the node signs an Absence that names the missing bands.
 
-CHIRPS daily precipitation is now wired (UCSB CHC anonymous COG range
-read, ±50° lat, 0.05° pitch, 1981→present with ~30-day final-quality
-lag). The connector lives at `crates/emem-fetch/src/chirps.rs` and
-materialises the `chirps.precip_daily_mm` band via fn_key
-`chirps.precip@1`. Two schemes — `sentinel1.grd.iw.vh` and
-`sentinel1.grd.iw` (separate from `sentinel_s1_rtc_mpc`) — remain
-declared without an api-rest materializer; both are one-channel
-additions on top of the live VV path.
+The other materializers in that file call the `emem-fetch` modules in the first table.
 
-`viirs.dnb.monthly` is in the registry but its upstream
-(`eogdata.mines.edu/...vcmcfg/...avg_rade9h.tif`) requires Earthdata Login
-since 2024 — that's why DMSP-OLS V4 (1992-2013) is the wired nightlight
-source today, even though VIIRS gives 2012-present coverage. A re-wire
-requires either a no-auth mirror or a policy change on the API key rule.
+## Retired bands
 
-## WorldPop / TerraClimate / DMSP gotchas
+A retired band is still in the band manifest. Facts that the node signed before keep their
+recall and their verification. The node does not make new ones. A recall gets a note with
+reason `band_retired_at_this_responder`.
 
-- **WorldPop**: Apache server lies about `Accept-Ranges: bytes`. Always 200 OK,
-  never 206. COG path is unusable; REST `/v1/services/stats` is the only open
-  per-cell path. 2-4 s/cell synchronous → throughput-bound on hot fan-out.
-  Pre-baking the global 1 km² raster to a real range-served COG in S3 is the
-  proper fix — deferred (~6-8 hr but requires infra decisions).
+| Band | Retired by | Why |
+|---|---|---|
+| `clay_v1`, `prithvi_eo2`, `galileo` | Code (`RETIRED_ENCODER_BANDS`) | The project removed the code that made them. |
+| `nightlights` | Code (`RETIRED_UPSTREAM_GONE_BANDS`) | NOAA moved DMSP-OLS V4 behind a login in 2026. |
+| `geotessera` | `EMEM_RETIRED_BANDS` in `deploy/systemd/emem-server.service` | The upstream answers 410 Gone. |
 
-- **TerraClimate**: NetCDF chunk index too deep for cheap range reads, so
-  NCSS CSV is the wire. NCSS returns packed integers, not unpacked floats —
-  client-side `scale_factor` / `add_offset` is mandatory. Two mirrors
-  (UI primary, NCAR RDA secondary) since 2026-05-08 — receipt records which
-  mirror answered. Normal window is hardcoded `(1991, 2020)` and bumps when
-  WMO redefines.
+A self-hosted node retires more bands with `EMEM_RETIRED_BANDS`, a comma-separated list.
+When you retire a family, you retire its children: `geotessera` also retires `geotessera.2024`.
 
-- **DMSP-OLS (the nightlights gotcha)**: The protocol's no-API-keys constraint
-  rules out VIIRS DNB v22 (every path on `eogdata.mines.edu/.../v22/...`
-  302-redirects to a Keycloak/OAuth login flow). NASA Black Marble VNP46A4 on
-  LAADS DAAC redirects to Earthdata Login the same way. NOAA NCEI's
-  `www.ngdc.noaa.gov/eog/data/web_data/v4composites/` is the only globally
-  mirrored, anonymous, Range-readable annual nightlight time series — 200 OK,
-  `accept-ranges: bytes`, 206 on Range, no `Set-Cookie`/redirect. **Coverage
-  is 1992-2013 only**. The dataset is genuinely complete; NOAA officially
-  handed live VIIRS DNB to EOG/CSM in 2019 and froze the v4 archive at the
-  2013 boundary.
+## Declared schemes that no code reads
 
-  `/v1/data_availability` surfaces this honestly via the materializer's
-  `history_to_unix` metadata. A query for `tslot` post-2013 returns Absence
-  with reason `outside_window` rather than fake-extending the time series.
-  Comparing DMSP-OLS DN to VIIRS DNB radiance requires the Li & Zhou 2017
-  intercalibration regression — DN is not the same physical unit as
-  nW · cm⁻² · sr⁻¹, and naive year-over-year deltas across the 2013/14
-  boundary are spurious.
+These 12 schemes are in `sources-v0.json`, but no connector or materializer in `crates/` reads them
+(code on 7 November 2026). The first five reasons date from May 2026.
 
-## Lazy materialization config
+| Scheme | Why no code reads it |
+|---|---|
+| `openet.30m.daily` | The S3 bucket in the template answers `NoSuchBucket`. |
+| `dynamic_world.v1` | It needs Google Earth Engine OAuth, so it breaks the keyless rule. |
+| `tropomi.s5p.ch4`, `tropomi.s5p.no2` | They are NetCDF, not COG. The node has no NetCDF decoder. |
+| `viirs.dnb.monthly` | Every upstream path needs a NASA Earthdata login. |
+| `sentinel1.grd.iw`, `sentinel1.grd.iw.vh` | The node reads VV from `sentinel_s1_rtc_mpc` only. |
+| `ghsl.builtup.r2023a`, `ghsl.population.r2023a` | No GHSL connector exists. A recall of `ghsl` gets `reason_class` `unknown_band`. |
+| `model.prithvi_eo2_300m_tl`, `model.clay_v1_5`, `model.galileo_v1` | They needed the GPU sidecar, which no longer runs. See [Retired bands](#retired-bands). |
 
-| env var                          | default     | meaning                                                         |
-|----------------------------------|-------------|-----------------------------------------------------------------|
-| `EMEM_AUTO_MATERIALIZE`          | `1`         | enable on-miss fetch (set `"0"` or `"false"` to disable; on by default in production responder, off in isolated test environments) |
-| `EMEM_MATERIALIZER_TIMEOUT_SECS` | `30`        | per-upstream timeout (clamped 2..240)                            |
-| `EMEM_TIMEOUT_SECS`              | `180`       | gateway timeout (clamped 1..600)                                 |
-| `EMEM_OVERTURE_RELEASE`          | (auto)      | pin an Overture release tag; otherwise auto-discover with 24 h TTL |
-| `EMEM_SCAN_CELL_LIMIT`           | `10_000`    | per-cell index scan cap (`emem-cache::sled_hot::scan_cell`)      |
-| `EMEM_COVERAGE_MATRIX_LIMIT`     | `50_000`    | row cap on `/v1/coverage_matrix` aggregation                    |
-| `EMEM_TOPIC_BACKEND`             | `ort`       | `ort` (default) \| `model2vec` \| `keyword`                      |
-| `EMEM_TOPIC_MODEL_DIR`           | `<EMEM_DATA>/models/bge-base-en-v1.5/` | where the ort backend reads tokenizer.json + model.onnx from |
-| `EMEM_TOPIC_THRESHOLD`           | `0.35`      | cosine threshold for topic routing                               |
-| `EMEM_TOPIC_USE_GPU`             | unset       | set to `1` to attempt CUDAExecutionProvider in `ort`             |
+## Notes on each connector
 
-## Adding a new connector
+### cog.rs: the COG sampler
 
-1. **New module** under `crates/emem-fetch/src/<name>.rs`. Top doc-comment must
-   spell out the wire path, the licence/auth posture, the empty-vs-error
-   contract, and any rate limits. Read `dmsp_ols.rs` and `wdpa.rs` for the
-   house style.
-2. **Implement a `fetch_*` async fn** that returns `(value, url)` or a
-   structured `Err`. Never invent default values; let an empty result
-   surface as `Ok(None)` so the materializer can sign a NegativeFact, and
-   let an upstream failure surface as `Err` so the caller can retry.
-3. **Add an entry to `crates/emem-core/data/sources-v0.json`**: scheme key,
-   ordered providers (failover order matters), tempo, native_resolution_m,
-   licence string per provider. Recompile — the new sources CID is taken
-   automatically.
-4. **Add a band entry to `crates/emem-core/data/bands-v0.json`** if the
-   connector populates a new band. The validator at `bands.rs:163-180`
-   enforces contiguous offsets and the 1792-D total — pick an offset that
-   fills a `_reserved_*` slot or extends the tail; never shift an existing
-   offset.
-5. **Wire the materializer in `crates/emem-api-rest/src/lib.rs`** (or as a
-   dedicated module that lib.rs delegates to). Add a `match` arm in
-   `try_materialize_bands` keyed on the band's scalar_keys. The materializer
-   signs through the shared `sign_and_persist(s, fact, signed_at)` helper so
-   the responder identity + Receipt shape stay uniform.
-6. **Add a `band_materializer_meta` entry** with `history_from_unix`,
-   `history_to_unix`, `kind`, `tempo`, `native_resolution_m`. This drives
-   `/v1/data_availability` and `/v1/materializers` so agents discover what
-   you wired without grepping the source.
-7. **Register a function in `crates/emem-core/data/functions-v0.json`** with
-   `kind: primary`, the source scheme you just added, the formula string,
-   and `deterministic: true`. The materializer's signed Primary fact must
-   pin this `fn_key` in its `derivation` so a verifier can walk back.
-8. **Test**: `cargo test -p emem-fetch <name>` for the offline unit cases
-   (the test suite uses recorded bytes — see `dmsp_ols.rs::tests` for the
-   pattern). For a live network test against the real upstream, run
-   `cargo test --workspace --test live_cog_fetch` (the network-gated tests
-   live in `crates/emem-fetch/tests/live_cog_fetch.rs` and are skipped
-   automatically when offline; there is no `live` cargo feature).
+`cog.rs` reads the TIFF header, the IFD and the one tile that holds the pixel. A per-cell read
+of a Sentinel-2 scene moves a few hundred KB, not the whole scene.
 
-That's the whole contract. The eight-step path keeps the registry, the fetch
-crate, and the api-rest dispatcher in lockstep; skipping any one of them
-leaves a band that exists in the manifest but cannot be materialized, or a
-fact attested under a `fn_key` no manifest knows about.
+1. Read the first 64 KiB of the file.
+2. Parse the TIFF header and IFD0. If the tile offset arrays are past 64 KiB, read them separately.
+3. Get the world-to-pixel transform from `ModelPixelScale` and `ModelTiepoint`.
+4. Find the tile that holds the pixel, read it, decompress it, and undo the predictor.
+
+| Supported | Not supported |
+|---|---|
+| Standard TIFF and BigTIFF | Big-endian TIFF |
+| Deflate (8), LZW (5) and Zstandard (50000) | JPEG2000 and other codecs |
+| Samples of 8, 16 or 32 bits, and unsigned packed samples below 8 bits | Other sample sizes |
+| Predictor 1, 2, and 3 (3 for 32-bit float only, 1 for packed samples) | Planar layouts in a multi-band read |
+| Strip TIFFs, read as one-row tiles | |
+
+An unsupported file gives an error. The sampler does not guess. The checks are in
+`crates/emem-fetch/src/cog.rs` (code on 7 November 2026).
+
+### stac.rs: scene search
+
+Sentinel-2 uses Planetary Computer first and Element84 second. `EMEM_S2_CATALOGUES` changes the
+order or names one catalogue. The node goes to the next catalogue only when one fails. An empty
+answer from a healthy catalogue means there is no scene.
+
+The two catalogues give different DNs for the same scene. Element84 removed ESA's
+`BOA_ADD_OFFSET`, and Planetary Computer did not. Reflectance is `(DN + offset) * 1e-4`. The
+offset is -1000 for Planetary Computer scenes from processing baseline 04.00. For Element84 it is
+usually 0. Element84 baseline 04.00 items acquired from 2022-01-25 to 2022-02-26 still have -1000.
+The code does not know the offset for items of 2022-02-27 and 2022-02-28, so the node refuses
+them (`element84_dn_offset` in `stac.rs`). The node also refuses a scene that states no baseline
+when it needs one. Each fact's `derivation.args` ends with the catalogue and the offset.
+
+A single cell searches with `intersects: Point`, not `bbox`. A bbox search can match the next
+tile in an MGRS overlap zone. A read over many cells searches once for their bbox. It then keeps,
+for each cell, the items whose footprint holds the point.
+
+Planetary Computer asset URLs need a free anonymous SAS token. The connector caches one token for
+each collection until 5 minutes before its `msft:expiry`. The cache time is at least 1 minute and
+at most 55 minutes. When `msft:expiry` is missing, the cache time is 30 minutes (`stac.rs`).
+
+### overture.rs: Parquet on S3
+
+The bucket is `overturemaps-us-west-2`. The connector lists the release files once and caches each
+Parquet footer. It uses the `bbox` column statistics to skip row groups before it decodes any
+geometry. The WKB decoder is in Rust, with no GEOS and no GDAL.
+
+`EMEM_OVERTURE_RELEASE` pins a release. Without it, the connector finds the newest release and
+checks again every 24 hours (`RELEASE_TTL`).
+
+The same client reads the `divisions/division_area` theme for `/v1/locate` place polygons
+(`division_polygon_with_subtype`). It keeps the polygons that contain the point. The first rule
+that has a candidate picks the polygon. "Smallest" and "largest" compare bbox areas.
+
+1. The caller asks for a subtype, such as `country`, and a polygon of that subtype has the exact
+   name. The largest of these wins.
+2. A polygon has the exact name. The highest admin level wins, then the largest.
+3. The caller asks for a subtype, and a polygon has that subtype. The smallest wins.
+4. A polygon name contains the name, or the name contains it. The smallest wins.
+5. No name matches. The smallest polygon wins.
+
+When no polygon contains the point, the connector returns no polygon.
+
+### terraclimate.rs: NCSS CSV with failover
+
+TerraClimate is NetCDF-4 with compressed chunks, so a range read is not practical. The
+connector asks the THREDDS NetCDF Subset Service for CSV instead. NCSS returns the packed
+integers, so the connector applies `scale_factor`, `add_offset` and `_FillValue` itself.
+
+`NCSS_BASES` lists two mirrors. The connector tries them in order on a transport error. The
+source URL in the fact names the mirror that answered. `NORMAL_WINDOW` is `(1991, 2020)`, so the
+bands are 30-year normals, not values for one year.
+
+### worldpop.rs: per-country COG, then the stats API
+
+The global WorldPop GeoTIFF ignores `Range` requests and sends the whole 870 MB file. The
+per-country 1 km files accept ranges, so the connector reads those with `cog.rs` first. On a
+transient COG error it falls back to the synchronous stats API, with a 1 km by 1 km area.
+
+The year is 2020 (`WORLDPOP_DEFAULT_YEAR`). A cell over the ocean, or with zero population,
+gets a signed Absence, not a zero.
+
+### hansen_gfc.rs: strip TIFFs in 10 degree tiles
+
+The source is the `earthenginepartners-hansen` bucket, version v1.13 (GFC-2025). It covers loss
+from 2001 to 2025. `lossyear` is 0 for no loss and 1 to 25 for the years 2001 to 2025.
+
+A tile name gives its top-left corner. The point at latitude -3.0, longitude -60.5 is in tile
+`00N_070W`. A tile is 40 000 by 40 000 pixels at 0.00025 degrees, stored as one strip per row.
+
+`lossyear = 0` on land is a real Primary fact. A point outside the dataset gets a signed Absence.
+
+### koppen.rs: one file from a ZIP
+
+The source is a 71 MB ZIP on Figshare with twelve GeoTIFFs. The connector reads the ZIP central
+directory and then only the 1 km present-day TIFF. It inflates that TIFF and caches it under
+`<EMEM_DATA>/cache/koppen/`. Pixel value 0 is outside the land mask and gives a signed Absence.
+
+### wdpa.rs: protected areas from OSM
+
+The Protected Planet API answers 401 to anonymous callers, so the connector does not use it. It
+asks the public Overpass API for `boundary=protected_area` with `is_in()`. OSM `protect_class`
+maps to the IUCN category.
+
+A cell outside every mapped protected area gets a signed negative fact. Each cell costs at most
+one Overpass call, because the node stores the answer.
+
+### wri_gdm_drivers.rs: a local copy, not a range read
+
+Zenodo sends the whole 295 MB GeoTIFF for any `Range` request, so a per-cell read is not
+practical. The connector reads band 1 of a local copy. Set `EMEM_WRI_GDM_CACHE` to the absolute
+path of that file. Without it, the node signs nothing and the recall gets an error that names
+the variable. The node does not sign an Absence, because the cell itself is not empty.
+
+Pixel value 0 means no Hansen loss event. The node signs an Absence with reason
+`wri_gdm_no_hansen_loss`. On 7 November 2026, emem.dev gave a Primary fact with class 6 near
+Novo Progresso, Brazil, at cell `defi.zb3af.zedd6.gEdE` (-7.0375, -55.4186):
+
+```sh
+curl -s https://emem.dev/v1/recall -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb3af.zedd6.gEdE","bands":["wri_gdm.driver_class"]}' \
+  | jq '.facts[0].value'
+```
+
+### ftw.rs: field boundaries
+
+Fields of The World is one global PMTiles archive on Source Cooperative, under CC-BY-4.0. The
+connector reads only the tiles that cover the requested bbox. It lowers the zoom when a query
+needs more than 16 tiles. The BLAKE3 hash of the decompressed tile bytes is the source CID.
+
+Use it through `POST /v1/field_boundaries`, through `include: ["ftw_fields"]` on
+`POST /v1/recall_polygon`, or through the MCP tool `emem_field_boundaries`.
+
+### geonames.rs and the locate gazetteers
+
+`/v1/locate` checks embedded tables before it calls any network geocoder. `geonames.rs` holds
+GeoNames cities-1000, with every populated place of 1 000 people or more. On 7 November 2026 the
+file had 169 051 rows. It is `crates/emem-fetch/data/cities1000.txt.gz`, about 10.5 MB.
+
+The lookup folds diacritics and indexes alternate names. When several places share a name, the
+place with the most people wins. The `via` field of the response names the layer that answered.
+
+## Settings for data sources
+
+| Variable | Default | Does |
+|---|---|---|
+| `EMEM_AUTO_MATERIALIZE` | on | `0` or `false` stops reads from the archives on a miss. |
+| `EMEM_MATERIALIZER_TIMEOUT_SECS` | `14` | The timeout of one upstream read, 2 to 240 s. |
+| `EMEM_MATERIALIZER_RETRIES` | `2` | Tries for one ORNL MODIS read, 1 to 5. |
+| `EMEM_TIMEOUT_SECS` | `40` | The timeout of one request, 1 to 600 s. |
+| `EMEM_S2_CATALOGUES` | `mpc,element84` | The Sentinel-2 catalogues, in order. |
+| `EMEM_OVERTURE_RELEASE` | newest | Pins one Overture release. |
+| `EMEM_RETIRED_BANDS` | empty | More bands that this node does not serve. |
+| `EMEM_WRI_GDM_CACHE` | unset | The path of the local WRI drivers COG. Without it, a `wri_gdm.driver_class` recall gets an error. |
+
+## Add a connector
+
+A connector has two parts: a fetch module in `emem-fetch` and a materializer in `emem-api-rest`.
+The WDPA connector is a good model: `crates/emem-fetch/src/wdpa.rs` and `materialize_protected`
+in `crates/emem-api-rest/src/lib.rs`. Line numbers in `lib.rs` change often, so search for the names.
+
+1. Add `crates/emem-fetch/src/<name>.rs` and a `pub mod <name>;` line in
+   `crates/emem-fetch/src/lib.rs`. The top doc comment gives the upstream, the licence, the auth,
+   the rate limits, and empty versus error.
+2. Write an async fetch function that returns the value or a typed error. `fetch_wdpa_status`
+   returns `Result<Option<WdpaMatch>, WdpaError>`.
+   - Return `Ok(None)` for a real empty result. The materializer then signs an Absence.
+   - Return `Err` for an upstream failure. The node stores nothing, and the next recall tries again.
+   - Never invent a default value.
+   - If the upstream URL changes for each read, return it in the sample, as
+     `NightlightSample.upstream_url` does in `dmsp_ols.rs`.
+3. Add `async fn materialize_<name>` in `lib.rs`. Set `sources[0].url` and `derivation.fn_key`
+   on the fact. Sign through `sign_and_persist`, so the receipt shape stays the same.
+4. Add a match arm for the band key in `materialize_bands_once`. `try_materialize_bands` calls
+   it on a recall miss.
+5. Add the band key to `all_materializable_bands`. If the key is not in this list,
+   `band_is_known` is false. Then `/v1/materializers`, `/v1/bands` and `/v1/data_availability`
+   do not show the band.
+6. Add an arm to `band_materializer_meta` with the tempo, the history window and the resolution.
+   Add a row to the `materializer_bands` table in `coverage_matrix` for `/v1/coverage_matrix`.
+7. If the source has a history, add an arm to `materialize_band_at`. Backfill and the temporal
+   windows call it for a past date.
+8. Choose the band key. A dotted key, such as `copdem30m.elevation_mean`, needs no change to
+   `bands-v0.json`. To give it the text of a cube slot, add an arm to `cube_band_alias` in
+   `crates/emem-core/src/bands.rs`. Only a new cube slot needs a change to `bands-v0.json`.
+   `BandRegistry::validate` needs contiguous offsets that sum to 1792. Use a reserved slot or
+   the tail. Never move an existing offset.
+9. Optional: declare the scheme in `crates/emem-core/data/sources-v0.json` and the function in
+   `crates/emem-core/data/functions-v0.json` (`kind: primary`, `deterministic: true`). The node
+   publishes these files at `/v1/sources` and `/v1/functions`, but no read or write path checks a
+   fact against them. On 7 November 2026, `lib.rs` had 40 `fn_key` values outside its tests.
+   Only 6 were in `functions-v0.json`, and `sources-v0.json` had no WDPA scheme.
+10. Test offline with `cargo test -p emem-fetch <name>`. Give the parser bytes that the test
+    builds or records, as the `dmsp_ols.rs` tests build a small TIFF. The network tests are in
+    `crates/emem-fetch/tests/live_cog_fetch.rs` and run with
+    `cargo test --workspace --test live_cog_fetch`. There is no `live` cargo feature.
+
+Steps 8 and 9 can change registry files. A change there moves the manifest CIDs. Read
+[architecture.md](architecture.md) before you change a registry.

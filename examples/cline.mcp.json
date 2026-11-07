@@ -1,5 +1,5 @@
 {
-  "_doc": "Cline: in the Cline panel, open the MCP Servers icon, then Configure, then Configure MCP Servers, and paste this entry. The Cline CLI reads ~/.cline/data/settings/cline_mcp_settings.json. Keep \"type\": \"streamableHttp\". Without it, Cline uses the legacy SSE transport. The autoApprove list holds read-only tools.",
+  "_doc": "Cline: in the Cline panel, open the MCP Servers icon, then Configure, then Configure MCP Servers, and paste this entry. The Cline CLI reads ~/.cline/data/settings/cline_mcp_settings.json. Keep \"type\": \"streamableHttp\". Without it, Cline uses the legacy SSE transport, and https://emem.dev/mcp accepts only POST (Streamable HTTP). The autoApprove list holds read-only tools.",
   "mcpServers": {
     "emem": {
       "type": "streamableHttp",

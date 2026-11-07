@@ -1,89 +1,232 @@
-# emem as long-term memory: integration matrix
+# Connect an agent runtime to emem
 
-emem is a Streamable-HTTP MCP server. Any host that speaks MCP can use it
-as a long-term, planet-keyed memory tier without an SDK install, an API
-key, or a per-tenant signup. The same handlers also answer plain REST at
-`/openapi.json`, so non-MCP runtimes wire in equally well.
+emem is a Streamable HTTP MCP server at `https://emem.dev/mcp`. Any MCP host can use it as a long-term memory for
+facts about places. You need no SDK, no API key and no account to read. The same handlers also answer plain REST,
+described at `/openapi.json`. To use your own node, start it with [Self-host](self-host.md) and change the
+URL in each config.
 
-This page is a one-page rosetta stone: per runtime, the smallest possible
-config that turns emem into the long-term memory layer for an agent that
-already exists, plus a pointer to a runnable example in this repository.
+This page gives the smallest config for each runtime and a link to a runnable example in `examples/`. Then it shows
+the calls an agent makes after it connects. The requests and responses on this page ran on emem.dev on 7 November
+2026.
 
-## State vectors
+## Connect an MCP host
 
-The state of a place as one fixed-width `vector: Vec<f32>`, every wired
-band at its canonical offset, with `coverage[]` saying which slots are
-measured, signed-absent, or not yet fetched. The vector's own content id
-is `state_cid`; the handle an agent passes on is an `emem:bundle:` over
-the facts it cites.
+### Hosts that use `mcpServers`
 
-```bash
-curl -sX POST https://emem.dev/v1/state \
-  -H 'content-type: application/json' \
-  -d '{"cell":"Colaba, Mumbai","view":"cube"}'
-```
-
-Response shape:
+For a host with native Streamable HTTP, the config has one entry:
 
 ```json
 {
-  "cell":          "defi.zb4d7.zb8ec.zf21e",
-  "view":          "cube",
-  "dim":           1792,
-  "vector":        [0.0, 0.0, ... ],
-  "filled_bands":  0,
-  "missing_bands": 41,
-  "coverage":      [{"key": "overture", "offset": 128, "dims": 64, "status": "missing"}, ...],
-  "state_cid":     "<52 chars base32-nopad-lowercase>",
-  "memory_token":  "",
-  "hint":          "all cube slots are cold at this cell ... pass materialize: true",
-  "receipt":       { /* signed ed25519 over canonical blake3 preimage */ }
+  "mcpServers": {
+    "emem": {
+      "type": "http",
+      "url": "https://emem.dev/mcp"
+    }
+  }
 }
 ```
 
-Inputs:
+`"type": "http"` is the MCP name of the Streamable HTTP transport. The URL itself is HTTPS.
 
-- `cell` may be a cell64 string or a free-text place name (resolved
-  through the standard geocoder cascade; the `resolved_from` field
-  reports which layer answered).
-- `materialize: true` fetches every cold slot (about 30 upstream calls
-  on a cold cell); `/v1/recall` with a narrow `bands` list warms only the
-  slots you need.
-- `view: "encoder"` reads one vector band. emem.dev has retired its
-  foundation encoders (Tessera, Clay, Prithvi, Galileo): facts they
-  signed still read and verify, and nothing new materialises, so a cell
-  without one answers 404 saying so.
+`/mcp` advertises the 18 core tools in `tools/list`, so the host registers about 75 KB of descriptors
+rather than about 346 KB for all 116. Both sizes are from 7 November 2026 (1 KB = 1024 bytes). The other 98
+tools stay callable by name. `emem_tools` searches them and returns the schema of one tool. To register all 116
+tools at the start, use `https://emem.dev/mcp/full`. It returns them in more than one page, so follow `nextCursor`.
 
-Use sites:
+### VS Code and GitHub Copilot
 
-| Use site                           | What the vector is doing                                                |
-|------------------------------------|-------------------------------------------------------------------------|
-| LLM context prefix                 | A numerical fingerprint of "what is here" the model can attend over     |
-| Input to `/v1/find_similar`        | The query vector for k-NN over the geotessera index                     |
-| Change detection                   | Diff two vintages of `/v1/state` for the same cell to spot land change  |
-| Cross-encoder bridge               | Pass the vector to a ridge-regression bridge into another encoder space |
-| Long-term agent memory             | Cache the vector under a user/intent key; recall byte-identically later |
+VS Code reads `.vscode/mcp.json`, or the profile file that **MCP: Open User Configuration** opens. Its top-level key
+is `servers`, not `mcpServers`:
 
-## Memory tokens
+```json
+{
+  "servers": {
+    "emem": {
+      "type": "http",
+      "url": "https://emem.dev/mcp"
+    }
+  }
+}
+```
 
-The fastest way to hand one signed fact at one place to any agent, any
-runtime, any host, is a memory token: a single colon-separated string
-that parses back into a cell and a fact CID.
+The wrong key fails silently: the JSON is valid, but VS Code shows no server and no error. emem is also in the GitHub
+MCP Registry. To install it with no file, search `@mcp emem` in the Extensions view, or run:
+
+```bash
+code --add-mcp '{"name":"emem","type":"http","url":"https://emem.dev/mcp"}'
+```
+
+Copilot Chat shows the tools in **Agent** mode only. The default **Ask** mode shows no tools.
+
+### Hosts without Streamable HTTP
+
+Older hosts speak stdio only. Use the `mcp-remote` bridge:
+
+```json
+{
+  "mcpServers": {
+    "emem": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://emem.dev/mcp"]
+    }
+  }
+}
+```
+
+### Runtimes and their examples
+
+| Runtime | Surface | Auth | Example |
+|---|---|---|---|
+| Claude Code | MCP (`http`) | none | [`examples/claude-code.mcp.json`](https://github.com/Vortx-AI/emem/blob/main/examples/claude-code.mcp.json) |
+| Claude Desktop | MCP (custom connector) | none | Go to Settings, then Connectors, then Add custom connector, and enter `https://emem.dev/mcp`. The config file starts stdio servers only. For a file, use the `mcp-remote` bridge in [`examples/claude-desktop.json`](https://github.com/Vortx-AI/emem/blob/main/examples/claude-desktop.json). |
+| Cursor 0.42 and later | MCP (`url` only) | none | [`examples/cursor.mcp.json`](https://github.com/Vortx-AI/emem/blob/main/examples/cursor.mcp.json) |
+| Cline (VS Code) | MCP (`streamableHttp`) | none | [`examples/cline.mcp.json`](https://github.com/Vortx-AI/emem/blob/main/examples/cline.mcp.json). Keep `"type": "streamableHttp"`. Without it Cline uses legacy SSE. A `GET /mcp` that asks for `text/event-stream` returns 405, because the server offers no SSE stream. A plain `GET /mcp` returns a discovery document. |
+| Gemini CLI | extension install | none | Run `gemini extensions install https://github.com/Vortx-AI/emem`. It reads [`gemini-extension.json`](https://github.com/Vortx-AI/emem/blob/main/gemini-extension.json) at the repository root. |
+| OpenAI Custom GPT Action | OpenAPI 3.1 | none | Steps below. [`examples/openai-gpt-action.json`](https://github.com/Vortx-AI/emem/blob/main/examples/openai-gpt-action.json) holds the setup URLs and the GPT instructions text. It is not an OpenAPI document. |
+| LangChain | MCP through an adapter | none | [`examples/langchain/`](https://github.com/Vortx-AI/emem/tree/main/examples/langchain) |
+| LlamaIndex | MCP through an adapter | none | [`examples/llamaindex/`](https://github.com/Vortx-AI/emem/tree/main/examples/llamaindex) |
+| AutoGen | MCP tool | none | [`examples/autogen/`](https://github.com/Vortx-AI/emem/tree/main/examples/autogen) |
+| CrewAI | MCP tool | none | [`examples/crewai/`](https://github.com/Vortx-AI/emem/tree/main/examples/crewai) |
+| Semantic Kernel | MCP tool | none | [`examples/semantic-kernel/`](https://github.com/Vortx-AI/emem/tree/main/examples/semantic-kernel) |
+| Mastra (TypeScript) | MCP tool | none | [`examples/mastra/`](https://github.com/Vortx-AI/emem/tree/main/examples/mastra) |
+| Agno | MCP tool | none | [`examples/agno/`](https://github.com/Vortx-AI/emem/tree/main/examples/agno) |
+| Pydantic AI | MCP tool | none | No example yet. Use the standard MCP client config with `https://emem.dev/mcp`. |
+| Dify | MCP (`http`) | none | No example yet. Add `https://emem.dev/mcp` as an MCP server in the tool settings of the workspace. |
+| OpenAI Codex | MCP | none | No example yet. Use native Streamable HTTP if the build has it, or the `mcp-remote` bridge. |
+| Any stdio-only host | `mcp-remote` | none | The bridge config above. |
+| Plain REST | `POST /v1/*` | none | The quick reference in [`docs/agents.md`](agents.md). |
+| Any runtime, as a guardrail | `POST /v1/guard/verdict` | none | [Check a draft before you publish it](#check-a-draft-before-you-publish-it) |
+
+For a Custom GPT, import `https://emem.dev/openapi.action.json`, not `/openapi.json`. On 7 November 2026 the full
+document was 405,695 bytes and the action document was 126,810 bytes. A Custom GPT cannot hold the full document.
+The action document is OpenAPI 3.1.0, version 2.4.4, with 39 operations on 38 paths (7 November 2026).
+
+The example file gives these steps to add emem to a Custom GPT. They need an OpenAI account. Nobody ran them for
+this page:
+
+1. In the GPT builder, open Actions and select Add.
+2. Select Import from URL and enter `https://emem.dev/openapi.action.json`.
+3. Set Authentication to None.
+4. Set the privacy policy URL to `https://emem.dev/privacy`.
+5. Paste the `custom_gpt_instructions` text from the example file into the GPT instructions.
+
+The instructions text tells the model which tool to call and to cite emem tokens. It has 3,108 characters.
+
+A host that has no row here reaches the same 116 tools at the same URL. The rows are the runtimes with a checked-in
+example or a known config.
+
+### Run a framework example
+
+Each framework folder has a README and one script. The script connects over Streamable HTTP and asks one question
+about a place. emem needs no key, but each script uses an OpenAI model, so set `OPENAI_API_KEY` first.
+
+```bash
+cd examples/langchain
+pip install langchain-mcp-adapters langgraph langchain-openai
+export OPENAI_API_KEY="sk-..."
+python emem_mcp_geospatial_agent.py
+```
+
+The other folders use the same steps with these values:
+
+| Folder | Install | MCP client in the script | Endpoint |
+|---|---|---|---|
+| `langchain/` | `pip install langchain-mcp-adapters langgraph langchain-openai` | `MultiServerMCPClient` | `/mcp` |
+| `llamaindex/` | `pip install llama-index-tools-mcp llama-index-llms-openai llama-index-core` | `BasicMCPClient` | `/mcp` |
+| `autogen/` | `pip install autogen-agentchat 'autogen-ext[openai,mcp]' 'mcp<2'` | `McpWorkbench` | `/mcp` |
+| `crewai/` | `pip install 'crewai[tools]' 'crewai-tools[mcp]'` | `MCPServerAdapter` | `/mcp/full` |
+| `semantic-kernel/` | `pip install semantic-kernel` | `MCPStreamableHttpPlugin` | `/mcp` |
+| `agno/` | `pip install agno openai fastmcp` | `MCPTools` | `/mcp` |
+| `mastra/` | `npm install`, then `npx tsx emem_mcp_geospatial_agent.ts` | `MCPClient` from `@mastra/mcp` | `/mcp/full` |
+
+On 7 November 2026 each Python example ran with these installs in a new virtual environment, up to the first
+model call. That call failed because the key was not real. Four results changed the examples:
+
+| Folder | Result on 7 November 2026 |
+|---|---|
+| `langchain/` | Loads 18 tools. langchain-mcp-adapters 0.3.2 does not accept `async with` on its client, so the script now calls `get_tools()` directly. |
+| `llamaindex/` | Loads 18 tools. llama-index-core 0.14.25 has `FunctionAgent` in `llama_index.core.agent.workflow`. The script now imports it from there. |
+| `autogen/` | Runs with `mcp<2`. With mcp 2.3.0, autogen-ext 0.7.5 fails on import (`RequestContext`). |
+| `crewai/` | Runs with `crewai-tools[mcp]`. Without it, `MCPServerAdapter` asks to install a package and stops. |
+| `agno/` | Runs with `fastmcp`. agno 3.1.12 builds its MCP connection with that package. |
+| `semantic-kernel/` | Fails. semantic-kernel 1.47.0 accepts one type for each parameter, and `emem_echo_verify` and `emem_intent` give lists of types. |
+
+The `mastra/` example did not run, because this check had no Node.js.
+
+Set `EMEM_MCP_URL` to point a script at your own node (see
+[Connect a client to your node](self-host.md#connect-a-client-to-your-node)). On 7 November 2026, `tools/list` on
+`/mcp` returned 18 tools in one page. On `/mcp/full` the first page had 12 tools and a `nextCursor`. All pages of
+`/mcp/full` together gave 116 tools.
+
+To use REST instead of MCP, `examples/langchain.py` wraps nine routes as LangChain tools and `examples/llamaindex.py`
+wraps six as LlamaIndex tools. Copy `langchain.py` to a new name, such as `langchain_emem.py`, before you import it.
+The name `langchain.py` hides the `langchain` package. Set `EMEM_URL` to use a node other than emem.dev.
+
+### Timeouts and retries
+
+Reads are idempotent. Retry on a 5xx status. Treat a 4xx status as permanent.
+
+| Limit | Value on emem.dev | Where it comes from |
+|---|---|---|
+| One cold-band fetch | 14 s | `EMEM_MATERIALIZER_TIMEOUT_SECS`, read by `materializer_timeout_secs` in `crates/emem-api-rest/src/lib.rs` |
+| One request | 40 s | `EMEM_TIMEOUT_SECS`, quoted live as `runtime.gateway_timeout_secs` in `GET /v1/agent_card` |
+
+The agent card advises a client read timeout of `gateway_timeout_secs` plus 5 s. Read both values from
+`GET /v1/agent_card` at the start of a session. They can change.
+
+## What the agent does after it connects
+
+Every runtime uses the same loop. Each step names the REST route and the MCP tool.
+
+1. Discover. Call `tools/list`, or `emem_tools` in a session, or `GET /v1/agent_card`. Keep the result for the
+   session. The card lists the tools, their JSON schemas, and trigger and anti-trigger phrases. `tools/list` on
+   `/mcp` returns the core tier only. Send `{"tier":"all"}` or use `/mcp/full` for every tool. Both return pages,
+   so follow `nextCursor`. `emem_tools` also filters by the shape of the answer (`{"shape":"raster"}`) or by the
+   job (`{"bundle":"robotics"}`). On 7 November 2026 these filters gave 6 and 15 matches.
+2. Name the object. `POST /v1/entity` (`emem_entity`) mints or returns one identity,
+   `emem:entity:<entity_cid>`, so two agents refer to the same object. The body needs a `label` and an
+   anchor. The anchor is `place`, `cell`, `lat` and `lng`, or `external_ids.anchor` for an object with no
+   place. This is a write to the shared entity space: emem.dev asks for a signed `attester` and refuses an
+   unsigned call. The key must also be at tier T3, or the call fails with 403. `GET /v1/enlist` lists the
+   tiers and their checks. To find an identity that exists, use `POST /v1/entity/resolve`.
+3. Locate. `POST /v1/locate {"place":"Mount Fuji"}` (`emem_locate`) changes a place name, or `lat` and `lng`, into
+   a `cell64`. `q`, `query` and `name` also work as the field name. The response says which geocoder answered, so the
+   agent can judge the match.
+4. Recall. `POST /v1/recall {"cell":"<cell64>","bands":[...]}` (`emem_recall`) returns signed facts at that cell.
+   On a miss it fetches the value first. `deterministic: true` keeps only the facts that the cited raw source can
+   recompute.
+5. Fill a gap. If a value is missing, use `find_similar`, `compare`, `trajectory`, `recall_polygon`, `hunt`, or one
+   of the nine domain tools: `emem_ndvi`, `emem_air`, `emem_lst`, `emem_soil`, `emem_water`, `emem_forest`,
+   `emem_weather`, `emem_elevation` and `emem_at`.
+6. Cite. `POST /v1/memory_token` (`emem_memory_token`) makes `emem:fact:<cell64>:<fact_cid>`. The agent keeps this
+   line instead of the payload. The `fact_cid` comes from `receipt.fact_cids` in the recall response. For many facts,
+   `POST /v1/memory_bundle` makes one `emem:bundle:` token.
+7. Resolve and verify. The receiver calls `POST /v1/memory_token/resolve` (`emem_memory_token_resolve`) and gets
+   the same signed bytes. Then it checks the receipt with `POST /v1/verify_receipt` (`emem_verify_receipt`), or in a
+   browser at `/verify`. Neither step trusts the sender, and neither needs a key.
+8. Find disagreement. `POST /v1/memory_contradictions` (`emem_memory_contradictions`) shows where signed sources
+   disagree at the same address. It does not average them.
+
+[`examples/agent-walkthroughs.md`](https://github.com/Vortx-AI/emem/blob/main/examples/agent-walkthroughs.md)
+shows this loop on real questions, as `curl` sequences.
+
+## Cite one fact with a memory token
+
+A memory token is one string that names a cell and a fact:
 
 ```
 emem:fact:<cell64>:<fact_cid>
 ```
 
-The pre-rename prefixes `memt:`, `memb:`, and `meme:` still resolve.
-
-A canonical token, copy-pasteable, resolves to the South Mumbai
-elevation example used throughout this site:
+This token names the elevation of a cell in South Mumbai:
 
 ```
 emem:fact:defi.zb4d7.ze56c.zf24c:4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma
 ```
 
-### Compose
+The old prefixes `memt:`, `memb:` and `meme:` still resolve.
+
+### Make a token
 
 ```bash
 curl -sX POST https://emem.dev/v1/memory_token \
@@ -99,89 +242,80 @@ Response:
 ```json
 {
   "memory_token": "emem:fact:defi.zb4d7.ze56c.zf24c:4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma",
+  "cell_token":   "emem:cell:defi.zb4d7.ze56c.zf24c",
   "cell":         "defi.zb4d7.ze56c.zf24c",
   "fact_cid":     "4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma",
   "grammar":      "emem:fact:<cell64>:<fact_cid>",
-  "docs":         "/whitepaper.md#3-the-token-grammar"
+  "docs":         "https://emem.dev/reference#token-fact"
 }
 ```
 
-Composition is offline. Agents can mint tokens client-side; the
-endpoint is the single source of truth for the grammar and a
-convenience round-trip.
+You can also make a token on the client. The endpoint is a convenience and the reference for the grammar.
 
-### Resolve
+### Get the signed fact
 
-The third segment of a token is the fact CID. To pull the signed bytes:
+The last part of the token is the fact CID:
 
 ```bash
 curl -sS https://emem.dev/v1/facts/4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma
 ```
 
-That returns the canonical CBOR (or JSON when you ask for it) of the
-fact. The CID is self-certifying:
-`blake3(canonical_cbor(fact)) == base32_decode(fact_cid)` (52 base32 chars, the full 32-byte digest). A
-man-in-the-middle that swaps a different fact for the same CID is
-detected by the digest check.
+This returns the fact as JSON. On 7 November 2026 it was `copdem30m.elevation_mean`, value `10.0`, unit `m`. Send
+`Accept: application/cbor` to get the canonical CBOR. The CID checks itself:
+`blake3(canonical_cbor(fact)) == base32_decode(fact_cid)`, a 52-character name for the full 32-byte digest. If a
+server sends a different fact for the same CID, the digest check fails.
 
-### Where to use a memory token
-
-| Use site                            | What the token is doing                                         |
-|-------------------------------------|------------------------------------------------------------------|
-| Inside an LLM prompt                | Cite-handle the model can echo as the source of a number        |
-| Tool-call argument                  | Single string the receiving tool parses + resolves              |
-| Agent-to-agent message              | Handshake artefact that prevents downstream disagreement        |
-| Log line, audit trail               | Forensic anchor a future debugger can replay byte-identically   |
-| Long-term memory store              | Stable key the runtime caches once, dereferences on demand      |
-
-### Use with mem0 / LangGraph / mem-style runtimes
-
-The general pattern: cache the memory token in your runtime's
-long-term memory store keyed by user intent or task subject. On the
-next session, fetch the token from your store and resolve it via
-`GET /v1/facts/<fact_cid>` to get byte-identical bytes back. No
-embedding lookup, no similarity search, no drift.
-
-```python
-# pseudocode. Works in any LangGraph / mem0 / AutoGen / similar
-# runtime that ships a long-term-memory tier.
-user_intent = "track elevation of South Mumbai over time"
-token = client.recall_then_memory_token(place="South Mumbai", band="copdem30m.elevation_mean")
-long_term_memory.set(user_intent, token)
-
-# next session: same byte-identical fact.
-token = long_term_memory.get(user_intent)
-fact  = client.resolve_memory_token(token)  # GET /v1/facts/<cid>
-print(fact["value"], fact["unit"])  # 10.0 m above mean sea level
-```
-
-The contract: the token survives the conversation that minted it. Two
-agents on two hosts pass the token between them and pull the same
-bytes from any emem responder that ever held the fact.
-
-### Parse rules
+### Parse a token
 
 ```
 parts    = token.split(":", 3)
 assert parts[0] == "emem" and parts[1] == "fact"
 cell64   = parts[2]
 fact_cid = parts[3]
-
-Legacy memt: tokens keep the old three-part shape (memt:<cell64>:<fact_cid>) and still resolve.
 ```
 
-The outer separator is `:`. Neither `cell64` nor `fact_cid` may contain
-`:` (the compose endpoint rejects). The full grammar, dereference
-path, and named failure modes (`malformed`, `cid_not_found`, drift on
-re-encode) are in [`/whitepaper.md#3-the-token-grammar`](whitepaper-v2.md#3-the-token-grammar).
+Old `memt:` tokens have three parts (`memt:<cell64>:<fact_cid>`) and still resolve. Neither `cell64` nor `fact_cid`
+can contain `:`, and the compose endpoint refuses one that does. The full grammar and the named failures
+(`malformed`, `cid_not_found`, drift on re-encode) are in
+[the whitepaper, section 3](whitepaper-v2.md#3-the-token-grammar).
 
-## Memory bundles
+### Where to put a token
 
-A bundle composes N facts at N places into one signed envelope. The
-token grammar is `emem:bundle:<bundle_cid>` (parallel to `emem:fact:`). Bundles
-fit the "task done, here are the citations I used" pattern: the agent
-hands one token to the next caller, who pulls every cited fact in one
-round-trip.
+| Place | What the token does |
+|---|---|
+| An LLM prompt | Gives the model a handle to name as the source of a number. |
+| A tool-call argument | Gives the receiving tool one string to parse and resolve. |
+| A message to another agent | Makes both agents read the same signed bytes. |
+| A log line or an audit trail | Lets a later debugger get the same bytes again. |
+| A long-term memory store | Gives the runtime a stable key that it resolves when it needs the value. |
+
+### Keep a token in your runtime's memory store
+
+Store the token in the long-term store of your runtime (mem0, LangGraph, AutoGen or similar), under the task or the
+user intent. In the next session, read the token from the store and resolve it with `GET /v1/facts/<fact_cid>`. You
+get the same bytes back, with no embedding lookup and no similarity search.
+
+This sketch uses invented helper names. The REST calls behind them are the ones above.
+
+```python
+# Sketch: `client` and `long_term_memory` are your own objects.
+user_intent = "track elevation of South Mumbai over time"
+token = client.recall_then_memory_token(place="South Mumbai", band="copdem30m.elevation_mean")
+long_term_memory.set(user_intent, token)
+
+# Next session: the same signed fact.
+token = long_term_memory.get(user_intent)
+fact = client.resolve_memory_token(token)  # GET /v1/facts/<fact_cid>
+print(fact["value"], fact["unit"])         # 10.0 m
+```
+
+The token outlives the conversation that made it. Two agents on two hosts get the same bytes from any emem
+responder that holds the fact.
+
+## Cite many facts with a bundle
+
+A bundle collects facts at many places into one signed envelope, named `emem:bundle:<bundle_cid>`. Use it to hand
+over all the citations of a finished task as one token.
 
 ```bash
 curl -sX POST https://emem.dev/v1/memory_bundle \
@@ -194,27 +328,98 @@ curl -sX POST https://emem.dev/v1/memory_bundle \
     ],
     "purpose":"flood-risk site assessment 2026-05"
   }' | jq '.bundle_token'
-# "emem:bundle:ugubgeza3bcj2mjfpkg6bvgjga"
+# "emem:bundle:pzcbww6am7hyzhcicblv3imqei"   (on 7 November 2026)
 
-curl -sX GET https://emem.dev/v1/memory_bundle/emem:bundle:ugubgeza3bcj2mjfpkg6bvgjga | jq .
+curl -sS https://emem.dev/v1/memory_bundle/emem:bundle:pzcbww6am7hyzhcicblv3imqei | jq .
 ```
 
-`bundle_cid` is deterministic across responders: the same triples in
-the same order produce the same `bundle_cid` everywhere. Any peer
-that holds the underlying facts can resolve the bundle.
+One call takes at most 256 triples. The responder resolves each triple through recall. Then it hashes the `purpose`
+into `bundle_cid`. It also hashes the cell, band, resolved tslot and fact CID of each triple, in the order you sent.
+The same facts and the same purpose give the same `bundle_cid` on any responder. A triple resolves to the newest
+fact, so a newer fact gives a new `bundle_cid`. To bind exact facts, send `fact_cids` instead of `triples`. The
+256 limit applies to `fact_cids` too. More entries get 400 `invalid_argument`.
 
-## Memory files: the agent's writable scratchpad
+Only the responder that made a bundle can resolve its token. Another responder answers 404. Paste the token at the
+responder that made it, or make the bundle again from the same input.
 
-The substrate exposes six file-op verbs that conform to Anthropic's
-memory-tool spec (header `context-management-2025-06-27`). The
-"files" live at paths under `/memories/`, are content-addressed
-(each write produces a `file_cid`), and ed25519-signed under the
-responder's identity. Any MCP host that uses Anthropic's memory tool
-can point at emem and get signed, replayable, federated memory for
-free.
+## Read the state of a place as one vector
+
+`POST /v1/state` returns the state of a cell as one fixed-width vector. Each band has a fixed offset. `coverage[]`
+says which slots have a measured value, a signed absence, or no value yet.
+
+```bash
+curl -sX POST https://emem.dev/v1/state \
+  -H 'content-type: application/json' \
+  -d '{"cell":"Colaba, Mumbai","view":"cube"}'
+```
+
+Response on 7 November 2026, shortened:
+
+```json
+{
+  "cell":          "defi.zb4d7.jEbO.zf263",
+  "view":          "cube",
+  "dim":           1792,
+  "vector":        [0.0, 0.0, ...],
+  "filled_bands":  0,
+  "missing_bands": 41,
+  "coverage":      [{"key": "geotessera", "offset": 0, "dims": 128, "status": "missing"},
+                    {"key": "overture", "offset": 128, "dims": 64, "status": "missing"}, ...],
+  "state_cid":     "<52 characters, base32>",
+  "memory_token":  "",
+  "hint":          "all cube slots are cold at this cell on this responder. Pass `materialize: true` ...",
+  "resolved_from": {...},
+  "receipt":       {...}
+}
+```
+
+`state_cid` is the content ID of the vector. To hand the state to another agent, cite the facts behind it with an
+`emem:bundle:` token.
+
+Inputs:
+
+- `cell` is a `cell64` or a place name. The geocoder resolves a name, and `resolved_from` says which layer answered.
+- `materialize: true` fetches every empty slot. On an empty cell that is about 30 upstream calls. To fill only some
+  slots, call `/v1/recall` with a short `bands` list.
+- `families` limits the cube to some band families, such as `["vegetation"]`. The other slots stay zero. An unknown
+  family name gives no error. It only matches no band. On 7 November 2026, `["vegetation"]` at Colaba gave 4
+  `missing` slots and 37 `filtered_out` slots.
+- `view: "encoder"` reads one vector band. emem.dev has retired its foundation encoders (Tessera, Clay, Prithvi,
+  Galileo). Facts that they signed still read and verify, but emem.dev makes no new ones. A cell with no such fact
+  answers 404 and says so.
+
+Each `coverage[]` entry has one `status`. The values come from `BandCoverage` in
+`crates/emem-api-rest/src/lib.rs`:
+
+| `status` | Meaning |
+|---|---|
+| `primary` | A signed fact filled the slot. |
+| `scalar_filled` | A signed scalar fact filled a slot that is 1 value wide. |
+| `dim_mismatch` | The fact has a different length from the slot. The slot holds the first values of the fact. |
+| `non_vector` | The fact value is not a list of numbers. The slot stays zero. |
+| `absence` | A signed absence covers the slot. Do not fetch it again. |
+| `missing` | The responder has no fact and no absence for the slot. It can be cold, or have no connector. |
+| `filtered_out` | The `families` input left the slot out. |
+| `placeholder` | The registry keeps the slot for later, with no connector. It shows only with `include_reserved: true`. |
+
+| Use | What the vector does |
+|---|---|
+| A prefix in the LLM context | Gives the model numbers that describe the place. |
+| Change detection | Compare two `/v1/state` reads of one cell at two dates. |
+| A query for `/v1/find_similar` | Send one band's vector as `key: "inline:[...]"`. The default band is `geotessera`. emem.dev no longer adds to its index. |
+| A cache in agent memory | Store the vector under a task key, and read it back later. |
+
+## Write notes in the agent's memory files
+
+emem has six file verbs that follow the Anthropic memory tool (header `context-management-2025-06-27`):
+`emem_memory_view`, `emem_memory_create`, `emem_memory_str_replace`, `emem_memory_insert`, `emem_memory_delete` and
+`emem_memory_rename`. Files live under `/memories/`. Each write gets a `file_cid` and an Ed25519 signature. An MCP
+host that uses the Anthropic memory tool can point it at emem.
+
+The files are not private on emem.dev. Any caller can read them until owner-scoped reads ship.
 
 ```jsonc
-// Write
+// Write (needs a signed attester block on emem.dev, see below)
 {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
   "name":"emem_memory_create",
   "arguments":{
@@ -224,28 +429,25 @@ free.
   }
 }}
 
-// Search semantically over file contents (BGE + Lance)
+// Search the file contents by meaning (BGE embeddings in a Lance index)
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
   "name":"emem_memory_search",
   "arguments":{"q":"elevation observations at Japanese mountains","k":3}
 }}
 
-// Stream every write as it happens (SSE)
+// Get each write as it happens (server-sent events)
 GET /v1/memory/sse?path_prefix=/memories/runbook/&kind=episodic
 ```
 
-`kind` carries the CoALA taxonomy: `episodic` for observations,
-`semantic` for durable facts, `procedural` for playbooks, `resource`
-for generic scratchpads (default). `emem_memory_list_by_kind` returns
-only the slice the agent asked for, sorted by `signed_at` desc.
+`kind` uses the CoALA types: `episodic` for observations, `semantic` for durable facts, `procedural` for playbooks,
+and `resource` (the default) for general notes. `emem_memory_list_by_kind` returns one kind, newest `signed_at`
+first.
 
-### Capability binding (multi-agent integration)
+### Sign each write
 
-Send an `attester` block on every write. A release responder refuses
-unattested writes to *any* path by default with 401
-`memory_attestation_required`, and `emem.dev` runs that way, so signing
-is the normal path rather than a multi-agent extra. It also gives each
-agent its own namespace:
+Send an `attester` block with every write. A release build refuses an unsigned write to any path with 401
+`memory_attestation_required`, and emem.dev runs a release build. The key also gives each agent its own namespace,
+`/memories/by_attester/<pubkey>/`.
 
 ```jsonc
 {"name":"emem_memory_create","arguments":{
@@ -254,32 +456,42 @@ agent its own namespace:
   "kind":"episodic",
   "attester":{
     "pubkey_b32":"wosdtqio...",
-    "sig_b32":"ed25519 signature over blake3(\"emem.memory_write|create|<path>|<body_hash>\")"
+    "sig_b32":"<ed25519 signature over the v2 digest>"
   }
 }}
 ```
 
-The responder verifies the signature before persisting; an invalid
-sig returns 401 `memory_attestation_invalid`, a wrong-namespace
-write returns 403 `memory_namespace_violation`. `<body_hash>` is
-blake3 over the content the verb produces: the `file_text` for
-`create`, the whole file after the edit for `str_replace` and
-`insert`, `blake3("")` for `delete`. `rename` signs over the
-`new_path` with the `old_path` as its body, so one signature covers
-both ends of the move. Reference implementation in
-`crates/emem-primitives/src/memory_acl.rs`: `attester_preimage()`,
-`rename_body_hash()`, `verify_attester()`. The same shape works
-across LangChain, AutoGen, CrewAI multi-agent flows: each agent
-gets a stable identity, every action is signed by that identity,
-and `memory_contradictions` surfaces disagreement between agents
-on the same `(cell, band, tslot)`.
+The signature covers the v2 digest:
 
-### Bi-temporal queries (audit + replay)
+```
+blake3("emem.memory_write.v2|" || verb || "|" || path || "|" || body_hash || "|" || base)
+```
 
-Every read primitive accepts `as_of_tslot` (what the world looked
-like on a date) and `as_of_signed_at` (what emem knew on a date).
-The receipt carries an `as_of` block when the bound is set, so an
-auditor in year *t+k* replays a year-*t* query byte-for-byte:
+`base` is the `file_cid` now at `path`, or the literal `absent` if the path is empty. It stops a replay of an old
+signature after the file changes. `body_hash` is the BLAKE3 of the content that the verb makes:
+
+| Verb | `body_hash` covers |
+|---|---|
+| `create` | `file_text` |
+| `str_replace`, `insert` | The whole file after the edit |
+| `delete` | The empty string |
+| `rename` | The `old_path`. The signed `path` is the `new_path`, so one signature covers both ends. |
+
+emem.dev has refused the v1 digest (no `base`) for every verb since 5 November 2026. Notes signed with v1 before
+then still verify when read. The easy way to get the digest right: send the write unsigned first. The 401 response
+gives the exact digest in `details.how_to_sign`.
+
+An invalid signature returns 401 `memory_attestation_invalid`. A write outside your namespace returns 403
+`memory_namespace_violation`. The reference code is `attester_preimage_v2`, `rename_body_hash` and `verify_attester`
+in `crates/emem-primitives/src/memory_acl.rs`. In a multi-agent flow (LangChain, AutoGen, CrewAI), each agent has
+its own key and signs its own writes. `memory_contradictions` then shows where two agents disagree on the same
+`(cell, band, tslot)`.
+
+### Read the data as it stood on a date
+
+Read primitives such as recall take two time bounds. `as_of_tslot` asks what the world looked like at a date.
+`as_of_signed_at` asks what emem knew at a date. When you set a bound, the receipt has an `as_of` block. An auditor
+can then repeat an old query and get the same answer.
 
 ```bash
 curl -sX POST https://emem.dev/v1/recall \
@@ -289,81 +501,37 @@ curl -sX POST https://emem.dev/v1/recall \
 # {"transaction_time":"2026-05-01T00:00:00Z"}
 ```
 
-This pattern is what powers EUDR DDS audits (cite forest baseline
-as of submission date), insurance underwriting (cite evidence as of
-bind date), and EU AI Act Article 12 logging (verifiable evidence
-trail to a regulator who never trusted the operator).
+This call returns no facts, because emem signed the elevation fact on 16 May 2026, after the bound. Use this bound to
+cite evidence as it was on a fixed date. Examples are the submission date of an EUDR due diligence statement and the
+bind date of an insurance policy. A third is a log entry under Article 12 of the EU AI Act.
 
-## At a glance
+## Check a draft before you publish it
 
-| Runtime                  | Surface           | Auth | Example                                       |
-|--------------------------|-------------------|------|-----------------------------------------------|
-| Claude Code              | MCP (`http`)      | none | [`examples/claude-code.mcp.json`](../examples/claude-code.mcp.json) |
-| Claude Desktop           | MCP (`http`)      | none | [`examples/claude-desktop.json`](../examples/claude-desktop.json) |
-| Cursor 0.42+             | MCP (`http`)      | none | [`examples/cursor.mcp.json`](../examples/cursor.mcp.json) |
-| Cline (VS Code)          | MCP (`http`)      | none | [`examples/cline.mcp.json`](../examples/cline.mcp.json) |
-| Gemini CLI               | extension install | none | [`examples/gemini-extension.json`](../examples/gemini-extension.json) |
-| OpenAI Custom GPT Action | OpenAPI 3.1, import [`/openapi.action.json`](https://emem.dev/openapi.action.json) **not** `/openapi.json` | none | [`examples/openai-gpt-action.json`](../examples/openai-gpt-action.json) |
-| LangChain                | MCP via adapter   | none | [`examples/langchain/`](../examples/langchain) |
-| LlamaIndex               | MCP via adapter   | none | [`examples/llamaindex/`](../examples/llamaindex) |
-| AutoGen                  | MCP tool          | none | [`examples/autogen/`](../examples/autogen) |
-| CrewAI                   | MCP tool          | none | [`examples/crewai/`](../examples/crewai) |
-| Pydantic AI              | MCP tool          | none | standard MCP client config over `https://emem.dev/mcp`; no example directory yet |
-| Mastra (TypeScript)      | MCP tool          | none | [`examples/mastra/`](../examples/mastra) |
-| Agno                     | MCP tool          | none | [`examples/agno/`](../examples/agno) |
-| Dify                     | MCP (`http`)      | none | add `https://emem.dev/mcp` as an MCP server in the workspace's tool settings |
-| OpenAI Codex             | MCP               | none | native Streamable HTTP where the build supports it, otherwise the `mcp-remote` bridge below |
-| stdio bridge             | `mcp-remote`      | none | (any runtime without native Streamable HTTP)  |
-| Plain REST               | `POST /v1/*`      | none | [`docs/agents.md`](agents.md) Quick reference |
-| Guardrail, any runtime   | `POST /v1/guard/verdict` | none | § Physical-world guardrails below |
+A runtime can ground a claim with emem. A second call tells you when a cited claim no longer holds. It works with any
+vendor.
 
-Any host that speaks MCP reaches the same 116 tools at the same URL, whether or
-not it has a row here: the endpoint is `https://emem.dev/mcp` and reads need no
-key. The rows above are the ones with a checked-in example. Where a host has no
-native Streamable HTTP transport, the `mcp-remote` stdio bridge covers it, and
-that is the only reason a runtime would need anything emem-specific at all.
+| Mode | What you call | Who is in the request path |
+|---|---|---|
+| Advise | `POST https://emem.dev/v1/guard/verdict`, or the MCP tool `emem_guard_verdict` (core tier) | Nobody. emem.dev answers what a guard would say over its own data, and blocks nothing. |
+| Enforce | Your own `emem-guard` node | You. It makes its own signing key and adds every verdict to a log that anyone can audit offline. |
 
-Reads are idempotent. Retry on 5xx; treat 4xx as permanent. Each cold-band
-materialiser is capped at 14 s (`EMEM_MATERIALIZER_TIMEOUT_SECS`, code default
-and the hosted setting), and the gateway budget is 180 s. This line said 30 s
-per upstream for as long as it existed; the cap was lowered to 14 s so that one
-slow upstream could not spend the whole `/v1/ask` budget and return an empty
-envelope. Re-derive both from `crates/emem-api-rest/src/lib.rs`
-(`materializer_timeout_secs`) rather than trusting this sentence.
-
-## Physical-world guardrails, in whatever you already run
-
-Every runtime above can ground a claim. Fewer can tell you when one of its own
-claims stopped being true. That is a separate call, and it is deliberately not
-tied to any vendor's product.
-
-Two ways to use it, and the difference is who is in the request path.
-
-**Consult it.** `POST https://emem.dev/v1/guard/verdict` answers what a guard
-would say, over emem's own corpus. It is advisory: nothing is blocked, and this
-responder sits in nobody's path. MCP tool `emem_guard_verdict`, core tier.
-
-**Enforce it.** Run `emem-guard` yourself. No account here, no key from us: it
-generates its own signing key and appends every verdict to a log anyone can
-audit offline. `curl -s https://emem.dev/v1/guard/selfhost | jq -r .skill`, or
+To get the setup steps for your own node, run `curl -s https://emem.dev/v1/guard/selfhost | jq -r .skill`, or call
 the MCP tool `emem_guard_selfhost`.
 
-### The same question, from five different clients
+### Send the body your framework already has
 
-`?shape=` exists so you never reshape a payload to ask. Post the body your
-framework already produced.
+The `?shape=` parameter accepts the payload of your framework as it is.
 
 ```bash
-# Anything that can make an HTTP request.
+# Any HTTP client.
 curl -sS -X POST https://emem.dev/v1/guard/verdict \
   -H 'content-type: application/json' \
   -d '{"texts":["Canopy height in Sumatra reached 31 m on 2026-08-05."]}'
 ```
 
 ```python
-# Any OpenAI-compatible client, including local runtimes and gateways.
-# Note the path: it is deliberately NOT /v1/moderations, because this
-# checks grounding and detects no content-safety category at all.
+# Any OpenAI-compatible client. The path is not /v1/moderations, because this
+# checks grounding and finds no content-safety category.
 import httpx
 r = httpx.post("https://emem.dev/v1/guard/verdict?shape=openai",
                json={"input": draft_text}).json()
@@ -372,16 +540,15 @@ if r["results"][0]["flagged"]:
 ```
 
 ```python
-# LangChain / LangGraph / LlamaIndex / CrewAI / AutoGen: they all hand you a
-# message list eventually. Send it as it is.
+# LangChain, LangGraph, LlamaIndex, CrewAI, AutoGen: send the message list.
 httpx.post("https://emem.dev/v1/guard/verdict",
            json={"messages": [m.dict() for m in state["messages"]]})
 ```
 
 ```javascript
-// An MCP proxy, gating a tool call before it runs. On a deny the response
-// carries `result`, already shaped as a CallToolResult with isError set:
-// substitute it and the model reads the denial where it reads errors.
+// An MCP proxy that checks a tool call before it runs. On a deny, `result` is
+// a CallToolResult with isError set. Return it, and the model reads the denial
+// where it reads errors.
 const v = await fetch("https://emem.dev/v1/guard/verdict?shape=mcp", {
   method: "POST", headers: {"content-type": "application/json"},
   body: JSON.stringify(jsonRpcRequest),
@@ -390,178 +557,76 @@ if (!v.allow) return v.result;
 ```
 
 ```bash
-# An OPA-compatible policy client, or Envoy external authorisation.
+# An OPA-compatible policy client, or Envoy external authorization.
 curl -sS -X POST 'https://emem.dev/v1/guard/verdict?shape=policy' \
   -H 'content-type: application/json' \
   -d '{"input":{"prompt":"...","tool":"publish"}}'
-# -> {"result":{"allow":true,"deny":[]}}
+# -> {"result":{"allow":true,"deny":[],"verdict":{...}},"advisory":true,...}
 ```
 
-CloudEvents 1.0 works the same way with `?shape=cloudevent`, so a Knative,
-Dapr or Argo Events mesh routes an agent's output through the check with no
-adapter written on your side.
+`?shape=cloudevent` accepts CloudEvents 1.0, so a Knative, Dapr or Argo Events mesh can send agent output through
+the check with no adapter.
 
-### Reading the answer
+### Read the verdict
 
+The draft in the first example above has no citation, so the verdict is `allow` with `checked: 0`. This draft
+cites the South Mumbai elevation token but writes 50 m. The signed value is 10 m:
+
+```bash
+curl -sS -X POST https://emem.dev/v1/guard/verdict \
+  -H 'content-type: application/json' \
+  -d '{"texts":["South Mumbai elevation is 50 m (emem:fact:defi.zb4d7.ze56c.zf24c:4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma)."]}' \
+  | jq '{action, code, fix, checked, reason}'
 ```
-EMEM-GUARD DENY PROV_BYTES token=emem:fact:<cell>:<cid> fix=remove_reference leaf=-
-```
 
-Branch on `fix`, not on the prose. `refresh_token` means re-resolve and retry.
-`remove_reference` means the citation cannot be made to verify. `contact_admin`
-means a person restricted it, not the evidence. `cite_observation` means
-resolve the observation through emem and cite the token it returns.
-
-A citation the node does not hold is an **allow**. It is indistinguishable from
-one minted by another responder, so denying on it would punish an agent for
-citing across nodes.
-
-Add `?claim_gating=true` to also be told which measurable claims about a place
-carry no citation at all, and which emem band would answer them. That rule
-reports on absence rather than on a failed check, so it is opt-in everywhere
-and off by default on a node you run until you have measured it on your own
-traffic with `--shadow` and `--report`.
-
-## The minimal MCP config
-
-For every MCP host that speaks Streamable HTTP, the config reduces to
-four lines:
+Response on 7 November 2026:
 
 ```json
 {
-  "mcpServers": {
-    "emem": {
-      "type": "http",
-      "url": "https://emem.dev/mcp"
-    }
-  }
+  "action": "deny",
+  "code": "PROV_VALUE",
+  "fix": "correct_value",
+  "checked": 1,
+  "reason": "EMEM-GUARD DENY PROV_VALUE token=emem:fact:defi.zb4d7.ze56c.zf24c:4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma fix=correct_value leaf=-"
 }
 ```
 
-That endpoint advertises the 18 core tools from `tools/list`, so the host
-registers about 75 KB of descriptors rather than about 324 KB for all 116. The rest
-stay callable by name, and `emem_tools` searches them or returns one tool's
-schema on demand. Use `https://emem.dev/mcp/full` instead to register the
-whole catalog.
+With 10 m in the draft, the same call returns `allow` with `checked: 1`. Use the `fix` field in your code, not the
+prose in `reason`:
 
-**VS Code and GitHub Copilot use a different key.** The config lives in
-`.vscode/mcp.json` (or the profile behind **MCP: Open User Configuration**),
-and the top-level key is `servers`, not `mcpServers`:
+| `fix` | What to do |
+|---|---|
+| `refresh_token` | Resolve the token again and retry. |
+| `remove_reference` | Remove the citation. It cannot verify. |
+| `contact_admin` | A person restricted the item. The evidence is not the problem. |
+| `cite_observation` | Resolve the observation through emem and cite the token that it returns. |
+| `correct_value` | Change the number in the draft to the signed value. |
+| `redact_and_retry` | Only a self-hosted guard returns this value. Remove the flagged span and retry. |
 
-```json
-{
-  "servers": {
-    "emem": {
-      "type": "http",
-      "url": "https://emem.dev/mcp"
-    }
-  }
-}
-```
+A citation that the node does not hold is an allow. It looks the same as a citation from another responder, so a
+deny would punish an agent that cites across nodes.
 
-The wrong key fails silently: valid JSON, no server, no error. emem is also in
-the GitHub MCP Registry, so VS Code can install it with no file at all, by
-searching `@mcp emem` in the Extensions view or running
-`code --add-mcp '{"name":"emem","type":"http","url":"https://emem.dev/mcp"}'`.
-Tools then appear in Copilot Chat's **Agent** mode only; Ask mode is the
-default and shows none.
+Add `?claim_gating=true` to also list measurable claims about a place that have no citation. For each claim, the
+verdict names the emem band that would answer it. This rule reports a missing citation, not a failed check, so it
+is off by default. On your own node, keep it off until you measure it on your own traffic with `--shadow` and
+`--report`.
 
-Hosts without native Streamable HTTP (older releases) speak stdio
-through the `mcp-remote` bridge:
+## Where emem fits in an agent's memory
 
-```json
-{
-  "mcpServers": {
-    "emem": {
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "https://emem.dev/mcp"]
-    }
-  }
-}
-```
+Most agents already have two memory tiers. The working buffer is the context window and any scratchpad. The long-term
+store is mem0, Letta, LangGraph state, a vector database or a SQL log. emem adds a third tier for facts about places.
 
-## What the agent should do on first contact
+| Tier | Holds | Role of emem |
+|---|---|---|
+| Working buffer | The current conversation | None. The runtime does this. |
+| Long-term store | User preferences, project state, past conversations | Shared, signed notes through the `/memories/` verbs, which another agent or a later run can resolve and verify. Not private on emem.dev: any caller can read them until owner-scoped reads ship. |
+| Planetary | What is at a place on Earth | emem: signed, content-addressed facts that all agents share. |
 
-The same loop applies regardless of runtime. Cache the agent card once
-per session, then read directly:
+The fact CID connects the tiers. An agent stores `fact_cid` strings in its long-term store. Later it resolves them
+with `GET /v1/facts/<fact_cid>`, without the original query.
 
-1. **discover.** `GET /v1/agent_card` (or call `tools/list` on the MCP
-   transport, or `emem_tools` from inside a session). Cache the result for
-   the session. The card lists the tools, their JSON schemas, and trigger /
-   anti-trigger phrases for tool selection. Note that `tools/list` on `/mcp`
-   answers with the core tier; pass `{"tier":"all"}` or use `/mcp/full` for
-   the complete catalog. `emem_tools` narrows by the shape of the answer
-   (`{"shape":"raster"}`) or by job (`{"bundle":"robotics"}`), which is
-   what an agent actually searches on.
-2. **name.** `POST /v1/entity { "place": "<place>" }` (`emem_entity`) mints
-   or returns one canonical object identity, `emem:entity:<entity_cid>`,
-   so two agents co-refer instead of each inventing a description.
-   `/v1/entity/resolve` converges a fuzzy phrasing onto an identity someone
-   already registered.
-3. **locate.** `POST /v1/locate { "q": "<place>" }` to bridge a place
-   name (or lat/lng) to a `cell64`. The response reports which layer of
-   the geocoder cascade answered, so the agent can score confidence.
-4. **recall.** `POST /v1/recall { "cell": "<cell64>", "bands": [...] }`
-   for typed scalar facts at that cell, signed. Pass
-   `deterministic: true` to keep only facts recomputable from the cited
-   raw source.
-5. **ground, if a value is missing.** Compose `find_similar`, `compare`,
-   `trajectory`, `recall_polygon`, `hunt`, or one of the nine domain
-   shortcut tools (`emem_ndvi`, `emem_air`, `emem_lst`, `emem_soil`,
-   `emem_water`, `emem_forest`, `emem_weather`, `emem_elevation`,
-   `emem_at`). These populate the memory; they are not the point of it.
-6. **cite.** `POST /v1/memory_token { "cell": "<cell64>", "fact_cid":
-   "<fact_cid>" }` (`emem_memory_token`) composes
-   `emem:fact:<cell64>:<fact_cid>`, the line the agent keeps instead of the
-   payload. The `fact_cid` comes off the recall receipt's `fact_cids`.
-   `/v1/memory_bundle` collapses many facts into one `emem:bundle:` token.
-7. **resolve and verify.** Whoever receives the token calls
-   `POST /v1/memory_token/resolve` (`emem_memory_token_resolve`) and gets
-   the byte-identical signed body back, then checks the receipt with
-   `POST /v1/verify_receipt` (`emem_verify_receipt`) or in a browser at
-   `/verify`. Neither step trusts the sender, and neither needs a key. This
-   is the step that makes the rest worth anything.
-8. **detect drift.** `POST /v1/memory_contradictions`
-   (`emem_memory_contradictions`) surfaces where signed sources disagree at
-   the same address, rather than averaging the disagreement away.
+## Read more
 
-## emem as the memory tier in a multi-memory agent
-
-Most production agents already run with two memory tiers: a short-term
-working buffer (the LLM's context window plus whatever scratchpad the
-host ships) and a long-term store (mem0, Letta, LangGraph state, a
-vector DB, a SQL log). emem slots in as a **third tier specialised for
-geospatial facts**, sitting alongside whatever long-term store is
-already in place:
-
-| Tier             | Holds                                                | emem's role                                                       |
-|------------------|------------------------------------------------------|-------------------------------------------------------------------|
-| working          | current conversation, last few turns                 | none; that is the runtime's job                                   |
-| long-term store  | user preferences, project state, prior conversations | shared, signed notes via the `/memories/*` verbs, resolvable and verifiable by another agent or a later run; NOT a private store on hosted (the namespace is world-readable until owner-scoped reads ship) |
-| **planetary**    | *what is at this place on Earth*                     | **emem**: signed, content-addressed, shared across all agents     |
-
-The split keeps responsibilities clean:
-
-- The runtime's working buffer answers *what was just said*.
-- The runtime's long-term store answers *what does this user / project
-  care about*.
-- emem answers *what is, was, or might be at this place*: once, signed,
-  byte-identical for every caller that ever asks the same question
-  again.
-
-The CID is the bridge: an agent caches `fact_cid` strings in its
-runtime's long-term store, and later resolves them through emem
-(`GET /v1/facts/:cid`) without needing the original query context.
-
-## Reading-list (executable)
-
-The fastest way to see emem behave as memory is to walk
-[`examples/agent-walkthroughs.md`](../examples/agent-walkthroughs.md),
-which shows real-world questions an AI agent might receive and the exact
-emem calls that answer them. Every walkthrough is a copy-pasteable
-`curl` sequence; pair them with the MCP config above and the same calls
-run through any host's tool layer.
-
-For the four discovery URLs an agent should fetch on cold start, see
-[`docs/agents.md`](agents.md). For the protocol math and trust plane,
-see [`docs/whitepaper-v2.md`](whitepaper-v2.md).
+- [`docs/agents.md`](agents.md): the four discovery URLs to fetch at the start, and the REST quick reference.
+- [`docs/mcp-directory.md`](mcp-directory.md): the listing of emem in MCP directories.
+- [`docs/whitepaper-v2.md`](whitepaper-v2.md): the protocol and the trust model.

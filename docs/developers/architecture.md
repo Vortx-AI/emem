@@ -1,38 +1,60 @@
 # emem architecture
 
-System-level mental model for `emem.dev` v0.0.7. Covers process
-topology, the 14 workspace crates, the data / trust / fetch /
-inference / agent planes, the auto-materialize loop, and the storage
-layout on disk. Companion documents: `protocol.md` for byte-level
-rules, `agents.md` for calling conventions, `operating.md` for
-deploy, `whitepaper-v2.md` for the math.
+This page gives the system model of an emem node at version 2.4.4. It
+covers the process, the 19 workspace crates, the data, trust and fetch
+planes, the auto-materialize loop and the files on disk. Other pages
+give more detail:
+
+| Page | Subject |
+|------|---------|
+| [protocol.md](../protocol.md) | Byte rules: CBOR, CIDs, preimages |
+| [agents.md](../agents.md) | How an agent calls emem |
+| [operating.md](../operators/operating.md) | How to deploy and run a node |
+| [whitepaper-v2.md](../whitepaper-v2.md) | The math and the design reasons |
+
+Counts on this page that can change carry the date of the check. Live
+counts come from https://emem.dev on 7 November 2026.
 
 ## The shape of the system
 
-A single Rust binary `emem-server` listens on one port (default
-`0.0.0.0:5051`) and serves both HTTP/REST (**192 route declarations**, **183 unique paths under
-`/v1/*`** in `openapi.json`) and an MCP JSON-RPC endpoint at `POST /mcp`
-(**116 tools**: 18 core / 98 extended, with `tools/list` advertising the core
-tier and `POST /mcp/full` advertising all 116). No GPU or model sidecar runs; earlier versions
-ran Clay, Prithvi, Galileo and JEPA-v2 on one, and facts they signed still
-verify. Storage is a sled hot cache plus an append-only Merkle
-log on local disk. Identity is a 32-byte ed25519 secret at
-`<EMEM_DATA>/identity.secret.b32` (mode 0600); the matching pubkey is
-published at `/.well-known/emem.json` so any client verifies receipts
-offline.
+One Rust binary, `emem-server`, listens on one port (default
+`0.0.0.0:5051`). It serves two surfaces:
 
-Place resolution and admin-boundary lookup run entirely on open data
-the binary carries or pulls keylessly: GeoNames cities-5000 ships
-embedded (CC-BY-4.0, 68 581 populated places); Overture's
-`divisions/division_area` theme supplies polygon geometry over
-anonymous S3 (ODbL). Photon → Nominatim is the long-tail fallback.
-The agricultural-field surface (`/v1/field_boundaries` plus
-`include:["ftw_fields"]` on `/v1/recall_polygon`) reads Fields of The
-World's global product (CC-BY-4.0, ~3.17 B field polygons) via
-PMTiles range reads.
+- HTTP REST. `/openapi.json` lists 194 paths, 183 of them under `/v1/`
+  (7 November 2026).
+- MCP JSON-RPC at `POST /mcp`. On 7 November 2026 the registry has
+  116 tools: 18 core and 98 extended. `tools/list` on `/mcp` gives the
+  18 core tools. `tools/list` on `/mcp/full` fills each page to about
+  45 KB, so the tool count on a page changes (2 to 20). Follow
+  `nextCursor` through 9 pages to get all 116.
 
-![emem architecture — one binary, two wire surfaces](/docs/diagrams/01-architecture.svg)
-*The whole stack in one figure. The ASCII variant below is the same shape, terminal-friendly.*
+No GPU or model sidecar runs. Earlier versions ran Clay, Prithvi,
+Galileo and JEPA-v2 on a sidecar. Facts that those models signed still
+verify.
+
+The node stores facts in a redb file and a sled database, and it
+writes an append-only Merkle log on local disk. Its identity is a
+32-byte Ed25519 secret at `<EMEM_DATA>/identity.secret.b32` (mode
+0600). The node publishes the public key at `/.well-known/emem.json`,
+so any client can verify receipts offline.
+
+Place lookup uses only open data that the binary carries or reads
+without a key:
+
+- The binary embeds the GeoNames cities-1000 gazetteer (CC-BY-4.0,
+  169 051 populated places), and GeoNames country, admin 1, admin 2
+  and admin 3 tables (`crates/emem-fetch/data/`).
+- Overture `divisions/division_area` gives admin polygons over
+  anonymous S3 (ODbL).
+- Photon, then Nominatim, answer the long tail.
+
+Field boundaries (`/v1/field_boundaries`, and `include:["ftw_fields"]`
+on `/v1/recall_polygon`) come from the Fields of The World global
+product. It has about 3.17 billion field polygons (CC-BY-4.0). The node
+reads them with PMTiles range reads.
+
+![emem architecture. Open-data sources (STAC and COG) feed one responder binary on the first miss. MCP and REST clients reach the same handlers, such as recall, find_similar, verify and hunt. The responder reads its manifests (bands, algorithms, sources, schema) and appends every write to a signed log with a Merkle root per batch.](/docs/diagrams/01-architecture.svg)
+*The whole stack in one figure. The text diagram below shows the same shape.*
 
 ## Process topology
 
@@ -47,81 +69,86 @@ PMTiles range reads.
 |          |                    |                     |            |
 |          |                    |                     v            |
 |          |                    |            +-----------------+   |
-|          |                    |            |   sled (hot)    |   |
-|          |                    |            |   merkle.log    |   |
-|          |                    |            |   fact_proofs   |   |
+|          |                    |            | facts.redb      |   |
+|          |                    |            | cache.sled      |   |
+|          |                    |            | log/merkle.log  |   |
 |          |                    |            +-----------------+   |
 |          |                    v                                  |
 |          |           +-----------------+                         |
-|          |           |  fetch          |--> vsicurl / S3 / REST  |
-|          |           |  Dispatcher     |    (S2, Cop-DEM, MODIS, |
-|          |           +-----------------+     Tessera, GMRT, ...) |
+|          |           |  fetch          |--> HTTPS range / S3 /   |
+|          |           |  Dispatcher     |    JSON REST (S2,       |
+|          |           +-----------------+    Cop-DEM, MODIS, ...) |
 +------------------------------------------------------------------+
 ```
 
-The router constructs `AppState = Arc<Server>` (`emem-storage::server::Server`)
-at boot. `Server` owns the `Storage` trait object, a
-`ResponderIdentity` (ed25519), and `ManifestCids` (registry, schema,
-bands, sources). Every primitive call gets `&Server` and returns a
-signed `Receipt`.
+At boot the router builds `AppState = Arc<Server>`
+(`emem-storage::server::Server`). `Server` owns the `Storage` trait
+object, a `ResponderIdentity` (Ed25519) and `ManifestCids` (registry,
+schema, bands, sources). Each primitive call gets `&Server` and returns
+a signed `Receipt`.
 
-## Crates (14)
+## Crates (19)
+
+The workspace `Cargo.toml` lists 19 members. `crates/zstd-0.13-compat`
+is a patch target, not a member.
 
 | Crate | Role |
 |-------|------|
-| emem-api-rest | HTTP/MCP router + AppState + inline materializers + physics solvers |
-| emem-fetch | 16 data connectors + 13 utility modules: `chirps`, `cog`, `copernicus_dem`, `dmsp_ols`, `esa_cci_biomass`, `esa_worldcover`, `firms`, `ftw`, `geonames`, `gmrt`, `hansen_gfc`, `jrc_gfc2020`, `jrc_gsw`, `jrc_tmf`, `koppen`, `overture`, `radd_alerts`, `terraclimate`, `wdpa`, `worldpop`, `wri_gdm_drivers`; utility: `admin1`, `admin2`, `admin3`, `cache_window`, `connectors`, `countries`, `lib`, `pois`, `proj`, `stac`, `template` |
-| emem-primitives | recall / find_similar / trajectory / compare / compare_bands / diff / verify / query_region + binary_embedding + refinement + cbor_ops |
-| emem-core | bands, algorithms, functions, sources, topics, schema, taxonomy, manifest, privacy, tslot, cell, bbox |
-| emem-cli | 7 binaries: `emem`, `emem-server`, `emem-demo`, `emem-livedemo`, `emem-realdemo`, `emem-ask-eval`, `emem-purge-fnkey` |
-| emem-storage | `MaterializingStorage` (cache + fetch + log composite), `Server`, `AttesterRegistry`, `AttestationLog` |
-| emem-mcp | MCP tool registry (116 tools) |
-| emem-codec | cell64 / cid64 / tslot_text / vec64 / hilbert / geo / alphabet |
-| emem-cache | sled cache wrapper (`SledHotCache`) |
-| emem-intent | 7-variant `Intent` enum and rule-based planner |
-| emem-fact | `Fact` / `Receipt` / `Attestation` CBOR types and signing primitives |
-| emem-attest | `merkle_root`, `merkle_root_and_paths`, `verify_merkle_path` |
-| emem-claim | `Claim` predicate (`Op` enum + value, no signature) |
-| emem-cubes | AgriSynth `.npz` handle (Python authoritative) |
+| emem-api-rest | HTTP and MCP router, `AppState`, inline materializers, physics solvers |
+| emem-fetch | Upstream connectors, gazetteers and fetch utilities (see [The fetch plane](#the-fetch-plane)) |
+| emem-primitives | Read primitives (recall, find_similar, trajectory, compare, diff, verify, query_region), memory, entities, derive |
+| emem-core | Registries and core types: bands, algorithms, functions, sources, topics, schema, taxonomy, manifest, tslot, cell |
+| emem-cli | 10 binaries: `emem`, `emem-server`, `emem-sled-slim`, `emem-demo`, `emem-livedemo`, `emem-realdemo`, `emem-connect-demo`, `emem-purge-fnkey`, `emem-demo-device`, `emem-ask-eval` |
+| emem-storage | `MaterializingStorage` (cache, fetch and log together), `Server`, `AttesterRegistry`, `AttestationLog` |
+| emem-mcp | MCP tool registry (116 tools on 7 November 2026) |
+| emem-codec | cell64, cid64, tslot text, vec64, Hilbert curve, geo, alphabet |
+| emem-cache | Hot store: redb for facts, sled for memory trees and side indexes |
+| emem-intent | `Intent` enum (8 variants) and a rule-based planner |
+| emem-fact | `Fact`, `Receipt` and `Attestation` CBOR types, signing |
+| emem-attest | Merkle roots and paths, receipt and attestation preimages |
+| emem-claim | `Claim` predicate (band, `Op`, value, tslot; no signature) |
+| emem-cubes | Path handle for AgriSynth `.npz` cubes; `tools/load_cube.py` (Python) parses the file |
+| emem-trace | Device execution trace schema (`emem.os_trace.v1`) and its verifier |
+| emem-guard | Verdict server for AI inference hooks; a separate binary |
+| emem-airgap | Air-gapped node: a folder in, a folder out, no network |
+| emem-scorecard | Memory benchmark scorecard against a local node |
+| emem-sleep-agent | Opt-in agent that merges contradicted memory into new signed notes |
 
-`emem-storage` is the keystone: `MaterializingStorage` glues the
-cache trait to the `Dispatcher` and the `AttestationLog`, then
-exposes the `Storage` trait that primitives program against.
+`emem-storage` holds the system together. `MaterializingStorage`
+connects the cache to the fetch `Dispatcher` and to the
+`AttestationLog`. Primitives use only its `Storage` trait.
 
 ## Invariants
 
-- **CID rule.** `FactCid = base32_nopad_lower(blake3(canonical_cbor(fact)))`,
-  the full 32-byte digest, 52 characters. It is **not** truncated; `[..16]`
-  (26 characters) is the `entity_cid` and `bundle_cid` rule, which anchor a
-  reference rather than binding a whole body. The line above claimed the
-  truncated rule until 2026-08-13, alongside "no code path produces a CID
-  through any other rule", which made a wrong rule sound exhaustively
-  enforced.
-- **Receipt rule.** Every primitive response carries a `Receipt` with
-  an ed25519 signature over the canonical preimage. Empty `cells` /
-  `fact_cids` lists still emit their trailing field separator so a
-  verifier reproduces the bytes unambiguously.
-- **Tempo rule.** A band cannot be served at a tempo finer than its
-  declared cadence (`bands-v0.json`).
-- **Sensor-tier rule.** An algorithm claiming delivery resolution
-  ≤ 10 m must declare at least one S1 / S2 / Landsat input in
+- **CID rule.** `FactCid = base32_nopad_lower(blake3(canonical_cbor(fact)))`.
+  It is the full 32-byte digest, 52 characters. Reference ids use the
+  16-byte rule (26 characters), for example `entity_cid`, `bundle_cid`,
+  the memory `file_cid`, `ReasonCid` and `review_cid`. `FactCid` never
+  uses it. This page stated the 16-byte rule for facts until 2026-08-13.
+- **Receipt rule.** Each primitive response carries a `Receipt` with an
+  Ed25519 signature over the canonical preimage. An empty `cells` or
+  `fact_cids` list still writes its segment, so a verifier rebuilds the
+  same bytes.
+- **Tempo rule.** The node does not serve a band at a tempo finer than
+  the cadence in `bands-v0.json`.
+- **Sensor-tier rule.** An algorithm with a delivery resolution of 10 m
+  or finer must declare an S1, S2 or Landsat input in
   `variance_sources`.
-- **Verify-on-write.** `MaterializingStorage::put_attestation` rebuilds
-  the merkle root from the supplied facts and re-checks the
-  signature; rejected attestations never reach the cache or the log.
-- **No silent fallback.** Empty results, missing capabilities, and
-  timeouts surface as typed Absence / structured error, never as a
-  zeroed numeric.
+- **Verify on write.** `MaterializingStorage::put_attestation` rebuilds
+  the Merkle root from the facts and checks the signature. The cache and
+  the log never get a rejected attestation.
+- **No silent fallback.** Empty results, missing functions and
+  timeouts come back as a typed Absence or a structured error. The node
+  never returns a zero in place of a value.
 
 ## The data plane
 
 ### Fact lifecycle
 
-Every value the protocol cites is one of three `Fact` variants
-(`emem-fact/src/fact.rs`): `PrimaryFact`, `DerivativeFact`,
-`NegativeFact`. The CID rule is invariant: canonical CBOR, blake3-32,
-base32-nopad-lowercase. Two encodings of the same Fact converge on
-the same CID, so cache hits are content-addressed end to end.
+Each value has one of three `Fact` variants
+(`emem-fact/src/fact.rs`): `PrimaryFact`, `DerivativeFact` or
+`NegativeFact`. Two encodings of the same fact give the same CID, so
+cache hits use content addresses from end to end.
 
 ```
 Upstream source --> fetch connector --> materializer --> PrimaryFact
@@ -130,7 +157,7 @@ Upstream source --> fetch connector --> materializer --> PrimaryFact
                                               ciborium canonical CBOR
                                                             |
                                                             v
-                                                blake3 -> FactCid (26 chars)
+                                                blake3 -> FactCid (52 chars)
                                                             |
                                                             v
                                           Attestation { facts, batch_root,
@@ -139,369 +166,480 @@ Upstream source --> fetch connector --> materializer --> PrimaryFact
                                                             |
                                               +-------------+--------------+
                                               v             v              v
-                                          sled hot       merkle.log    fact_proofs
-                                          (index +       (segment      (per-cid
-                                           facts trees)  + fsync)       merkle path)
+                                          facts.redb    merkle.log     fact_proofs
+                                          (index +      (segment       (per-cid
+                                           facts)       + fsync)       Merkle path)
 ```
 
-`SledHotCache` (`emem-cache/src/sled_hot.rs`) holds two trees:
+The hot store keeps facts in two tables in `<EMEM_DATA>/facts.redb`
+(`emem-cache/src/redb_facts.rs`):
 
-- `emem.canonical_index` — `cell\0band\0tslot_be8` -> `fact_cid_string_bytes`
-- `emem.facts` — `fact_cid_string_bytes` -> canonical CBOR of the fact
+- `emem.canonical_index`: `cell\0band\0tslot_be8` to the fact CID bytes.
+- `emem.facts`: the fact CID bytes to the canonical CBOR of the fact.
 
-`MaterializingStorage` (`emem-storage/src/lib.rs`) opens a third tree
-`emem.fact_proofs` where it persists per-fact merkle inclusion proofs
-at attestation-write time so receipts carry a verifier-ready path
-back to the batch root.
+The same redb file holds `emem.fact_proofs`, `emem.multi_attester_index`
+and `emem.state_records`. Older nodes kept these tables in sled. On
+such a node, a redb miss reads the old sled trees until a background
+backfill has copied them. `EMEM_HOT_BACKEND=sled` goes back to the
+sled layout. The sled database
+stays open in both modes, because the memory trees and the small side
+indexes (attesters, entities, trace gate) live there.
+
+`MaterializingStorage` (`emem-storage/src/lib.rs`) writes one Merkle
+inclusion proof for each fact when it writes the attestation. A receipt
+can then carry a path from the fact to the batch root.
 
 ### Recall path
 
 ```
 POST /v1/recall {cell, bands?, tslot?}
-  → router: resolve_cell_field (place name → cell64)
-  → recall: scan_cell(cell, tslot) or lookup_canonical_many(keys)
-  → storage: sled prefix scan or point gets → fact_cids
-  → storage: get_facts_many(fact_cids) → facts
-  → recall: scan_cell(cell, None) → bands_already_attested_at_cell
-  → sign_receipt("emem.recall", [cell], cids, ...)
-  → router: blake3(sorted fact_cids) → ETag
-  → 200 JSON + ETag + Cache-Control: private, max-age=60
+  -> router: resolve_cell_field (place name -> cell64)
+  -> recall: scan_cell(cell, tslot) or lookup_canonical_many(keys)
+  -> storage: prefix scan or point gets -> fact_cids
+  -> storage: get_facts_many(fact_cids) -> facts
+  -> sign_receipt("emem.recall", [cell], cids, ...)
+  -> router: blake3(sorted fact_cids, one "\n" after each) -> ETag
+  -> 200 JSON + ETag + Cache-Control: private, max-age=60
 ```
 
-The router honours `If-None-Match`: a repeat recall with a matching
-ETag returns `304 Not Modified` with empty body. The receipt's
-`served_at` differs per call, but the ETag derives from the
-immutable `fact_cids`, so it stays bit-stable across calls.
+The ETag is the first 16 hex characters of that BLAKE3 digest. The
+router honours `If-None-Match`. A repeat recall with a matching ETag
+gets `304 Not Modified` and an empty body. The `served_at` field of the
+receipt changes on each call. The ETag comes from the fact CIDs, so it
+does not change.
 
-### Auto-materialize on miss
+These two calls show it. They ran on emem.dev on 7 November 2026: the
+first gave `200` with an ETag, the second gave `304` with 0 bytes.
 
-`recall_with_auto_materialize` (`emem-api-rest/src/lib.rs:3742...`):
-calls `recall` first; if the response is empty for some requested
-band, `try_materialize_bands` looks up
-`band_materializer_meta(band)`, dispatches to the appropriate
-`materialize_<band>` arm (Open-Meteo elevation, ORNL MODIS, NASA
-POWER, SoilGrids, FIRMS, CHIRPS, Sentinel-2 STAC pick + COG, ...),
-builds a `PrimaryFact` (or `NegativeFact` over water), signs as
-responder, persists through `cache.put_many` + `log.append` +
-`persist_fact_proofs`, and then re-runs the recall — now a
-cache-hit. The router returns the second recall's facts plus a
-`materialize_notes[]` block describing what happened per band.
+```sh
+CELL=defi.zb4d7.zb8ec.zf21e
+ETAG=$(curl -s -D - -o /dev/null -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' -d "{\"cell\":\"$CELL\"}" \
+  | awk 'tolower($1)=="etag:" {print $2}' | tr -d '\r')
+curl -s -o /dev/null -w '%{http_code} %{size_download}\n' \
+  -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
+  -H "if-none-match: $ETAG" -d "{\"cell\":\"$CELL\"}"
+```
 
-Three policies drive what materializes:
+A new fact at the cell changes the ETag, and the next call gets `200`.
 
-1. Bands are explicitly requested → every band missing from the
-   cache-hit response becomes a candidate.
-2. No bands requested AND the cell is empty → a small default set
-   fires (`copdem30m.elevation_mean`, `weather.temperature_2m`) so a
-   bare `recall` returns something citable.
-3. No bands requested AND the cell already has facts → leave alone.
+### Auto-materialize on a miss
 
-Gates:
+`recall_with_auto_materialize` (`emem-api-rest/src/lib.rs`) runs
+`recall` first. When a requested band has no fact, the node does these
+steps:
 
-- `EMEM_AUTO_MATERIALIZE` — `0`/`false` disables. Default on.
-- `EMEM_MATERIALIZER_TIMEOUT_SECS` — default 14 s, clamped 2..=240.
-- `EMEM_TIMEOUT_SECS` — gateway timeout, default 40 s, clamped 1..=600.
+1. `try_materialize_bands` finds the band in `band_materializer_meta`.
+2. It calls the `materialize_*` function for that source. Examples are
+   Open-Meteo, ORNL MODIS, NASA POWER, SoilGrids, FIRMS, CHIRPS and
+   Sentinel-2 (STAC search, then COG reads).
+3. It builds a `PrimaryFact`, or a `NegativeFact` (for example, over
+   water).
+4. It signs the fact as the responder and writes it to the cache, the
+   log and the proof table.
+5. It runs the recall again when at least one band got a fact. The
+   second recall hits the cache.
 
-The signer of the materialised fact is the responder's own pubkey;
-`derivation.fn_key` declares exactly how it was produced.
+The response has the facts of the second recall and a
+`materialize_notes[]` entry for each band.
 
-**20 live materializer registrations** answer recall today; **115
-materializer-wired band names** flow through them (parametric
-prefixes — `s2.*`, `overture.*`, `weather.*`, `era5.*`, `cams.*`,
-`marine.*`, `power.*`, `terraclimate.*`, `modis.*`, `geotessera.*`,
-`hansen.*`, `forest_change.*`, `soilgrids.*`, `firms.*`, `chirps.*`,
-plus specific scalar bands). The dispatch arm lives in
-`band_materializer_meta` at `emem-api-rest/src/lib.rs:16720`.
+Three rules select what to materialize:
+
+1. The request names bands. Each named band with no fact is a
+   candidate.
+2. The request names no bands and the cell has no facts. The node
+   fetches `copdem30m.elevation_mean` and `weather.temperature_2m`, so a
+   bare `recall` returns something to cite.
+3. The request names no bands and the cell has facts. The node does
+   nothing.
+
+The node does not fetch a candidate band in these cases. Each case adds
+a `materialize_notes[]` entry, and the warm facts still come back:
+
+| Case | What the node does |
+|------|--------------------|
+| This node retires the band (`EMEM_RETIRED_BANDS`) | It removes the band from the candidates. |
+| The request sets `as_of_signed_at` to a past time | It fetches nothing. A fact signed now can never pass that filter. |
+| A `/v1/ask` question names no band and has more candidates than `EMEM_ASK_COLD_BAND_CAP` | It fetches the first bands up to the cap and defers the rest. `/v1/recall` has no cap. |
+| The node has used its per-minute budget (`EMEM_MATERIALIZE_PER_MIN`) | It defers the bands. Sentinel-2 bands use the budget later, in their own materializer. |
+
+These environment variables control the loop:
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `EMEM_AUTO_MATERIALIZE` | on | `0` or `false` turns it off. |
+| `EMEM_MATERIALIZER_TIMEOUT_SECS` | 14 | Time for one upstream call, from 2 to 240 seconds. |
+| `EMEM_MATERIALIZE_CONCURRENCY` | 8 | Bands that one request fetches at the same time, from 1 to 32. |
+| `EMEM_MATERIALIZE_GLOBAL_LIMIT` | 12 | Bands that the whole process fetches at the same time, from 1 to 256. |
+| `EMEM_MATERIALIZE_PER_MIN` | 600 | Band fetches in one minute for all clients, from 1 to 100 000. |
+| `EMEM_TIMEOUT_SECS` | 40 | Gateway timeout for a request, from 1 to 600 seconds. |
+
+Two calls for the same cell, band and tslot share one fetch. The second
+call waits for the first one and does not start a new fetch.
+
+The responder key signs each materialized fact. Its
+`derivation.fn_key` names the function that made the value.
+
+On 7 November 2026, `GET /v1/materializers` lists 113 bands. The
+`agent_card` reports 115 materializer-wired band names. In the 113 listed
+bands, the largest prefix families are `indices.*` (19), `s2.*` (13),
+`weather.*` (8), `modis.*`, `power.*`, `cams.*` and `era5.*` (7 each), and
+`soilgrids.*` (6). The code also has `chirps.*` and `geotessera.*`
+bands, but the emem.dev list did not show them that day.
+The dispatch table is `band_materializer_meta` in
+`emem-api-rest/src/lib.rs`.
 
 ### find_similar (corpus scan)
 
-`POST /v1/find_similar` parses the query (inline-encoded vector or
-`load_cell_vec(key, band)`), then walks the full sled `iter_index`
-applying the band filter and optional `Claim`-typed predicate. For
-each candidate it loads the fact and scores cosine; the top-k is
-deduped per cell and signed as `emem.find_similar`. The router
-enriches each neighbour with lat/lng, the GeoNames nearest-place
-label (cap 25 km), and deep-link URLs (`deep_recall_url`,
-`scene_png_url`) before returning.
+`POST /v1/find_similar` reads the query vector. The vector comes inline
+or from `load_cell_vec(key, band)`. The function first tries an ANN
+search in the Lance index (`<EMEM_DATA>/lance/`). When the node has no
+Lance index, or `EMEM_DISABLE_LANCE=1` turns it off, the function walks
+the whole index.
+The full walk applies the band filter and an optional `Claim` predicate,
+loads each candidate and scores it by cosine. It keeps one result for
+each cell and signs the top k as `emem.find_similar`. The router adds
+latitude and longitude, the nearest GeoNames place (up to 25 km) and
+links (`deep_recall_url`, `scene_png_url`) to each neighbour.
 
-`Hamming` and `HammingThenRerank` modes branch before loading the
-full vector — for binary-only modes the full f32 payload never
-enters the scoring loop. When the binary sibling band is absent at a
-cell but the cosine band is present, the path auto-derives bin128
-inline via the TurboQuant rotation (seed
-`emem.binary_embedding.turboquant.v1`) rather than returning
-`CidNotFound`. Memoisation per cell keeps Claim filter evaluations
-from re-scanning a cell once per tslot.
+The `Hamming` and `HammingThenRerank` modes branch before the full
+vector loads. In a binary-only mode the f32 vector never enters the
+scoring loop. When a cell has the cosine band and no binary band, the
+code derives `bin128` inline with the TurboQuant rotation (seed
+`emem.binary_embedding.turboquant.v1`). It does not return
+`CidNotFound` in that case. A cache for each cell stops the `Claim`
+filter from scanning one cell again for each tslot.
 
-`HammingThenRerank` adapts its oversampling factor from an EWMA over
-observed `|hamming_top_k ∩ cosine_top_k| / k`, backed by lock-free
-`AtomicU64` storage (decay α = 0.05, warm-up ~50 calls). Cold-start
-falls back to the historical 4× multiplier so the first 50 calls
-match pre-EWMA behaviour byte-for-byte.
+`HammingThenRerank` sets its oversampling factor from an exponential
+moving average of `|hamming_top_k ∩ cosine_top_k| / k`. The average
+uses lock-free `AtomicU64` storage and gives each new value a weight of
+0.05. For the first 50 calls the factor is 4.
 
-When a query cell has no vector under the requested band,
-`find_similar` returns `ErrorCode::CidNotFound` with a hint naming
-the bands that *are* attested at the cell.
+When the query cell has no vector for the band, `find_similar` returns
+`ErrorCode::CidNotFound`. The hint names the bands that the cell does
+have.
 
-### Verify-on-write
+emem.dev no longer computes the embedding band. Its index holds only
+the vectors that it stored before.
 
-`MaterializingStorage::put_attestation` re-CBOR-encodes every fact,
-hashes each to a 32-byte leaf, sorts bytewise, folds via
-`merkle_root`, compares to `att.batch_root`, then hashes
-`(batch_root || registry_cid_str || schema_cid_str)` and
-`verify_strict`s the signature with `att.attester`'s ed25519 key.
-Failure raises `StorageError::AttestationInvalid("merkle root
-mismatch")` or `..."bad signature"`. On success, the storage writes
-`cache.put_many` (both sled trees, async flush), `log.append`
-(CBOR + 32-byte hash + fsync), `persist_fact_proofs` (best-effort),
-and `attesters.record_attestation` (best-effort reputation). The
-last two never fail a write; cache and log writes are atomically
-gated by the verifier.
+### Verify on write
+
+`MaterializingStorage::put_attestation` selects the hash rule from
+`att.preimage_version`:
+
+| Version | Leaf | Node | Signature over |
+|---------|------|------|----------------|
+| 0 (legacy) | `blake3(leaf ‖ leaf)` | `blake3(left ‖ right)` | `blake3(batch_root ‖ registry_cid ‖ schema_cid)` |
+| 1 | `blake3(0x00 ‖ leaf)` | `blake3(0x01 ‖ left ‖ right)` | `attestation_preimage_v1` |
+
+Each leaf is the BLAKE3 of the canonical CBOR of one fact, or an edge
+digest. The function sorts the leaves bytewise. An odd layer pairs its last
+node with itself. Version 1 rejects a batch with two equal leaves,
+because `root([A,B,C])` equals `root([A,B,C,C])`. Then the function
+compares the root with `att.batch_root` and checks the signature with
+`verify_strict` against the attester key.
+
+A failure returns `StorageError::AttestationInvalid` with the reason.
+
+Next comes the fact-plane check. An attestation that writes an address
+(cell, band, tslot) must come from an admitted key. The admitted keys
+are the responder key, a device that the OS-trace gate enrolled, and a
+key in `EMEM_FACT_PLANE_WRITERS`. Any other key gets `LevelTooLow` with
+a message that starts `fact_plane_closed`. `EMEM_FACT_PLANE_OPEN=1`
+turns the check off on a test node.
+
+Then the storage does these writes:
+
+1. `cache.put_many`, the index and the fact bodies.
+2. `log.append`, the CBOR record, its hash and an fsync.
+3. `persist_fact_proofs`, best effort.
+4. The multi-attester index, best effort. It keeps each distinct CID at
+   a key, so the contradictions primitive can find disagreement.
+5. The scope index, best effort, only when the attestation has a scope.
+6. `attesters.record_attestation`, best effort.
+7. The temporal edges of the attestation, best effort.
+
+A failure in steps 3 to 7 does not fail the write. The verifier and the
+fact-plane check gate steps 1 and 2.
 
 ## The trust plane
 
-Per-process responder identity (`emem-cli/src/bin/emem-server.rs::load_or_create_identity`):
+`load_or_create_identity` in `emem-cli/src/bin/emem-server.rs` selects
+the responder key in this order:
 
-- Highest priority: `EMEM_SECRET_B32` env (32-byte ed25519 secret,
-  base32-nopad lowercase).
-- Else: `<EMEM_DATA>/identity.secret.b32` if it exists.
-- Else: generate fresh, write to that path, chmod 0600.
-- `EMEM_DATA=:memory:` skips persistence (responder pubkey changes
-  every restart).
+1. The `EMEM_SECRET_B32` variable (32-byte Ed25519 secret, base32
+   without padding, lowercase).
+2. The file `<EMEM_DATA>/identity.secret.b32`, if it exists.
+3. A new key, written to that file with mode 0600.
 
-The matching pubkey is surfaced at `/.well-known/emem.json` so any
-client verifies a receipt offline without contacting the responder
-again.
+`EMEM_DATA=:memory:` writes nothing to disk, so the key changes at each
+restart.
+
+The public key is at `/.well-known/emem.json`. A client verifies a
+receipt offline with it and does not contact the responder again.
 
 ### Receipt signing
 
-The signer (`emem-storage/src/server.rs (sign_receipt_v1_inner)`) and
-every verifier call the same function,
-`emem_attest::receipt_preimage_v2` (`emem-attest/src/lib.rs`), so the
-two cannot drift. It builds a tagged, length-prefixed preimage:
-`blake3` over the domain prefix `emem.preimage.v1\x00 ||
-u32-LE(len("receipt")) || "receipt"`, then one segment per field. A
-scalar segment is `tag:u8 || u32-LE len || bytes`; a list segment is
-`tag:u8 || u32-LE count || (u32-LE len || bytes)*`. Segments in tag
-order: `0x01` request_id, `0x02` served_at, optional `0x03` scope_hex /
-`0x04` as_of_hex / `0x05` edges_hex / `0x06` manifest_hex (each omitted
-when absent), `0x07` primitive, `0x08` cells, `0x09` fact_cids, optional
-`0x0a` field_hex, and `0x0b` merkle_hex. Receipts carry
+The signer (`sign_receipt_v1_inner` in `emem-storage/src/server.rs`)
+and each verifier call the same function,
+`emem_attest::receipt_preimage_v2` (`emem-attest/src/lib.rs`). So the
+two cannot drift. The function builds a tagged, length-prefixed
+preimage:
+
+- The domain prefix is `emem.preimage.v1\x00 || u32-LE(len("receipt")) || "receipt"`.
+- A scalar segment is `tag:u8 || u32-LE len || bytes`.
+- A list segment is `tag:u8 || u32-LE count || (u32-LE len || bytes)*`.
+
+| Tag | Field | When present |
+|-----|-------|--------------|
+| `0x01` | request_id | always |
+| `0x02` | served_at | always |
+| `0x03` | scope_hex | when set |
+| `0x04` | as_of_hex | when set |
+| `0x05` | edges_hex | when set |
+| `0x06` | manifest_hex | when set |
+| `0x07` | primitive | always |
+| `0x08` | cells | always |
+| `0x09` | fact_cids | always |
+| `0x0a` | field_hex | when set |
+| `0x0b` | merkle_hex | always |
+
+The BLAKE3 of the preimage is the 32-byte digest. These receipts carry
 `preimage_version: 2`.
 
-`0x0b` is what makes proof stripping detectable, and it is never
-optional: it holds `blake3` over a `"merkle"` sub-preimage binding
-(root, leaf_index, path, rule_version), or an explicit ABSENT marker
-when the receipt carries no proof. Encoding absence as a marker rather
-than by omitting the segment is the point. Omission would make a proof
-deleted in transit hash identically to a receipt that never had one,
-which is the v1 behaviour this replaces. Receipts signed under v1 and v0
-remain valid and verify under their own rule: select it from the
-receipt's `preimage_version`, never from the current one.
+Segment `0x0b` makes a removed proof detectable, so it is always
+present. It holds the BLAKE3 of a `"merkle"` sub-preimage over root,
+leaf_index, path and rule_version. When the receipt has no proof, it
+holds an explicit ABSENT marker. Without the segment, a proof
+removed in transit would hash the same as a receipt that never had one.
+That was the version 1 behaviour.
 
-The 32-byte digest is signed with the responder's
-`ed25519_dalek::SigningKey`; verification is
-`vk.verify_strict(digest, sig)`. The canonical, code-generated segment
-table is served at `GET /v1/verifier_spec`; treat it as the
-non-drifting source of truth. Pre-cutover receipts (`preimage_version`
-absent or 0) use a legacy v0 pipe rule that `POST /v1/verify_receipt`
-still accepts.
+Receipts signed under version 1 and version 0 stay valid under their
+own rule. Select the rule from the `preimage_version` of the receipt,
+not from the current version. A receipt with no `preimage_version`, or
+0, uses the legacy pipe rule. `POST /v1/verify_receipt` still accepts
+it.
 
-`Cost.was_cached` is `true` for recall (everything served already
-lived in sled at sign time), `false` for find_similar (fresh scan),
-and tracked per-primitive elsewhere.
+The responder signs the digest with its `ed25519_dalek::SigningKey`. A
+verifier calls `vk.verify_strict(digest, sig)`. `GET /v1/verifier_spec`
+serves the segment table that the code generates. Use it as the source
+of truth.
+
+`Cost.was_cached` is `true` when the store served the read. The
+primitives sign every read as cached, find_similar included. The REST
+recall handler sets it to `false` when a requested band missed the
+cache (`lib.rs`, after the materialize step). `cost` is not part of the
+signed preimage, so the value does not change the signature.
 
 ### In-browser verification
 
-`/verify` and `/verify/<fact_cid>` serve `web/verify.html`. The page
-loads noble-curves@1 and noble-hashes@1 via esm.sh (sub-resource
-CSP'd), reconstructs the canonical preimage from the receipt fields,
-and runs ed25519 verification entirely in the browser. When noble
-bundles are blocked, the page falls back to
-`POST /v1/verify_receipt` and labels itself "server-assisted".
-`/verify?receipt=<base64>` accepts a pasted receipt; idle `/verify`
-is a landing page.
+`/verify` and `/verify/:cid` serve `web/verify.html`. The page loads
+`/emem-verify-core.js` from the same node. That file bundles
+`@noble/hashes` 1.5.0 (BLAKE3) and `@noble/curves` 1.6.0 (Ed25519). The
+page rebuilds the canonical preimage from the receipt fields and checks
+the signature in the browser. The server check of the same receipt is
+`POST /v1/verify_receipt`.
 
 ### Merkle inclusion proofs
 
-`persist_fact_proofs` writes a per-fact
-`MerkleProof { leaf_index, path, root }` keyed by FactCid into the
-`emem.fact_proofs` sled tree. `Server::sign_receipt` looks up the
-proof for the first cited fact and embeds it as `receipt.merkle_proof`.
-A verifier with the responder pubkey re-derives every other CID from
-the signed receipt payload, so one inclusion anchor is sufficient.
-
-`emem-attest::merkle_root_and_paths` handles the leaf hashing: each
-leaf is self-hashed `blake3(leaf || leaf)` (domain separation against
-second-preimage attacks), then pairwise `blake3(left || right)`
-upward. Empty input yields `[0u8; 32]`.
+`persist_fact_proofs` writes one `MerkleProof { leaf_index, path, root }`
+for each fact, keyed by FactCid, into the `emem.fact_proofs` table. It
+uses the same hash version as the attestation. `Server::sign_receipt`
+reads the proof of the first cited fact and puts it in
+`receipt.merkle_proof`. A verifier with the responder public key gets
+each other CID from the signed receipt, so one inclusion anchor is
+enough.
 
 ### Append-only Merkle log
 
 `AttestationLog` (`emem-storage/src/merkle_log.rs`) writes to
 `<EMEM_DATA>/log/merkle.log.{0,1,...}`:
 
-- Record format: `[u32_LE len][CBOR bytes][32-byte blake3(CBOR)]`
-- Segment cap: 1 GiB; new segment opens automatically
-- Per-segment trailer: `segment_hash = blake3(all_records)`
-- `append()` calls `fsync_all()` before returning
-- `verify()` re-hashes every sealed segment and reports mismatches
+- Record format: `[u32_LE len][CBOR bytes][32-byte blake3(CBOR)]`.
+- Segment cap: 1 GiB (`SEGMENT_BYTES = 1 << 30`). A new segment opens
+  at the cap and at each process start.
+- A segment sealed at the cap ends with
+  `segment_hash = blake3(all_records)`. A segment closed by a restart
+  has no `segment_hash`.
+- `append()` calls fsync before it returns.
+- `verify()` hashes each segment file again. It compares the hash of
+  the body with the last 32 bytes. It reports a segment closed by a
+  restart as `trailing hash mismatch`, because that segment has no
+  `segment_hash`.
+
+The node also keeps an RFC 6962 transparency log with a signed tree
+head at `GET /v1/log/sth`. [federation.md](../federation.md) describes
+it.
 
 ### Reputation tracking
 
-`AttesterRegistry` (`emem-storage/src/attesters.rs`) opens a sled tree
-`emem.attesters`. Per-pubkey stats:
-`{attestations, facts, citations, unique_cells, first_seen,
-last_seen, last_cited}`. Atomic CAS update per attest call. Score
-formula: `citations·1.0 + ln(1+facts)·8.0 + ln(1+atts)·4.0`.
-Best-effort — tracker errors never fail a read or a write.
+`AttesterRegistry` (`emem-storage/src/attesters.rs`) keeps a sled tree,
+`emem.attesters`. For each public key it stores `attestations`,
+`facts`, `citations`, `unique_cells`, `first_seen`, `last_seen` and
+`last_cited`. Each attestation updates the record with an atomic
+compare-and-swap. The score is
+`citations * 1.0 + ln(1 + facts) * 8.0 + ln(1 + attestations) * 4.0`.
+An error in the tracker never fails a read or a write.
 
 ## The fetch plane
 
-`emem-fetch::Dispatcher` is stateless. `register_default_https`
-registers connectors against `ConnectorKind`s: `HttpsGeotiff` and
-`HttpsCogVsicurl` share an `HttpsConnector` (anonymous reqwest,
-`Accept-Encoding: identity` so `Range` offsets stay aligned with
-the original GeoTIFF); `GcsCog` rewrites `gs://` to
-`https://storage.googleapis.com`; `IpldCid` is a stub (operators
-register their own blockstore). `HttpsConnector::fetch_range` is
-the hot path: 90 s pool-idle, pool max-idle 8 per host; 429
-surfaces as `FetchError::RateLimited` with `Retry-After`.
+`emem-fetch::Dispatcher` has no state. `register_default_https`
+registers three connectors:
 
-Two surface populations produce live facts.
+- `HttpsConnector` for `HttpsGeotiff`.
+- `HttpsConnector` for `HttpsCogVsicurl`. It sends
+  `Accept-Encoding: identity`, so `Range` offsets match the original
+  GeoTIFF.
+- `GcsConnector` for `GcsCog`. It changes `gs://` to
+  `https://storage.googleapis.com`.
 
-**Dedicated `emem-fetch` modules — 16 data connectors:**
+The `ConnectorKind` enum (`emem-core/src/sources.rs`) also has
+`IpldCid`, `StacPc`, `HttpsJsonApi`, `ParquetS3` and `GpuSidecar`.
+`GpuSidecar` stays only so that the sources registry still parses; no
+client for it ships. The HTTPS client keeps idle connections for 90 s,
+at most 8 for each host. An HTTP 429 becomes `FetchError::RateLimited`
+with the `Retry-After` value.
 
-| Module | Read path | Bands |
-|--------|-----------|-------|
-| chirps | UCSB CHIRPS daily gzipped TIFF | `chirps.precip_daily_mm` |
-| dmsp_ols | NOAA NCEI V4 nightlights tar+gz | `nightlights.dmsp_ols_avg_dn` |
-| firms | NASA FIRMS bulk CSV, 60-min cache | `fire_detections.firms_modis_viirs_nrt` |
-| ftw | source.coop PMTiles + MVT decode | `ftw.field_polygons.v1` |
-| geonames | cities-5000 gazetteer, embedded | utility |
-| hansen_gfc | earthenginepartners-hansen GCS, v1.12 | `forest_change.{lossyear, treecover2000, gain}` |
-| koppen | Beck 2018 figshare PackBits TIFF | `climate.koppen_geiger_present_day` |
-| overture | Overture S3, parquet row-group prune | `{buildings,places,transportation}.overture_count` |
-| terraclimate | UI Climatology Lab THREDDS NCSS | `climate.terraclimate_*_normal` |
-| worldpop | WorldPop `/v1/services/stats` REST | `population.worldpop_2020` |
-| wdpa | OSM Overpass `boundary=protected_area` | `protected_areas.wdpa_via_osm` |
-| stac | Element84 + MPC search | input to Sentinel materializers |
+Two groups of code make live facts.
 
-**Utility modules — 6:** `cache_window` (in-flight fetch coalescing
-via `tokio::Notify`), `cog` (universal pure-Rust COG range sampler —
-Deflate, LZW, Predictor 1/2/3, 8/16/32-bit LE), `connectors` (the
-Dispatcher itself), `proj` (WGS84↔UTM), `template` (URL templating),
-and the crate `lib`.
+**Modules in `emem-fetch/src/`** (37 files on 7 November 2026):
 
-**Inline materializers in `emem-api-rest/src/lib.rs`** produce live
-facts but live in the router crate (architectural debt):
-`materialize_gmrt_topobathy`, `materialize_ornl_modis_band` (7 MODIS
-bands), `materialize_power_band` (7 NASA POWER bands), the four
-Open-Meteo arms (`weather_current`, `cams_band`, `era5_band`,
-`marine_band`, ~25 bands total), `materialize_soilgrids_band` (6
-depths), `materialize_firms_active_fires`,
-`materialize_chirps_daily_precip`, plus Sentinel-1/-2, GeoTessera, JRC GSW, Overture, ESA
-WorldCover, Köppen, WorldPop, WDPA.
+| Group | Modules |
+|-------|---------|
+| Data sources | `chirps`, `copernicus_dem`, `dmsp_ols`, `esa_cci_biomass`, `esa_worldcover`, `firms`, `ftw`, `gmrt`, `hansen_gfc`, `jrc_gfc2020`, `jrc_gsw`, `jrc_tmf`, `koppen`, `opera_dist`, `overture`, `radd_alerts`, `terraclimate`, `wdpa`, `worldpop`, `wri_gdm_drivers` |
+| Places and boundaries | `admin1`, `admin2`, `admin3`, `countries`, `geonames`, `pois`, `wikidata` |
+| Scene search | `stac` (Element84 and Microsoft Planetary Computer, input to the Sentinel materializers) |
+| Support | `cache_window`, `cog`, `connectors`, `latency`, `parcels`, `proj`, `template`, `tile_store`, `lib` |
 
-Of the **46 declared source schemes** in `sources-v0.json`, five
-remain declared-but-unwired: `dynamic_world.v1`,
-`openet.30m.daily`, `tropomi.s5p.{ch4, no2}`, `viirs.dnb.monthly`.
-A recall on those bands returns a typed `MaterializeMiss` Absence.
+In the support group, `cache_window` joins fetches that are in flight.
+`cog` is a pure-Rust COG range reader (Deflate, LZW, predictors 1 to 3,
+8, 16 and 32-bit little-endian). `proj` converts WGS84 to UTM, and
+`tile_store` keeps local raster copies. `parcels` removes overlaps and
+duplicates from a set of field polygons.
+
+**Inline materializers in `emem-api-rest/src/lib.rs`** also make live
+facts. They live in the router crate. This is design debt. The
+file has 47 `async fn materialize_*` functions on 7 November 2026.
+Examples are `materialize_ornl_modis_band`, `materialize_power_band`,
+`materialize_weather_current`, `materialize_cams_band`,
+`materialize_era5_band`, `materialize_marine_band`,
+`materialize_soilgrids_band`, `materialize_firms_active_fires`,
+`materialize_chirps_daily_precip`, `materialize_gmrt_band`,
+`materialize_sentinel2_band`, `materialize_sentinel1_vv`,
+`materialize_jrc_gsw_layer`, `materialize_esa_worldcover_2021` and
+`materialize_koppen`.
+
+`sources-v0.json` declares 46 source schemes. On 7 November 2026, no
+connector or materializer reads 12 of them:
+
+- `dynamic_world.v1`, `openet.30m.daily`, `tropomi.s5p.ch4`,
+  `tropomi.s5p.no2` and `viirs.dnb.monthly`.
+- `sentinel1.grd.iw` and `sentinel1.grd.iw.vh`. The node reads
+  Sentinel-1 VV from `sentinel_s1_rtc_mpc` only.
+- `ghsl.builtup.r2023a` and `ghsl.population.r2023a`.
+- `model.prithvi_eo2_300m_tl`, `model.clay_v1_5` and
+  `model.galileo_v1`. These needed the GPU sidecar, which no longer
+  runs (see `GpuSidecar` above).
+
+[data-sources.md](data-sources.md#declared-schemes-that-no-code-reads)
+gives the reason for each.
+
+A recall of a band with no materializer returns no fact. Its
+`materialize_notes[]` entry has `status:"skipped"`, and the node signs
+no Absence. For example, a recall of `ghsl` at Paris gives
+`reason_class:"unknown_band"`.
 
 ## The physics solvers
 
-Physics solvers in `crates/emem-api-rest/src/physics.rs` are
-in-process Rust: `/v1/heat_solve` (FTCS 2D, 3×3 MODIS `lst_day_8day`
-stencil, CFL safety 0.20), `/v1/wave_solve` (CTCS 1D shallow water along
-a seaward profile, land-locked rejection with profile + suggestion), and
-`/v1/jepa_predict` (closed-form NDVI AR(2) with fixed coefficients). See
-`docs/developers/inference.md`.
+The physics solvers in `crates/emem-api-rest/src/physics.rs` run in
+the process:
+
+- `/v1/heat_solve`: FTCS 2D heat solver on a 3×3 stencil of MODIS
+  `lst_day_8day`, CFL safety factor 0.20.
+- `/v1/wave_solve`: CTCS 1D shallow-water solver along a seaward
+  profile. It rejects a land-locked cell and returns the profile and a
+  suggestion.
+- `/v1/jepa_predict`: closed-form NDVI AR(2) with fixed coefficients.
+
+[inference.md](inference.md) gives the details.
 
 ## The agent surface
 
-REST and MCP serve the same primitives. The MCP tool list is a
-strict read-only subset of REST; writes (`attest`, `backfill`,
-reviews POST) go through REST only. `POST /mcp` is JSON-RPC 2.0,
-backed by `crates/emem-mcp/src/lib.rs` (116 tools). Its `tools/list`
-advertises the 18 core tools; `POST /mcp/full` advertises all 116.
-Both dispatch every tool by name from `tools/call`. Three
-well-known endpoints publish capabilities: `/.well-known/mcp.json`
-(MCP transport advertisement), `/.well-known/agent-card.json`
-(recommended tool order), and `/.well-known/emem.json` (responder
-pubkey).
+REST and MCP serve the same primitives. `POST /mcp` is JSON-RPC 2.0,
+from `crates/emem-mcp/src/lib.rs` (116 tools on 7 November 2026).
+`tools/list` on `/mcp` gives the 18 core tools. `tools/list` on
+`/mcp/full` fills each page to about 45 KB (`PAGE_BYTES`), so the
+tool count on a page changes. A client follows `nextCursor` through 9
+pages to get all 116.
+Both endpoints run any tool by name through `tools/call`.
 
-Discovery chain on first contact: `/v1/agent_card` (recommended
-tool order) → `/v1/manifests` (CIDs for bands, algorithms, sources,
-schema, registry, topics) → `/v1/grid_info` (cell pitch ~10 m) →
-`/v1/data_availability` (which bands have history) →
-`POST /v1/locate {q:"<place>"}` (cascade: wide_bbox → embedded
-gazetteer → GeoNames → cache → Photon → Nominatim; polygon from
-Overture `divisions/division_area`) → `POST /v1/recall`,
-`/v1/find_similar`, `/v1/verify`, `/v1/diff`.
+MCP is not read-only. The caller signs `emem_memory_create`,
+`emem_derive` and `emem_entity`. `emem_backfill` makes facts that the
+responder fetches and signs.
+Raw attestations (`POST /v1/attest`, `POST /v1/attest_cbor`) are REST
+only.
 
-The 169 REST endpoints split across 13 categories (full list at
-`/v1/tools`):
+These well-known endpoints publish what the node can do:
 
-- Health / discovery (8): `/health`, `/openapi*.json`,
-  `/.well-known/{emem,agent,mcp}.json`, `GET /mcp`, `/verify`,
-  `/verify/:cid`.
-- Introspection (14): `/v1/{bands, topics, algorithms,
-  algorithms/:key, functions, sources, materializers,
-  data_availability, coverage_matrix, manifests, grid_info, errors,
-  tools, schema}`.
-- Read primitives (10): `POST /v1/{recall, recall_many,
-  recall_polygon, query_region, compare, compare_bands,
-  find_similar, trajectory, diff}`, `GET /v1/cells/:cell64`.
-- Write primitives (3): `POST /v1/{attest, attest_cbor, backfill}`.
-- Verify (2): `POST /v1/{verify, verify_receipt}`.
-- Physics solvers (3): `POST /v1/{heat_solve, wave_solve,
-  jepa_predict}`.
-- Boring-API alias zoo (18): GET+POST `/v1/{elevation, ndvi, air,
-  lst, soil, water, forest, weather, at}`.
+| Path | Content |
+|------|---------|
+| `/.well-known/emem.json` | Responder public key and service URLs |
+| `/.well-known/mcp.json` | MCP transport |
+| `/.well-known/agent-card.json` | Agent card with the tool order |
+| `/.well-known/agent.json` | Agent card (alias path) |
 
-`/v1/recall_many` accepts up to 256 cells per request; each cell
-carries its own signed receipt — verifying any one cell only
-verifies that cell.
+A new client usually calls these in order:
+
+1. `GET /v1/agent_card`: the tool order to use.
+2. `GET /v1/manifests`: 10 manifest CIDs. They cover the registry,
+   schema, bands, algorithms, functions, sources, topics, substrates,
+   device platforms and trace encodings.
+3. `GET /v1/grid_info`: the cell grid (about 10 m at the equator).
+4. `GET /v1/data_availability`: which bands have history.
+5. `POST /v1/locate {"place":"<place>"}`: place to cell64. The lookup
+   first tries the embedded tables: named regions, countries, admin 1
+   to 3, GeoNames cities-1000 and POIs. Then it tries the geocode
+   cache, Photon and Nominatim (`lib.rs::locate_inner`). Polygons come
+   from Overture `divisions/division_area`.
+6. `POST /v1/recall`, `/v1/find_similar`, `/v1/verify` or `/v1/diff`.
+
+`GET /v1/tools` lists the REST endpoints by category. `/openapi.json`
+has the full schema.
+
+`/v1/recall_many` accepts up to 256 cells in one request. Each cell has
+its own signed receipt, so a check of one receipt covers only that cell.
 
 ## Storage layout on disk
 
-`<EMEM_DATA>/` (default `./var/emem`):
+The data directory is `<EMEM_DATA>/` (default `./var/emem`). The table
+of files and directories is in
+[self-host.md](../self-host.md#what-is-in-the-data-directory). The main
+items are:
 
 ```
 <EMEM_DATA>/
-  identity.secret.b32      0600, ed25519 secret base32-nopad lowercase
-  cache.sled/              hot tier — index, facts, attesters, fact_proofs trees
+  identity.secret.b32      0600, Ed25519 secret, base32 without padding
+  facts.redb               fact index, fact bodies, fact proofs
+  cache.sled/              memory trees, attesters, side indexes
   log/merkle.log.{0,1,...} append-only segments, 1 GiB cap each
-  geocoder.sled/           locate cache (separate sled DB)
-  hf_cache/                HuggingFace snapshots; HF_HUB_OFFLINE=1 ready
-  models/                  BAAI/bge-base-en-v1.5 ONNX for topic router
-  acme.cache/              Let's Encrypt cert + account key (EMEM_TLS_DOMAINS)
+  geocoder.sled/           place lookup cache
+  tile_store/              local raster copies (EMEM_TILE_STORE_GB)
+  lance/                   vector indexes for find_similar and memory search
+  models/                  optional BGE model for the topic router and memory search
+  acme.cache/              Let's Encrypt state, when TLS is on
 ```
 
-`EMEM_DATA=:memory:` skips on-disk entirely: ephemeral sled DB,
-fresh ed25519 key on every boot, no log persistence. Receipts from
-such a process verify only until restart.
+`EMEM_DATA=:memory:` keeps nothing on disk. The node uses a temporary
+store and makes a new Ed25519 key at each start, and it keeps no log.
+Receipts from such a process verify only until it restarts.
 
 ## Failure modes
 
-| trigger | response |
+| Trigger | Response |
 |---------|----------|
-| sled lock contention on `cache.sled/` | server holds exclusive lock; tools like `emem-purge-fnkey` require server stopped first |
-| materializer timeout (`EMEM_MATERIALIZER_TIMEOUT_SECS`, default 14 s) | recall returns the original facts plus a `materialize_notes[]` entry `{band, status:"skipped", reason, reason_class:"timeout", retryable:true, absence:false}`; no zero-value fallback. A timeout is `unknown`, not a confirmed absence, so nothing is signed - a genuine "no data here" instead returns `status:"materialized"` with a signed Absence `fact_cid`. |
-| attestation rejected | `StorageError::AttestationInvalid` with message (root mismatch or bad signature); cache and log untouched |
-| upstream 502/503 | `FetchError::Transport`; materializer either propagates or signs a `NegativeFact` with `ReasonCid` (e.g. Cop-DEM over water) |
-| `EMEM_SCAN_CELL_LIMIT` hit (default 10 000 rows per prefix walk) | logged `target=emem::storage scan_cell_limit_hit`; legitimate cells hold one fact per (band, tslot), so the cap signals schema mistake or attack |
-| topic router warmup > 90 s | server starts anyway; `/v1/ask` falls back to keyword backend until the OnceLock initializer returns |
-
-## Pointers
-
-- `docs/protocol.md` — wire bytes (CBOR field order, CID rules,
-  receipt preimage, attestation envelope).
-- `docs/agents.md` — calling conventions for LLM agents (REST +
-  MCP), the locate → recall → verify chain, in-browser receipt
-  verification.
-- `docs/operators/operating.md` — deploy paths (plain HTTP behind a reverse
-  proxy, native TLS via Let's Encrypt TLS-ALPN-01), systemd units,
-  env knobs.
-- `docs/whitepaper-v2.md` — math + design rationale.
-- `docs/developers/inference.md` — the in-process physics solvers.
+| Lock on `cache.sled/` | The server holds an exclusive lock. Stop the server before you run tools such as `emem-purge-fnkey`. |
+| Materializer timeout (`EMEM_MATERIALIZER_TIMEOUT_SECS`, default 14 s) | The recall returns the facts it has and a `materialize_notes[]` entry `{band, status:"skipped", reason, reason_class:"timeout", retryable:true, absence:false}`. A timeout is unknown, not a confirmed absence, so the node signs nothing. A true "no data here" returns `status:"materialized"` with a signed Absence `fact_cid`. |
+| Attestation rejected | `StorageError::AttestationInvalid` with the reason (root mismatch or bad signature), or `LevelTooLow` `fact_plane_closed` for a key that may not write an address. The cache and the log do not change. |
+| Upstream 502 or 503 | `FetchError::Transport`. The materializer returns the error, or signs a `NegativeFact` with a `ReasonCid` (for example, Cop-DEM over water). |
+| `EMEM_SCAN_CELL_LIMIT` reached (default 10 000 rows per prefix walk) | The node logs `scan_cell_limit_hit` with target `emem::storage`. A normal cell has one fact for each band and tslot, so the limit points to a schema error or an attack. |
+| Topic router warm-up takes more than 90 s | The server starts. The first `/v1/ask` call can wait until the router is ready. |
