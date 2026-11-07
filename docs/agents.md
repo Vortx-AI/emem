@@ -609,7 +609,10 @@ curl -s -X POST https://emem.dev/v1/recall \
   | jq '{valid, signature_valid, merkle_proof_valid}'
 ```
 
-All three were `true`. This check runs on the server. A person can paste a
+All three were `true` on 7 November 2026. A test changed the first byte of
+`signature`. Then `valid` and `signature_valid` were `false`, and
+`merkle_proof_valid` stayed `true`. Branch on `valid`, not on one part.
+This check runs on the server. A person can paste a
 receipt into `https://emem.dev/verify`. That page loads
 `/emem-verify-core.js`, builds the preimage again and checks the Ed25519
 signature in the browser. To check without the server, see
