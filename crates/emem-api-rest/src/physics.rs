@@ -953,7 +953,40 @@ fn land_locked_profile_error(
             "internal: land_locked_profile_error called on an oceanic classification".to_string()
         }
     };
-    let suggested_n = (n_offshore_requested.saturating_mul(2)).clamp(2, 64);
+    let cap = WAVE_N_OFFSHORE_MAX as usize;
+    let at_cap = n_offshore_requested >= cap;
+    // At the cap, "double n_offshore_cells" would repeat the request that just
+    // failed: an agent that follows it loops. Offer only a different cell then,
+    // and say so in the message, where an agent that reads no details sees it.
+    let message = if at_cap {
+        format!(
+            "{message} The profile is already at the {cap}-cell cap, so a longer \
+             profile is not possible: call /v1/wave_solve from a cell nearer open \
+             water (details.next_steps)."
+        )
+    } else {
+        format!(
+            "{message} Try n_offshore_cells up to {cap}, or a cell nearer open \
+             water (details.next_steps)."
+        )
+    };
+    let suggested_n = (n_offshore_requested.saturating_mul(2)).clamp(2, cap);
+    let mut next_steps = Vec::new();
+    if !at_cap {
+        next_steps.push(json!({
+            "action": "try_longer_profile",
+            "why": "the seaward walk may have stopped short of genuine deep water; doubling n_offshore_cells (up to the 64 cap) lets the FD profile reach an oceanic boundary",
+            "call": format!(
+                "POST /v1/wave_solve {{coastal_cell:'{coastal_cell}', n_offshore_cells: {suggested_n}, offshore_height_m: <unchanged>, period_s: <unchanged>}}"
+            ),
+            "n_offshore_cells_suggested": suggested_n,
+        }));
+    }
+    next_steps.push(json!({
+        "action": "try_different_cell",
+        "why": "the input cell is too far from genuine open water; resolve a closer-to-coast cell first via /v1/locate (e.g. by anchoring on a beach, harbour, or named coastline) and call /v1/wave_solve from that cell",
+        "call": "POST /v1/locate {place: '<beach or coastline name>'} → use returned cell64 as coastal_cell",
+    }));
     let details = json!({
         "error_kind": "LandLockedProfile",
         "coastal_cell": coastal_cell,
@@ -968,21 +1001,9 @@ fn land_locked_profile_error(
             "min_offshore_depth_m": WAVE_MIN_OFFSHORE_DEPTH_M,
             "ocean_depth_threshold_m": WAVE_OCEAN_DEPTH_THRESHOLD_M,
         },
-        "next_steps": [
-            {
-                "action": "try_longer_profile",
-                "why": "the seaward walk may have stopped short of genuine deep water; doubling n_offshore_cells (up to the 64 cap) lets the FD profile reach an oceanic boundary",
-                "call": format!(
-                    "POST /v1/wave_solve {{coastal_cell:'{coastal_cell}', n_offshore_cells: {suggested_n}, offshore_height_m: <unchanged>, period_s: <unchanged>}}"
-                ),
-                "n_offshore_cells_suggested": suggested_n,
-            },
-            {
-                "action": "try_different_cell",
-                "why": "the input cell is too far from genuine open water; resolve a closer-to-coast cell first via /v1/locate (e.g. by anchoring on a beach, harbour, or named coastline) and call /v1/wave_solve from that cell",
-                "call": "POST /v1/locate {place: '<beach or coastline name>'} → use returned cell64 as coastal_cell",
-            },
-        ],
+        "n_offshore_cells_cap": cap,
+        "at_cap": at_cap,
+        "next_steps": next_steps,
     });
     ApiError(
         StatusCode::UNPROCESSABLE_ENTITY,
@@ -2204,6 +2225,7 @@ mod tests {
         );
         let msg = err.1.message;
         assert!(msg.contains("depth 5.00 m, need more than 5.0 m"), "{msg}");
+        assert!(msg.contains("details.next_steps"), "{msg}");
         // Two cells, one deep one shallow: 1/2 == 50%, exactly at the
         // boundary. Per `< WAVE_MIN_OCEAN_FRACTION` (strict), 50% does
         // NOT trip the fraction check — the offshore-boundary check
@@ -2212,5 +2234,48 @@ mod tests {
             classify_seaward_profile(&[10.0, 0.5]),
             ProfileClassification::Oceanic
         );
+    }
+
+    /// At the 64-cell cap, "double n_offshore_cells" repeats the request
+    /// that failed, so an agent that follows it loops. The rejection must
+    /// drop that step, say `at_cap`, and still offer a different cell.
+    #[test]
+    fn wave_land_locked_at_cap_does_not_suggest_the_same_request() {
+        let n = WAVE_N_OFFSHORE_MAX as usize;
+        let depths = vec![0.0_f64; n];
+        let cells: Vec<String> = (0..n).map(|i| format!("c{i}")).collect();
+        let speeds = vec![0.31_f64; n];
+        let err = land_locked_profile_error(
+            ProfileClassification::OffshoreBoundaryTooShallow,
+            "beach.cell",
+            &cells,
+            &depths,
+            &speeds,
+            n,
+        );
+        let msg = err.1.message.clone();
+        assert!(msg.contains("already at the 64-cell cap"), "{msg}");
+        let details = err.1.details.expect("details");
+        assert_eq!(details["at_cap"], true);
+        let steps = details["next_steps"].as_array().expect("next_steps");
+        assert!(
+            steps.iter().all(|s| s["action"] != "try_longer_profile"),
+            "at the cap the longer profile is the same request: {steps:?}"
+        );
+        assert!(steps.iter().any(|s| s["action"] == "try_different_cell"));
+
+        // Below the cap the longer profile stays, with a larger n.
+        let err = land_locked_profile_error(
+            ProfileClassification::OffshoreBoundaryTooShallow,
+            "beach.cell",
+            &cells[..16],
+            &depths[..16],
+            &speeds[..16],
+            16,
+        );
+        let details = err.1.details.expect("details");
+        assert_eq!(details["at_cap"], false);
+        assert_eq!(details["next_steps"][0]["action"], "try_longer_profile");
+        assert_eq!(details["next_steps"][0]["n_offshore_cells_suggested"], 32);
     }
 }

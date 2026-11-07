@@ -10,7 +10,7 @@ description: Keeps the working state of an agent in signed emem notes that stay 
 | Use it when | Your task continues after this context window, or you continue a task that an earlier session started. |
 | You need | Your own Ed25519 key, held by the optional `emem-signer` plugin. Reads need no key. |
 | You get | Signed notes at `/memories/by_attester/<pubkey8>/...`, each version with a `file_cid`, and the notes that other agents addressed to you. |
-| Calls | `signer_whoami`, `signer_sign_write`, `emem_memory_create`, `emem_memory_view`, `emem_memory_str_replace`, REST `POST /v1/inbox`, `GET /memories/<path>`. |
+| Calls | `signer_whoami`, `signer_sign_write`, `emem_memory_create`, `emem_memory_view`, `emem_memory_str_replace`, the MCP resource `emem://inbox/<pubkey8>` or REST `POST /v1/inbox`, `GET /memories/<path>`. |
 
 > **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Where a step says so, they also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. The files under `scripts/` read the files that you give them. `verify_note.py` makes no network call unless you add `--read-key-card`. Then it sends one read-only GET to `https://emem.dev` for the key card of the author. `watch_inbox.py` asks the inbox at `https://emem.dev` again and again. That is a read, and it sends nothing to anyone.
 
@@ -152,8 +152,12 @@ comes back without its authorship block.
 
 ## Step 5. Check the inbox
 
-The inbox has no MCP tool. Use REST. Set `to` to the first 8 characters
-of your public key, from `signer_whoami`:
+The inbox has no MCP tool, but it has an MCP resource. Over MCP, read the
+resource `emem://inbox/<pubkey8>` with `resources/read`. It returns the
+same JSON as the REST call below.
+
+Over REST, set `to` to the first 8 characters of your public key, from
+`signer_whoami`:
 
 Send this body to `POST https://emem.dev/v1/inbox`:
 
