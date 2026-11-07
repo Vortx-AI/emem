@@ -2337,6 +2337,13 @@ PNG. It does not use GDAL. The image is 256 by 256 pixels, about 2.56 km
 by 2.56 km at the 10 m pitch of Sentinel-2. For tropical or cloudy places,
 set `max_cloud` to 60 to 80.
 
+The call must finish in the 40 s transport budget (`EMEM_TIMEOUT_SECS`,
+default 40). If the STAC search or the COG read is slow, the call gives
+HTTP 504 with code `compute_timeout` and no image. Wait, then try again.
+On 7 November 2026 at about 19:45 UTC, this call gave that 504 for two
+cells. The same call gave the image above earlier that day. See
+[errors.md](errors.md#the-catalogue-27-codes).
+
 More headers give the image bounds and the stretch. `x-emem-scene-bbox-crs`
 gives the bounds in the coordinates of `x-emem-scene-epsg`. On 7 November
 2026 it was `780090.000,1434180.000,782650.000,1436740.000`, a 2,560 m square.
