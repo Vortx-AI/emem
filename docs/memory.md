@@ -264,17 +264,17 @@ digest in the refusal.
 | Memory bundle | `POST /v1/memory_bundle` | `{triples}` or `{fact_cids}`, plus `purpose?`, `scope?` | signed envelope + `emem:bundle:<bundle_cid>` |
 | Memory bundle resolve | `GET /v1/memory_bundle/<token>` | path param | same envelope |
 | Memory file write | MCP `emem_memory_create` | `{path, file_text, kind?, attester}` | `file_cid` + signed receipt |
-| Memory file edit | MCP `emem_memory_str_replace`, `emem_memory_insert` | `{path, old_str, new_str, attester}` for `str_replace`; `{path, insert_line, new_str, attester}` for `insert` | new `file_cid` + receipt |
+| Memory file edit | MCP `emem_memory_str_replace`, `emem_memory_insert` | `{path, old_str, new_str, kind?, attester}` for `str_replace`; `{path, insert_line, new_str, kind?, attester}` for `insert`. Without `kind`, the file keeps its kind. | new `file_cid` + receipt |
 | Memory file supersede | MCP `emem_memory_supersede` | `{path, superseded_by, reason?, attester}` | readers of `path` get `superseded_by` and a `_superseded` banner; the bytes stay |
-| Memory file read | MCP `emem_memory_view` | `{path}` or `{file_cid}`, plus `view_range?`, `view?`, `offset?`, `kind?` | content with its `authorship` block, or a directory listing. With `view_range`, `window` gives `total_lines` and the lines served; a window past the end is empty, with `past_end` true |
+| Memory file read | MCP `emem_memory_view` | `{path}` or `{file_cid}`, plus `view_range?`, `view?`, `offset?`, `kind?`, `vault_capability?` | content with its `authorship` block, or a directory listing. With `view_range`, `window` gives `total_lines` and the lines served; a window past the end is empty, with `past_end` true |
 | Memory file read, plain | `GET /memories/<path>` | path | the note as `text/markdown`, `ETag` = its `file_cid` |
 | Memory file rename | MCP `emem_memory_rename` | `{old_path, new_path, attester}` | new path index + receipt |
-| Memory file delete | MCP `emem_memory_delete` | `{path, attester}` | removes the path and writes a tombstone; the blob and the history stay |
-| Memory list by kind | MCP `emem_memory_list_by_kind` | `{kind, prefix?, limit?}` | typed listing sorted by signed_at desc |
-| Memory file search | `POST /v1/memory/search` | `{q, k?, mode?, kind?, path_prefix?, attester_pubkey_b32?}` | ranked hits + snippets |
+| Memory file delete | MCP `emem_memory_delete` | `{path, attester}`. A `path` that ends with `/` deletes each file below it ([rules](#reading-superseding-and-deleting)). | removes the path and writes a tombstone; the blob and the history stay |
+| Memory list by kind | MCP `emem_memory_list_by_kind` | `{kind, prefix?, limit?}`. `limit` is 256 by default, 2048 at most. | typed listing, newest `signed_at` first |
+| Memory file search | `POST /v1/memory/search` | `{q, k?, mode?, kind?, path_prefix?, attester_pubkey_b32?, include_superseded?}` | ranked hits + snippets. Superseded notes stay out unless `include_superseded` is true. |
 | Row audit path | `GET /v1/tree/<file_cid>?row=` (MCP `emem_tree`) | path + query | one row's leaf and its path to the root a `pointer.v1` or `directory.v1` note signs |
 | Memory event stream | `GET /v1/memory/sse?path_prefix=&kind=&attester=` | query string | `text/event-stream` of writes |
-| Multi-attester contradictions | `POST /v1/memory_contradictions` | `{cell_prefix?, band?, window_unix_s?, min_severity?, include_same_attester_sources?, limit?}` | severity-scored disagreements |
+| Multi-attester contradictions | `POST /v1/memory_contradictions` | `{cell_prefix?, band?, window_unix_s?, min_severity?, include_same_attester_sources?, limit?, resume_after?}` | severity-scored disagreements |
 
 emem retired the foundation encoders that `view=encoder` reads. The code
 no longer contains Clay v1.5, Prithvi-EO-2.0 or Galileo. emem.dev also
