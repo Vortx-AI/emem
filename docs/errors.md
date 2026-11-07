@@ -211,6 +211,12 @@ reached. `GET /v1/enlist` says what each tier check proves. When the mint
 had no signature, `details.how_to_sign` carries the digest to sign, and its
 `code` is `entity_attestation_required`.
 
+The fact plane also refuses with `level_too_low` (HTTP 403). This occurs
+when a key that is not admitted tries to write a fact at a
+`(cell, band, tslot)` address. The signature verified, but the key does not
+have the tier. The message starts with `LevelTooLow: fact_plane_closed:` and
+names `POST /v1/derive` as the route to add a value. `details` is empty.
+
 ## Derivation refusals (`POST /v1/derive`)
 
 A derivation is a value that you computed over signed parent facts. The
