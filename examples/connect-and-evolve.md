@@ -121,7 +121,8 @@ facts above. A scan that stops at its time budget returns
 `resume_after`. Send that value back to continue.
 
 Keep `cell_prefix` (alias `cell`) narrow. A full cell64 scans few keys.
-On 7 November 2026, this cell answered in less than 0.1 s. A short
+On 7 November 2026, this cell scanned 4 keys (`corpus_scanned`) and
+answered in less than 0.1 s. A short
 prefix scans up to 50,000 keys. On 7 November 2026, the prefix `defi`
 took 8 s, scanned about 44,700 keys, found 74 contradictions and
 stopped with `scan_truncated: true`. On 6 November 2026, one
@@ -234,11 +235,26 @@ Output on 7 November 2026:
 }
 ```
 
-A receipt with a changed field returns HTTP 200 with `"valid": false`
-and `"reason": "signature_invalid"`. A body that is not a receipt at all
-returns HTTP 400 `invalid_argument`. To check a receipt with no trust in
-the responder, paste it into the in-browser verifier at
-https://emem.dev/verify.
+A receipt with a changed field returns HTTP 200 with `"valid": false`.
+To see this, change one field of the same receipt and send it again:
+
+```bash
+echo "$RCPT" | jq '{receipt: (.primitive = "emem.recall")}' \
+  | curl -sS -X POST "$EMEM/v1/verify_receipt" \
+      -H 'content-type: application/json' -d @- \
+  | jq -c '{valid, reason}'
+```
+
+Output on 7 November 2026:
+
+```json
+{"valid":false,"reason":"signature_invalid"}
+```
+
+A body that is not a receipt at all returns HTTP 400
+`invalid_argument`. This check runs on the responder, so it is not an
+independent check. To check a receipt with no trust in the responder,
+paste it into the in-browser verifier at https://emem.dev/verify.
 
 ---
 
