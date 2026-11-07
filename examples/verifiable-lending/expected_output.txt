@@ -27,28 +27,28 @@ STEP 2  RECALL SIGNED FACTS  (POST /v1/recall, 14 bands)
 ============================================================================================
   BAND                                   VALUE                    UNIT   CONF
 --------------------------------------------------------------------------------------------
-  indices.ndvi                           0.26435506241331486      -      0.95
-      emem:fact:defi.zb493.hufo.zccc6:yimc47juvb5pe3zzjwktkomgx7ebq6iz2pzs53orch4xsjgsihxa
-  modis.ndvi_mean                        0.3476                   -      0.75
-      emem:fact:defi.zb493.hufo.zccc6:7d7jrfv56nbamxyfirzudisnvzldisfhlwsswlwsiqkrazqag6na
+  indices.ndvi                           0.0967416014144986       -      0.95
+      emem:fact:defi.zb493.hufo.zccc6:p6flykppdjnqhffqwewu44pqd3que7ttkfa4co4lxtmi7hfmnevq
+  modis.ndvi_mean                        0.3045                   -      0.75
+      emem:fact:defi.zb493.hufo.zccc6:rbk46recm3spu25xc5r4yvisnkl6a2exgl4z22ohibfok7tpy4wq
   copdem30m.elevation_mean               889.6439208984375        m      0.95
-      emem:fact:defi.zb493.hufo.zccc6:cqyzrjbuej7fdgmbgjjkboqnhjlfz4u6zy3nezps4t2qntab5sqa
+      emem:fact:defi.zb493.hufo.zccc6:wtja7pb4rkhh6y4324bsjugj5bztuf7os776oczefkwf2scny35a
   surface_water.recurrence               0.0                      percent 0.95
-      emem:fact:defi.zb493.hufo.zccc6:2z5brwgznn7zvardbjtztvrr5ij3mfy3yjzsfk4gwmtjpkrwmpkq
-  sentinel1_raw                          -6.973320173518356       dB     0.85
-      emem:fact:defi.zb493.hufo.zccc6:ikdtmfsz54m3n3mkaxv6ce5bmbocn4lmpqbvmkom7oxqqcjf7pia
-  weather.temperature_2m                 20.8                     degC   0.85
-      emem:fact:defi.zb493.hufo.zccc6:qcpzx7dvacyb32sgrw3m6lwsp33ycwrs7otuuq5pnmalgxrkozgq
+      emem:fact:defi.zb493.hufo.zccc6:fhdmpkknbgnjfcaqqn45pfvpxgvsw4z2dtoaqxo32arar6ltkepa
+  sentinel1_raw                          -11.0522848392663        dB     0.85
+      emem:fact:defi.zb493.hufo.zccc6:k6ffztew2hkuirzxbng5v4ggsoy5cqviv3jnkbuixmynimxjw5wa
+  weather.temperature_2m                 19.6                     degC   0.85
+      emem:fact:defi.zb493.hufo.zccc6:vmyxbzirfocuclylouqj4vtjgs7dctf3vhwqh3aotcggqy57yx6q
   weather.precipitation_mm               0.0                      mm     0.75
-      emem:fact:defi.zb493.hufo.zccc6:g4awl7awqmekki363hnxrdifjcthq2szhqibuophm2kafs2uf23a
-  weather.cloud_cover                    33.6                     percent 0.80
-      emem:fact:defi.zb493.hufo.zccc6:ecc7pvjwabb6korcfqdjja7dgijai4nsbl53cznv2w4ktvbjwc2a
+      emem:fact:defi.zb493.hufo.zccc6:ixjecwpocmiwovspcj3tfiae2d3derteiyo7ab5ei3sk5f5s5pga
+  weather.cloud_cover                    100.0                    percent 0.80
+      emem:fact:defi.zb493.hufo.zccc6:5t3nsmqnzt6kn3bk5js4ut5nsiadn6yyjxqgb4rxopwdbogtmdoa
   overture.buildings.count               0                        -      0.95
       emem:fact:defi.zb493.hufo.zccc6:meprokriujybrb6l4pg4wqejdxqgzw2avusounl5fyrauwn3qe2q
   overture.places.count                  2                        -      0.90
       emem:fact:defi.zb493.hufo.zccc6:ao6wdguh2tubd23nlhn2sn3zhuij2u6dqnki5sbawy2saagtn6qq
-  overture.transportation.road_length_m  14.917538482859685       m      0.85
-      emem:fact:defi.zb493.hufo.zccc6:w2woji7633bpchgg7sbqpox7qjkbwehneucledeancureufxx5ea
+  overture.transportation.road_length_m  27.44816433910206        m      0.85
+      emem:fact:defi.zb493.hufo.zccc6:2h2ckqi36uthem572nzpkryfhtbwzahxj44h4o2r24ffd7dr2saa
   gmrt.topobathy_mean                    903.0                    metres_above_sea_level 0.93
       emem:fact:defi.zb493.hufo.zccc6:7hwq6r6i6xbdpczc3u2w2p7tl4rd5umigre2wg5pjn6eqamvoztq
   geotessera                             [vector 128 dims, first 5.03036975] -      0.85
@@ -59,11 +59,11 @@ STEP 2  RECALL SIGNED FACTS  (POST /v1/recall, 14 bands)
   14 of 14 bands materialized.
 
   RECEIPT
-    fact_cids            : 14
+    fact_cids            : 20
     merkle_proof         : present (leaf_index=0, path_len=0, root 32 bytes)
-    signature_b32        : jyupz7cwd7blw2hiuxrnru6uzy6ydqqbsdzeh7rsbo6vg2vgfbxi...
+    signature_b32        : ifvls5kvkzgfvvfv42boqjg6x3szyyo7zmbgf26yqhaspw234isy...
     responder_pubkey_b32 : 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
-    served_at            : 2026-08-09T12:04:18Z
+    served_at            : 2026-11-07T00:05:58Z
 
   The receipt is signed by the responder's key. The signature covers the fact set, so a
   third party can check this recall offline without trusting the bank, the borrower, or
@@ -80,11 +80,11 @@ STEP 3  APPLY PUBLISHED ALGORITHMS  (GET /v1/algorithms/<key>)
     published formula: let n = indices.ndvi; if n < 0 -> 'water_or_snow'; else if n < 0.1
     -> 'bare'; else if n < 0.3 -> 'sparse'; else if n < 0.5 -> 'moderate'; else -> 'dense'
     inputs:
-      indices.ndvi = 0.26435506241331486
-      emem:fact:defi.zb493.hufo.zccc6:yimc47juvb5pe3zzjwktkomgx7ebq6iz2pzs53orch4xsjgsihxa
+      indices.ndvi = 0.0967416014144986
+      emem:fact:defi.zb493.hufo.zccc6:p6flykppdjnqhffqwewu44pqd3que7ttkfa4co4lxtmi7hfmnevq
     arithmetic:
-      n = 0.264355 -> n < 0.3 and n >= 0.1 -> class ordinal 2 = 'sparse'
-    cross-check: responder computed 2.0 -> AGREES with this script.
+      n = 0.096742 -> threshold match -> class ordinal 1 = 'bare'
+    cross-check: responder computed 1.0 -> AGREES with this script.
 
   flood_risk@2
     published formula: let dem_agreement = if abs(copdem30m.elevation_mean -
@@ -93,22 +93,22 @@ STEP 3  APPLY PUBLISHED ALGORITHMS  (GET /v1/algorithms/<key>)
     sentinel1_raw)/2)
     inputs:
       surface_water.recurrence               = 0.0                 
-        emem:fact:defi.zb493.hufo.zccc6:2z5brwgznn7zvardbjtztvrr5ij3mfy3yjzsfk4gwmtjpkrwmpkq
+        emem:fact:defi.zb493.hufo.zccc6:fhdmpkknbgnjfcaqqn45pfvpxgvsw4z2dtoaqxo32arar6ltkepa
       copdem30m.elevation_mean               = 889.6439208984375   
-        emem:fact:defi.zb493.hufo.zccc6:cqyzrjbuej7fdgmbgjjkboqnhjlfz4u6zy3nezps4t2qntab5sqa
+        emem:fact:defi.zb493.hufo.zccc6:wtja7pb4rkhh6y4324bsjugj5bztuf7os776oczefkwf2scny35a
       gmrt.topobathy_mean                    = 903.0               
         emem:fact:defi.zb493.hufo.zccc6:7hwq6r6i6xbdpczc3u2w2p7tl4rd5umigre2wg5pjn6eqamvoztq
-      sentinel1_raw                          = -6.973320173518356  
-        emem:fact:defi.zb493.hufo.zccc6:ikdtmfsz54m3n3mkaxv6ce5bmbocn4lmpqbvmkom7oxqqcjf7pia
+      sentinel1_raw                          = -11.0522848392663   
+        emem:fact:defi.zb493.hufo.zccc6:k6ffztew2hkuirzxbng5v4ggsoy5cqviv3jnkbuixmynimxjw5wa
     arithmetic:
       dem_agreement : |889.6439 - 903.0000| = 13.3561 > 5  ->  0.5
       term 1 water  : 0.55 * (0.0000 / 100)                  = 0.00000000
       term 2 elev   : 0.25 * 0.5 * (relu(50 - 889.6439) / 50)  = 0.00000000
-      term 3 radar  : 0.20 * sigmoid((-15 - -6.9733) / 2)      = 0.00355042
-      sum                                                   = 0.00355042
-      clamp01                                               = 0.00355042
-      band          : 0.00355042 -> low
-    cross-check: responder computed 0.0035504199597706748 -> AGREES with this script (within 1e-9).
+      term 3 radar  : 0.20 * sigmoid((-15 - -11.0523) / 2)      = 0.02439503
+      sum                                                   = 0.02439503
+      clamp01                                               = 0.02439503
+      band          : 0.02439503 -> low
+    cross-check: responder computed 0.024395029579486638 -> AGREES with this script (within 1e-9).
 
 ============================================================================================
 STEP 4  TWO CREDIT MEMOS ABOUT THE SAME PARCEL
@@ -118,7 +118,7 @@ STEP 4  TWO CREDIT MEMOS ABOUT THE SAME PARCEL
     Collateral for application APP-2291 is a parcel at Koramangala, Bengaluru.
     The collateral parcel at Koramangala sits at 889.6 m elevation, well clear of any flood
     plain.
-    Vegetation cover at the parcel is sparse, with an NDVI of 0.26.
+    Vegetation cover at the parcel is bare, with an NDVI of 0.10.
     Surface water recurrence at the site is 0 percent, so flood risk is negligible.
     Underwriting recommends approval at 70 percent LTV.
 
@@ -126,17 +126,17 @@ STEP 4  TWO CREDIT MEMOS ABOUT THE SAME PARCEL
 --------------------------------------------------------------------------------------------
     Collateral for application APP-2291 is the parcel at cell64 defi.zb493.hufo.zccc6.
     The collateral parcel at Koramangala sits at 889.6 m elevation
-    [emem:fact:defi.zb493.hufo.zccc6:cqyzrjbuej7fdgmbgjjkboqnhjlfz4u6zy3nezps4t2qntab5sqa],
+    [emem:fact:defi.zb493.hufo.zccc6:wtja7pb4rkhh6y4324bsjugj5bztuf7os776oczefkwf2scny35a],
     well clear of any flood plain.
-    Vegetation cover at the parcel is sparse, with an NDVI of 0.26
-    [emem:fact:defi.zb493.hufo.zccc6:yimc47juvb5pe3zzjwktkomgx7ebq6iz2pzs53orch4xsjgsihxa],
+    Vegetation cover at the parcel is bare, with an NDVI of 0.10
+    [emem:fact:defi.zb493.hufo.zccc6:p6flykppdjnqhffqwewu44pqd3que7ttkfa4co4lxtmi7hfmnevq],
     per published algorithm vegetation_class_from_ndvi@1.
     Surface water recurrence at the site is 0 percent
-    [emem:fact:defi.zb493.hufo.zccc6:2z5brwgznn7zvardbjtztvrr5ij3mfy3yjzsfk4gwmtjpkrwmpkq];
-    flood_risk@2 scores 0.00355 (low) from that recurrence, elevation
-    [emem:fact:defi.zb493.hufo.zccc6:cqyzrjbuej7fdgmbgjjkboqnhjlfz4u6zy3nezps4t2qntab5sqa]
+    [emem:fact:defi.zb493.hufo.zccc6:fhdmpkknbgnjfcaqqn45pfvpxgvsw4z2dtoaqxo32arar6ltkepa];
+    flood_risk@2 scores 0.02440 (low) from that recurrence, elevation
+    [emem:fact:defi.zb493.hufo.zccc6:wtja7pb4rkhh6y4324bsjugj5bztuf7os776oczefkwf2scny35a]
     and radar backscatter
-    [emem:fact:defi.zb493.hufo.zccc6:ikdtmfsz54m3n3mkaxv6ce5bmbocn4lmpqbvmkom7oxqqcjf7pia].
+    [emem:fact:defi.zb493.hufo.zccc6:k6ffztew2hkuirzxbng5v4ggsoy5cqviv3jnkbuixmynimxjw5wa].
     Underwriting recommends approval at 70 percent LTV.
 
 ============================================================================================
@@ -175,14 +175,14 @@ STEP 6  FINDINGS  (computed from the responses above)
   2. Sentence by sentence, the naive memo scores like this:
        allow -            Collateral for application APP-2291 is a parcel at Koramanga...
        deny  length       The collateral parcel at Koramangala sits at 889.6 m elevati...
-       allow -            Vegetation cover at the parcel is sparse, with an NDVI of 0.26.
+       allow -            Vegetation cover at the parcel is bare, with an NDVI of 0.10.
        allow -            Surface water recurrence at the site is 0 percent, so flood ...
        allow -            Underwriting recommends approval at 70 percent LTV.
      5 of 5 sentences contain a numeral; the guard denied 1 of them and allowed 4.
      These uncited numeric claims were ALLOWED. They are exactly as unevidenced as the one
      that was denied:
        - Collateral for application APP-2291 is a parcel at Koramangala, Bengaluru.
-       - Vegetation cover at the parcel is sparse, with an NDVI of 0.26.
+       - Vegetation cover at the parcel is bare, with an NDVI of 0.10.
        - Surface water recurrence at the site is 0 percent, so flood risk is negligible.
        - Underwriting recommends approval at 70 percent LTV.
      The quantity type the guard did fire on was 'length'. The detector needs both a
@@ -210,8 +210,8 @@ STEP 6  FINDINGS  (computed from the responses above)
 
   cell64        : defi.zb493.hufo.zccc6
   real fact     : copdem30m.elevation_mean = 889.6439208984375 m
-  valid token   : emem:fact:defi.zb493.hufo.zccc6:cqyzrjbuej7fdgmbgjjkboqnhjlfz4u6zy3nezps4t2qntab5sqa
-  corrupted     : emem:fact:defi.zb493.hufo.zccc6:cqyzrjbuejagehmbgjjkboqnhjlfz4u6zy3nezps4t2qntab5sqa
+  valid token   : emem:fact:defi.zb493.hufo.zccc6:wtja7pb4rkhh6y4324bsjugj5bztuf7os776oczefkwf2scny35a
+  corrupted     : emem:fact:defi.zb493.hufo.zccc6:wtja7pb4rkii7z4324bsjugj5bztuf7os776oczefkwf2scny35a
   (the corrupted token is the valid one with 4 characters rotated inside the base32
   alphabet: same shape, same length, wrong cid)
 
