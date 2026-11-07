@@ -51,6 +51,19 @@ The common operations and their endpoints:
 | check a receipt | `POST /v1/verify_receipt`, or offline |
 | score how current each band is at a place, at a query time | `POST /v1/temporal_route` |
 
+Two rows need more care than the others:
+
+- `/v1/diff` reads only facts that are already stored. Send `tslot_a`
+  and `tslot_b`, or `date_a` and `date_b` as `YYYY-MM-DD`. It does not
+  fetch a missing fact. If one of the two slots has no fact, the call
+  gives HTTP 404 with the code `cid_not_found`.
+- `/v1/temporal_route` scores band families from the bands manifest,
+  for example `indices` or `climate`. It does not score one band key.
+  On 7 November 2026, at the Mount Fuji cell, `"band":"indices.ndvi"`
+  gave one row for the family `indices`. `"band":"cams.pm25"` gave an
+  empty `cite_now` list and no error, because the manifest has no
+  family `cams`.
+
 These parts of the model do not ship today:
 
 - a `forget` operation, which is absent on purpose (see
