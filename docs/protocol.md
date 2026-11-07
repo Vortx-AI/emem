@@ -2413,8 +2413,10 @@ the on-disk format without the database.
 
 ### 9.1 Layout
 
-Files live under `<EMEM_DATA>/log/` and have the name
-`merkle.log.<u64-segment-index>`.
+Segment files live under `<EMEM_DATA>/log/` and have the name
+`merkle.log.<u64-segment-index>`. `EMEM_DATA` is the data directory of
+the server (`emem_core::data_dir`). `MaterializingStorage::rooted` opens
+the log in its `log/` subdirectory.
 
 Each record (`AttestationLog::append_cbor`):
 
@@ -2437,6 +2439,32 @@ A segment that rotation sealed (`seal_segment`) has a trailer:
 The responder opens a new segment each time the process starts. It does
 not write a trailer to the segment of the previous process. So only
 segments that rotation sealed have a trailer.
+
+To read the records of one segment without the server, do these steps:
+
+1. Start at byte 0. Read a `u32` little-endian length `len`.
+2. If fewer than `4 + len + 32` bytes remain, stop. The bytes that
+   remain are the trailer, or nothing.
+3. Read `len` bytes of CBOR, then the 32-byte entry hash.
+4. To check the record, compute `blake3` of the CBOR and compare it with
+   the entry hash.
+5. Move to the next record and go back to step 1.
+
+The server walks a segment in the same way (`leaf_hashes_from`). It
+takes the stored entry hash as the leaf. It does not hash the CBOR again.
+
+The same directory also holds three cache files. They are not part of
+the format. A reader can ignore them, and the server builds them again
+from the segments.
+
+| File | Contents | When the server uses it |
+|---|---|---|
+| `merkle.leaves.<n>.v1` | Magic `EMEMLVS1`, the segment length, the leaf count, a `blake3` of the leaves, then the entry hashes of segment `<n>` | Only when the segment length and the checksum both match. Otherwise it reads the segment. |
+| `merkle.counts.v1` | Text lines `<file name> <length> <record count>` for segments of earlier processes | Only when the length on the line matches the file. |
+| `merkle.rootidx.v1` | Magic `EMEMRIX1`, a row count, then 20-byte rows sorted by the first 8 bytes of `batch_root` | To find the log entry of an older fact for `/v1/log/inclusion?fact_cid=` |
+
+None of the three files changes a segment. The server reads only files
+with the name `merkle.log.<n>` as segments.
 
 ### 9.2 Append semantics
 
@@ -2467,7 +2495,8 @@ It appends the 32-byte hash as a trailer, fsyncs, and increments
 last 32 bytes, computes `blake3` of the remaining bytes, and compares.
 It counts the matches in `sealed_ok` and lists the mismatches in
 `VerifyReport.bad`. A segment without a trailer (the open segment, or
-one that a restart closed) also goes into `bad`. Thus on a node that
+one that a restart closed) also goes into `bad`. `verify` skips a file
+shorter than 32 bytes, so that file is in neither list. Thus on a node that
 restarted, `verify` flags each restart-closed segment. No code in the
 workspace calls `verify` on 7 November 2026. The server does not check
 segments at start or while it writes. It is a tool for an operator.
@@ -2476,9 +2505,15 @@ segments at start or while it writes. It is a tool for an operator.
 
 `SegmentBackup` is a trait for a backup backend. An operator writes one
 to copy sealed segments to S3, IPFS or a different store. The backend
-also pulls them back to replay and restore. The protocol does not
-specify a backend. The wire contract is the segment file format and the
-trailer hash.
+also pulls them back to replay and restore. The trait has two methods.
+`push_segment` sends a segment file and its `SegmentManifest`
+(`index`, the trailer `hash`, and the length in `bytes`).
+`pull_segment` gets a segment back by index.
+
+No backend ships. On 7 November 2026 the workspace has no
+`impl SegmentBackup`, and the server does not copy segments anywhere. The
+protocol does not specify a backend. The wire contract is the segment
+file format and the trailer hash.
 
 <a id="transparency-log"></a>
 
