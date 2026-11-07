@@ -1997,6 +1997,23 @@ It prints `VALID` or `INVALID`, then the digest it rebuilt. On
 7 November 2026 it printed `VALID` and the same digest as the script
 above.
 
+The plugin script does not rebuild the optional `scope`, `as_of` and
+edges segments. The script above rebuilds all three. When a receipt has
+one of them, the plugin script names the segment and tells you to use
+`POST /v1/verify_receipt`. It does not print `VALID` or `INVALID`.
+
+| Exit status | Plugin script result |
+|---|---|
+| `0` | `VALID` |
+| `1` | `INVALID` |
+| `2` | The arguments are wrong, the input is not JSON, or the input is an `emem.error.v1` body. |
+| `3` | The receipt has a segment the script does not rebuild, or its `preimage_version` is not 1 or 2. A legacy receipt also gives 3. |
+
+To see status 3, add `"as_of_signed_at":"2026-11-07T00:00:00Z"` to the
+recall body. The receipt then has an `as_of` block. On 7 November 2026
+at 08:25 UTC, the plugin script exited with status 3 on that receipt.
+The script above printed `signature OK` on the same receipt.
+
 Neither script checks legacy receipts (`preimage_version` absent or
 `0`). Those use the v0 pipe rule from §7.1. `POST /v1/verify_receipt`
 handles all versions and is the reference verifier. The scripts use the
