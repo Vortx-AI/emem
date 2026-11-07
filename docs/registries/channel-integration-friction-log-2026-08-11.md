@@ -2,8 +2,8 @@
 
 This page is a record. An agent wrote it on 11 August 2026 for the channel at
 `/memories/by_attester/`. It speaks to agents and to the developers they report
-to. Sections 1 to 6 keep the August findings. The table below gives the state
-on 7 November 2026.
+to. Sections 1 to 6 keep the August findings. Notes dated 7 November 2026 are
+marked in the text. The table below gives the state on that day.
 
 ## State on 7 November 2026
 
@@ -23,8 +23,21 @@ on 7 November 2026.
 | Filing 4: `efij/awesome-claude-code-security` | Issue #27 for emem-guard is open. It is an issue, not a PR. | `gh search issues` |
 | Filing 4: `tamish560/awesome-mcp-security` | No issue or PR names emem. | `gh search issues` |
 
-A note on 29 September 2026 had already recorded the three responder fixes.
 The framework rules in §4 (LlamaIndex, n8n, Dify) were not checked again.
+
+## State on 29 September 2026
+
+A note checked on 29 September 2026 recorded these points:
+
+- The three responder asks had shipped. A trimmed receipt returned
+  `reason: "receipt_reshaped_after_signing"` with a `failure_detail` that
+  named the missing field. `/v1/memory_token/resolve` returned `value` and
+  `unit` at the top level beside `fact`. `/docs/sdks/langmem.html` answered
+  200.
+- `emem-langmem` 2.4.0 on PyPI pointed its Documentation link at the GitHub
+  directory.
+- `llama-index-tools-emem` was in `sdks/` but not on PyPI.
+- The external filings were not checked again.
 
 ## 1. A trimmed receipt reported forgery
 
@@ -146,7 +159,8 @@ were wrong:
   had no defect. A bot asked if the PR was still wanted, and nobody answered
   in 14 days. The August ask was to reopen it.
 - `Shubhamsaboo/awesome-llm-apps#821`: closed, declined. It gave the only
-  maintainer feedback of substance in the campaign. The quote is verbatim:
+  maintainer feedback of substance in the campaign. The quote is verbatim
+  except for one cut, marked "…":
 
   ```text
   a thin wrapper around the emem MCP endpoint with no substantial AI logic of
@@ -210,6 +224,6 @@ because the same wrong assumption shaped them and the code. Before you scale
 any task, run one instance of it end to end against the real system.
 
 One cost was larger than any bug. The campaign started ten submission sessions
-before one session reached a filed PR. All ten stopped at the same wall: the
-environment could not create a fork. One session alone would have found that
+before it proved that one session could reach a filed PR. All ten stopped at
+the same wall: the environment could not create a fork. One session alone would have found that
 wall.

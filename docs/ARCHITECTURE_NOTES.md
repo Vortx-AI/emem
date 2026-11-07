@@ -67,7 +67,8 @@ schema version. Never change the encoding of a kind that exists.
 
 - Fact CIDs: `fact_cid_of(fact)` in `crates/emem-cache/src/sled_hot.rs`.
   The CID is base32-nopad-lowercase of `blake3(canonical_cbor(fact))`.
-  It is always 52 characters (the full 256 bits). A live NDVI fact at
+  It is always 52 characters (the full 256 bits). `SledHotCache::put_many`
+  computes the same CID again when it writes the fact. A live NDVI fact at
   Mount Fuji on 7 November 2026 had the CID
   `banvya7hgenuowjggkgguezvltxtefp6jgihocwkgcbddyvqv6bq`.
 - Typed CID newtypes are string wrappers made by the `cid_newtype!`
@@ -115,6 +116,7 @@ schema version. Never change the encoding of a kind that exists.
   proof at most.
 - The envelope is `emem_fact::Receipt` in
   `crates/emem-fact/src/receipt.rs`. `MerkleProof` is in the same file.
+  The `cost` field (struct `Cost`) declares latency and freshness.
 - Verification has three surfaces. All three must agree.
 
   | surface | where |
@@ -173,13 +175,17 @@ schema version. Never change the encoding of a kind that exists.
 - The write path is `put_attestation` in the same file. The steps, in
   order:
   1. `verify_attestation`.
-  2. `cache.put_many`.
-  3. `log.append`.
-  4. Best effort: `persist_fact_proofs`, `append_multi_attester`,
+  2. Admission. A fact that takes an address (cell, band, tslot) needs an
+     admitted writer. That is a device enrolled through the trace gate, or a
+     key that the operator listed. Otherwise the write fails with `fact_plane_closed`. The
+     error names `POST /v1/derive` as the path for other keys.
+  3. `cache.put_many`.
+  4. `log.append`.
+  5. Best effort: `persist_fact_proofs`, `append_multi_attester`,
      `append_scope_index`.
-  5. One `flush_async`.
-  6. The attester reputation rollup.
-  7. `add_edges`.
+  6. One `flush_async`.
+  7. The attester reputation rollup.
+  8. `add_edges`.
 - Edges are content addressed in the sled tree `emem.edges`
   (`TREE_EDGES`). Range scans use subject-predicate-object and
   object-predicate-subject indexes (`edge_index_key`,
@@ -202,13 +208,14 @@ schema version. Never change the encoding of a kind that exists.
   verifiers. The tree promotes a lone node. It does not duplicate it. This is a
   different tree from the per-batch root, so consistency proofs are
   sound. `AttestationLog::leaf_hashes()` reads the leaves in append
-  order.
+  order. `AttestationLog::verify` checks the end hash of each sealed
+  segment. It does not check the open segment, which has no end hash yet.
 - Routes, all live on 7 November 2026:
 
   | route | what it returns |
   |---|---|
   | `GET /v1/log/sth` | a responder-signed tree head. Tree size 3,244,653 at 01:18 UTC on 7 November 2026. |
-  | `GET /v1/log/inclusion` | an inclusion proof. Give `leaf_index`, `entry_hash` or `fact_cid`. |
+  | `GET /v1/log/inclusion` | an inclusion proof. Give `leaf_index`, `entry_hash` or `fact_cid`. Add `tree_size` to prove against an earlier head. |
   | `GET /v1/log/consistency` | a proof that a later head extends an earlier one |
   | `POST /v1/log/witness` | records a co-signature on a `(tree_size, root)` head |
   | `GET /v1/log/witnesses` | the co-signatures. 49,544 on 7 November 2026, head witnessed. |
@@ -299,8 +306,10 @@ transport authentication.
 - By default, the bare `/memories/` namespace refuses unsigned writes.
   `memory_write_policy` returns `RequireAll` in every non-test build, so
   an unsigned write gets 401 `memory_attestation_required`. The env
-  variables change this. The first variable with a value wins, and the
-  server reads them once into a `OnceLock`:
+  variables change this. The server checks them in the order of this
+  table. The first one set to a true value wins. The values `0`, `false`
+  and an empty string count as unset. The server reads them once into a
+  `OnceLock`:
 
   | variable | policy |
   |---|---|
@@ -317,7 +326,17 @@ transport authentication.
 `put_attestation` appends every distinct CID for one
 `(cell, band, tslot)` to `emem.multi_attester_index`
 (`TREE_MULTI_ATTESTER_INDEX`). A second attester does not overwrite the
-first. `emem_memory_contradictions` reads this index across attesters
+first. Both must first pass the admission step of `put_attestation`.
+
+The early Phase 3 notes listed four open items. This is their state on
+7 November 2026:
+
+| item | state |
+|---|---|
+| `ATTESTERS.md` spec | not written. No such file exists. |
+| registration | replaced by the tier ladder at `GET /v1/enlist` and the admission step of `put_attestation` |
+| rate and abuse policy | `rate_limit_layer` in `crates/emem-api-rest/src/lib.rs`; see `docs/operators/operating.md` |
+| multiplicity at recall time | `emem_memory_contradictions` reads `emem.multi_attester_index` | `emem_memory_contradictions` reads this index across attesters
 (`memory_contradictions` and `compute_severity` in
 `crates/emem-primitives/src/memory_contradictions.rs`).
 
@@ -339,7 +358,8 @@ and no L2 tool.
   (`mcp_jsonrpc`, `mcp_tool_call`).
 - Two endpoints share one dispatcher. `/mcp` (`mcp_jsonrpc`) lists the
   core tier in `tools/list`. `/mcp/full` (`mcp_jsonrpc_full`) lists all
-  116. Both call `mcp_jsonrpc_inner` with a different default tier. The
+  116. Both call `mcp_with_version` with a different default tier. It
+  agrees the protocol revision, then calls `mcp_jsonrpc_inner`. The
   comment on `MCP_CORE_ENDPOINT_TIER` says why the split exists. An
   explicit `{"tier": ...}` overrides the endpoint default. `tools/call`
   runs any tool by name at either endpoint.
@@ -355,7 +375,7 @@ and no L2 tool.
   | `emem_memory_contradictions` | `memory_contradictions` in `crates/emem-primitives/src/memory_contradictions.rs` |
   | `emem_diff` | `diff` in `crates/emem-primitives/src/diff.rs` |
   | `emem:fact:` parse | `parse_fact_token` in `crates/emem-api-rest/src/lib.rs` |
-  | `emem:bundle:` | `crates/emem-primitives/src/memory_bundle.rs` (strict parser on the `emem:bundle:` prefix) |
+  | `emem:bundle:` | `crates/emem-primitives/src/memory_bundle.rs` (strict parser on the `emem:bundle:` prefix; it also accepts the old `memb:` prefix) |
 
 ## Counts, and what guards them
 

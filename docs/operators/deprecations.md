@@ -59,7 +59,7 @@ The two topic-backend values are operator settings, not wire surfaces.
 The mapping is in `crates/emem-api-rest/src/topic_router.rs`.
 Three of the old memory names delete data.
 They had the same names as the verbs of Claude's own memory tool, so the project added the prefix.
-The MCP dispatcher in `crates/emem-api-rest/src/lib.rs` still accepts each old name, and each tool description says "Version 3.0 removes it".
+The MCP dispatcher in `crates/emem-api-rest/src/lib.rs` still accepts each old name. Seven of the eight tool descriptions say "Version 3.0 removes it". The description of `emem_memory_supersede` does not say it.
 On 7 November 2026, `tools/call` with `memory_view` gave a normal result.
 The project replaced the `fastembed-rs` wrapper with direct `ort` calls, because the wrapper locked at session start on the production host.
 

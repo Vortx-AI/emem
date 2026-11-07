@@ -18,12 +18,12 @@ We checked the five listings below on 7 November 2026.
 |---|---|---|
 | Official MCP Registry | `io.github.Vortx-AI/emem`, latest version 2.4.4 | `.github/workflows/mcp-publish.yml` publishes `server.json` on every `v*` tag. It logs in with GitHub OIDC. |
 | Server card | `https://emem.dev/.well-known/mcp.json`, 116 tools | The responder builds the card from the same tool list as `tools/list` (`emem_mcp::TOOLS`). |
-| Smithery | `vortxai/emem`, an external listing of `https://emem.dev/mcp` | `.github/workflows/publish-smithery.yml` republishes on each GitHub release. It skips the step when the repository has no `SMITHERY_API_KEY` secret. |
+| Smithery | `vortxai/emem`. Smithery serves its own hosted copy at `https://emem--vortxai.run.tools`, not `https://emem.dev/mcp`. | `.github/workflows/publish-smithery.yml` republishes on each GitHub release. It skips the step when the repository has no `SMITHERY_API_KEY` secret. |
 | Glama | `https://glama.ai/mcp/servers/Vortx-AI/emem` | Glama indexes GitHub and the official registry. |
 | punkpeye/awesome-mcp-servers | One line, `Vortx-AI/emem`, with the Glama score badge | Manual. Edit the line with a pull request to that repository. |
 
-On 7 November 2026, the Smithery registry entry listed then-16 tools. The live core has 18.
-It shows the tool list that Smithery last scanned.
+On 7 November 2026, the Smithery registry entry showed the tool list of an older scan: then-16 tools. The live core has 18.
+`publish-smithery.yml` has not yet moved the entry to `https://emem.dev/mcp`.
 
 Before you tag a release, set the `version` in `server.json` to the workspace version in `Cargo.toml`.
 The publish workflow copies the version from `server.json` without a change.

@@ -32,7 +32,7 @@ A submission in the wrong form gets no reply, not a rejection.
 
 ### Form A: publish the package, then open a docs PR (LangChain)
 
-GitHub shows the `langchain-ai/langchain-community` repository as archived.
+GitHub shows the `langchain-ai/langchain-community` repository as archived since 19 June 2026.
 LangChain does not take new integrations as PRs to its code repositories.
 The integration is a separate package on PyPI.
 The only PR goes to `langchain-ai/docs`. It adds a row to `scripts/data/integration_external_docs.yaml`.
@@ -42,6 +42,8 @@ emem does not meet that bar.
 The package exists: `emem-langmem` 2.4.4 is the newest version on PyPI.
 It holds `EmemStore`, a LangChain `BaseStore[str, bytes]` from `langchain_core.stores`.
 It is not a LangGraph store, so `StateGraph.compile(store=...)` cannot use it.
+The PyPI summary of 2.4.4 still says "drop-in agent memory for LangGraph".
+Change that description in a new release before you file the docs PR.
 No PR for it is open or closed in `langchain-ai/docs` (GitHub search for `emem-langmem`, 0 results).
 
 Do these steps before you file:
@@ -120,7 +122,10 @@ The n8n verification guidelines set these rules:
 
 | Rule | State of `integrations/n8n` (`n8n-nodes-emem` 0.1.0) |
 |---|---|
-| From 1 May 2026, publish through GitHub Actions with a provenance statement | Ready. `.github/workflows/publish-n8n-node.yml` runs `npm publish --provenance` on a tag `n8n-*.*.*`. No such tag exists. |
+| From 1 May 2026, publish through GitHub Actions with a provenance statement. n8n refuses a node published from a laptop. | Not ready. `.github/workflows/publish-n8n-node.yml` runs `npm publish --provenance` on a tag `n8n-*.*.*`. No such tag exists. `package.json` gives `repository.url` as `https://github.com/Vortx-AI/n8n-nodes-emem.git`, and that repository does not exist (GitHub API 404 on 7 November 2026). Provenance checks that this URL is the repository that built the package. Set it to `https://github.com/Vortx-AI/emem` with `directory: integrations/n8n` first. |
+| Scaffold with `npm create @n8n/node`, which includes the expected `publish.yml` | Not checked. Compare the files in `integrations/n8n` with the scaffold output before you publish. |
+| One package integrates exactly one third-party service | Met. The package has one node, `Emem`. |
+| The node is in TypeScript | Met. `nodes/Emem/Emem.node.ts`. |
 | The package licence is MIT | Not met. `package.json` says `Apache-2.0`. |
 | No external dependencies | Met. The only entry is a peer dependency on `n8n-workflow`. |
 | No access to environment variables or the file system | Met. The node source reads neither. |
@@ -162,11 +167,11 @@ The order is the chance of acceptance multiplied by reach.
 |---|---|---|---|
 | 1 | LangChain docs row for `emem-langmem` | A | Package 2.4.4 on PyPI. Defects and install conflict open. PR not filed. |
 | 2 | `llama-index-tools-emem` | B | Not started. Example only. |
-| 3 | n8n node `n8n-nodes-emem` | C | Code and publish workflow in the repo. Licence is Apache-2.0, not MIT. Not on npm. |
+| 3 | n8n node `n8n-nodes-emem` | C | Code and publish workflow in the repo. Licence is Apache-2.0, not MIT. `repository.url` names a repository that does not exist. Not on npm. |
 | 4 | Dify plugin | C | Marketplace at 2.4.0, responder at 2.4.4. Source not in this repo. |
 
-All four ship from this repository.
-None of them waits for a third party to agree first.
+We build all four, here or in our own packages. LlamaIndex has not started.
+Each still needs one review in the target project.
 Every item in the listing campaign waits in another project's review queue.
 
 ## Skip vector database lists
@@ -175,10 +180,10 @@ Vector database integration lists (Qdrant, Weaviate, Chroma, Milvus, LanceDB) wa
 emem is not a vector store.
 A submission as one gets the same answer as the closure quoted at the top.
 The embeddings surface and `emem_find_similar` exist.
-But a user indexes emem facts in a vector database. Neither project maintains that as an integration.
+But a user indexes emem facts in a vector database. None of these projects maintains that as an integration.
 
 Do not submit to these lists until a user asks for an adapter.
-No target here is a result, not a gap.
+An empty list here is a finding.
 
 ## Ask the agent-memory projects first
 

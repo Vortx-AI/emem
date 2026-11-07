@@ -27,7 +27,7 @@ The severity depends on the kind of band
 
 | `kind` | Severity |
 |---|---|
-| `scalar` | (largest value minus smallest value) divided by the range of the band |
+| `scalar` | (largest value minus smallest value) divided by the range of the band. When the band registry gives no range, the divisor is the larger of that spread and 1. |
 | `vector` | 1 minus the mean cosine similarity of the vectors |
 | `categorical` | 1 minus the share of the most common class |
 | `mixed` | 1 |

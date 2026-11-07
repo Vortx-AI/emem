@@ -75,8 +75,8 @@ Anthropic's
 section sets these rules (read on 7 November 2026):
 
 - Use a Pro, Max, Ultra, Team or Enterprise plan. Free accounts cannot submit.
-- On Team and Enterprise, an Owner submits. An Owner can also give the
-  Directory permission to a member through a custom role.
+- On Team and Enterprise, an Owner submits. On Enterprise, an Owner can
+  also give the Directory permission to a member through a custom role.
 - The listing belongs to the organization that submits it. Submit from the
   organization that must own the emem listing.
 

@@ -154,6 +154,12 @@ This needs an Earth Engine account.
 | 5 | Update `examples/gemini-extension.json`, or say in its `_doc` that it is an old template | A code change |
 | 6 | Test an Agent Registry command for emem, then write the Agent Engine notebook | A Google Cloud project |
 | 7 | Earth Engine community example | An Earth Engine account |
+| 8 | Not started: apply to Google for Startups (`https://cloud.google.com/startup`) for Cloud credits | A company account |
+| 9 | Not started: join Google Cloud Partner Advantage, which a Marketplace listing needs | Business verification |
+
+The August plan had form values for item 8. We did not keep them. They
+named the Tessera embedding as an AI use, and emem.dev retires that band.
+Write new values from the live state when you apply.
 
 ## References
 

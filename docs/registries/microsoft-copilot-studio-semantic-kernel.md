@@ -89,8 +89,23 @@ software vendor:
   192 x 192 colour logo and a 32 x 32 outline logo.
 - Give at least three sample prompts with expected responses.
 
-The emem package meets the title, annotation and logo rules. The manifest
-short description has 70 characters.
+The emem package meets the title and logo rules. Each tool has the
+`readOnlyHint` annotation. The manifest short description has 70
+characters.
+
+Prepare these values for the form:
+
+| Field | Limit | Value |
+|---|---|---|
+| MCP server URL | | `https://emem.dev/mcp` |
+| Connector display name | | `emem` (`name.full` in `manifest.json` is `emem, verifiable memory for AI agents`) |
+| Short description | 80 characters | `Signed, citable Earth observation facts for any place. No key to read.` |
+| Synonyms | 10 | `earth observation, geospatial, climate risk, satellite, air quality, surface water, deforestation, vegetation, signed memory, MCP` |
+| Colour logo | 192 x 192 PNG | `integrations/microsoft-copilot/color.png` |
+| Outline logo | 32 x 32 PNG | `integrations/microsoft-copilot/outline.png` |
+| Privacy policy | | `https://emem.dev/privacy` (200 on 7 November 2026) |
+| Docs and support | | `https://emem.dev/agents.md` (200 on 7 November 2026) |
+| Contact | | `avijeet@vortx.ai`, from the August plan. Confirm it before you submit. |
 
 The old plan used the form link `https://aka.ms/FccSubmissionForm` and the
 address `submit-fcc@microsoft.com`. On 7 November 2026, the link still
@@ -103,13 +118,31 @@ emem reads need no credential. The Microsoft page asks for OAuth only for
 authenticated scenarios, but its metadata table has an "OAuth credentials"
 row. Ask Microsoft if they accept an anonymous read server before you submit.
 
+### Open question: `search` and `fetch` are not read-only
+
+Microsoft's federated connector page asks for the tools `search` and `fetch`
+with `readOnlyHint: true`. In the table above, both have
+`readOnlyHint: false`, because each can measure and sign a new fact. Ask
+Microsoft if this blocks the submission.
+
 ### Sample prompts
 
 The old plan listed prompts that used the bands `aqi` and `flood_extent`.
 Neither band exists. On 7 November 2026, `GET /v1/bands` listed 43 bands.
 Air quality comes from `cams.*` bands such as `cams.pm25`. Water comes from
-`surface_water.*` bands. Use the three prompts in `intro.md`. They ask about
-vegetation, forest loss after 2020, and elevation.
+`surface_water.*` bands. Use the three prompts in `intro.md`. Microsoft
+asks for an expected response with each prompt. We ran each prompt through
+`POST /v1/ask` on 7 November 2026.
+
+| Prompt | Expected response |
+|---|---|
+| "What is the vegetation index near Mount Fuji right now? Give me a receipt I can cite." | `emem_ask` resolves Mount Fuji to one cell. It gives NDVI and other indices with their age, the `fact_cids` and a signed receipt. On 7 November 2026, NDVI was 0.03, measured 2 days before. |
+| "Was there forest loss after 2020 at -3.47, -62.22?" | `emem_recall` with the bands `forest_change.lossyear` and `jrc_gfc2020.forest_2020`. On 7 November 2026, `lossyear` was 0 (no loss from 2001 to 2025) and `forest_2020` was 1. The answer carries a signed receipt. |
+| "What is the elevation at 28.61, 77.21?" | `emem_ask` gives the elevation from the Copernicus DEM with a signed receipt. On 7 November 2026, it was 215.56 m. |
+
+The second prompt needs a fix before you submit. On 7 November 2026,
+`emem_ask` answered it with weather and NDVI, not with forest loss. Change
+the prompt, or tell the reviewers to expect `emem_recall`.
 
 Reviewers need no login. Tell them to add `https://emem.dev/mcp` as the
 connector URL and to check a receipt at `https://emem.dev/verify`.

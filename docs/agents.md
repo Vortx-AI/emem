@@ -1267,9 +1267,9 @@ signs the inputs and you calculate the result.
 
 The registry still declares the triple-encoder consensus family
 (`clay_prithvi_tessera_triple_consensus@1` and six variants). Earlier
-versions ran Clay, Prithvi and Galileo on a GPU sidecar. emem retired those
-encoders, so no recipe in that family runs here. The facts that they signed
-still recall and verify.
+versions used Clay, Prithvi and Tessera. Clay and Prithvi ran on a GPU
+sidecar. emem retired those encoders, so no recipe in that family runs
+here. The facts that they signed still recall and verify.
 
 Tessera (`geotessera`, 128-D, annual) came from `dl2.geotessera.org` as an
 upstream fact. emem did not run it in-process. emem.dev also retires this
@@ -1346,15 +1346,18 @@ Before you build on `model_answer`, know these rules:
 ## Signed Absence
 
 When a band has no data at a cell, the responder does not return `404` or
-an empty array. It returns a signed Absence fact. The fact has
+an empty array. It returns a signed Absence fact. The answer has
 `"kind": "absence"`, a `reason` and a `reason_cid`. It has no `value`
-field. Read `kind` before you read `value`. You can cite its `fact_cid`
-like any other fact.
+field. The signed fact carries `reason_cid` only. The recall answer adds
+the `reason` text beside it, and that text is not signed. Read `kind`
+before you read `value`. You can cite its `fact_cid` like any other fact.
 
 `reason` is text that starts with a short code from the connector. Examples
 from the code are `jrc_gsw_no_data`, `copdem_coverage_gap`,
-`esa_worldcover_no_tile` and `radd_no_alert`. `reason_cid` is a BLAKE3
-hash of the reason text, so the same reason always gives the same id.
+`esa_worldcover_no_tile` and `radd_no_alert`. `reason_cid` is the first
+16 bytes of the BLAKE3 hash of the reason text, in lowercase base32. The
+same reason always gives the same id. To check the text, hash it and
+compare the result with `reason_cid`.
 
 This call on 7 November 2026 returned an Absence for open sea in the
 Pacific:

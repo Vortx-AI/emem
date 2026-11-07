@@ -4,7 +4,7 @@ This page shows how emem links facts to each other and how it records
 disagreement. The short summary for an agent is in
 [Connect facts and revise them](agents.md#connect-facts-and-revise-them).
 A runnable walkthrough against a local responder is in
-[examples/connect-and-evolve.md](https://github.com/Vortx-AI/emem/tree/main/examples/connect-and-evolve.md).
+[examples/connect-and-evolve.md](../examples/connect-and-evolve.md).
 
 ## What ships and what does not
 

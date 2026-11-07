@@ -75,13 +75,39 @@ and its state on 7 November 2026. The live contract is
 | `https://emem.dev/release-2.1.0.png` returns 404 | True. | Live GET |
 | `https://emem.dev/guard` and the A2A routes answer | True. `/guard`, `/.well-known/agent-card.json` and `/v1/a2a/skills?q=elevation` return 200. | Live GET |
 
+## Venue rules (August 2026)
+
+The maintainers read these rules in the `CONTRIBUTING.md` or README of each
+venue in August 2026. Read them again before you file.
+
+| Venue | Rule |
+|---|---|
+| `tamish560/awesome-mcp-security` | Entry format `- [owner/repo](https://github.com/owner/repo) - Description. By Author/Org.` Alphabetical in the section. One or two sentences. No marketing words. Review takes 3 to 5 days. |
+| `ottosulin/awesome-ai-security` | Entry is a bare name, a dash and a lowercase description with no full stop at the end. Open a PR, or contact the owner. |
+| `efij/awesome-claude-code-security` | Entry format `- [Title](https://example.com/tool) - description.` with 15 to 30 words. Capital first letter, full stop at the end, alphabetical, one resource for each line. Send from a fork. Review target is two weeks. |
+| `hesreallyhim/awesome-claude-code` | A person must use the [web issue form](https://github.com/hesreallyhim/awesome-claude-code/issues/new?template=recommend-resource.yml). No PR, no `gh` CLI, no agent. One resource for each submission. |
+| `enguard-ai/awesome-ai-guardrails` | A table row in the shape `name \| scope \| "description"`. |
+| `fuzzylabs/awesome-secure-mcp-servers` | Entries are servers that passed their `mcp-scan` pipeline. The README gives no self-submission path. Open an issue that asks them to scan `https://emem.dev/mcp`. Do not add a row with a score that nobody computed. |
+| `bh-rat/awesome-mcp-enterprise` | The listing template needs two of four proofs. They are named customers, a checked compliance standard (SOC 2, ISO 27001 or HIPAA), 6 months of general availability, or two documented production deployments. emem-guard has none. |
+| `rust-unofficial/awesome-rust` | At least 50 stars, 2,000 downloads on crates.io, or an equal level of other popularity. crates.io downloads are optional. The list takes applications. |
+
+For the A2A lists, give these endpoints. Both answered 200 on 7 November 2026.
+
+- The agent card: `https://emem.dev/.well-known/agent-card.json`.
+- The skill query: `https://emem.dev/v1/a2a/skills?q=elevation`.
+- Tasks: `https://emem.dev/a2a/tasks` (message send) and
+  `https://emem.dev/v1/a2a/tasks` (create, get, cancel).
+
+Do not put the 2.1.0 release card in `README.md`. A release card at the top
+would date the page at each new version.
+
 ## Next steps
 
 A person must do these steps. On 7 November 2026, nobody had done them.
 
 1. Ask for a review on [ottosulin/awesome-ai-security#382](https://github.com/ottosulin/awesome-ai-security/pull/382).
 2. Change [efij/awesome-claude-code-security#27](https://github.com/efij/awesome-claude-code-security/issues/27) into a PR from a fork, because the venue asks for one.
-3. File `hesreallyhim/awesome-claude-code` through the web issue form. Do not use an agent or the `gh` CLI.
+3. File `hesreallyhim/awesome-claude-code` through the [web issue form](https://github.com/hesreallyhim/awesome-claude-code/issues/new?template=recommend-resource.yml). Do not use an agent or the `gh` CLI.
 4. Send the PR to `tamish560/awesome-mcp-security`.
 5. Send the `rust-unofficial/awesome-rust` PR. Say in it that emem is not on crates.io.
 6. Before you use a draft, update its facts from the table above. The deny codes and the card changed.

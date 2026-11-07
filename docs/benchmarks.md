@@ -108,7 +108,7 @@ export CARGO_TARGET_DIR=/path/to/shared/target
 # 1. Start a new in-memory responder that accepts unattested note writes.
 cargo build -p emem-cli --bin emem-server
 EMEM_DATA=:memory: EMEM_BIND=127.0.0.1:5087 EMEM_OVERTURE_SKIP_WARMUP=1 \
-  EMEM_MEMORY_OPEN=1 ./target/debug/emem-server &
+  EMEM_MEMORY_OPEN=1 "${CARGO_TARGET_DIR:-target}/debug/emem-server" &
 
 # 2. Score it against the sample dataset (no download).
 EMEM_URL=http://127.0.0.1:5087 \
@@ -240,7 +240,8 @@ prose. So a test can check them.
   values: `unavailable_capability`, `outside_coverage`,
   `archetype_seed_unavailable`, `gpu_unavailable`, `upstream_error` and
   `upstream_timeout`. Live Absence facts do not carry that field. They carry
-  a text `reason` that starts with a connector code, and a `reason_cid`. See
+  a signed `reason_cid`. The recall answer adds an unsigned text `reason`
+  that starts with a connector code. See
   [Signed Absence](agents.md#signed-absence). The backfill path adds two
   skip states: `no_auto_materializer_registered` and `present_only`.
 - Request errors. Each has a code, for example `invalid_argument` and
@@ -456,7 +457,7 @@ Two rules go with the result. The maintainers follow both.
   too.
 - The result stays `SAMPLE` until someone off this machine replicates it.
 
-### The BM25 baseline did better than emem
+### The BM25 baseline matched emem's accuracy
 
 The dense-retrieval arm found the queried cell in 0% to 16.7% of cases at
 hit@5. The maintainers first wrote that "retrieval fails". That was wrong.
@@ -621,7 +622,7 @@ hides. The verdict comes from Fisher.
 | emem's independent score, with the points of disagreement | `e6ymbtkypniy45sxcgzjkuzxdm` |
 | The voided run (`run_cid`), published, not deleted | `ucidjnjp44wsx4rn32kbl3dhd574w36ofjf4i72fp7himxsconbq` |
 
-The three note cids in this table and the retraction below resolved with
+The two note cids in this table and the retraction below resolved with
 `emem_memory_view` on 7 November 2026.
 
 The two instruments disagreed, and that difference is the most useful

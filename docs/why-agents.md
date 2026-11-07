@@ -80,7 +80,8 @@ Two fields hold the provenance, and they answer different questions:
 
 There is no `derivation.source`. This fact is older than the current
 code, so its `fn_key` is `jrc_gfc2020_v3_pixel@1` while its args and
-`sources[0].scheme` say V4. A fact that the responder reads today gets
+`sources[0].scheme` say V4. Facts signed before 9 October 2026 carry the
+`v3` key. A fact that the current code signs gets
 `jrc_gfc2020_v4_pixel@1`. Job:
 [read signed facts at one place](./agents.md#job-read-signed-facts-at-one-place).
 
