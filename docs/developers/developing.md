@@ -40,6 +40,10 @@ cargo run --release --bin emem-server   # listens on 0.0.0.0:5051
 The `rm` step removes the mdbook build configuration from the output, so
 that the binary does not serve it. The Dockerfile and CI do the same step.
 
+`cargo build --workspace` makes a debug build of all crates.
+`cargo run --release` then makes a second build, in release mode. To
+build only the server, use `cargo build --release --bin emem-server`.
+
 The default port is 5051. Do not change it to 5050: on the maintainers'
 host, another service uses port 5050.
 
@@ -398,8 +402,9 @@ regression, compare `trace.json` with the one from the last good run.
 
 ## Commit and open a pull request
 
-The full rules are in [CONTRIBUTING.md](https://github.com/Vortx-AI/emem/blob/main/CONTRIBUTING.md) and
-[AGENTS.md](https://github.com/Vortx-AI/emem/blob/main/AGENTS.md). In short:
+The full rules are in
+[CONTRIBUTING.md](https://github.com/Vortx-AI/emem/blob/main/CONTRIBUTING.md)
+and [AGENTS.md](https://github.com/Vortx-AI/emem/blob/main/AGENTS.md). In short:
 
 - Write the subject in sentence case, 72 characters or fewer. The body
   says why.
@@ -438,7 +443,7 @@ Open an issue at `github.com/Vortx-AI/emem/issues`. Include:
 - The `curl` command, the expected response and the actual response.
 
 Do not report a security problem in a public issue. Read
-[SECURITY.md](https://github.com/Vortx-AI/emem/blob/main/SECURITY.md). A running responder also serves
-`/.well-known/security.txt`, with the contact from `EMEM_TLS_CONTACT`.
+[SECURITY.md](https://github.com/Vortx-AI/emem/blob/main/SECURITY.md).
+A running responder also serves `/.well-known/security.txt`, with the contact from `EMEM_TLS_CONTACT`.
 
 For deployment, read [operating.md](../operators/operating.md).
