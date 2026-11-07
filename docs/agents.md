@@ -411,7 +411,8 @@ curl -s -X POST https://emem.dev/v1/memory_contradictions \
 On 7 November 2026 the scan read 44,705 keys and returned 3 contradictions.
 Its time budget stopped it before the end of the corpus
 (`scan_truncated: true`). Send the `resume_after` value back to continue
-the scan. Add `cell_prefix` or `band` to narrow the scan. Each contradiction has a `severity` from 0 to 1. Its
+the scan. Add `cell_prefix` or `band` to narrow the scan. Each
+contradiction has a `severity` from 0 to 1. Its
 `attestations` list gives each side with its `fact_cid`, `value`, attester
 and `signed_at`. Read `disagreement_scope` before you quote one:
 
