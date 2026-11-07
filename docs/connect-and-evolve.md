@@ -76,10 +76,10 @@ a failure.
 
 Leave out `pred`, or send `""`, to read edges with any relation. Add
 `as_of_tslot` to read the edges that were true at that tslot.
-Send `limit` to set the maximum number of edges. The default is 100. The
-responder clamps the value to the range 1 to 1000 by default. The top
-comes from `EMEM_EDGES_MAX_LIMIT`
-(`crates/emem-primitives/src/edges.rs`).
+Send `limit` to set the maximum number of edges. The default is 100, and
+`EMEM_EDGES_DEFAULT_LIMIT` changes it. The responder clamps `limit` to
+the range 1 to 1000. `EMEM_EDGES_MAX_LIMIT` changes the top value.
+`crates/emem-primitives/src/edges.rs` reads both variables.
 
 The responder signs the recall receipt like all other receipts. Its preimage
 includes the CIDs of the returned edges, so you can verify it offline.
