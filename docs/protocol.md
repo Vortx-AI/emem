@@ -1422,7 +1422,7 @@ To check a receipt by hand:
 4. Optional: prove `merkle_proof.log_entry_hash` into a signed tree head
    with `GET /v1/log/inclusion` (§9.6).
 
-The script in §7.4 does steps 1 and 2. On 6 November 2026 it verified a
+The script in §7.4 does steps 1 and 2. On 7 November 2026 it verified a
 live `POST /v1/recall` receipt from emem.dev without changes.
 
 The struct is `Receipt` in `crates/emem-fact/src/receipt.rs`.
@@ -1443,7 +1443,7 @@ The struct is `Receipt` in `crates/emem-fact/src/receipt.rs`.
 | `responder_pubkey_b32` | `String` | base32-nopad-lowercase of `responder`. A copy for JSON readers. The signature does not cover it, and the responder omits it when empty |
 | `signature` | `Signature` | ed25519 `[u8; 64]` |
 | `signature_b32` | `String` | base32-nopad-lowercase of `signature`. A copy, like `responder_pubkey_b32` |
-| `source_versions` | `BTreeMap<String, String>` | manifest pins. On emem.dev on 6 November 2026 it held four keys: `bands_cid`, `registry_cid`, `schema_cid`, `sources_cid`. Signed through the `0x06` segment when not empty |
+| `source_versions` | `BTreeMap<String, String>` | manifest pins. On emem.dev on 7 November 2026 it held four keys: `bands_cid`, `registry_cid`, `schema_cid`, `sources_cid`. Signed through the `0x06` segment when not empty |
 | `registry_cid` | `RegistryCid` | function registry CID in force. Not signed here; the signed copy is `source_versions.registry_cid` |
 | `cost` | `Cost` | self-declared (see below). Not signed |
 | `scope` | `Option<Scope>` | `{user_id, agent_id, run_id, org_id}` when the caller set a scope; omitted otherwise. Signed through the `0x03` segment |
@@ -1479,12 +1479,11 @@ The exact preimage construction is one function per version in
 (`crates/emem-storage/src/server.rs`) and the verifier (`POST
 /v1/verify_receipt`) call the same function you would.
 
-**Current receipts carry `preimage_version: 2`.** Read the version off
-the receipt and rebuild under THAT rule; do not assume the current one.
+Current receipts carry `preimage_version: 2`. Read the version from
+the receipt and rebuild under that rule. Do not assume the newest rule.
 A verifier that hardcodes v1 rejects every receipt signed after the
-cutover, and one that hardcodes v2 rejects every receipt signed before
-it. Both remain valid and both must verify. The responder builds `GET /v1/verifier_spec`
-from the same constants the signer uses. If this prose disagrees with it, trust the endpoint.
+cutover. A verifier that hardcodes v2 rejects every receipt signed
+before it. Both versions stay valid, and both must verify.
 
 The signed digest is `blake3` over a domain-separated, tagged,
 length-prefixed segment stream:
@@ -1683,7 +1682,8 @@ So "I have no proof" is a statement that the responder made. An
 intermediary cannot make that gap.
 
 The binding covers `leaf_index`, `path`, `root` and `version`. Three more
-fields ride beside them **unsigned**, to say where the proof sits:
+fields are in the proof but are **not signed**. They tell where the proof
+sits:
 
 - `fact_cid`: the fact the proof is for (`fact_cids[0]`). `leaf_index` is
   that fact's place in its own attestation's batch, sorted bytewise, not its
@@ -1712,7 +1712,7 @@ The batch tree and the log tree are different trees with different rules:
 
 In short: keep the receipt exactly as the responder sent it. If you
 change, drop or re-encode a signed field, the signature fails, even when
-the data is true. Integrators usually see this as a bug report.
+the data is true. Integrators often report this failure as a bug.
 
 v1 covers every field listed in §7.1 except the proof, and v2 also
 covers the proof. So **no signed field can change and still verify.** The
@@ -1909,7 +1909,7 @@ print("signature OK, preimage_blake3_hex", digest.hex())
 
 On 7 November 2026 this script passed on a live receipt from the call
 above. It printed the same `preimage_blake3_hex` as
-`POST /v1/verify_receipt`.
+`POST /v1/verify_receipt`, which also gave `merkle_proof_valid: true`.
 
 The Claude Code plugin ships a second verifier that needs no packages.
 It reads a saved `POST /v1/recall` response or a bare receipt:
@@ -1920,14 +1920,15 @@ curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
 python3 plugins/emem/skills/emem-verify-receipt/scripts/verify.py recall.json
 ```
 
-It prints `VALID` or `INVALID`, then the digest it rebuilt.
+It prints `VALID` or `INVALID`, then the digest it rebuilt. On
+7 November 2026 it printed `VALID` and the same digest as the script
+above.
 
-Legacy receipts (`preimage_version` absent or `0`) instead use the v0
-pipe rule from §7.1. `POST /v1/verify_receipt` handles all versions and
-is the reference verifier. To check a receipt, you need only this
-preimage, the Ed25519 check and the key in the receipt. You do not need
-another call to the responder. Compare that key with the published key
-once ([Check your first receipt](#check-your-first-receipt), step 3).
+Neither script checks legacy receipts (`preimage_version` absent or
+`0`). Those use the v0 pipe rule from §7.1. `POST /v1/verify_receipt`
+handles all versions and is the reference verifier. The scripts use the
+key in the receipt. Compare that key with the published key once
+([Check your first receipt](#check-your-first-receipt), step 3).
 
 <a id="75-capability-binding-for-memory-writes"></a>
 
