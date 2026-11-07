@@ -179,7 +179,8 @@ curl -s -X POST https://emem.dev/v1/terrain \
 
 The response has `centre_elevation_m`, a `slope` block, `ruggedness` and
 `topo_position`. The `slope` block gives the cell size. The top-level
-`input_fact_cids` lists the fact ids that the response used.
+`input_fact_cids` lists the fact ids that the response used. The response
+also has a `receipt` that signs these fact ids.
 On 7 November 2026, this cell had a slope of 7.0 degrees (12.3 percent),
 computed with the Horn 1981 method.
 
@@ -273,7 +274,7 @@ curl -s https://emem.dev/v1/device_platforms
 ```
 
 `registry.platforms` is the list of hardware that a key can enrol from. Each
-entry gives the root of trust and the evidence format of that platform. On 6
+entry gives the root of trust and the evidence format of that platform. On 7
 November 2026, the list had 17 platforms. With this list, a write from a robot
 is different from a write from a laptop that says it is a robot. A fleet
 operator can later find which arm made which record.
