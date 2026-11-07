@@ -95,8 +95,19 @@ took 8 s, scanned about 44,700 keys, found 74 contradictions and
 stopped with `scan_truncated: true`. On 6 November 2026, one
 10-character prefix took 108 s.
 
-A GET form also exists. It returns the same contradiction for this cell:
-`GET $EMEM/v1/memory_contradictions?cell_prefix=...&band=...&min_severity=...`.
+A GET form also exists. It takes the same fields as query parameters.
+For this cell and band, it returns the same contradiction:
+
+```bash
+curl -sS "$EMEM/v1/memory_contradictions?cell_prefix=defi.zb27e.qEfa.ze033&band=overture.transportation.road_length_m&min_severity=0.1" \
+  | jq -c '[.contradictions[] | {band, tslot, severity, n: (.attestations | length)}]'
+```
+
+Output on 7 November 2026:
+
+```json
+[{"band":"overture.transportation.road_length_m","tslot":56,"severity":1.0,"n":2}]
+```
 
 ### 2. Read the edges that start at a fact
 
