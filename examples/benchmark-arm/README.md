@@ -87,6 +87,25 @@ The self-check shows the gap. Its stub model rounds on the first pass, so the
 report gives `model_byte_identical_first_pass: 0.0` and
 `published_byte_identical: 1.0`.
 
+## What `drift` means
+
+The `drift` field of a result comes from `echo_verify` on the first pass. These
+are the values, from the handler in `crates/emem-api-rest/src/lib.rs`. We sent
+each example claim with the self-check token on 7 November 2026.
+
+| `drift` | When | Example claim for the signed `-0.052199413489736016` |
+|---|---|---|
+| `null` | The claim is the signed number. | `-0.052199413489736016` |
+| `"rounded"` | The claim equals the signed value rounded to the decimals of the claim. | `-0.0522` |
+| `"wrong"` | Any other claim. | `0.9` |
+| `"reformatted"` | Same number in other digits. Only with `"strict": true`. | `-5.2199413489736016e-2` |
+
+The arm does not send `strict`. So `echo_verify` accepts the same number in
+other digits, for example `-0.0521994134897360160`, as a match. The two
+`byte_identical` numbers in the report then count that answer, and `value`
+holds the digits of the model. For a strict byte check, compare `value` with
+`value_verbatim` in each result.
+
 ## What the arm does not do
 
 - It does not hide a value that the model did not produce. If the model fails
@@ -212,15 +231,15 @@ The output has seven numbered sections, from `## 1. integrity` to
    Without the `blake3` package, it skips the address check but does not say
    so. The output then shows 0 for both address counts (`cid==blake3` and
    `cid MISMATCH`). Install `blake3` before you use those two lines.
-2. Ground truth, two times (sections 2 and 7). It parses the value that
-   the prompt showed from the prompt bytes. It resolves the value that emem
-   signed from the responder. These can differ: a prompt can show `0.747614` for a signed
-   `0.7476139978791093`. A scorer with only one expected value mis-scores one
-   of the arms.
+2. Ground truth, two times (sections 2 and 7). It parses the value that the
+   prompt showed from the prompt bytes. It resolves the value that emem
+   signed from the responder. These can differ: a prompt can show `0.747614`
+   for a signed `0.7476139978791093`. A scorer with only one expected value
+   mis-scores one of the arms.
 3. Scores (sections 3 to 6). The classes stay separate: `exact`,
-   `numeric_equal` (right value, wrong bytes, which is the rounding
-   failure), `confidently_wrong` and `abstain`.
-   If you merge these classes, the benchmark looks better than it is.
+   `numeric_equal` (right value, wrong bytes, which is the rounding failure),
+   `confidently_wrong` and `abstain`. If you merge these classes, the
+   benchmark looks better than it is.
 
 The script does not stop when an integrity check fails. It prints the
 integrity counts first and then scores all rows. Read the integrity counts
