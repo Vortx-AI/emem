@@ -108,21 +108,29 @@ curl -s -X POST https://emem.dev/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"emem_locate","arguments":{"place":"Mount Fuji"}}}'
 ```
 
-The tool answer is a JSON string in `result.content[0].text`. An MCP answer
-has a size limit of 24,000 bytes by default (`EMEM_MCP_RESPONSE_BUDGET_BYTES`).
-The limit covers the text and `structuredContent` together. Thus a tool that
-also sends `structuredContent` has less room for its text. A cut answer has
-an `_emem_truncation` block. It names each omitted field. Its
-`budget_bytes` is the share of one copy, text or `structuredContent`, so it
-can show 12,000. Often its `fetch` gives the call that returns the rest.
-Sometimes `fetch` is `null`, or it drops some arguments. Then send the same
-arguments to the REST route, which has no size limit.
+The tool answer is a JSON string in `result.content[0].text`. A large answer
+can come back cut. See [If an MCP answer is cut](#if-an-mcp-answer-is-cut).
 
-On 7 November 2026, emem.dev used the 24,000-byte default. Of the job calls
-below, emem.dev cut two answers. The locate answer for Mount Fuji had 7,570
-bytes of text and 8,028 bytes of `structuredContent`. The compare answer lost
-all its result fields (see [Compare two places](#job-compare-two-places)).
-Both had `fetch` `null`.
+### If an MCP answer is cut
+
+An MCP answer has a size limit of 24,000 bytes by default
+(`EMEM_MCP_RESPONSE_BUDGET_BYTES`). The limit covers the text and
+`structuredContent` together. A cut answer has an `_emem_truncation` block:
+
+| Field | What it tells you |
+|---|---|
+| `omitted_fields` | Each field that the answer left out. |
+| `budget_bytes` | The share of one copy, text or `structuredContent`. Thus it can show 12,000. |
+| `fetch` | Often, the call that returns the rest. It can be `null`, or drop some arguments. |
+
+If `fetch` is `null`, send the same arguments to the REST route. REST has no
+size limit.
+
+On 7 November 2026, emem.dev used the 24,000-byte default. It cut two of the
+job answers below, both with `fetch` `null`. The locate answer for Mount Fuji
+had 7,570 bytes of text and 7,592 bytes of `structuredContent`. It omitted
+`data_at_this_cell` and `polygon_geojson`. The compare answer lost all its
+result fields (see [Compare two places](#job-compare-two-places)).
 
 ### Job: find the right tool
 
@@ -500,7 +508,7 @@ Thus `cosine` was absent, and `note` told why. emem.dev no longer makes new
 hold one.
 
 On emem.dev, the MCP answer of this call has no result fields. The receipt
-lists every fact CID of both cells: 5,060 on 7 November 2026. The answer
+lists every fact CID of both cells: 5,063 on 7 November 2026. The answer
 keeps the receipt and omits all other fields, also with `family`. Its
 `_emem_truncation.fetch` is `null`.
 
