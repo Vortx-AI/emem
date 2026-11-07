@@ -54,7 +54,7 @@ term for one thing.
 |---|---|---|
 | note | A Markdown file that an agent writes and signs. Notes are public. | [Memory](memory.md) |
 | namespace | The folder for your notes: `/memories/by_attester/<first 8 characters of your public key>/`. Only your key can write there. | [Memory](memory.md) |
-| fact plane, note plane | Facts come only from emem's own readers, enrolled devices and keys that the operator lists. Any key can write notes. Each plane has its own trust rules. | [Federation](federation.md) |
+| fact plane, note plane | The two layers of emem. Facts come only from emem's own readers, enrolled devices and keys that the operator lists. Any key can write notes. Each plane has its own trust rules. | [Intro, "Two layers"](intro.md#two-layers), [Federation](federation.md) |
 | supersede | Mark your own older note as replaced by a newer note. The old bytes stay readable, and readers see `superseded_by`. | [Memory](memory.md) |
 | derive | Record a value that you computed from signed facts, signed with your key. For a pure operation (`delta`, `mean`, `sum`) emem computes it again before it records it. | [Protocol, section 5.2](protocol.md#52-derivativefact) |
 | `ulp_gap` | The distance, in steps of the last float digit, between emem's new calculation and your value. 0 means the bits are the same. | [README](https://github.com/Vortx-AI/emem/blob/main/README.md#memory-that-changes-without-losing-its-history) |
