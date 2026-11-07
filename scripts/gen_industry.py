@@ -141,7 +141,7 @@ def scene(spec):
     s.line(220, H - 128, W - 220, H - 128, INK_SOFT, 0.8, op=0.45)
     s.dot(220, H - 128, 2.4, VERMIL); s.dot(W - 220, H - 128, 2.4, VERMIL)
     s.text(W / 2, H - 90, spec["insight"], 16, INK, font=SERIF, anchor="middle", italic=True)
-    s.text(W / 2, H - 58, "anyone re-checks it at /verify · no trust in the server", 11.5,
+    s.text(W / 2, H - 68, "anyone re-checks it at /verify · checked against the published key", 11.5,
            INK_SOFT, font=MONO, anchor="middle")
 
     path = f"{OUT}/{spec['key']}.svg"
@@ -198,7 +198,7 @@ SCENES = {
            ("weather.wind_speed_10m", "31 m/s")],
     receipt="TRIGGER RECEIPT",
     consumers=[("insurer", "pays on the index"), ("reinsurer", "cedes the cat"),
-               ("farmer", "no claims adjuster")],
+               ("farmer", "sees what set it off")],
     insight="The index payout cites the facts that set it off."),
 
 "28-forestry-timber": dict(industry="forestry & timber", seed=28,
@@ -349,7 +349,7 @@ SCENES = {
            ("indices.ndvi", "0.80")],
     receipt="EUDR DDS",
     consumers=[("operator", "the statement"), ("customs", "TRACES NT"),
-               ("importer", "clears the border")],
+               ("importer", "hands over one handle")],
     insight="Forest evidence for one plot, in one signed handle the border can re-check. Legality is not covered."),
 }
 

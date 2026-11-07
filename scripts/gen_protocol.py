@@ -286,7 +286,7 @@ def _pipeline(name, seed, title, sub, stages, endlabel, endsub, footer):
     s.line(220, H - 140, W - 220, H - 140, INK_SOFT, 0.8, op=0.45)
     s.dot(220, H - 140, 2.4, VERMIL); s.dot(W - 220, H - 140, 2.4, VERMIL)
     s.text(W / 2, H - 104, footer, 16, INK, font=SERIF, anchor="middle", italic=True)
-    s.text(W / 2, H - 78, "anyone re-checks the receipt at /verify · no trust in the server",
+    s.text(W / 2, H - 78, "anyone re-checks the receipt at /verify · checked against the published key",
            11.5, INK_SOFT, font=MONO, anchor="middle")
     s.save(f"{OUT}/{name}.svg"); return name
 
@@ -610,7 +610,7 @@ def fusion():
 
 def agent_to_token():
     return _pipeline("38-agent-to-token", 38, "From your agent to a token",
-        "the whole loop: read with no account, verify with no trust, keep one line",
+        "the whole loop: read with no account, verify offline, keep one line",
         [("your agent", "any model", INDIGO), ("MCP · REST", "same handlers", TEAL),
          ("recall", "hit, or fetch once", LEAF), ("open sources", "on the first miss", TURMERIC),
          ("signed fact", "blake3 · ed25519", LAC)],
