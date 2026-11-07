@@ -65,7 +65,8 @@ Without `--user`, the uid 65532 process cannot write to a directory that your ow
 
 [`docker-compose.yml`](https://github.com/Vortx-AI/emem/blob/main/docker-compose.yml) starts a node for the witness role in
 [Federation](federation.md). It binds `127.0.0.1:5051` and stores data in the volume `emem-data`, mounted at `/data`
-(`EMEM_DATA=/data`). It witnesses `https://emem.dev` unless you set `EMEM_PEERS`.
+(`EMEM_DATA=/data`). It declares `https://emem.dev` as its peer unless you set `EMEM_PEERS`. The declaration
+only lists the peer. The witness job does the co-signing (see [Federation](federation.md#8e-what-each-new-node-must-publish-before-it-counts-as-joined)).
 
 ```bash
 docker compose up -d

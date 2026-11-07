@@ -23,11 +23,13 @@ reasons for it.
 
 ## 1. Why scale out: the single-host ceiling
 
-Today emem is one process. The `emem-server` binary writes to one embedded
-`sled` store and one append-only Merkle log. Production showed two limits.
+Today emem is one process. The `emem-server` binary writes facts to one
+embedded store and one append-only Merkle log. The store is `facts.redb`
+(the default of `EMEM_HOT_BACKEND`). Before the redb cutover it was a `sled`
+database. Production showed two limits.
 
-The first limit is one writer. Every cold write goes through one `sled`
-instance and one log. Two changes lowered the cost: the log append moved off
+The first limit is one writer. Every cold write goes through one store and
+one log. Two changes lowered the cost: the log append moved off
 the async worker (group fsync in `spawn_blocking`), and the store now merges
 per-write index flushes. The order of writes still comes from one writer. On
 2026-06-02, about 96 materialise tasks ran at the same time (16 cells by 6
@@ -40,7 +42,7 @@ The second limit is one failure domain. On 2026-05-31, 2026-06-12 and
 piled up in CLOSE-WAIT and the accept backlog filled. `emem-watchdog` restarts
 the process in about 2 minutes. One process is still one failure domain.
 
-Tuning in phases 0 and 1 made each write cheaper. It did not remove the
+This tuning made each write cheaper. It did not remove the
 ceiling: one writer, one failure domain, and the RAM and disk of one machine.
 Scale-out removes it.
 
@@ -99,6 +101,9 @@ signature against the peer's published key. Then it caches the fact. The id
 proves the bytes, so the cached copy is as good as the original.
 
 - Configuration: a static list, `EMEM_PEERS=https://a.example,https://b.example`.
+  The variable exists today with a smaller meaning: the peers that this node
+  witnesses, listed in `/.well-known/emem.json` (§8d item 2). The prototype
+  would make the same list the peers that this node asks.
 - Surface: `/v1/fetch` and `memory_token/resolve`. A local 404 becomes a
   query to each peer. The first verified answer wins.
 - Trust: the node ignores a peer that returns a wrong hash or a bad
@@ -594,8 +599,23 @@ facts from that node.
 `docker-compose.yml` at the repository root starts a node that meets the
 witness bar. Its header comment lists three steps to join. Serve the node on
 a public name over TLS. Publish the `_emem-node` TXT record. Run the witness
-job. [Self-host](self-host.md) covers the container. A node that joins gets
-mutual witnessing only. Nobody resolves facts across nodes yet.
+job. [Self-host](self-host.md#use-docker-compose) covers the container. A
+node that joins gets mutual witnessing only. Nobody resolves facts across
+nodes yet.
+
+Set these before `docker compose up -d`. The compose file reads them from
+the shell or from a `.env` file.
+
+| Variable | Compose default | What to set |
+|---|---|---|
+| `EMEM_PUBLIC_URL` | `http://localhost:5051` | the public `https://` name of the node; `did.json` and the `federation` block use it |
+| `EMEM_PEERS` | `https://emem.dev` | the origins whose heads your witness job co-signs |
+| `EMEM_CONTACT` | empty | a role address; the node publishes it |
+
+The compose file publishes port 5051 on `127.0.0.1` only. Put your TLS proxy
+on the same host. The compose health check calls `curl`, and the image has no
+`curl`. Docker can show the container as unhealthy while the node serves.
+Check it with `/live` from the host.
 
 ---
 
