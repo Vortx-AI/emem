@@ -2067,7 +2067,7 @@ sorts short keys by length first. The responder sorts the keys as plain
 strings: `bands_cid`, `registry_cid`, `schema_cid`, `sources_cid`. With
 the wrong order, every valid receipt fails, and the failure looks like a
 bad signature. `GET /v1/verifier_spec` gives a test vector in
-`manifest_hex_key_order.golden_vector`. On 7 November 2026, its four test
+`receipt.manifest_hex_key_order.golden_vector`. On 7 November 2026, its four test
 pairs gave `de14467c...ea3915` in plain string order and `545f412b...e60569`
 in RFC 8949 order. The rule is in `manifest_versions_blake3_hex` in
 `crates/emem-storage/src/server.rs`.
@@ -2088,7 +2088,7 @@ This script verifies a live receipt. It needs four packages:
 pip install requests blake3 cbor2 cryptography
 ```
 
-At 08:20 UTC on 7 November 2026 the script printed
+At 09:06 UTC on 7 November 2026 the script printed
 `VALID, signed by 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka`.
 The script does not build segments `0x03` to `0x05`. It stops with a
 message for a receipt that has `scope`, `as_of` or `edge_cids`. Send such a
