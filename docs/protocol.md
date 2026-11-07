@@ -632,7 +632,23 @@ responder did not see the arithmetic, so it cannot say either.
 > **What the responder's signature attests:** that this attester
 > submitted this derivation, over these parent facts, at this time, and
 > that the responder stored it. It does **not** attest that the value is
-> true. The responder did not compute it and cannot recompute it.
+> true, unless the response carries `recomputation.verified: true`.
+
+By default the responder does not recompute the value. It recomputes
+only when the caller sends a `code_cid` and one of these is true:
+
+| case | how it recomputes | match rule |
+|---|---|---|
+| `op` is `delta`, `mean` or `sum`, and every parent value is a number | runs the op over the parent values (`delta` is `inputs[1] - inputs[0]`) | exact float equality. `mean` and `sum` over more than two parents allow 4 ULP |
+| `fn_key` names a registered algorithm that has an `evaluation` tree | evaluates that tree over the parents, keyed by band | exact float equality |
+
+On a match, the stored provenance becomes `deterministic_index`. The
+caller still declares `model_output`, because that is what the caller
+signed. The responder writes its result in `derivation.args.recomputation`
+(`verified`, `rule`, `ulp_gap`, `ulp_tolerance`). Thus the `fact_cid`
+covers it. On no match, or for any other op, the value stays as the
+caller declared it. Without a `code_cid`, the responder does no
+arithmetic.
 
 The `signer` on the fact is the key of the **responder**. The caller
 signed the derive preimage, not the fact body. A fact that names the
@@ -642,7 +658,7 @@ covers it, and the signature of the responder covers the `fact_cid`:
 
 ```jsonc
 "derivation": {
-  "fn_key": "same_doy_ndvi_delta@1",     // the CALLER's recipe; never executed here
+  "fn_key": "same_doy_ndvi_delta@1",     // the CALLER's recipe name
   "args": {
     "attester_pubkey_b32": "...",        // whose claim this is
     "attester_sig_b32": "...",           // the caller's own ed25519 signature
@@ -1192,7 +1208,11 @@ v0 anymore.
    block, and its blake3-hex over canonical CBOR is hashed in as the
    optional `0x04` segment (`as_of_hex`). A verifier recomputes that
    digest from the `as_of` block to reproduce the signed bytes; a
-   current-state read omits the block and the segment alike. The bound
+   current-state read omits the block and the segment alike.
+   Before it encodes `transaction_time`, the signer normalises a UTC
+   time to `YYYY-MM-DDTHH:MM:SSZ` (`normalise_rfc3339_utc`). It removes
+   fractional seconds and changes `+00:00` or `-00:00` to `Z`. A
+   verifier must do the same, or a valid receipt fails. The bound
    is therefore bound both directly (via `as_of_hex`) and transitively
    (it selects which `fact_cids` the preimage also binds).
 
@@ -1356,7 +1376,7 @@ compare with the responder, send the same receipt to
 must equal `digest.hex()` from the script.
 
 ```python
-import json
+import json, re
 from blake3 import blake3
 from nacl.signing import VerifyKey
 
@@ -1405,13 +1425,20 @@ def scope_hex(r):
     p = [(k, str(sc[k])) for k in ("user_id","agent_id","run_id","org_id") if sc.get(k) is not None]
     if not p: return None
     return b3hex(cbor_head(5, len(p)) + b"".join(cbor_text(k) + cbor_text(v) for k, v in p))
+def norm_utc(s):
+    # Mirrors emem_fact::normalise_rfc3339_utc. The signer hashes this form,
+    # so "...00.000Z" and "...00+00:00" both become "...00Z". A non-UTC
+    # offset or a malformed string returns None, and the raw text is hashed.
+    m = re.fullmatch(r"(\d{4}-\d{2}-\d{2})(?:T| )(\d{2}:\d{2}:\d{2})(?:\.\d+)?(Z|[+-]00:00)", s)
+    return f"{m.group(1)}T{m.group(2)}Z" if m else None
 def as_of_hex(r):
     a = r.get("as_of") or {}
     body, n = b"", 0
     if a.get("valid_time") is not None:
         body += cbor_text("valid_time") + cbor_uint(a["valid_time"]); n += 1
     if a.get("transaction_time") is not None:
-        body += cbor_text("transaction_time") + cbor_text(str(a["transaction_time"])); n += 1
+        tt = str(a["transaction_time"])
+        body += cbor_text("transaction_time") + cbor_text(norm_utc(tt) or tt); n += 1
     if n == 0: return None
     return b3hex(cbor_head(5, n) + body)
 
@@ -1940,9 +1967,12 @@ values from the responses, BLAKE3 and Ed25519.
    the raw 32 bytes from base32. `signed_at` is the UTF-8 text.
 3. Verify `signature_b32` over that 32-byte digest with
    `responder_pubkey_b32`.
-4. Get a proof. Use the `log_entry_hash` from a receipt's `merkle_proof`:
-   `curl -s 'https://emem.dev/v1/log/inclusion?entry_hash=<log_entry_hash>'`.
-   Or use `fact_cid=<cid>`.
+4. Get a proof at the size of the step 1 STH. Use the `log_entry_hash`
+   from a receipt's `merkle_proof`:
+   `curl -s 'https://emem.dev/v1/log/inclusion?entry_hash=<log_entry_hash>&tree_size=<tree_size>'`.
+   Or use `fact_cid=<cid>` in place of `entry_hash`. Without `tree_size`,
+   the proof is for the newest head. The log grows all the time, so that
+   root can be different from the root you checked in step 3.
 5. Compute `leaf = blake3(0x00 || entry_hash)`. It must equal
    `leaf_hash_b32`.
 6. Walk `audit_path_b32` from the leaf to the root with the RFC 6962
@@ -2009,9 +2039,13 @@ For this reason `GET /v1/log/witnesses` puts each witness key in a tier:
 keys, because keys cost nothing and domains do not. The co-signatures of
 a key share the per-key write rate limit. The node also signs its own
 head every two minutes (`self_witness_pubkey_b32`). Thus
-`head_is_witnessed` is nearly always true. Use
-`head_is_independently_witnessed`, which ignores that key. On
-6 November 2026 it was `false`, and `independent_operator_count` was 1.
+`head_is_witnessed` tells you little about outside oversight.
+`head_is_independently_witnessed` removes that key, but it still counts
+every `key_only` key, and keys cost nothing. Use
+`head_is_witnessed_by_independent_operator`. It is true only when an
+`org_vouched` domain other than this node's own signed the current head.
+On 7 November 2026 it was `false`. `independent_operator_count` was 1,
+and `independent_witness_count` was 112 keys.
 
 #### 9.6.3 Memory writes in the log
 
@@ -2180,11 +2214,18 @@ an absent one.
 What ships on 6 November 2026: no code outside `privacy.rs` calls
 `permits_resolution`, and no response carries `privacy_snapped`. The
 responder addresses every band at the one active cell64 resolution
-(tag 21, §1.1). That is finer than `min_res` 11, so the reference
-responder serves the three `aggregate_only` bands per cell, without a
-snap. Treat
-the class as a declaration that the manifest signs, not as an access
-control that the responder applies.
+(tag 21, §1.1). That is finer than `min_res` 11. Of the three
+`aggregate_only` bands, the responder serves only `population`, per cell and
+without a snap. On 7 November 2026, `POST /v1/recall` at one cell gave:
+
+| band | result |
+|---|---|
+| `population` | one fact, at tag 21 |
+| `nightlights` | no fact. A `materialize_notes` entry says that this deployment withdrew the band, because its open upstream is gone (`RETIRED_UPSTREAM_GONE_BANDS`) |
+| `ghsl` | no fact. A `materialize_notes` entry says `unknown_band`. Its sub-keys, such as `ghsl.built_surface_m2`, give HTTP 400 `band_not_in_registry` |
+
+Treat the class as a declaration that the manifest signs, not as an
+access control that the responder applies.
 
 ---
 
@@ -2237,13 +2278,13 @@ what emem.dev returned that day.
 | Input | Result |
 |---|---|
 | no `tslot` and no `window` | accepted; the claim uses the facts at every tslot for that band |
-| `value` of a different type from the fact, for example a string against a number | `verdict: false`, with the fact CIDs in `evidence`. No error |
+| `value` of a different type from the fact, for example a string against a number | `verdict: false` for `eq`, `lt`, `le`, `gt`, `ge` and `in`. `verdict: true` for `ne`, and for `ni` with an array `value`, because no value is equal. The fact CIDs are in `evidence`. No error |
 | `agg` that is not one of the five names | evaluated as `any` |
 | unknown `op` | HTTP 400 `invalid_argument`, with `details.deserializer_error` naming the ten valid ops |
 
-So in `verify`, a `false` verdict can mean "the value fails the test"
-or "the types do not compare". Check the fact values in `evidence` to
-tell the two apart. New ops ship under semver. An unknown op MUST give
+So in `verify`, a verdict can mean "the value passes or fails the test"
+or "the types do not compare". A `true` from `ne` or `ni` is the risky
+case. Check the fact values in `evidence` to tell the two apart. New ops ship under semver. An unknown op MUST give
 a structured error, not `false`, and the responder does that.
 
 ---

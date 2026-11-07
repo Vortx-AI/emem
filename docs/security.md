@@ -301,10 +301,18 @@ Some rules for these routes:
 
 ### Read the independent witness fields
 
-Read `head_is_independently_witnessed`, not `head_is_witnessed`. The second
-field counts this node's own write-liveness canary. The canary signs the head
-every two minutes, so that field is nearly always true. The `independent_*`
-fields remove this node's own key, and only they bear on split view.
+Read `head_is_witnessed_by_independent_operator`. It is true only when a key
+in the `org_vouched` tier signed the current head. The other two head fields
+say less:
+
+- `head_is_witnessed` counts this node's own write-liveness canary. The
+  canary signs the head every two minutes.
+- `head_is_independently_witnessed` removes this node's key, but it counts
+  every `key_only` key. Anyone can make such keys at no cost.
+
+The live response `note` still points to `head_is_independently_witnessed`.
+The code comments call `independent_witness_count` a number that "a swarm of
+fresh keys inflates at will".
 
 On 7 November 2026, `/v1/log/witnesses` reported:
 
@@ -316,6 +324,7 @@ On 7 November 2026, `/v1/log/witnesses` reported:
 | `independent_operator_count` | 1 |
 | `freshest_independent_witness_entries_behind` | 11 |
 | `head_is_independently_witnessed` | `false` |
+| `head_is_witnessed_by_independent_operator` | `false` |
 
 A `key_only` witness proves only that someone holds a key, and keys are free.
 So one independent operator vouched by a domain counts for more than 111 bare
