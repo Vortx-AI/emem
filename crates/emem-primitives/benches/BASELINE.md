@@ -54,7 +54,7 @@ What the table shows:
 
 ## 2. `find_similar` brute-force scaling (cosine, 128-D, k=10)
 
-This bench installs no Lance index.
+The section 2 group runs with no Lance index (`EMEM_DISABLE_LANCE=1`).
 So `find_similar` uses the O(N) linear scan through `iter_index`.
 
 | corpus (cells) | time | per cell |
@@ -69,9 +69,9 @@ What the table shows:
   This covers decode, score and heap updates.
 - At 1 million cells, this rate gives about 2.3 s.
 - At 100,000 cells, 233 ms is already too slow for an interactive call.
-- Phase 2 must remove this limit with two changes.
-  The first is an ANN path for queries with `filter`, `as_of` or `scope`, which skipped the index.
-  The second is faster decode and SIMD scoring per candidate.
+- Phase 2 planned two changes to remove this limit.
+  The first, an ANN path for queries with `filter`, `as_of` or `scope`, is done (section 3).
+  The second, faster decode and SIMD scoring per candidate, is open.
 
 ## 3. `find_similar` ANN pool and exact rerank (Phase 2, filtered queries)
 
@@ -92,7 +92,8 @@ What the table shows:
 - The 23.3 ms figure is high.
   In the bench, `MemStorage::scan_cell` is O(N), so each `as_of` check scans all 100,000 cells again.
   Production storage (sled) uses a prefix scan, so the real gain is larger.
-- The time grows with the over-fetch factor, not with corpus size.
+- In production on sled, the time grows with the over-fetch factor and not with corpus size.
+  In this bench, it also grows with corpus size.
   `EMEM_FIND_SIMILAR_RERANK_OVERSAMPLE` sets that factor (default 32, range 4 to 512).
 
 The code paths are in `crates/emem-primitives/src/find_similar.rs`.

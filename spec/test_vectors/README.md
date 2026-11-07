@@ -47,7 +47,9 @@ Until the planned kinds ship, use these known answers from other places:
   `GET https://emem.dev/v1/manifests` returns the live values.
 - `GET https://emem.dev/v1/log/test_vectors` gives known answers for the
   transparency-log tree and the attestation batch tree.
-- The worked examples in docs/protocol.md §1.4 and §7.2.
+- The worked examples in docs/protocol.md §1.4 and §7.2. On 7 November 2026,
+  the §1.4 example gives `dedi.zaf00.bafi.baba` for (0, 0), but the code gives
+  `defi.zb400.bafi.baba`. Pull request #32 corrects it.
 
 ## The four os_trace vectors
 
@@ -92,7 +94,7 @@ example shortens the `trace` object):
 | `id` | `<group>.<subgroup>.<test>.<seq>`, lower case, dot-separated. The file name is `<id>.json`. |
 | `kind` | The vector kind. It is also the directory name. |
 | `spec` | The spec version that the vector tests. |
-| `level` | The conformance level that the vector belongs to. All four `os_trace` vectors are `L1`. |
+| `level` | The conformance level that the vector belongs to. All four `os_trace` vectors are `L1`. The code also tags each MCP tool L0, L1 or L2 (`ToolDescriptor.level` in `crates/emem-mcp/src/lib.rs`). No document defines yet what a conforming node must pass at each level. |
 | `input` | Kind-specific input. For `os_trace`, it is the request body of `POST /v1/trace_verify`. |
 | `expected` | Kind-specific output that correct code must give. |
 | `notes` | One sentence about what the vector shows. |

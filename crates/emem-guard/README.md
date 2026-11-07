@@ -68,8 +68,8 @@ verdict, but it verifies no citation. `GET /health` then reports
 
 The node has nine verdict routes into one engine. The same evidence gives the
 same verdict through each route. Seven routes are open. Two are for one vendor.
-`server.rs` registers 16 routes in total. The others are health, the contract
-and the log reads.
+`server.rs` registers 16 routes in total. The others are health, the contract,
+the module list and the log reads.
 
 | Checkpoint | Who calls it | Route |
 |---|---|---|
@@ -83,7 +83,7 @@ and the log reads.
 | Anthropic Inference hooks | claude.ai, Cowork and Claude Code in a Claude Enterprise org | `POST /verdict/anthropic-hook` |
 | Claude Code client hooks | agents on the Platform API, Bedrock and Vertex, which Inference hooks do not see | `POST /verdict/claude-code` |
 
-A denial names a log leaf. Anyone can fetch it with `GET /log/entry/{leaf}`
+Each verdict names a log leaf. Anyone can fetch it with `GET /log/entry/{leaf}`
 and check the verdict without trust in the node.
 
 `GET /.well-known/emem-guard.json` publishes the full contract: routes, deny

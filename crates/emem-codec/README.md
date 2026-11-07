@@ -91,7 +91,7 @@ before the longitude bits. Do not use shared symbols to find neighbours. For
 the exact neighbours of a cell, read `neighborhood_cells` from
 `POST /v1/locate`.
 
-The decoder refuses an id that is not a geo cell at resolution 21. An older
+`latlng_from_cell64` refuses an id that is not a geo cell at resolution 21. An older
 grid of about 305 m used a different resolution tag. Its strings fail with
 `NotGeoCell`, so a fact cannot move to a wrong place without an error.
 
@@ -117,7 +117,9 @@ H3 code ships in this crate. To weight cells by area across latitudes, use
 ## Read more
 
 - [docs/protocol.md](../../docs/protocol.md), section 1: the full cell64
-  encode and decode rules, with a worked example.
+  encode and decode rules, with a worked example. On 7 November 2026, the section 1.4 example on this branch gives
+  `dedi.zaf00.bafi.baba` for (0, 0). The code gives `defi.zb400.bafi.baba`.
+  Pull request #32 corrects the example.
 - [docs/protocol.md](../../docs/protocol.md), sections 2 and 3: time slots,
   fact ids and `cid64`.
 - [docs/glossary.md](../../docs/glossary.md): the terms cell, `cell64` and

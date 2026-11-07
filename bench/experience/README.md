@@ -1,7 +1,7 @@
 # Experience-transfer benchmark
 
-This directory holds a benchmark for one question. Can an agent that reuses
-verified experience from emem solve new programming tasks for less money?
+This directory holds a benchmark. It measures whether an agent that reuses
+verified experience from emem solves new programming tasks for less money.
 It is for people who want to measure that claim, not for people who call emem.
 To call emem, read [docs/agents.md](../../docs/agents.md).
 
@@ -63,7 +63,7 @@ optional, parsing, serialization and validators. Each family has these tasks:
 | `runner.py` | Makes one cached venv per version spec and runs the hidden tests. It records `pip freeze` and its sha256 as `env_fingerprint`. |
 | `validate_suite.py` | Checks the task suite (see below). |
 | `arms.py` | The two baseline arms, the docs tool and an adapter that has no model. |
-| `cost.py`, `prices.json` | Prices token usage. Every price in `prices.json` is `null`. |
+| `cost.py`, `prices.json` | Prices token usage. Every price for a real model in `prices.json` is `null`. |
 | `run_stream.py` | Runs one arm over the stream and writes `runs/`. |
 | `adapters.py` | `ShimAdapter`: a chat client for the LLM shim on `127.0.0.1:5015` (Gemma 3 12B). See [python/llm_shim](../../python/llm_shim/README.md). |
 | `emem_arm.py` | Publishes procedures as signed emem notes and retrieves them with `/v1/memory/search`. |
@@ -135,6 +135,10 @@ You cannot run the pilot from this repository alone. It needs these items:
 - The LLM shim on `127.0.0.1:5015`.
 - Signed writes to emem.dev. Without `--skip-publish`, the pilot writes one
   note per discovery task. `repair.py` and `techniques.py publish` also write.
+- Operator paths. `pilot.py` keeps its venvs in
+  `/home/ubuntu/emem-world/agents/state/bench-venvs` unless `EMEM_BENCH_CACHE`
+  is set. `repeats.sh` and `repeats2.sh` run from `/home/ubuntu/emem-bench`
+  with `/home/ubuntu/.emem-witness/venv/bin/python`.
 
 `pilot.py` prices Gemma 3 12B at USD 0.09 per million input tokens and
 USD 0.29 per million output tokens. These rates are in the code. It does not

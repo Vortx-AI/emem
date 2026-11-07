@@ -37,7 +37,9 @@ form on 7 November 2026 because this host has no pip.
 - `sdk_doc_links_resolve`: recorded `0 dead of 6`, now
   `1 dead of 20: https://emem.dev/.well-known/openai-apps-challenge`. That
   URL answers 404 until an operator sets `EMEM_APPS_CHALLENGE`.
-  `integrations/chatgpt/submission.md` explains this.
+  `integrations/chatgpt/submission.md` explains this. The URL count also
+  grew from 6 to 20, because `claims.py` now scans `sdks/`, `python/` and
+  `integrations/`.
 - `core_profile_whole_on_page_one`, `unknown_recall_field_is_refused` and
   `cell_matches_reports_a_check_that_ran` are in `claims.py` but not in the
   lockfile. Someone added them after the last `record`.
@@ -79,7 +81,7 @@ a true statement that had become false. Each passed the test suite:
 - A panel had "163 recipes" in its source. The live registry had 168.
 - A stylesheet copied from a page that later moved its tokens left 32 of 33
   custom properties undefined.
-- An MCP default of 64 that the server never applied.
+- An MCP default was 64, and the server never applied it.
 - An annotation said closed-world. The description under it said the opposite.
 - `tools/list` returned 288,002 bytes. The client cap was 102,400.
 
@@ -113,8 +115,7 @@ same codes.
 
 1. It checks the signed record. It fetches the ledger, hashes the bytes
    locally and compares the hash with the address in the lockfile. It
-   verifies the ed25519 signature offline against the attester key. It also
-   compares the responder's `file_cid` with the one it computed. It trusts
+   verifies the ed25519 signature offline against the attester key. It trusts
    no answer from emem in this step.
 2. It checks that the repo still says what was signed. It rebuilds the ledger
    text from the current `claims.py` and compares it with the served bytes.
@@ -210,6 +211,12 @@ Every claim still holds, and the signed record of them is intact.
       repo:   observed: 163
    x algorithm_registry_total: recorded '163', now '168'  (GET /v1/algorithms and read pagination.total)
    caught: a finding names "algorithm_registry_total: recorded '163', now "
+
+One digit changed and the number stopped matching the fact emem signed.
+One character of the citation changed and the citation stopped resolving.
+One edit to the expected value, with no code touched at all, and the
+signed ledger stopped matching the repo. That last one is the whole
+point: EXPECTED = 168 at the top of a script has no defence against it.
 ```
 
 Scenario 4 replays the "163 recipes" defect. No code changes, and the gate
@@ -262,6 +269,12 @@ This output is from 11 August 2026:
 
 4. restored
    ok        /memories/by_attester/4fqtfku6/stabilise/tamper-rehearsal.md serves h3xlz2fravedia7y7gnuggccse again and verifies clean
+
+The strongest attack on this scheme is not a broken signature. It is a
+correct one over different bytes, by the key that owns the namespace, which
+the responder accepts because it is entitled to. Every question this record
+can answer about itself comes back clean. What disagrees is the address
+pinned outside it, in git, and one disagreement is enough.
 ```
 
 Each step happened on the live responder. Nothing comes from a fixture.
@@ -339,7 +352,7 @@ What each claim protects:
   returns the full core profile and no `nextCursor`. Some hosts read page one
   only. They once got 12 tools of a 16-tool core profile.
 - `unknown_recall_field_is_refused`: `determinstic: true`, with one letter
-  out of place, once returned every fact with status 200. The probe requires
+  missing, once returned every fact with status 200. The probe requires
   a refusal for the typo and real filtering for `deterministic: true`.
 - `cell_matches_reports_a_check_that_ran`: `cell_matches` was `true` on every
   200. A bare cid names no cell, so the probe requires `false` for it and

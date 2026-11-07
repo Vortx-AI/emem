@@ -258,7 +258,8 @@ emem-airgap verify-join out/join_request.ibed2l3i.json
 
 `identity` prints the node's public key for the endorser. `verify` checks a
 record, and the file it covers. `verify-join` checks a join request. Put your
-own node's short key in place of `ibed2l3i`. Give `verify` the full record
+own node's short key in place of `ibed2l3i`, and your own `--observed-at`
+time in place of `20261107T090000Z`. Give `verify` the full record
 name. A later run writes a second record for the same file, and a `*` pattern
 then matches both.
 
@@ -674,12 +675,14 @@ described above.
 
 On an orbital payload, use `orbital.counters.v1`. On any other Linux host with
 no kernel tracing, use `host.counters.v1`. Both require four layers: scheduler,
-memory, storage and network. Each comes from `/proc` on every Linux system: `/proc/schedstat`,
-`/proc/meminfo`, `/proc/diskstats` and `/proc/net/dev`. Any
-user can read them, with no mount and no extra privilege.
+memory, storage and network. Each comes from `/proc` on every Linux system.
+The encoder reads eight files: `/proc/schedstat`, `/proc/loadavg`,
+`/proc/stat`, `/proc/meminfo`, `/proc/vmstat`, `/proc/diskstats`,
+`/proc/net/dev` and `/proc/net/snmp`. Any user can read them, with no mount and no extra privilege.
 
 The registry (`crates/emem-core/data/substrates-v0.json`) explains why other
-profiles do not work here. Every other profile that takes a trace requires
+profiles do not work here. `exec.trace.v1` requires `syscall`, and only
+kernel tracing gives that layer. Every other profile that takes a trace requires
 `sensor_bus`, `signal` or `inference`. This encoder has no source for any of them:
 
 | Profile | Required layers | Can this encoder satisfy it |

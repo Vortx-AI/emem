@@ -50,7 +50,7 @@ an identity. Both change the name that every other agent resolves, so each
 call needs an ed25519 attester block. The caller signs it with a keypair that
 the caller makes locally. The caller must also hold tier T3 on the enlistment
 ladder, which `https://emem.dev/v1/enlist` publishes. Without a signature, the server refuses
-with HTTP 403 and returns the digest to sign. A ChatGPT user has no such key,
+with HTTP 403 and returns the digest to sign. Over MCP, the refusal is a tool error. A ChatGPT user has no such key,
 so in this app both tools refuse and write nothing.
 
 An earlier draft of this page said "none of emem's write verbs is exposed".
