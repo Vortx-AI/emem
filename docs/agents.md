@@ -261,8 +261,8 @@ object with `min_lat`, `max_lat`, `min_lng` and `max_lng`. An array of four
 numbers gives HTTP 400 `invalid_argument`. See
 [Two forms of bbox](#two-forms-of-bbox).
 
-Over MCP on 7 November 2026, the 4-cell answer was 18,943 bytes on the wire.
-It had no `structuredContent`, so read it from the text. With
+Over MCP on 7 November 2026, the 4-cell answer was about 18,900 bytes on the
+wire. Three calls gave 18,929 to 18,943 bytes. It had no `structuredContent`, so read it from the text. With
 `"max_cells": 16`, the MCP answer omitted `by_cell`, which holds the facts and
 the receipt of each cell. Its `fetch` body kept only `place`. For more than a
 few cells, use the REST call with all your arguments.
@@ -506,10 +506,11 @@ counts disagreement inside one attester too. Send
 `"include_same_attester_sources": false` to count only different attesters.
 Its time budget stopped it before it examined all the listed keys
 (`scan_truncated: true`). Thus `corpus_scanned` is not the number of keys
-examined. Send the `resume_after` value back to continue the scan. The `agent_hint` text says `(whole corpus)`. That means that you
-sent no filter. It does not mean that the scan is complete. Read
-`scan_truncated`. Add `cell_prefix` or `band` to narrow the scan. Each
-contradiction has a `severity` from 0 to 1. Its
+examined. Send the `resume_after` value back to continue the scan. The
+`agent_hint` text says `(whole corpus)`. That means that you sent no filter.
+It does not mean that the scan is complete. Read `scan_truncated`. Add
+`cell_prefix` or `band` to narrow the scan. Each contradiction has a
+`severity` from 0 to 1. Its
 `attestations` list gives each side with its `fact_cid`, `value`, attester
 and `signed_at`. Read `disagreement_scope` before you quote one:
 
