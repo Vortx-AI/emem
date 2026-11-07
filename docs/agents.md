@@ -1939,19 +1939,19 @@ pip install requests blake3 cbor2 cryptography
 
 On 7 November 2026 the script printed
 `VALID, signed by 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka`.
-The script does not build segments `0x03` to `0x05`. It prints `INVALID`
-for a valid receipt that has `scope`, `as_of` or edges. Send such a receipt
-to `POST /v1/verify_receipt`. The verifier in
+The script does not build segments `0x03` to `0x05`. It stops with a
+message for a receipt that has `scope`, `as_of` or `edge_cids`. Send such a
+receipt to `POST /v1/verify_receipt`. The verifier in
 [emem-verify-receipt](../plugins/emem/skills/emem-verify-receipt/SKILL.md)
 has the same limit, and it tells you to use that route.
 
 ```python
-"""Verify an emem receipt offline. Reproduces /v1/verify_receipt locally.
+"""Verify an emem receipt offline.
 
-Handles preimage v1 and v2. Select the rule from the receipt's own
-`preimage_version`: a verifier that hardcodes either one rejects half the
-valid receipts in existence. v2 (current) binds the inclusion proof into
-the signature; v1 receipts are still valid and still verify under v1.
+Handles preimage v1 and v2, without segments 0x03 to 0x05. Select the
+rule from the receipt's own `preimage_version`. A verifier that uses one
+fixed rule rejects every valid receipt of the other version. v2 (current)
+binds the inclusion proof into the signature.
 """
 import base64
 import requests
@@ -1974,6 +1974,9 @@ resp = requests.post(f"{EMEM}/v1/recall",
 r = resp["receipt"]
 pv = r.get("preimage_version", 0)
 assert pv in (1, 2), f"this sample implements preimage v1 and v2, got v{pv}"
+if r.get("scope") or r.get("as_of") or r.get("edge_cids"):
+    raise SystemExit("receipt has scope, as_of or edge_cids: "
+                     "send it to POST /v1/verify_receipt")
 
 h = blake3.blake3()
 h.update(b"emem.preimage.v1\x00")
@@ -1995,8 +1998,7 @@ def seg_list(tag: int, items):
 
 seg(0x01, r["request_id"].encode())
 seg(0x02, r["served_at"].encode())
-# Optional segments, present only when the receipt carries the matching
-# body field: 0x03 scope, 0x04 as_of, 0x05 edges, 0x06 manifest.
+# 0x06, only when the receipt has a non-empty source_versions map.
 if r.get("source_versions"):
     versions = dict(sorted(r["source_versions"].items()))
     manifest_hex = blake3.blake3(cbor2.dumps(versions)).hexdigest()
