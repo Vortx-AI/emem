@@ -1137,8 +1137,9 @@ many, and how fresh. For these, call the coverage routes directly.
 
 A classifier in `/v1/ask` catches some corpus questions, but not all
 wordings. On 7 November 2026, "where do you have signed facts?" gave
-`status: "corpus_audit"` with no receipt. Its `redirect_to` list names the
-routes in the table above. "How many cells have facts?" gave
+`status: "corpus_audit"` with no receipt. Its `redirect_to` list names
+three routes: `/v1/coverage_map.svg`, `/v1/coverage` and
+`/v1/coverage_matrix`. "How many cells have facts?" gave
 `envelope_schema: "needs_location"`, because the geocoder read a company name
 as a place. Call the coverage routes directly.
 
