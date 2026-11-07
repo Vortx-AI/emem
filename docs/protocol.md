@@ -1813,6 +1813,16 @@ This verifier mirrors `emem_attest::receipt_preimage_v1` and
 table that `GET /v1/verifier_spec` serves. It needs two packages:
 `pip install blake3 pynacl`.
 
+The script does these steps in this order:
+
+1. It reads the Ed25519 public key from the `responder` field of the receipt.
+2. It hashes each optional field (scope, `as_of`, edges, source versions,
+   field binding) to a hex digest. An empty field adds no segment.
+3. It writes the segment stream from §7.1 under the receipt's own
+   `preimage_version`. A v2 receipt always adds the `merkle` segment.
+4. It hashes the stream with BLAKE3 to a 32-byte digest.
+5. It checks the signature over that digest, not over the stream.
+
 Get a receipt to check. These two calls are reads and need no key:
 
 ```sh
@@ -1821,7 +1831,8 @@ curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
   | python3 -c 'import json,sys; json.dump(json.load(sys.stdin)["receipt"], open("receipt.json","w"))'
 ```
 
-Then run the script below in the same directory. When the signature is
+Save the script below as `verify74.py` in the same directory. Then run
+`python3 verify74.py`. When the signature is
 good, it prints the preimage digest. When the signature is bad, it raises
 `BadSignatureError`. To compare with the responder, send the same receipt
 to `POST /v1/verify_receipt` as `{"receipt": ...}`. Its
@@ -1958,8 +1969,9 @@ above. It printed the same `preimage_blake3_hex` as
 
 CI runs this listing unchanged on each push and pull request to `main`.
 CI starts a fresh node. `scripts/spec_verifier_check.py` then gets a
-receipt from that node and runs the block. A receipt that does not verify fails the build. On
-7 November 2026 at 02:52 UTC this check passed against emem.dev.
+receipt from that node and runs the block. A receipt that does not
+verify fails the build. A manual run of the same check against emem.dev
+passed on 7 November 2026 at 03:35 UTC.
 
 The check runs the first `python` block in this file that contains both
 `emem.preimage.v1` and `VerifyKey`. The witness block in §9.6.2.1 also
