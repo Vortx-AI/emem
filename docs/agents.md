@@ -1190,7 +1190,7 @@ Look at `/v1/data_availability` before you select a window.
 `tools/list` on `/mcp` shows the 18 `core` tools in one page (about 75 KB of descriptors).
 `/mcp/full` advertises all 116 (about 355 KB over 9 pages on 7 November 2026). Send
 `{"tier": "core"}`, `"extended"` or `"all"` to change the list on either
-endpoint. `tools/call` runs any tool by name on both endpoints, so a short
+endpoint. The `extended` and `all` lists come in pages: follow `nextCursor`. `tools/call` runs any tool by name on both endpoints, so a short
 list costs you no tools.
 
 Every tool declares one shape in `_meta` under `dev.emem/shape`. The shape
@@ -1220,8 +1220,10 @@ loop, a bundle menu, and a shape menu in about 13 KB.
 |---|---|
 | `{"shape": "raster"}` | Tools with that shape. All 13 shapes worked on 7 November 2026, but the input schema lists only the first 11 |
 | `{"bundle": "robotics"}` | Tools for one job. Bundles overlap: `tokenisation`, `verification`, `agent_to_agent`, `long_horizon`, `robotics`, `satellites`, `agriculture`, `forestry`, `climate_risk` |
+| `{"category": "read"}` | Tools for one kind of job: `read`, `write`, `verify`, `introspect` or `plan`. On 7 November 2026 these held 75, 8, 11, 19 and 3 tools. A `read` tool can still write: read `annotations.readOnlyHint` (see [Tool hints](#tool-hints)) |
 | `{"q": "ndvi"}` | A text search over the catalogue |
-| `{"name": "emem_ndvi"}` | One tool's input schema and a runnable example, about 8 KB |
+| `{"tier": "core"}` | Limits the other filters to `core`, `extended` or `all`. The default is `all`. On 7 November 2026, `{"q": "ndvi"}` matched 14 tools, and 1 with `tier: "core"` |
+| `{"name": "emem_ndvi"}` | One tool's input schema and a runnable example, about 8 KB. The tool then ignores all other arguments |
 
 `{"bundle": "robotics"}` also works as a `tools/list` argument. Then the
 list holds that bundle only.
