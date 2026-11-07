@@ -24,14 +24,21 @@ All values on this page are what emem.dev returned on 7 November 2026. A newer r
 ```bash
 curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
-  -d '{"place":"Cairo","bands":["copdem30m.elevation_mean"]}'
+  -d '{"place":"Cairo","bands":["copdem30m.elevation_mean"]}' \
+  | jq '.facts[0] | {value, cell, fact_cid, memory_token}'
+# {
+#   "value": 187.33578491210938,
+#   "cell": "defi.zb555.ze8e5.xawO",
+#   "fact_cid": "ivtsljcmbnugccv72zjyuhyvtfrfvz4oqs43kjk5tibb4qw2hnlq",
+#   "memory_token": "emem:fact:defi.zb555.ze8e5.xawO:ivtsljcmbnugccv72zjyuhyvtfrfvz4oqs43kjk5tibb4qw2hnlq"
+# }
 ```
 
-These fields in the response are important:
+Remove the `jq` line to see the full response. These fields in the response are important:
 
 | Field | What it is | Value on 7 November 2026 |
 |---|---|---|
-| `facts[0].value` | The elevation in metres at one cell of about 10 m, from the Copernicus 30 m elevation model | `187.33578491210938` |
+| `facts[0].value` | The elevation in metres at the centre of the cell. It is the Copernicus GLO-30 pixel (30 m) that contains that point. | `187.33578491210938` |
 | `facts[0].cell` | The cell64 address of that cell. `receipt.cells[0]` holds the same value. | `defi.zb555.ze8e5.xawO` |
 | `facts[0].fact_cid` | The BLAKE3 hash of the fact's canonical bytes. If one byte changes, the id changes. | `ivtsljcm...hnlq` |
 | `facts[0].memory_token` | The ready-made token for this fact. Step 3 makes it by hand. | `emem:fact:defi.zb555...` |
@@ -75,7 +82,15 @@ emem:fact:<cell64>:<fact_cid>
 ```
 
 Take `facts[0].cell` and `facts[0].fact_cid` from step 1 and write the line. Compare it with `facts[0].memory_token`.
-The two must be equal.
+The two must be equal. This command does the same comparison:
+
+```bash
+curl -s -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' \
+  -d '{"place":"Cairo","bands":["copdem30m.elevation_mean"]}' \
+  | jq '.facts[0] | "emem:fact:\(.cell):\(.fact_cid)" == .memory_token'
+# true
+```
 
 This tutorial uses one Cairo elevation fact that emem signed on 16 July 2026:
 
