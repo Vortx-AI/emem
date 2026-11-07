@@ -1078,8 +1078,8 @@ function reduced it before the caller saw it.
 | Lance version manifests grow without bound | fixed by an hourly prune |
 | No vector index on the memory text index | open, not urgent |
 | An author cannot supersede their own note | ships: `emem_memory_supersede` |
-| Tool discovery costs too much context | ships |
-| The write path explains itself | ships |
+| Tool discovery costs too much context | fixed: a small default list ships |
+| A refused write does not say how to sign | fixed: the refusal explains the digest |
 | A native-resolution raster for an area | ships, two parts still open |
 | Partial results instead of a timeout | ships |
 | A memory preparer for an area across a window | ships, as the `cells` form of backfill |
@@ -1112,7 +1112,7 @@ The memory text dataset has no index. `ds.list_indices()` returns nothing,
 so each semantic search scans all stored vectors. A comment in
 `crates/emem-primitives/src/memory_search/mod.rs` records 18,269 vectors
 and 2.2 s for one scan. The response field `via` says `lance_scan` for this
-path, or `lance_chunks` when the chunked partition is loaded. Neither one
+path, or `lance_chunks` when the responder holds the chunked partition. Neither one
 is `ann`. The `find_similar` cell-embedding partitions do have a
 vector index (`lance_index.rs`). Cost grows with the corpus.
 
@@ -1139,13 +1139,14 @@ Values measured on emem.dev on 7 November 2026:
 | request | tools | size |
 |---|---|---|
 | `tools/list` on `POST /mcp` | the 18 core tools, one page | about 75 KB |
-| `tools/list` on `POST /mcp/full` | all 116 tools, 8 pages | about 346 KB |
+| `tools/list` on `POST /mcp/full` | all 116 tools, 9 pages | about 346 KB |
 | `emem_tools` with no arguments | the loop and a menu | about 13 KB |
 | `emem_tools` with `{"name":"emem_ndvi"}` | one schema and an example | about 8 KB |
 
 `tools/call` runs every tool by name at both endpoints. A smaller list
-removes no tool. An earlier version paged the catalog behind a
-non-standard `nextCursor`, and hosts ignored it.
+removes no tool. In an earlier version, the default list also used
+`nextCursor` pages. Many hosts read only the first page, so they saw 12
+tools.
 
 #### The write path explains itself
 
@@ -1160,7 +1161,8 @@ Before, they dropped them, so MCP callers could not see a typed error.
 
 A world model reads a field, not a set of points. Before this item, every
 route returned per-cell scalars, or a 256x256 8-bit stretched PNG from
-`build_cell_scene_rgb`. Science cannot invert that PNG.
+`build_cell_scene_rgb`. A scientist cannot get the source values back
+from that PNG.
 `recall_polygon` takes at most 1,024 cells (`max_cells`). A 2 km area holds
 about 40,000 cells at 10 m, so per-cell recall cannot express it. The
 reporting agent wrote its own STAC and COG reader against emem's upstream.
@@ -1187,9 +1189,9 @@ The `aoi_cid` content-addresses the geometry, so one area always gives one
 token. The raster algorithms are `band_raster@1`, `s2_median_composite@1`,
 `dem_raster@1`, `embedding_raster@1` and `forest_raster@1`. `dem_raster@1`
 reads one Copernicus GLO-30 tile. It refuses a bbox that crosses a 1 degree
-tile edge. `embedding_raster@1` reads geotessera, and emem.dev no
-longer fetches geotessera, so it returns only vectors already stored. Its fan-out stops at
-256 cells (`MAX_EMBEDDING_CELLS`).
+tile edge. `embedding_raster@1` reads geotessera. emem.dev no longer
+fetches geotessera, so it returns only vectors already stored. Its
+fan-out stops at 256 cells (`MAX_EMBEDDING_CELLS`).
 
 Still open: a larger embedding fan-out, and fp16 artifacts.
 
@@ -1252,8 +1254,8 @@ preimages before: `corpus_state_stats`, `operator_attestation` and
 `stream_tick`. They now use `preimage_v1`.
 
 The spec also lists three objects under `caller_signed_objects`. The
-responder verifies them but does not sign them. Only `memory_write` is
-signed by the caller itself:
+responder verifies them but does not sign them. The calling agent
+itself signs only `memory_write`:
 
 | object | who signs | rule |
 |---|---|---|
