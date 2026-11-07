@@ -1799,7 +1799,7 @@ segment. It signs no other field of the request or the answer:
 
 | Not signed | What can go wrong | What to do |
 |---|---|---|
-| The `place` or `q` string | A wrong geocode gives a valid signature for the wrong cell. For example, `q="Mount Kilimanjaro"` can resolve to a street with that name. `POST /v1/verify_receipt` still says `valid: true`. | Read `selected.is_high_confidence` from [`/v1/locate`](#job-turn-a-place-name-into-an-address) before you use a place-based answer. Keep the original query with the receipt. |
+| The `place` or `q` string | A wrong geocode gives a valid signature for the wrong cell. A mountain name can resolve to a street with the same name. `POST /v1/verify_receipt` still says `valid: true`. | Read `selected.is_high_confidence` from [`/v1/locate`](#job-turn-a-place-name-into-an-address). A recall by `place` gives the same flag at `resolved_from.cell.is_high_confidence`. Keep the original query with the receipt. |
 | `lat` and `lng` | Two points in the same cell (about 10 m) get the same receipt. | Keep the original coordinates if the sub-cell position matters. |
 | `bands`, `tslot`, `intent` | The receipt does not show that the facts answer your question. | Check the band and tslot of each fact yourself. |
 | The values | A responder can print `value: 0.99` next to a `fact_cid` whose body holds `0.059`, and the receipt still verifies. | The cid commits to the value. Check it with the next script. |
