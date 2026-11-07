@@ -439,7 +439,7 @@ Per-function fields:
 | `kind` | always | primary, derivative or negative |
 | `out_band` | always | output band key |
 | `out_index` | multi-dim `out_band` | slot index in `out_band.dims` |
-| `out_unit` | always | physical unit string |
+| `out_unit` | optional | physical unit string; 3 of 23 functions omit it (`nd.delta@1`, `nd.trend@1`, `abs.s1.water@1`) |
 | `sources[]` | primary, negative | upstream `SourceRequirement` (scheme, channels, tempo) |
 | `parents_required` | derivative | exact parent count, for an op like `delta` |
 | `parents_min` | derivative | minimum parent count, for an op like `trend` |
@@ -487,7 +487,7 @@ One example of each kind:
 
 ## emem-sources (sources-v0.json)
 
-46 source schemes. Each scheme has an ordered `providers[]` list.
+46 source schemes with 48 providers. Each scheme has an ordered `providers[]` list.
 `Dispatcher::fetch` in `crates/emem-fetch/src/lib.rs` tries the providers in
 that order and returns the first success. `emem-storage` holds a
 `Dispatcher`, but no serving path calls it. The materializers in
@@ -530,10 +530,10 @@ Per-provider fields (struct `sources::Provider`):
 |---|---|
 | `id` | provider ID (for example `"gcs.public"`, `"aws.opendata"`) |
 | `kind` | one of the 8 `ConnectorKind` values |
-| `url_template` | template with `{var}` interpolation |
+| `url_template` | optional template with `{var}` interpolation; all 48 providers set it |
 | `cid` | static IPLD CID (only for the `ipld_cid` kind) |
-| `auth` | string; the file uses `"anonymous"` (45), `"earthdata_login"` (2) and `"firms_map_key"` (1) |
-| `rate_limit_qps` | a soft limit |
+| `auth` | string, default `"anonymous"`; the file uses `"anonymous"` (45), `"earthdata_login"` (2) and `"firms_map_key"` (1) |
+| `rate_limit_qps` | a soft limit in queries per second, default 50 |
 | `license` | licence string (`"CC-BY-4.0"`, `"Copernicus open data"`) |
 
 The validator rejects two schemes with the same name. An empty
