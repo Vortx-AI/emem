@@ -308,10 +308,12 @@ curl -s -X POST https://emem.dev/v1/band_raster \
   -d '{"bbox":{"min_lat":35.36,"min_lng":138.72,"max_lat":35.365,"max_lng":138.726},"band":"s2.B04"}'
 ```
 
-On 7 November 2026, the call read the Sentinel-2 scene
-`S2C_MSIL2A_20261028T012741_R074_T54STE_20261028T043307` (tslot 20754). The
-grid was 56 by 55 pixels at 10 m in EPSG:32654. The bytes at `artifact.url`
-were 12,384 bytes long, and their BLAKE3 was equal to `artifact_cid`. Cite
+Without a date, the call reads the newest Sentinel-2 scene of the last 30
+days with less than 40% cloud. Later on 7 November 2026, the call read the
+scene `S2C_MSIL2A_20261107T012841_R074_T54STE_20261107T044106` (tslot
+20764) from that morning. Earlier that day it read the scene of 28 October
+(tslot 20754). The grid was 56 by 55 pixels at 10 m in EPSG:32654. The bytes
+at `artifact.url` were 12,384 bytes long. Cite
 `tokens.raster`. To check it later, send it to `POST /v1/raster/resolve`
 (MCP `emem_raster_resolve`) with `"spot_check": true`.
 
@@ -332,7 +334,11 @@ cite the tokens from that answer.
 
 For the same grid on several dates, use `emem_band_cube` (`POST
 /v1/band_cube`). Add `observed_on`, a list of 2 to 24 dates as `YYYY-MM-DD`.
-Each date selects the nearest scene, and dates that select one scene become one
+For each date, the server takes the newest scene with less than 40% cloud
+in a window of 30 days before and after that date. The window ends at the
+current time. If no scene matches, it tries 60% cloud and 60 days, then 80%
+and 90 days (`s2_search_with_fallback` in `lib.rs`). Thus a date can select
+a scene up to 30 days after it. Dates that select one scene become one
 member. The band must be one of `s2.B02`, `s2.B03`, `s2.B04`, `s2.B08`,
 `s2.B11` or `s2.B12`.
 
@@ -344,8 +350,10 @@ curl -s -X POST https://emem.dev/v1/band_cube \
 
 On 7 November 2026, this call gave 2 members. The date `2026-06-01` selected
 the scene of 16 May 2026 (tslot 20589), and `requested_date_distance_days`
-was 16. The date `2026-10-28` selected the scene above (tslot 20754, distance
-0), with the same `artifact_cid`. Each member has its own `raster_token`.
+was 16. Later that day, the date `2026-10-28` selected the scene of 7
+November (tslot 20764, distance 10), not the scene of 28 October. That
+member had the same `artifact_cid` as the `band_raster` call above. Each
+member has its own `raster_token` and its `requested_dates`.
 Cite `tokens.cube`, and check it with `POST /v1/cube/resolve` (MCP
 `emem_cube_resolve`). The same call, sent again, gave a new `cube_cid`, because
 `cube_cid` hashes the member `derivation_cid` values, and those change on each
@@ -433,9 +441,8 @@ the change, cite the two parents. A reader can then compute
 in `results[0].result`. On 7 November 2026 it held only `delta_fact` and
 `receipt`, with no `phenology` block. To get that block, call `emem_diff`.
 
-The diff answer also has a `phenology` block. For the call above, on
-7 November 2026, it said that the two readings were 95 days apart in the
-seasonal cycle. Thus the delta mixes the season with real change.
+For the `emem_diff` call above, on 7 November 2026, the `phenology` block
+said that the two readings were 95 days apart in the seasonal cycle. Thus the delta mixes the season with real change.
 
 Branch on `phenology.same_doy`, not on the `caution` text. The block has
 `doy_a`, `doy_b`, `doy_gap_days`, `same_doy` and `years_apart`. The gap is
