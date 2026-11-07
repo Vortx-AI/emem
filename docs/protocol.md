@@ -36,7 +36,7 @@ read the sections it names.
 | Check who wrote a memory note | The steps in [§7.5.1](#751-check-a-notes-authorship-by-hand) |
 | Test your own encoder or verifier | [§12 Conformance gates](#12-conformance-gates-the-four-cids), [§13 Test vectors](#13-test-vectors) |
 
-To check a receipt, a note or a log proof without writing code, use a
+To check a receipt, a note or a log proof with no code of your own, use a
 verifier from the Claude Code plugin. Each script uses only the Python
 standard library. Each section above shows how to run it.
 
@@ -694,7 +694,7 @@ caller did the arithmetic, so the responder cannot say either at write
 time. The one exception is a recomputation that matches (see rule 3).
 Then the responder stores `deterministic_index` itself.
 
-**3. It must be attested, and the signature means something narrow.**
+**3. An attester must sign it, and the signature means something narrow.**
 
 > **What the responder's signature attests:** that this attester
 > submitted this derivation, over these parent facts, at this time, and
@@ -809,7 +809,7 @@ that sign in one round trip.
 
 ##### Tenancy: derived facts are attester-scoped
 
-A caller-registered derivative is untrusted input. It must never appear
+Treat a caller-registered derivative as untrusted input. It must never appear
 in a default read of another agent. The storage layout prevents this
 for the keyed reads:
 
@@ -1137,9 +1137,9 @@ The struct is `Receipt` in `crates/emem-fact/src/receipt.rs:11-103`.
 | `served_at` | `String` | ISO 8601 UTC, second precision (`iso8601_now`, `crates/emem-storage/src/server.rs:648-666`) |
 | `primitive` | `String` | namespaced wire form: `"emem.recall"`, `"emem.find_similar"`, `"emem.verify"`, `"emem.query_region"`, `"emem.memory_file"`, `"emem.memory_bundle"`, `"emem.memory_contradictions"`, … (the bare form without `emem.` is internal-only; wire receipts always carry the prefix) |
 | `intent` | `Option<String>` | set when the response comes through `/v1/intent`; omitted from JSON when None. Not signed |
-| `cells` | `Vec<String>` | cell64 strings cited in the response. For `emem.memory_file` primitives, `cells[0]` is the memory path; when an attester block was supplied, `cells[0] = "pubkey:<b32>"` and `cells[1]` is the path |
+| `cells` | `Vec<String>` | cell64 strings cited in the response. For `emem.memory_file` primitives, `cells[0]` is the memory path; when the caller sent an attester block, `cells[0] = "pubkey:<b32>"` and `cells[1]` is the path |
 | `fact_cids` | `Vec<FactCid>` | every fact CID returned. For `emem.memory_file`, `fact_cids[0]` is the new `file_cid`; for `emem.memory_bundle`, the spatial `fact_cids` cited inside the bundle in citation order |
-| `as_of` | `Option<AsOfReceipt>` | `{valid_time?: u64, transaction_time?: ISO8601}`. Present only when at least one bi-temporal bound was set on the read; absent for current-state reads so pre-bi-temporal receipts deserialise byte-identically |
+| `as_of` | `Option<AsOfReceipt>` | `{valid_time?: u64, transaction_time?: ISO8601}`. Present only when the read sets at least one bi-temporal bound; absent for current-state reads so pre-bi-temporal receipts deserialise byte-identically |
 | `schema_cid` | `SchemaCid` | active CDDL profile. Not signed here; the signed copy is `source_versions.schema_cid` |
 | `merkle_proof` | `Option<MerkleProof>` | inclusion proof for `fact_cids[0]` when persisted; omitted from JSON when None. Bound into the signature from `preimage_version: 2` on, so do not strip it (see §7.3.1) |
 | `responder` | `AttesterKey` | ed25519 pubkey, `[u8; 32]` |
@@ -1282,7 +1282,7 @@ v0 anymore.
      question*. Agents bind that decision themselves, with
      `selected.is_high_confidence` from `POST /v1/locate`.
    - The caller's raw `lat` / `lng`. Quantisation collapses sub-cell
-     precision into `cell_from_latlng` *before* signing; the receipt
+     precision into `cell_from_latlng` *before* the responder signs; the receipt
      binds the cell, not the input coordinate.
    - The requested `bands[]`, `tslot`, `intent`. The responder returned
      what it returned; whether the returned facts answer the agent's
@@ -1328,7 +1328,7 @@ Given a current-state recall receipt (no scope, `as_of`, edges, or
 - `request_id = "01HZX0K9V3"` (ULID, 26 chars in practice; this short
   example is illustrative)
 - `served_at = "2026-05-08T11:22:33Z"`
-- `primitive = "emem.recall"` (every emitted primitive name is namespaced; `crates/emem-primitives/src/recall.rs:539-540` calls `sign_receipt_with_edges("emem.recall", …)`)
+- `primitive = "emem.recall"` (every emitted primitive name carries the `emem.` namespace; `crates/emem-primitives/src/recall.rs:539-540` calls `sign_receipt_with_edges("emem.recall", …)`)
 - `cells = ["dedi.zaf00.bafi.baba", "dedi.zaf00.bafi.babe"]`
 - `fact_cids = ["bn7cabcdefghij1234567890ab"]` (a real `fact_cid` has 52
   characters; this short value is also illustrative)
@@ -1436,7 +1436,7 @@ a 400 `invalid_argument`. The two that fall through are v2's own:
 - `merkle_proof`, which v2 binds, so its removal changes the preimage.
 - `preimage_version`, which deserialises to `0` when absent and so
   silently selects the v0 rule. This is the worse of the two. The
-  inclusion proof is untouched and still walks to its root. So the
+  inclusion proof does not change and still walks to its root. So the
   response reports `merkle_proof_valid: true` next to a signature that
   it calls invalid. That pair shows this failure; it is not a
   contradiction.
@@ -1719,8 +1719,8 @@ pub fn verify_attester_versioned(verb: &str, path: &str, body_hash: &[u8; 32],
 every verb except `delete` and `rename` (`V2_REQUIRED_VERBS`). The write handler
 (`validate_attester_binding` in `crates/emem-api-rest/src/lib.rs`) then
 refuses a v1 result for every verb with `reason: v1_retired`. The read
-path (`memory_view`) uses the same function to report which version an
-older note was signed with.
+path (`memory_view`) uses the same function to report which version the attester
+used for an older note.
 
 Namespace ownership: paths under `/memories/by_attester/<pubkey_short>/`
 are write-restricted, where `pubkey_short` is the first 8 chars of
@@ -1741,7 +1741,7 @@ environment variable, read once at start:
 | `EMEM_MEMORY_OPEN=1` | opens them to the unsigned Anthropic memory-tool form |
 | `EMEM_MEMORY_HARDEN_DESTRUCTIVE=1` | admits unattested `create` / `str_replace` / `insert`; `delete` and `rename` still need a signature |
 
-If more than one is set, `REQUIRE_ATTESTER` wins, then `OPEN`, then
+If the operator sets more than one, `REQUIRE_ATTESTER` wins, then `OPEN`, then
 `HARDEN_DESTRUCTIVE` (`memory_write_policy` in
 `crates/emem-api-rest/src/lib.rs`). A
 conforming client MUST NOT assume the bare namespace accepts unattested
@@ -2464,7 +2464,7 @@ Aggregations over a window (`Claim.agg`): `any`, `all`, `mean`, `min`,
 `max`. With no `agg`, the evaluator uses `any`. `mean` weights each
 value by the equal-area weight of its cell.
 
-The spec says one of `tslot` or `window` MUST be set, and
+The spec says a claim MUST carry one of `tslot` or `window`, and
 `emem-claim` defines `ClaimError::NoTime`, `TypeMismatch` and
 `UnsupportedOp` for that purpose. On 6 November 2026 no evaluator
 returns these errors. The table below shows what the code in
@@ -2500,7 +2500,7 @@ test to pass, because signed objects carry these CIDs:
 In a receipt, `registry_cid` is the `functions_cid` of `/v1/manifests`
 (the two were equal live on 7 November 2026). No signed object carries
 `algorithms_cid`. The top-level `schema_cid` and `registry_cid` of a
-receipt are unsigned copies.
+receipt are copies that the signature does not cover.
 
 `GET /v1/manifests` returns ten digests (§3.3). Four of them are the
 conformance gate:
@@ -2508,7 +2508,7 @@ conformance gate:
 | CID | Source manifest | What the manifest pins |
 |-----|-----------------|--------------|
 | `bands_cid` | `bands-v0.json` | 43 cube slots summing to exactly 1792 dims, each with its tempo and privacy class. Materializer-wired band names route into those slots (`GET /v1/materializers` gave `pagination.total` 113 on 7 November 2026). That routing is not in this manifest |
-| `algorithms_cid` | `algorithms-v0.json` | 172 algorithms in three kinds: 29 `solo`, 114 `combined`, 29 `embedding`. Each entry carries typed `parameters`, `learned_from` with citations, and `prerequisites`, so a third party can run it again against the receipt that cites it. [agents.md](agents.md) lists the catalog. Seven entries are triple-encoder consensus recipes: `clay_prithvi_tessera_triple_consensus@1`, `deforestation_triple@1`, `coastal_erosion_triple@1`, `urban_expansion_triple@1`, `wetland_change_triple@1`, `disaster_anomaly_triple@1` and `climate_archetype_triple@1`. They are declared, but they do not run on emem.dev, because the encoders were retired. `/v1/locate` shows them with `available_now: false` |
+| `algorithms_cid` | `algorithms-v0.json` | 172 algorithms in three kinds: 29 `solo`, 114 `combined`, 29 `embedding`. Each entry carries typed `parameters`, `learned_from` with citations, and `prerequisites`, so a third party can run it again against the receipt that cites it. [agents.md](agents.md) lists the catalog. Seven entries are triple-encoder consensus recipes: `clay_prithvi_tessera_triple_consensus@1`, `deforestation_triple@1`, `coastal_erosion_triple@1`, `urban_expansion_triple@1`, `wetland_change_triple@1`, `disaster_anomaly_triple@1` and `climate_archetype_triple@1`. The manifest declares them, but they do not run on emem.dev, because the operator retired the encoders. `/v1/locate` shows them with `available_now: false` |
 | `sources_cid` | `sources-v0.json` | 46 source schemes, each with its providers, tempo and native resolution. The manifest does not record transport. In the code, many connectors use the shared STAC + COG sampler (`crates/emem-fetch/src/cog.rs`). Others use HTTPS JSON, Parquet on S3, NCSS CSV, TAR or ZIP, Overpass QL and PMTiles |
 | `schema_cid` | `schema-v0.json` | CDDL bundle pinned to `hash="blake3"`, `signature="ed25519"`, `cid_encoding="base32-nopad-lowercase"` |
 
@@ -2531,8 +2531,8 @@ value. Three rules follow, and an external encoder must copy them:
    optional text fields.
 2. The parser drops a JSON key that the struct does not declare. In
    `bands-v0.json`, it drops `_source_note` and keeps `_note`.
-3. An optional field that is absent or empty is left out. A missing
-   `provenance_class` is written as `unclassified`.
+3. The encoder leaves out an optional field that is absent or empty. It
+   writes a missing `provenance_class` as `unclassified`.
 
 A check on 6 November 2026 confirmed this on `bands-v0.json`. CBOR of the
 JSON in file order, and CBOR with sorted keys, both gave a different
@@ -2559,7 +2559,7 @@ vectors (`admit`, `chain_broken`, `output_unbound`,
 `archive_refused`). The test `crates/emem-trace/tests/vectors.rs`
 generates them with a fixed key and fixed clocks.
 
-These sub-directories are planned and do not exist yet:
+These sub-directories are on the roadmap. They do not exist yet:
 
 - `cell64/`: `(lat, lng) → cell64 string` inputs and outputs.
 - `tslot/`: `(unix_seconds, tempo) → tslot` and the text round-trip.
@@ -2584,8 +2584,8 @@ test an external encoder or verifier against these:
 
 ## 14. Forward compatibility
 
-Three rules let the protocol change without breaking verifiers that
-are already deployed.
+Three rules let the protocol change and keep deployed verifiers
+working.
 
 1. Manifests are content-addressed. An operator who publishes a new
    `bands-v0.json` gets a new `bands_cid` (§12). Facts signed under
@@ -2644,7 +2644,7 @@ On 7 November 2026 the route gave these results for other inputs:
 |---|---|
 | `emem:entity:` token | HTTP 400 `invalid_argument` |
 | `emem:raster:` or `emem:cube:` token | HTTP 404 `cid_not_found`. The resolver takes the 52-character `aoi_cid` and looks it up as a fact CID |
-| a bare 52-character CID | looked up as a fact CID (degraded mode) |
+| a bare 52-character CID | the resolver treats it as a fact CID (degraded mode) |
 
 Use the route in the table for each kind.
 
@@ -2683,7 +2683,7 @@ When there is no observation, emem gives one of two answers. A plain
 | Case | Answer |
 |---|---|
 | The responder looked and found nothing | a signed absence with a typed reason (§5.3). You can cite it like any other fact |
-| The responder could not look, for example an upstream failed or coverage does not reach the cell | a typed note with `absence: false`. It is not signed |
+| The responder could not look, for example an upstream failed or coverage does not reach the cell | a typed note with `absence: false`. The responder does not sign it |
 
 The responder does not sign "I could not look", because that would
 read as "I looked and found nothing". An unknown never appears as a
