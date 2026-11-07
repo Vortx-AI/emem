@@ -163,7 +163,7 @@ def trust_plane():
     ph = 60 + len(segs) * 38
     bx, rx = 760, 1156
     avoid = [(px + pw / 2, py + ph / 2, pw * 0.62), (bx, CY, 70), (rx, CY, 170),
-             (W / 2, 150, 600), (W / 2, H - 110, 640)]
+             (rx, CY + 200, 120), (W / 2, 150, 600), (W / 2, H - 110, 640)]
     _ground(s, avoid=avoid)
     _header(s, "The trust plane",
             "what a responder signs, and how anyone re-checks it without trusting the server")
@@ -206,8 +206,9 @@ def trust_plane():
     s.text(kx, CY - 52, "ed25519", 11, INK, font=MONO, anchor="middle", weight="bold")
     s.lotus(rx, CY, 100)
     s.seal(rx + 84, CY - 84, 13, fill=LEAF)
-    s.text(rx, CY + 130, "RECEIPT", 14, INK, font=MONO, anchor="middle", weight="bold")
-    s.text(rx, CY + 150, "signed · merkle proof", 11.5, INK_SOFT, font=MONO, anchor="middle")
+    # below the lotus medallion (radius 1.46 * 100), so the bud ring does not cross the label
+    s.text(rx, CY + 180, "RECEIPT", 14, INK, font=MONO, anchor="middle", weight="bold")
+    s.text(rx, CY + 204, "signed · merkle proof", 11.5, INK_SOFT, font=MONO, anchor="middle")
 
     # identity note top-right
     s.seal(1392, CY - 196, 10, fill=INDIGO)
