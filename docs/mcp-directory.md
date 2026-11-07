@@ -12,7 +12,7 @@ The counts and sizes come from emem.dev on 7 November 2026.
 | MCP endpoint | https://emem.dev/mcp (Streamable HTTP, JSON-RPC 2.0) |
 | MCP Registry name | `io.github.Vortx-AI/emem` |
 | Container | `ghcr.io/vortx-ai/emem:latest` |
-| Version | 2.4.4 |
+| Version | 2.4.5 |
 
 ## Description
 

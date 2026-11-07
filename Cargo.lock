@@ -2563,7 +2563,7 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
 name = "emem-airgap"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "blake3",
  "data-encoding",
@@ -2578,7 +2578,7 @@ dependencies = [
 
 [[package]]
 name = "emem-api-rest"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "async-trait",
  "axum",
@@ -2626,7 +2626,7 @@ dependencies = [
 
 [[package]]
 name = "emem-attest"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "blake3",
  "ciborium",
@@ -2638,7 +2638,7 @@ dependencies = [
 
 [[package]]
 name = "emem-cache"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "async-trait",
  "blake3",
@@ -2658,7 +2658,7 @@ dependencies = [
 
 [[package]]
 name = "emem-claim"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "ciborium",
  "emem-core",
@@ -2669,7 +2669,7 @@ dependencies = [
 
 [[package]]
 name = "emem-cli"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "anyhow",
  "axum",
@@ -2712,7 +2712,7 @@ dependencies = [
 
 [[package]]
 name = "emem-codec"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "blake3",
  "data-encoding",
@@ -2723,7 +2723,7 @@ dependencies = [
 
 [[package]]
 name = "emem-core"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "blake3",
  "ciborium",
@@ -2736,7 +2736,7 @@ dependencies = [
 
 [[package]]
 name = "emem-cubes"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "emem-core",
  "thiserror 1.0.69",
@@ -2744,7 +2744,7 @@ dependencies = [
 
 [[package]]
 name = "emem-fact"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "blake3",
  "ciborium",
@@ -2761,7 +2761,7 @@ dependencies = [
 
 [[package]]
 name = "emem-fetch"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "arrow 60.1.0",
  "async-trait",
@@ -2792,7 +2792,7 @@ dependencies = [
 
 [[package]]
 name = "emem-guard"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -2814,7 +2814,7 @@ dependencies = [
 
 [[package]]
 name = "emem-intent"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "ciborium",
  "emem-claim",
@@ -2825,7 +2825,7 @@ dependencies = [
 
 [[package]]
 name = "emem-mcp"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "ciborium",
  "emem-claim",
@@ -2842,7 +2842,7 @@ dependencies = [
 
 [[package]]
 name = "emem-primitives"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "arrow-array 58.3.0",
  "arrow-schema 58.3.0",
@@ -2879,7 +2879,7 @@ dependencies = [
 
 [[package]]
 name = "emem-scorecard"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -2891,7 +2891,7 @@ dependencies = [
 
 [[package]]
 name = "emem-sleep-agent"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2907,7 +2907,7 @@ dependencies = [
 
 [[package]]
 name = "emem-storage"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "async-trait",
  "blake3",
@@ -2933,7 +2933,7 @@ dependencies = [
 
 [[package]]
 name = "emem-trace"
-version = "2.4.4"
+version = "2.4.5"
 dependencies = [
  "blake3",
  "ciborium",

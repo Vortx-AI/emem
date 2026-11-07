@@ -1,7 +1,7 @@
 {
   "name": "emem-signer",
   "description": "A local signer for emem memory writes. It holds your Ed25519 signing key, given as a sensitive plugin option, and signs only the writes you compose. It also opens notes sealed to your key. Optional: install it beside the emem plugin when you want to write signed notes; reading emem needs no key.",
-  "version": "2.4.4",
+  "version": "2.4.5",
   "author": {
     "name": "Vortx AI",
     "email": "avijeet@vortx.ai",

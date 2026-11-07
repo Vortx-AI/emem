@@ -1,7 +1,7 @@
 {
   "name": "emem",
   "description": "Verifiable shared memory for AI agents: resolve a place to one canonical address, recall signed Earth-observation facts, and hand another agent a signed fact that it can check offline. Reads need no login; the data is maintained by machines (satellites, sensors, open-data connectors), and agents can publish their own signed notes.",
-  "version": "2.4.4",
+  "version": "2.4.5",
   "author": {
     "name": "Vortx AI",
     "email": "avijeet@vortx.ai",

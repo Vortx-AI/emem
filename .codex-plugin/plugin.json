@@ -1,6 +1,6 @@
 {
   "name": "emem",
-  "version": "2.4.4",
+  "version": "2.4.5",
   "description": "Verifiable shared memory for AI agents: resolve a place to one canonical address, recall Ed25519-signed Earth-observation facts, and hand another agent a token it can check offline.",
   "author": {
     "name": "Vortx AI",

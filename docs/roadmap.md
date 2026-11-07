@@ -7,7 +7,7 @@ ships today and what is still open. The
 
 ## What emem does not do yet
 
-emem is at version 2.4.4 (2026-10-18). It is a patch release, with no
+emem is at version 2.4.5 (2026-11-07). It is a patch release, with no
 change to the signed receipt or the fact preimage. The receipt preimage
 last changed in 2.0.0, which is why 2.0.0 is a major release. Receipts
 signed under 1.x still verify: a verifier selects the rule from the

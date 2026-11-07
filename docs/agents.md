@@ -1437,7 +1437,7 @@ routes in the last column are the source of truth.
 | Source schemes | 46 declared. Some have no connector yet. | `/v1/sources` |
 | Materializers | 113 | `pagination.total` of `/v1/materializers` |
 | Topics | 27 topics declared, 25 live | `counts` of `/v1/topics` |
-| Version | 2.4.4 | `info.version` of `/openapi.json` |
+| Version | 2.4.5 | `info.version` of `/openapi.json` |
 
 `/v1/agent_card` gives a different materializer count. On 7 November 2026,
 its `band_taxonomy.materializer_wired.count` was 115. That count includes
