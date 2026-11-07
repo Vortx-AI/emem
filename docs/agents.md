@@ -182,8 +182,10 @@ curl -s -X POST https://emem.dev/v1/locate \
 ```
 
 Read `cell64` (`defi.zb592.nUkO.zEzE`) and `data_at_this_cell`, which lists
-the bands you can recall there. `via` names the geocoder that answered. Before
-you use the cell, make sure that `selected.is_high_confidence` is `true`.
+the bands you can recall there. `via` names the layer that answered. On
+7 November 2026, it was `cache`, an earlier network answer that emem stored.
+See [Geocoder cascade](#geocoder-cascade). Before you use the cell, make sure
+that `selected.is_high_confidence` is `true`.
 On 7 November 2026, the MCP answer for Mount Fuji was too large. It omitted
 `data_at_this_cell`, so use the REST call to read that field. For an
 object such as a bridge or a field, use
