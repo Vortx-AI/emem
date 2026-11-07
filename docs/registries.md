@@ -558,7 +558,8 @@ do not.
 `emem_ask` tool. On 7 November 2026, 24 topics had a materializer for every
 band they cite (from `GET /v1/materializers`). Two topics,
 `nightlights` and `foundation_embedding`, had a materializer for none of
-their bands.
+their bands. The last topic, `analytics`, had a materializer for each band
+except `geotessera`.
 
 Each topic has these fields:
 
