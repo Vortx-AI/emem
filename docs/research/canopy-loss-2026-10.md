@@ -74,8 +74,9 @@ Neither entry states how well it does. We measure that, and test whether other r
 **Series.** For each site, a grid of 12 x 12 square cells over a box 4.8 km a side (each cell about 0.16 km²), and
 one signed `field_series` response per index (NDVI and NBR) over 1 January 2023 to 28 October 2026, from
 Sentinel-2 L2A scenes spread evenly in time. The lab asked for 96 scenes; the server's budget of 12,000 cell-scenes
-per request caps 144 cells at 83, and in the two MCC experiments each site kept 63 to 83 clear passes. Each cell's row per pass gives its median and its 10th and 90th
-percentiles over pixels the scene classification left clear. Passes `field_series` marks suspect are left out.
+per request caps 144 cells at 83. In the first two MCC experiments (sections 5.5 and 5.6), each site kept 63 to 83
+clear passes. Each cell's row per pass gives its median and its 10th and 90th percentiles over pixels the scene
+classification left clear. Passes `field_series` marks suspect are left out.
 
 **Reference.** Hansen Global Forest Change v1.13 loss year and 2000 tree cover (Landsat, 30 m), read for the same box
 through `band_raster` (`forest_raster@1`), and decoded from emem's canonical grid encoding.
@@ -86,6 +87,17 @@ is LOSS when 5% or more of its pixels lost cover in 2024 or 2025, and STABLE whe
 
 **Scoring window.** A method flags a cell when it sees loss dated 1 January 2024 to 31 March 2026; the reference is
 annual, so a loss seen early in 2026 can be 2025's.
+
+**Later changes.** The later experiments change some of this setup, and each section states its change:
+
+| section | change |
+|---|---|
+| 5.10 | 200 m cells nested in 400 m cells, scored over Hansen pixels |
+| 5.11 | each forest read twice, once with Sen2Cor's snow class rejected |
+| 5.13 | Sentinel-1 VH and NDMI added, with up to five years of each cell's past |
+| 5.14 | loss in 2022 and 2023, flags dated 1 January 2022 to 31 March 2024, also scored against JRC TMF |
+| 5.15 | Landsat 8 and 9 added to the optical memory |
+| 5.19, 5.20 | a method chosen per forest from 2022 and 2023, then scored on 2024 and 2025 |
 
 ## 3. Methods under test
 
@@ -114,14 +126,19 @@ starting level 0.3 or 0.4; post window 30 or 45 days) and scores them by leave-o
 site is scored by the variant with the best score on the other sites, so every scored cell comes from a site its
 rule never saw.
 
+**Memory detectors.** From section 5.13 on, the lab also tests detectors that compare each pass with the cell's own
+remembered past, in five versions (`lab:memory_optical@1` to `lab:memory_hls_emp@5`). Sections 5.13 and 5.15 describe
+them, and section 5.21 gives the status of each.
+
 ## 4. Protocol
 
 Each experiment's plan was published as a signed note before any data was read, with the question, the reference,
 the labels, every method's source hash and the deciding score. A method beats the registry baseline
 `deforestation_alert_ndvi_drop@1` when the 95% interval of its score minus the baseline's, from a paired bootstrap of
-2,000 resamples of cells with a fixed seed, lies wholly above zero. The first three experiments registered F1 as the
-deciding score; the scaled experiment and every one since registered the Matthews correlation (MCC), for the reason in
-section 6.1.
+2,000 resamples with a fixed seed, lies wholly above zero. The resampled unit is the cell, except in section 5.10
+(400 m blocks) and in sections 5.15, 5.19 and 5.20 (forests). Section 7 says why that matters. The first three
+experiments registered F1 as the deciding score. The scaled experiment and every one since registered the Matthews
+correlation (MCC), for the reason in section 6.1.
 
 A method that wins is proposed and waits. It is **replicated** when a later experiment on sites that no earlier
 experiment scored also finds it better, and **not replicated** when any later experiment does not. A rerun on sites
