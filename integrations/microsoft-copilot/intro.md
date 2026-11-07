@@ -4,7 +4,7 @@ emem gives every place one address and every observation one signed fact.
 Ask about a place, and the answer is a measurement from a public
 Earth-observation source. The answer has an Ed25519 receipt. It also has a
 short `emem:fact:` token, which resolves anywhere to the same signed bytes.
-Anyone can check the receipt at https://emem.dev/verify without trusting emem.
+Anyone can check the receipt at https://emem.dev/verify and does not have to trust emem.
 
 ## Setup
 
@@ -33,7 +33,7 @@ The connector serves the 18 core tools of emem. They make a loop:
 `emem_tools` lists the other tools of the server. A client calls any of them by
 name with `tools/call`.
 
-Nine core tools only look up data. Seven more can measure and sign a new fact
+Nine core tools only read data. Seven more can measure and sign a new fact
 when nobody has made the reading yet: `emem_recall`, `emem_ask`,
 `emem_intent`, `emem_find_similar`, `emem_memory_bundle`, `search` and
 `fetch`. For this reason, their `readOnlyHint` is false. What they write comes

@@ -50,13 +50,22 @@ The **Tool** list has nine tools: `emem_locate`, `emem_recall`, `emem_ask`,
 For a different tool, select **Custom Tool** and type its exact name.
 `tools/list` on `/mcp/full` returned 116 tools on 7 November 2026, in 9 pages
 of different sizes. Follow `nextCursor` to get the next page. The schemas are at [emem.dev/mcp](https://emem.dev/mcp).
+The hint text in the node still says 108 tools. That number is old.
+
+## Read the output
 
 The node reads the first text block of the MCP result and parses it as JSON.
 If the text is not JSON, the output has one field, `raw_text`. Read facts
-carry an Ed25519 receipt. You can verify it offline against the responder's
-published key. The server cuts a large result to fit a size budget. The
-`_emem_truncation` field then names the omitted fields and the REST route
-that returns them in full.
+carry an Ed25519 receipt. To check a receipt offline, paste it at
+[emem.dev/verify](https://emem.dev/verify). The server cuts a large result to
+fit a size budget. The `_emem_truncation` field then names the omitted fields
+and the REST route that returns them in full.
+
+An unknown tool name does not stop the workflow. The server sends HTTP 200
+with a JSON-RPC `error` object and no result. The node outputs that whole
+response as a normal item. On 7 November 2026, the tool name `emem_nope` gave
+code `-32602` and the message "Unknown tool: emem_nope". Add an **IF** node
+that checks the `error` field when your tool name comes from data.
 
 ## Examples
 
