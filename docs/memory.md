@@ -1097,12 +1097,18 @@ memory trees did not move.
 | `emem.memory_files_expired` | path | `file_cid` |
 | `emem.memory_file_blobs` | `file_cid` | raw bytes, stored once for all paths that hold them |
 | `emem.memory_file_history` | path | CBOR `Vec<file_cid>`, oldest first |
-| `emem.memory_file_meta` | `file_cid` | CBOR `MemoryFileMeta` (path, signed_at, size_bytes, kind, attester, verb, receipt) of the first live writer of these bytes |
+| `emem.memory_file_meta` | `file_cid` | CBOR `MemoryFileMeta` (path, signed_at, size_bytes, verb, kind, attester key, attester signature, signed body hash, preimage version, log entry hash, supersede state, receipt). The record stays with the first writer while that path still holds these bytes |
 | `emem.memory_file_meta_by_path` | path | the `MemoryFileMeta` of the write at that path |
-| `emem.memory_path_events` | path | each supersede and delete of the path, oldest first |
-| `emem.memory_tombstones` | path | JSON `emem.tombstone.v1` (prior `file_cid`, `deleted_by`, `deleted_at`) |
-| `emem.memory_vault` | path | CBOR sealed envelope (ciphertext, nonce, aad) |
+| `emem.memory_meta_repair` | `v1` | a marker. The responder writes it when it completes the one-time repair of per-path records from the transparency log |
+| `emem.memory_path_events` | path | JSON list of each supersede and delete of the path, oldest first |
+| `emem.memory_tombstones` | path | JSON `emem.tombstone.v1` (`path`, `prior_file_cid`, `deleted_by`, `deleted_at`, `log_entry_hash_b32`, `note`) |
+| `emem.memory_vault` | path | CBOR `emem.vault.v1` envelope (`nonce_b32`, `ciphertext_b32`, `aad`, `responder_pubkey_b32`, `plaintext_len`, `sealed_at`, `attester_pubkey_b32`) |
 | `emem.memory_bundles` | `bundle_cid` | CBOR `BundleResp` |
+
+A vault entry is only in `emem.memory_vault`. It is not in the file,
+blob or kind trees, so search and the contradiction scan do not see it.
+The ChaCha20-Poly1305 key comes from the responder secret, and the
+`aad` is the path. For this reason the operator can open a vault entry.
 
 Two paths can hold the same bytes, so one `file_cid` can have two
 authors. For this reason the responder keeps the record of each write
