@@ -1372,8 +1372,8 @@ parameters are optional filters:
 
 | Parameter | An event passes when |
 |---|---|
-| `path_prefix` | its path starts with this text. For `renamed`, the new path counts. For `consolidated`, the first path counts. The pass sorts the source notes oldest first, so this is the path of the oldest note. |
-| `kind` | its `kind` is equal to this value. Use the lowercase name, for example `episodic`. The compare is case-sensitive, and the responder does not check the value, so `Episodic` gives a stream with no events |
+| `path_prefix` | its path starts with this text. For `renamed`, the new path counts. For `consolidated`, the path of the oldest source note counts. |
+| `kind` | its `kind` is equal to this value. Use the lowercase name, for example `episodic`. The compare is case-sensitive. The responder does not check the value, so `Episodic` gives a stream with no events. |
 | `attester` | its `attester_pubkey_b32` is equal to this key. `expired` and `consolidated` events have no attester, so this filter removes them. It also removes events where `attester_pubkey_b32` is `null`. |
 
 This read ran on 7 November 2026 and stopped after 4 seconds:
