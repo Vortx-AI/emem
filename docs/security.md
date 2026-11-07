@@ -415,9 +415,13 @@ citation that someone already holds still resolves by CID, and issued
 receipts still verify. To read a retracted note, call `emem_memory_view` with
 its `file_cid`.
 
-Every deletion writes a tombstone. The tombstone records the path, the prior
-file CID, the deleter and the time. A 404 then tells you which case applies:
-"deleted by its namespace owner" or "never written here". This is what
+Every deletion writes a tombstone (`emem.tombstone.v1`). The tombstone records
+the path, the prior file CID, the deleter, the time and the hash of the log
+entry for the delete. The delete itself is an `emem.memory_delete.v1` entry in
+the [transparency log](#7-the-transparency-log), so the server cannot rewrite
+it later. A read of the path then gets 404 `cid_not_found`. The message tells
+you which case applies: "deleted by its namespace owner" or "never written
+here". For a delete, `details` holds the tombstone. This is what
 append-only means here: the owner can unpublish the bytes, but nobody can remove
 the record that they existed.
 
@@ -451,7 +455,13 @@ tombstones, both cases returned the same 404.
 ## 9. Rate limits and namespace scope
 
 - Each writer has a scope. `/memories/by_attester/<your-pubkey8>/` is yours alone.
-  In other namespaces, the first attester to create a path owns it.
+  In other namespaces, the first attester to create a path owns it. A write
+  from a different key gets 403 `memory_namespace_violation`.
+- Some old records outside `by_attester/` have no stored attester, so no key
+  can prove that it owns them. While the operator requires signed writes (the
+  release default), they are frozen. You can read them, but the server refuses
+  every change, also from the operator, with `reason:
+  open_namespace_unowned_record`.
 - Each attester has a write rate limit: 240 writes per minute sustained, with
   a burst of 60. It stops runaway loops; it is not a business rule. An
   operator tunes it with `EMEM_WRITE_RATE_PER_MIN`, `EMEM_WRITE_RATE_BURST` and
