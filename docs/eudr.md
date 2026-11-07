@@ -353,15 +353,18 @@ The table gives the defaults; both env vars accept 256 to 51,200.
 | Fact CIDs in the receipt | 2048 | `EMEM_EUDR_RECEIPT_MAX_FACTS` | The receipt keeps the first 2048 CIDs in sort order. The response adds `receipt_fact_cids_capped: true`, `receipt_fact_cids_total` and `receipt_fact_cids_cap`. |
 | Cells in the receipt | 2048 | `EMEM_EUDR_RECEIPT_MAX_CELLS` | The receipt lists the centroid cell of each plot. The response adds `receipt_cells_truncated: true`, `receipt_cells_total` and `receipt_cells_cap`. |
 
-The sort runs only above the cap. It makes two capped calls with the same
-inputs keep the same fact CIDs, except the loss-year histogram fact, which is new on each call. The receipts are still not byte-equal,
-because `request_id` and `served_at` change on each call. A capped receipt does not sign every fact, but the endpoint stores every fact.
+The sort runs only above the cap.
+Thus two capped calls with the same inputs keep the same fact CIDs.
+The exception is the loss-year histogram fact, which the responder signs again on each call.
+The two receipts are still not byte-equal, because `request_id` and `served_at` change on each call.
+A capped receipt does not sign every fact, but the endpoint stores every fact.
 Each plot's `per_cell_rows_cid` addresses all of its facts.
 Every fact CID in the response resolves at `/v1/facts/<cid>`.
 
 The receipt does not sign the visual evidence facts.
-Each annual NDVI and S1 backscatter value is a separate signed Primary fact under the
-responder's identity.
+Each per-cell NDVI and S1 backscatter reading for a year is a separate signed Primary fact
+under the responder's identity.
+The yearly medians in `years[]` are not facts; the block computes them from these readings.
 Each entry in `visual_evidence.years[]` carries `ndvi_fact_cids[]` and `s1_fact_cids[]`.
 An auditor can cite the exact upstream fact with these CIDs.
 The auditor can check its signature at `/verify/<fact_cid>` and does not need to trust the
