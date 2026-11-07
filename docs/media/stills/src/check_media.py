@@ -14,6 +14,10 @@ Run from the repository root:  python3 docs/media/stills/src/check_media.py
    on that line today.
 6. Each <img> tag in docs/ parses with html.parser and has only known
    attributes, so a double quote inside alt text cannot cut it short.
+7. Light and dark pages: each still and poster is opaque, its corners are the
+   background #0d1117, and its width is a known one (1080, or 1800 with a
+   -phone copy; posters 720 or 1080). Each diagram has a 640 wide view box,
+   a #0d1117 rect over all of it, and no text smaller than 16.
 
 Exit status 1 when a check fails.
 """
@@ -174,8 +178,53 @@ def check_img_tags():
                              "a double quote in alt text? Use single quotes or &quot;")
 
 
+BG = (13, 17, 23)
+
+
+def near_bg(rgb):
+    return all(abs(a - b) <= 6 for a, b in zip(rgb, BG))
+
+
+def check_frames():
+    try:
+        from PIL import Image
+    except ImportError:
+        print("frames: Pillow is not installed, check 7 skipped for rasters")
+        Image = None
+    if Image:
+        rasters = [(p, {1080, 1800}) for p in sorted(MEDIA.glob("stills/*.webp"))]
+        rasters += [(p, {720, 1080}) for p in sorted(MEDIA.glob("films/*-poster.webp"))]
+        for path, widths in rasters:
+            name = path.relative_to(ROOT)
+            im = Image.open(path).convert("RGBA")
+            w, h = im.size
+            if im.getchannel("A").getextrema()[0] < 255:
+                fails.append(f"frames: {name} has transparent pixels")
+            for xy in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)]:
+                if not near_bg(im.getpixel(xy)[:3]):
+                    fails.append(f"frames: {name} corner {xy} is {im.getpixel(xy)[:3]}, not #0d1117")
+            if w not in widths:
+                fails.append(f"frames: {name} is {w} px wide, expected one of {sorted(widths)}")
+            if w == 1800 and not path.with_name(path.stem + "-phone.webp").exists():
+                fails.append(f"frames: {name} is 1800 px wide and has no -phone copy")
+    for path in sorted(MEDIA.glob("diagrams/*.svg")):
+        name = path.relative_to(ROOT)
+        svg = path.read_text()
+        vb = re.search(r'viewBox="0 0 ([0-9.]+) ([0-9.]+)"', svg)
+        if not vb or float(vb.group(1)) != 640:
+            fails.append(f"frames: {name} view box is not 0 0 640 H")
+            continue
+        bg = rf'<rect x="0" y="0" width="{vb.group(1)}" height="{vb.group(2)}"[^>]*fill="#0d1117"'
+        if not re.search(bg, svg):
+            fails.append(f"frames: {name} has no #0d1117 rect over the full view box")
+        sizes = [float(x) for x in re.findall(r'font-size[=:]\s*"?([0-9.]+)', svg)]
+        if sizes and min(sizes) < 16:
+            fails.append(f"frames: {name} has text at {min(sizes)}, the floor is 16")
+
+
 check_sizes()
 check_listed()
+check_frames()
 check_img_tags()
 check_proposal()
 embeds = check_alt_numbers()

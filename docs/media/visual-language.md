@@ -64,6 +64,7 @@ Do not use colour as the only signal. Write the word too, for example `valid` or
 - Render frame by frame from an HTML page with `window.film.seek(t)`. Do not record a screen. The pages and the
   renderer are in [films/src/](films/src/). Run `python film.py --help` there for the commands.
 - Ship an MP4 (H.264) and a WebM (VP9), each 2 MB or less, and a WebP poster of 300 KB or less.
+  The films are 1080 by 960 px. A poster is 1080 or 720 px wide. A phone shows both at the same size.
 - On a docs page, show the poster and link it to the MP4. Give the WebM link next to it.
   When a still of the same data is directly above, give text links only, so the page does not show the
   same picture twice. `agents.md` does this for `emem-ndvi-season.mp4`.
@@ -92,6 +93,9 @@ the wrong length for a film. It also fails when a number in a still's alt text i
 A value that a script computes, such as a byte count, goes in its `COMPUTED` list with the code that makes it.
 For [README_MEDIA_PROPOSAL.md](README_MEDIA_PROPOSAL.md), it also checks each byte size, each file name, and
 that README.md still shows the old image on each line a swap names.
+It fails when a still or a poster has a transparent pixel or a corner that is not `#0d1117`. It also fails
+on a width that these rules do not give. It fails when a diagram has no `#0d1117` rect over its full view box, or has
+text smaller than 16 px.
 
 ## Media that follows these rules
 
