@@ -15,6 +15,9 @@ It reads the checkpoint and checks it.
 
 ## Run it
 
+Run these commands from the root of the clone.
+Run `pip` inside an active Python virtual environment.
+
 ```bash
 pip install -e "sdks/emem-py[signing]"
 cargo build --release --bin emem-server
@@ -100,7 +103,10 @@ The script prints each step and stops with an error if a check fails.
   print(mine)
   ```
 
-  For a local checkpoint, change the URL to your responder and `path` to the path that run 1 printed.
+  `run.sh` deletes its responder and its data when it stops.
+  So to check the checkpoint from run 1, put these lines into `run.sh` before the last `echo`.
+  Give the script `$BASE/mcp` and `$CHECKPOINT_PATH` as arguments, as the other Python steps in `run.sh` do.
+  Use them as the URL and as `path`.
 
 - On the hosted node, anyone can read `/memories/by_attester/`. Only the attester can write there.
   So every agent can read a checkpoint on emem.dev. It is not private.
