@@ -459,8 +459,8 @@ tombstones, both cases returned the same 404.
   from a different key gets 403 `memory_namespace_violation`.
 - Some old records outside `by_attester/` have no stored attester, so no key
   can prove that it owns them. While the operator requires signed writes (the
-  release default), they are frozen. You can read them, but the server refuses
-  every change, also from the operator, with `reason:
+  release default), nobody can change them. You can read them, but the
+  server refuses every change, also from the operator, with `reason:
   open_namespace_unowned_record`.
 - Each attester has a write rate limit: 240 writes per minute sustained, with
   a burst of 60. It stops runaway loops; it is not a business rule. An
