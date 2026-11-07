@@ -71,6 +71,11 @@ signed at `2026-07-16T12:02:20Z`.
 
 ![A chart with ground time (tslot) across and signed time (signed_at) up. as_of_tslot is a vertical line that keeps facts to its left. as_of_signed_at is a horizontal line that keeps facts below it. With both set, only facts in the lower left area are kept. A fact observed later, or signed later, is not kept. With no filter, the read gives the current state. With a filter set, the receipt signs an as_of block.](media/diagrams/time-filters.svg)
 
+The same filters on live data. On 7 November 2026, four NDVI reads at the Mount Fuji cell gave four answers.
+
+<img src="media/stills/time-filters-live.webp" alt="Four live NDVI reads at the Mount Fuji cell defi.zb592.nUkO.zEzE on 7 November 2026, 15:01 UTC. A chart places 20 signed NDVI facts by ground date (October 2025 to October 2026) and by signed date (July to November 2026). With no filter, the read returned 19 facts, one for each ground date. as_of_tslot 20589 (16 May 2026) returned the 16 May fact signed 7 November, NDVI -0.058. as_of_signed_at 2026-10-01T00:00:00Z returned the 18 September fact signed 28 September, NDVI -0.044. Both filters returned a second 16 May fact, signed 11 September, NDVI -0.061. It reads the same Sentinel-2B pass from another archive copy and is still stored. The receipt of that read carries the as_of block and is valid at /v1/verify_receipt." width="540">
+<br><sub>Contains modified Copernicus Sentinel data 2025-2026.</sub>
+
 When a read uses a time filter, the receipt carries an `as_of` block. An auditor can take a receipt from 2026 to any
 node in 2027 and replay the same query.
 
