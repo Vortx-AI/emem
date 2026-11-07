@@ -344,8 +344,9 @@ curl -sf -X POST $BASE/v1/recall_many -H 'content-type: application/json' \
 ```
 
 `facts` counts every stored reading of the band at the cell, not only
-the latest. On 7 November 2026 the first cell had 13
-`weather.temperature_2m` facts.
+the latest. At 08:05 UTC on 7 November 2026 the first cell had 15
+`weather.temperature_2m` facts. A recall in a new hourly slot can add
+a fact, so this count increases over time.
 
 ---
 
