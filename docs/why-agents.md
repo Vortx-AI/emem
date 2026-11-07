@@ -107,12 +107,11 @@ read. The reviewer opens the `fact_cid` in a browser:
 https://emem.dev/verify/gkfhjoceoydlojo2dnv3dfozdodhetvvlms2zqutdrxuvmfuronq
 ```
 
-The page gets the same bytes. A verifier inside the page checks the
-BLAKE3 hash and the Ed25519 signature on the reviewer's machine. The
-reviewer does not trust emem.dev or the importing agent. If the signature
-holds, the bytes are the bytes that the responder signed. The page
-fetches the bytes from emem.dev, and the check runs locally. To check
-with no network, save the receipt and follow
+The page fetches the same bytes from emem.dev. A verifier inside the page
+checks the BLAKE3 hash and the Ed25519 signature on the reviewer's
+machine. The reviewer does not trust emem.dev or the importing agent. If
+the signature holds, the bytes are the bytes that the responder signed.
+To check with no network, save the receipt and follow
 [verify a receipt offline](./agents.md#verify-a-receipt-offline). Job:
 [verify a receipt](./agents.md#job-verify-a-receipt).
 

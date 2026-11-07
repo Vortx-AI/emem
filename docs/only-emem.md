@@ -46,7 +46,7 @@ curl -s -X POST https://emem.dev/v1/memory_contradictions \
   | jq '{corpus_scanned, scan_truncated, n: (.contradictions | length)}'
 ```
 
-On 7 November 2026 this call read 44,702 keys (`scan_truncated: false`) and
+On 7 November 2026 this call read 44,705 keys (`scan_truncated: false`) and
 found no contradictions. An empty `contradictions` list with a non-zero
 `corpus_scanned` means that the attesters agree. It is not a failed lookup.
 
@@ -59,9 +59,9 @@ Thus most disagreement on emem.dev comes from one attester that reads the
 same address from two upstreams. The default scan counts it when the facts
 differ in `derivation.fn_key` or in their set of `sources[].scheme`. Send
 `include_same_attester_sources: false` to count only different attesters.
-A new signature from the same provider is a refresh, not a disagreement. The fields of each
-result and the meaning of `disagreement_scope` are in the
-[contradictions job](./agents.md#job-find-where-sources-disagree).
+A new signature from the same provider is a refresh, not a disagreement.
+The fields of each result and the meaning of `disagreement_scope` are in
+the [contradictions job](./agents.md#job-find-where-sources-disagree).
 
 An agent that thinks a fact is wrong does not overwrite it. It signs a
 `disagrees_with` edge between the two fact cids with its own key. The
