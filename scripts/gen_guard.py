@@ -83,7 +83,7 @@ def checkpoints():
     CX, CY = 1006, 566
 
     doors = [
-        ("POST /verdict", "any agent, any model", INDIGO, True),
+        ("POST /verdict", "same as /verdict/native", INDIGO, True),
         ("POST /verdict/mcp", "MCP tools/call, or a result", TEAL, True),
         ("POST /verdict/openai", "any OpenAI-shaped client", LEAF, True),
         ("POST /verdict/cloudevent", "Knative · Dapr · Argo", TURMERIC, True),
