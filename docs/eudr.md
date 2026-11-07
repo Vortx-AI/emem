@@ -220,8 +220,14 @@ The block has the schema id `emem.visual_evidence.v2`. It contains these parts:
   A value outside the range gives the default.
   It uses the newest scene in the first window that has a scene.
   The window never goes past the current date.
+  Radar searches only the Microsoft Planetary Computer `sentinel-1-rtc` collection.
+  It has no second catalogue, and `EMEM_S2_CATALOGUES` does not apply to it.
+  If a search fails, the ladder stops with an error and skips the later steps.
   The signed fact has band `sentinel1_raw` and holds VV in dB (`10 × log10` of the linear value).
-  Its derivation arguments record the half-width in days of the window that found the scene.
+  Its `tslot` is the day of the scene, not the July-1 anchor.
+  Its derivation is `sentinel1_rtc_vv_db@1`. The arguments end with the half-width in days
+  of the window that found the scene.
+  The source id is the asset URL without the short-lived access token.
   If the pixel value is zero, negative or not a number (water mask or no-data), that cell
   and year get an error and no fact.
   Radar sees through cloud, so this signal confirms the NDVI in monsoon regions where
