@@ -59,7 +59,8 @@ The program prints one block for each act and asserts the results.
 
 A score of 0.5 or more is `Tension`, and 0.75 or more is `Contradicted` (`crates/emem-trace/src/drift.rs`).
 The contradicted claim stays visible, and the store keeps it.
-If a harvest really happened, the next archive pass moves the anchor toward the device value.
+The anchor is not yet wired to archive recalls (`drift.rs` calls that ingest-side work).
+After that wiring ships, a real harvest will move the anchor toward the device value at the next archive pass.
 
 Last, the program changes the log digest of stored segment 2 and verifies the trace again.
 The verifier answers `reject: chain broken at seq 3`, because segment 3 no longer points to the digest of segment 2.

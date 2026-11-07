@@ -134,7 +134,7 @@ Request fields:
 | `subj` | Start fact CID. Required for `direction: "out"` (the default). |
 | `obj` | End fact CID. Setting it reads the reverse direction, `"in"`: what points at this fact. |
 | `pred` | Predicate filter. `""` (the default) returns every predicate. |
-| `as_of_tslot` | Read the graph as of this Unix time. Only edges with `valid_from <= as_of_tslot` count, and the newest edge per neighbour wins. |
+| `as_of_tslot` | Read the graph as of this Unix time. An edge counts when `valid_from <= as_of_tslot` and it has no `valid_to` or `valid_to >= as_of_tslot`. The newest edge per neighbour wins. |
 | `limit` | Default 100, maximum 1000. |
 
 ### 3. Recall a fact with its edges attached
@@ -384,7 +384,8 @@ calls as Part 1, steps 3 and 4.
 ## Why it matters
 
 A plain store keeps facts. This loop also connects facts with typed
-edges that have a start time. It records a disagreement as an edge and
+edges that have a start time (`valid_from`) and an optional end time
+(`valid_to`). It records a disagreement as an edge and
 a contested marker, so the memory changes over time. Every edge carries a
 signature, and the store only appends edges. The loop deletes no fact. You can still
 audit what the memory held before. The contested marker is an unsigned

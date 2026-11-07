@@ -79,7 +79,9 @@ read `corroboration` and `independent_attesters` before it picks one.
   `robot.fleet.v1` substrate profile with status `candidate` and admission
   `os_trace_required` (`GET /v1/substrates`, 7 November 2026). The responder
   has a device write path, `POST /v1/attest_traced`, for enrolled device keys.
-  This example does not use it. Step 6 in
+  No device key can enrol on emem.dev today: `POST /v1/enroll_attested`
+  rejects every call, because every shipped platform anchor is provisional.
+  So this path admits no device writes yet, and this example does not use it. Step 6 in
   [docs/plans/encoder-substrates.md](../../docs/plans/encoder-substrates.md)
   describes the upgrade.
 - There is no ROS 2 client package. The example is plain HTTP, so it runs

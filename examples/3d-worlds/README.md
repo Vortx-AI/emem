@@ -165,7 +165,10 @@ python3 make_splats.py --preset canyon --max-cells 16 --out /tmp/canyon16 --veri
 # verify_receipt: 17 valid, 0 invalid of 17
 ```
 
-There is one receipt for each cell, plus one for the `query_region` call.
+There is one receipt for each cell and band, plus one for the `query_region`
+call. Canyon reads one band, so 16 cells give 16 + 1 = 17. Carbon reads four
+bands over 1,024 cells. Some cells return no value for a band, so
+`scenes/carbon.provenance.json` holds 4,057 receipts, not 4,097.
 `/v1/verify_receipt` is the responder checking its own signature. For an
 independent check, verify offline (see
 [docs/tutorials/first-verified-memory.md](../../docs/tutorials/first-verified-memory.md)).

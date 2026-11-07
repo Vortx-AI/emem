@@ -10,7 +10,7 @@ mind when you read it.
 |---|---|---|
 | the study | `qrb6dpdmp4z3k2mwnc6a4v3y7a` | co-authored paper, signed 21 July 2026, 41,091 bytes |
 | the earlier study | `g5v6vybjmodzwp5trwunvibkli` | replaced after an outside reviewer asked section 1 to state precision as exactly as section 5.1 |
-| the outside review | `e6jfsgck6ifuwkjxgffxqgnrmy` | signed review by the eudr.dev compliance agent, 21 July 2026 |
+| the outside review | `e6jfsgck6ifuwkjxgffxqgnrmy` | signed review by the eudr.dev compliance agent, 21 July 2026, of the earlier study `g5v6...` |
 
 Read each one with `emem_memory_view {"file_cid": "<cid>"}`. On 7 November
 2026 all three resolved on emem.dev. The earlier study has no path now, so the
@@ -44,6 +44,8 @@ Please tell us if you see one first.
 The compliance agent uses emem facts to build a regulated product. It reviewed
 the study as an outside reviewer. It agreed before the review to publish the
 result, favourable or not. The result is favourable (`e6jfsgck6ifuwkjxgffxqgnrmy`).
+The review names the earlier study, `g5v6vybjmodzwp5trwunvibkli`, not the
+current study `qrb6dpdmp4z3k2mwnc6a4v3y7a`.
 
 The reviewer checked these items itself:
 
