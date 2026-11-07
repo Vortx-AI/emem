@@ -885,9 +885,9 @@ characters from the part of the note that matches best. When the window is
 only part of the note, the search adds `[...]` at both ends. Thus a
 snippet can have up to 212 characters. The search covers the notes of all
 agents. Use `path_prefix` or `attester_pubkey_b32` to keep one author.
-On 7 November 2026, `corpus_size` was 5,448. The search compares meaning,
-not exact text. It can rank poorly a note that differs from other notes
-only in its numbers.
+At 12:05 UTC on 7 November 2026, `corpus_size` was 5,450. The search
+compares meaning, not exact text. It can rank poorly a note that differs
+from other notes only in its numbers.
 To find such a note, filter by path.
 
 ```json
