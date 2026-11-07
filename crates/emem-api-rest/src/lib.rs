@@ -35223,7 +35223,7 @@ fn openapi_spec() -> JsonValue {
             },
             "/v1/grid":              {"post":{"summary":"a place as an n x n table of signed facts in one call: cells row-major (north row first), per band values + fact_cids + captured_at + one emem:bundle token, one receipt citing every fact. The cold half is read as one area (one Sentinel-2 scene search per grid, not per square). Accepts budget_ms with the partial-results contract.","operationId":"emem_grid","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["center","bands"],"properties":{"center":{"type":"string","description":"place name, cell64, or lat,lng"},"bands":{"type":"array","items":{"type":"string"},"maxItems":8},"n":{"type":"integer","minimum":2,"maximum":16,"default":12},"half_km":{"type":"number","minimum":0.05,"maximum":25,"default":3},"tslot":{"type":"integer"},"budget_ms":{"type":"integer"},"bundle":{"type":"boolean","default":true}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/recall_many":       {"post":{"summary":"bulk recall over up to 256 cells per call. Accepts budget_ms: the partial-results contract (docs/plans/partial-results.md), converged/pending[]/retry, monotone identical-request retry; a band the materializer skipped is in pending[] when retryable and in skipped[] when not. compact:true returns each fact as band, value, unit, tslot, observed_at, kind, confidence, fact_cid, memory_token.","operationId":"emem_recall_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cells"],"properties":{"cells":{"type":"array","items":{"type":"string"}},"bands":{"type":"array","items":{"type":"string"}},"budget_ms":{"type":"integer"},"compact":{"type":"boolean","default":false}}}}}},"responses":{"200":json_ok}}},
-            "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon. Accepts budget_ms (docs/plans/partial-results.md): a soft materialization budget. converged is false whenever pending[] is non-empty, with or without budget expiry; the response is then a first-class partial 200 with a typed pending[] (materializing: the budget expired while the cell's fetch was in flight; upstream_failed: the cell's recall failed; skipped or deferred: the materializer skipped or held back these bands for a retryable reason; each entry stating its reason) and a retry hint. skipped[] lists, per cell, bands skipped for a reason a retry does not change (unknown band, retired, no materializer); in projection:compact it is one row per bands and reason with a cell count. Detached fetches persist, so the identical request retried returns strictly more from cache. Pending is unsigned and is NOT a signed absence; the receipt semantics are unchanged","operationId":"emem_recall_polygon","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"free-text region; one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only. An array is refused: bbox array orders disagree between conventions ([west,south,east,north] in GeoJSON/OGC, [south,north,west,east] from Nominatim), so naming the corners is the only unambiguous form.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"bands":{"type":"array","items":{"type":"string"}},"max_cells":{"type":"integer","minimum":1,"maximum":1024,"default":64,"description":"Cap on cells sampled from the polygon. Out-of-range is a 400, not a silent clamp."},"budget_ms":{"type":"integer"},"tslot":{"type":"integer"},"as_of_tslot":{"type":"integer"},"as_of_signed_at":{"type":"string"},"include":{"type":"array","items":{"type":"string"},"description":"opt-in supplements; currently ftw_fields"},"polygon_geojson":{"type":"object"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
+            "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon. Accepts budget_ms (docs/plans/partial-results.md): a soft materialization budget. converged is false whenever pending[] is non-empty, with or without budget expiry; the response is then a first-class partial 200 with a typed pending[] (materializing: the budget expired while the cell's fetch was in flight; upstream_failed: the cell's recall failed; skipped or deferred: the materializer skipped or held back these bands for a retryable reason; each entry stating its reason) and a retry hint. skipped[] lists, per cell, bands skipped for a reason a retry does not change (unknown band, retired, no materializer); in projection:compact it is one row per bands and reason with a cell count. Detached fetches persist, so the identical request retried returns strictly more from cache. Pending is unsigned and is NOT a signed absence; the receipt semantics are unchanged","operationId":"emem_recall_polygon","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"free-text region; one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only. An array is refused: bbox array orders disagree between conventions ([west,south,east,north] in GeoJSON/OGC, [south,north,west,east] from Nominatim), so naming the corners is the only unambiguous form.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"bands":{"type":"array","items":{"type":"string"}},"max_cells":{"type":"integer","minimum":1,"maximum":1024,"default":64,"description":"Cap on cells sampled from the polygon. Out-of-range is a 400, not a silent clamp."},"budget_ms":{"type":"integer"},"tslot":{"type":"integer"},"as_of_tslot":{"type":"integer"},"as_of_signed_at":{"type":"string"},"include":{"type":"array","items":{"type":"string"},"description":"opt-in supplements; currently ftw_fields"},"polygon_geojson":{"type":"object"},"scope":{"type":"object","description":"Optional multi-tenant scope {user_id, agent_id, run_id, org_id}, sent to every per-cell recall.","properties":{"user_id":{"type":"string"},"agent_id":{"type":"string"},"run_id":{"type":"string"},"org_id":{"type":"string"}}},"cells_per_sqkm":{"type":"number","exclusiveMinimum":0,"description":"Target sample density. Cells sampled = round(cells_per_sqkm x area_km2), clamped to [1, max_cells]. 1.0 gives about a 1 km stride, 4.0 about 500 m. Zero or less is a 400."},"drill_on_water":{"type":"boolean","default":false,"description":"Two-stage scan. The coarse pass uses max_cells / 4 cells; then 9-cell sub-grids are sampled around each cell with surface_water.recurrence above 25 %. The total stays within max_cells."},"verbose":{"type":"boolean","default":false,"description":"true puts band_metadata on every fact. false gives one top-level band_metadata map keyed by band."},"projection":{"type":"string","default":"full","description":"`compact` replaces by_cell and merged_facts with a paged cells_compact array of {cell, lat, lng, band, value, confidence}. Any other value gives the full response."},"compact_offset":{"type":"integer","minimum":0,"description":"Row offset into cells_compact (compact projection only). Pass compact_page.next_offset until it is null."}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/field_boundaries":  {"post":{"summary":"per-field agricultural-boundary polygons (Fields of The World, CC-BY-4.0)","operationId":"emem_field_boundaries","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only; see /v1/recall_polygon for why an array is refused.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"zoom":{"type":"integer","description":"web-Mercator zoom; default min(14, archive max)"},"max_features":{"type":"integer","description":"cap on returned polygons; default 10000"},"clean":{"type":"boolean","default":false,"description":"resolve overlaps and drop nested duplicate rings before returning; the response then carries a `synthesis` record (operator overlap_resolution@1, the vintage and source cid it ran on, overlap before and after in m2, what was dropped) on the envelope and on every feature. Gaps between parcels are left alone on purpose: on farmland they are bunds and tracks, not defects. Not a regularisation and not an infill of unmapped ground."}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/building_footprints": {"post":{"summary":"Overture building footprints over a bbox, as GeoJSON polygons with height where the source carries one. The per-cell `overture.buildings.count` band answers how many; this answers where and how tall, which is what a renderer needs. `height_m` is null for most buildings and null is NOT zero: use `num_floors` times your own storey height as the fallback and say which you used.","operationId":"emem_building_footprints","tags":["render","vector"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only; array corner orders disagree between conventions and are refused.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"max_features":{"type":"integer","description":"cap on returned footprints; default 10000. `count` still reports the true total, so a truncated answer is distinguishable from a complete one."}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":json_bad_request}}},
             "/v1/grid_info":         {"get":{"summary":"declare the active spatial grid (cell64 / Hilbert / future H3)","operationId":"emem_grid_info","responses":{"200":json_ok}}},
@@ -35393,7 +35393,7 @@ fn openapi_spec() -> JsonValue {
                     "event":{"type":"string","enum":["algal_bloom","deforestation","flood_extent","wildfire","urban_heat_island","methane_plume","landslide","drought","soil_salinity","crop_stress","water_turbidity","oil_slick"],"description":"Event keyword. Maps to one registered detection algorithm. Aliases accepted (case-insensitive): bloom/algae_bloom/chlorophyll_bloom → algal_bloom; forest_loss/tree_loss → deforestation; flood/inundation/flooded_fields → flood_extent; fire/bushfire/burn_severity → wildfire; uhi/heat_island/heat → urban_heat_island; methane/ghg_leak/super_emitter → methane_plume; mudslide/debris_flow/slope_failure → landslide; dry_spell/rainfall_deficit → drought; salinity → soil_salinity; crop_damage/stressed_crops → crop_stress; turbidity/sediment_plume → water_turbidity; oil_spill → oil_slick. The classifier in /v1/ask accepts the same set on free-text input."},
                     "region":{"type":"string","description":"Free-text region. Resolved through the same geocoder as /v1/locate. REQUIRED unless `polygon_bbox` is provided."},
                     "polygon_bbox":{"type":"object","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"}},"description":"Explicit polygon bbox; alternative to `region`."}
-                }, "description":"Hunter-mode body. Either `region` (geocoded) or `polygon_bbox` (explicit). The responder samples up to 32 cells (8 for slow primary bands such as MODIS LST), recalls the algorithm's primary scalar input plus any configured gate band, optionally re-ranks the top-K via Tessera embedding coherence, and returns the top 8 hotspots."},
+                }, "description":"Hunter-mode body. Either `region` (geocoded) or `polygon_bbox` (explicit). The responder sets a target n = ceil(sqrt(area_km2) / 8), at least 12 and at most EMEM_HUNT_MAX_CELLS (default 64, clamped 12 to 128), and samples at most n distinct cells. A bbox grid gives at most floor(sqrt(n))^2, so a target of 12 gives 9 cells; a region with a boundary polygon can give up to n. Slow primary bands such as MODIS LST use a target of 8 (EMEM_HUNTER_SLOW_BAND_CAP), so 4 cells on a bbox grid. It recalls the algorithm's primary scalar input plus any configured gate band, ranks each cell on its newest reading of the primary band, optionally re-ranks the top-K via Tessera embedding coherence, and returns the top 8 hotspots."},
                 "EudrDdsReq": {"type":"object","required":["plots"],"description":"POST /v1/eudr_dds body, produces a signed Annex II-shaped Due Diligence Statement per Regulation (EU) 2023/1115. Pair every plot with its operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint runs eudr_compliance@1 per cell (JRC GFC2020 legal baseline + Hansen GFC v1.13 post-cut-off loss-year consensus; JRC GFC2020 is read as 10° COG tiles for fast cold reads across all geographies). JRC TMF DeforestationYear is read on every cell and reported as `tmf_cross_check` (a TMF-only loss sets review_required); WRI-Sims driver attribution and RADD SAR are not wired here. Applies the Article 2(4) 0.5 ha MMU floor at plot aggregation, validates `commodity_hs` against Annex I, and emits the structured envelope. The response carries an explicit `legality_disclaimer` because Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) is structurally out of Earth-observation scope. Response includes an ed25519-signed `receipt` over the per-cell fact_cids (the first EMEM_EUDR_RECEIPT_MAX_FACTS by cid when there are more, disclosed as `receipt_fact_cids_capped` and `receipt_fact_cids_total`); verifiable offline at `/verify` (or `/v1/verify_receipt`). Every sampled cell's facts decide the verdict and are stored, because each plot's `per_cell_rows_cid` addresses all of them, inlined or not (`facts_computed` vs `facts_persisted`, per plot and in total); every fact_cid in the response, and every one behind `per_cell_rows_cid`, resolves at /v1/facts/<cid>. Pass an optional `scope` block (`{user_id, agent_id, run_id, org_id}`) to bind the receipt to a tenant.", "properties":{
                     "per_cell_detail":{"type":"string","enum":["rows","anchor"],"description":"rows (default) inlines per_cell_verdicts; anchor leaves them out and keeps per_cell_rows_cid, a blake3 address over every cell's verdict and fact cids. Ask again with rows to expand it."},
                     "per_cell_offset":{"type":"integer","minimum":0,"description":"page the rows in the order per_cell_rows_cid hashes them, from this index, one inline cap at a time; follow per_cell_next_offset until null, and the joined pages recompute per_cell_rows_cid"},
@@ -65696,6 +65696,111 @@ mod reported_bug_tests {
             "visual verdict enum lacks incomplete"
         );
     }
+
+    fn scalar_fact(band: &str, tslot: u64, v: f64) -> emem_fact::Fact {
+        emem_fact::Fact::Primary(emem_fact::PrimaryFact {
+            cell: "defi.zb592.nUkO.zEzE".into(),
+            band: band.into(),
+            tslot,
+            value: ciborium::Value::Float(v),
+            unit: None,
+            confidence: 1.0,
+            uncertainty: None,
+            sources: vec![],
+            derivation: emem_fact::Derivation {
+                fn_key: "t@1".into(),
+                args: None,
+            },
+            privacy_class: "public".into(),
+            schema_cid: emem_fact::SchemaCid::new("s"),
+            signer: emem_core::AttesterKey([1u8; 32]),
+            signed_at: "2026-11-05T15:00:00Z".into(),
+            served_via: None,
+        })
+    }
+
+    /// Recall returns facts oldest first; a hunt ranked on the first one,
+    /// so on the oldest scene at the cell.
+    #[test]
+    fn a_hunt_ranks_a_cell_on_its_newest_reading() {
+        let facts = vec![
+            scalar_fact("indices.ndci", 100, 0.1),
+            scalar_fact("indices.ndci", 300, f64::NAN),
+            scalar_fact("indices.ndci", 200, 0.4),
+            scalar_fact("surface_water.recurrence", 50, 80.0),
+            scalar_fact("indices.ndci", 200, 0.9),
+        ];
+        let cids: Vec<_> = ["a", "b", "c", "d", "e"]
+            .iter()
+            .map(|c| emem_fact::FactCid::new(*c))
+            .collect();
+        assert_eq!(
+            newest_finite_scalar(&facts, &cids, "indices.ndci"),
+            Some((0.4, Some("c".into())))
+        );
+        assert_eq!(
+            newest_finite_scalar(&facts, &cids, "surface_water.recurrence"),
+            Some((80.0, Some("d".into())))
+        );
+        assert_eq!(newest_finite_scalar(&facts, &cids, "era5.t2m"), None);
+    }
+
+    /// A hotspot link is followed with GET; /v1/recall is POST only.
+    #[test]
+    fn a_hotspot_facts_url_is_a_get_route() {
+        let spec = RankingSpec {
+            primary_band: "indices.ndci",
+            gate: None,
+            higher_is_hotter: true,
+            interpretation: "",
+        };
+        let r = RankedCell {
+            cell: "defi.zb592.nUkO.zEzE".into(),
+            scalar: 0.4,
+            fact_cid: None,
+            gate_value: None,
+        };
+        let blob = build_hotspot_blob(&r, 0.0, spec, "http://127.0.0.1:5051");
+        assert_eq!(
+            blob["facts_url"],
+            "http://127.0.0.1:5051/v1/cells/defi.zb592.nUkO.zEzE"
+        );
+        let spec = openapi_spec();
+        assert!(spec["paths"]["/v1/cells/{cell64}"]["get"].is_object());
+        assert!(spec["paths"]["/v1/recall"]["get"].is_null());
+    }
+
+    /// The spec lacked six fields `RecallPolygonReq` accepts, and said a
+    /// hunt samples "up to 32 cells" while the cap is 64.
+    #[test]
+    fn recall_polygon_and_hunt_specs_match_the_code() {
+        let spec = openapi_spec();
+        let props = &spec["paths"]["/v1/recall_polygon"]["post"]["requestBody"]["content"]
+            ["application/json"]["schema"]["properties"];
+        for f in [
+            "scope",
+            "cells_per_sqkm",
+            "drill_on_water",
+            "verbose",
+            "projection",
+            "compact_offset",
+        ] {
+            assert!(props[f].is_object(), "{f} missing");
+        }
+        let req: RecallPolygonReq = serde_json::from_value(json!({
+            "place": "Lake Bled", "cells_per_sqkm": 4.0, "drill_on_water": true,
+            "verbose": true, "projection": "compact", "compact_offset": 10,
+            "scope": {"user_id": "u"}
+        }))
+        .unwrap();
+        assert_eq!(req.cells_per_sqkm, Some(4.0));
+        assert_eq!(req.compact_offset, Some(10));
+        let hunt = spec["components"]["schemas"]["HuntReq"]["description"]
+            .as_str()
+            .unwrap();
+        assert!(!hunt.contains("up to 32"), "{hunt}");
+        assert!(hunt.contains("default 64"), "{hunt}");
+    }
 }
 
 #[cfg(test)]
@@ -70824,6 +70929,36 @@ struct RankedCell {
     gate_value: Option<f64>,
 }
 
+/// The finite scalar of `band` with the highest tslot, and its fact_cid.
+/// Recall returns facts oldest first, so taking the first match ranked a
+/// hunt on the oldest scene at each cell. A derivative counts at the end
+/// of its window. On equal tslots the earlier fact in recall order wins.
+fn newest_finite_scalar(
+    facts: &[emem_fact::Fact],
+    cids: &[emem_fact::FactCid],
+    band: &str,
+) -> Option<(f64, Option<String>)> {
+    let mut best: Option<(u64, f64, Option<String>)> = None;
+    for (idx, fact) in facts.iter().enumerate() {
+        let (b, tslot, value) = match fact {
+            emem_fact::Fact::Primary(p) => (p.band.as_str(), p.tslot, &p.value),
+            emem_fact::Fact::Derivative(d) => (d.band.as_str(), d.tslot_window[1], &d.value),
+            emem_fact::Fact::Absence(_) => continue,
+        };
+        if b != band {
+            continue;
+        }
+        let Some(v) = ciborium_to_json(value).as_f64().filter(|v| v.is_finite()) else {
+            continue;
+        };
+        if best.as_ref().is_some_and(|(t, _, _)| *t >= tslot) {
+            continue;
+        }
+        best = Some((tslot, v, cids.get(idx).map(|c| c.0.clone())));
+    }
+    best.map(|(_, v, cid)| (v, cid))
+}
+
 /// Fan out over `cells`, recall the primary (and gate, when present)
 /// band per cell with bounded concurrency, sort by the spec's
 /// direction, and return the ranked list. Used by both
@@ -70901,31 +71036,11 @@ async fn fan_out_and_rank(s: &AppState, cells: &[String], spec: RankingSpec) -> 
         let Ok((cell, Ok((resp, _notes)))) = j else {
             continue;
         };
-        let mut primary_scalar: Option<(f64, Option<String>)> = None;
-        let mut gate_scalar: Option<f64> = None;
-        for (idx, fact) in resp.facts.iter().enumerate() {
-            let (band, value_json) = match fact {
-                emem_fact::Fact::Primary(p) => (p.band.as_str(), ciborium_to_json(&p.value)),
-                emem_fact::Fact::Derivative(d) => (d.band.as_str(), ciborium_to_json(&d.value)),
-                emem_fact::Fact::Absence(_) => continue,
-            };
-            if band == spec.primary_band && primary_scalar.is_none() {
-                if let Some(v) = value_json.as_f64() {
-                    if v.is_finite() {
-                        let cid = resp.receipt.fact_cids.get(idx).map(|c| c.0.clone());
-                        primary_scalar = Some((v, cid));
-                    }
-                }
-            } else if let Some(g) = spec.gate.as_ref() {
-                if band == g.band && gate_scalar.is_none() {
-                    if let Some(v) = value_json.as_f64() {
-                        if v.is_finite() {
-                            gate_scalar = Some(v);
-                        }
-                    }
-                }
-            }
-        }
+        let primary_scalar =
+            newest_finite_scalar(&resp.facts, &resp.receipt.fact_cids, spec.primary_band);
+        let gate_scalar = spec.gate.as_ref().and_then(|g| {
+            newest_finite_scalar(&resp.facts, &resp.receipt.fact_cids, g.band).map(|(v, _)| v)
+        });
         let Some((scalar, fact_cid)) = primary_scalar else {
             continue;
         };
@@ -70987,7 +71102,8 @@ fn build_hotspot_blob(
         "value":        r.scalar,
         "fact_cid":     r.fact_cid,
         "scene_url":    format!("{origin}/v1/cells/{}/scene.png", r.cell),
-        "facts_url":    format!("{origin}/v1/recall?cell={}", r.cell),
+        // GET, because a link is followed with GET; /v1/recall is POST only.
+        "facts_url":    format!("{origin}/v1/cells/{}", r.cell),
     });
     if let (Some(g), Some(gv)) = (spec.gate.as_ref(), r.gate_value) {
         blob["gate_band"] = json!(g.band);
