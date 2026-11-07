@@ -1029,10 +1029,11 @@ curl -s -X POST https://emem.dev/v1/derived \
 ```
 
 Each item in `derivations` has `cell`, `band`, `fact_cid`, `token`, `op`,
-`fn_key`, `tslot_window` and `signed_at`. On 7 November 2026 this call
-returned 2 items, over REST and over MCP. The same key with no `cell` and
-the default `limit` of 100 returned 100 items and `truncated: true`. There
-is no form that lists the values of all keys.
+`fn_key`, `tslot_window` and `signed_at`. `truncated: true` tells you that
+more items exist after `limit`. On 7 November 2026 this call returned 2
+items and `truncated: true`, over REST and over MCP. The same key with no
+`cell` and the default `limit` of 100 returned 100 items and
+`truncated: true`. There is no form that lists the values of all keys.
 
 ## What emem is
 
