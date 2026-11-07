@@ -34,6 +34,7 @@ read the sections it names.
 | Change a time into a tslot | [§2 Tslot](#2-tslot-temporal-addressing) |
 | Sign a memory write | [§7.5 Signed memory writes](#75-capability-binding-for-memory-writes) |
 | Check who wrote a memory note | The steps in [§7.5.1](#751-check-a-notes-authorship-by-hand) |
+| Check what the responder read from a url or a file range | [§9.7](#97-signed-readings-of-things-emem-did-not-measure), then the steps in [§9.7.1](#971-check-a-range_hash-receipt-by-hand) |
 | Test your own encoder or verifier | [§12 Conformance gates](#12-conformance-gates-the-four-cids), [§13 Test vectors](#13-test-vectors) |
 
 To check a receipt, a note or a log proof with no code of your own, use a
@@ -639,7 +640,7 @@ Worked example (90-day NDVI mean over three monthly composites):
   "band": "indices.ndvi",
   "tslot_window": [665, 667],
   "op": "mean",
-  "parents": ["fc6...26char", "ab2...26char", "9k4...26char"],
+  "parents": ["fc6...52char", "ab2...52char", "9k4...52char"],
   "value": 0.39, "confidence": 0.92,
   "derivation": { "fn_key": "agg.mean@1" },
   "schema_cid": "bn7c...",
@@ -709,9 +710,9 @@ only when the caller sends a `code_cid` and one of these is true:
 | `op` is `delta`, `mean` or `sum`, and every parent value is a number | runs the op over the parent values (`delta` is `inputs[1] - inputs[0]`) | exact float equality. `mean` and `sum` over more than two parents allow 4 ULP |
 | `fn_key` names a registered algorithm that has an `evaluation` tree | evaluates that tree over the parents, keyed by band | exact float equality |
 
-On a match, the stored provenance becomes `deterministic_index`. The
-caller still declares `model_output`, because that is what the caller
-signed. The responder writes its result in `derivation.args.recomputation`
+On a match, the stored provenance becomes `deterministic_index`.
+`derivation.args.provenance_class` keeps the class that the caller
+declared, because the caller signed it. The responder writes its result in `derivation.args.recomputation`
 (`verified`, `rule`, `ulp_gap`, `ulp_tolerance`). Thus the `fact_cid`
 covers it. On no match, or for any other op, the value stays as the
 caller declared it. Without a `code_cid`, the responder does no
@@ -721,7 +722,8 @@ The `signer` on the fact is the key of the **responder**. The caller
 signed the derive preimage, not the fact body. A fact that names the
 caller as `signer` would be a forgery. The responder records the
 signature of the caller inside `derivation.args`. Thus the `fact_cid`
-covers it, and the signature of the responder covers the `fact_cid`:
+covers it, and the signature of the responder covers the `fact_cid`.
+`derive_core` stores the `args` keys in alphabetical order:
 
 ```jsonc
 "derivation": {
@@ -730,12 +732,12 @@ covers it, and the signature of the responder covers the `fact_cid`:
     "attester_pubkey_b32": "...",        // whose claim this is
     "attester_sig_b32": "...",           // the caller's own ed25519 signature
     "body_hash_hex": "...",              // what that signature covers
-    "inputs": ["emem:fact:...", "..."],  // the parent tokens as submitted
-    "provenance_class": "model_output",
     "code_cid": null,
+    "inputs": ["emem:fact:...", "..."],  // the parent tokens as submitted
+    "preimage": "blake3(\"emem.memory_write|derive|/v1/derive|\" || body_hash)",
+    "provenance_class": "model_output",  // as the caller declared it
     // "recomputation": { "verified", "rule", "ulp_gap", "ulp_tolerance" }
     //   present only when the responder ran the arithmetic again
-    "preimage": "blake3(\"emem.memory_write|derive|/v1/derive|\" || body_hash)",
     "submitted_via": "emem.derive.v1"
   }
 }
@@ -2298,11 +2300,16 @@ is checkable: fetch the full entry to re-hash it against the leaf.
 
 ### 9.7 Signed readings of things emem did not measure
 
+In plain words: some routes read a web page, a file range or an image
+for you. The responder signs what it read, so you can later prove which
+bytes it saw. It does not sign that those bytes are true.
+
 Five signing domains on six routes sign what the responder read, not
 what it measured. None of these routes stores anything. None of their
 outputs is a fact. Each receipt says which bytes, url, engine or model
-went together. It never says that the content is true. All use the same PreimageV1 construction as the STH (§9.6), under the
-responder key; `/v1/verifier_spec` lists every segment.
+went together. It never says that the content is true. All use the
+same PreimageV1 construction as the STH (§9.6), under the responder
+key. `/v1/verifier_spec` lists every segment.
 
 | domain | route | segments, in tag order |
 |---|---|---|
@@ -2329,6 +2336,93 @@ bytes asked.
 probabilities of the node's local open-weights model over the option
 letters. It abstains when the letters carry less than half of that
 token's probability. Both are `model_output`.
+
+#### 9.7.1 Check a range_hash receipt by hand
+
+This check uses `POST /v1/range_hash` because you can fetch the same
+bytes yourself. The other four domains use the same stream rule with
+their own segments from the table above.
+
+The PreimageV1 stream is:
+
+```text
+"emem.preimage.v1\x00"                 17 bytes
+u32_le(len(domain)) || domain          domain = "emem.range_hash.v1"
+for each segment, in tag order:
+  tag (1 byte) || u32_le(len(bytes)) || bytes
+digest    = blake3(stream)             32 bytes
+signature = ed25519(digest)            under the responder key
+```
+
+1. Ask the responder to hash 64 bytes of a public file:
+
+   ```sh
+   curl -s -X POST https://emem.dev/v1/range_hash \
+     -H 'content-type: application/json' \
+     -d '{"url":"https://raw.githubusercontent.com/Vortx-AI/emem/main/LICENSE","offset":0,"length":64}' \
+     > range.json
+   ```
+
+   The response carries `blake3_b32`, `etag`, `fetched_at`,
+   `fetched_url` and a `receipt` block with `domain`,
+   `responder_pubkey_b32` and `signature_b32`.
+
+2. Fetch the same range yourself and hash it with BLAKE3. The digest
+   must equal `blake3_b32`. A different digest means the file changed
+   after `fetched_at`. Compare `etag` to see that.
+3. Rebuild the stream from the eight segments. Offset and length are
+   `u64` big-endian. `blake3` and `responder_pubkey` are 32 raw bytes.
+   Send the text `absent` when `etag` is `null`.
+4. Check `signature_b32` over the 32-byte digest with
+   `responder_pubkey_b32`. Compare that key with
+   `/.well-known/emem.json` first.
+
+This script does steps 2 to 4. It needs the `blake3` and
+`cryptography` packages:
+
+```python
+import base64, json, struct, sys, urllib.request
+from blake3 import blake3
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+def b32(s):
+    s = s.upper()
+    return base64.b32decode(s + "=" * (-len(s) % 8))
+
+r = json.load(open(sys.argv[1]))
+rc = r["receipt"]
+
+req = urllib.request.Request(r["fetched_url"], headers={
+    "Range": f"bytes={r['offset']}-{r['offset'] + r['length'] - 1}"})
+body = urllib.request.urlopen(req).read()
+print("bytes match:", blake3(body).digest() == b32(r["blake3_b32"]))
+
+def seg(tag, data):
+    return bytes([tag]) + struct.pack("<I", len(data)) + data
+
+domain = rc["domain"].encode()
+pub = b32(rc["responder_pubkey_b32"])
+stream = b"emem.preimage.v1\x00" + struct.pack("<I", len(domain)) + domain
+stream += seg(1, r["url"].encode())
+stream += seg(2, struct.pack(">Q", r["offset"]))
+stream += seg(3, struct.pack(">Q", r["length"]))
+stream += seg(4, b32(r["blake3_b32"]))
+stream += seg(5, (r.get("etag") or "absent").encode())
+stream += seg(6, r["fetched_at"].encode())
+stream += seg(7, pub)
+stream += seg(8, r["fetched_url"].encode())
+digest = blake3(stream).digest()
+print("digest:", digest.hex())
+
+Ed25519PublicKey.from_public_bytes(pub).verify(b32(rc["signature_b32"]), digest)
+print("signature: VALID")
+```
+
+On 7 November 2026 at 00:50 UTC, `python3 check_range.py range.json`
+printed `bytes match: True` and `signature: VALID`. A bad signature
+raises `InvalidSignature`. Each IP has a daily quota on this route.
+Over it, the route returns `429` with `code: range_hash_quota` (see
+[errors.md](errors.md)).
 
 #### emem:tree
 
