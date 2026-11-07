@@ -24,8 +24,9 @@ One Rust binary, `emem-server`, listens on one port (default
   (7 November 2026).
 - MCP JSON-RPC at `POST /mcp`. On 7 November 2026 the registry has
   116 tools: 18 core and 98 extended. `tools/list` on `/mcp` gives the
-  18 core tools. `tools/list` on `/mcp/full` gives 12 tools on each
-  page. Follow `nextCursor` through 9 pages to get all 116.
+  18 core tools. `tools/list` on `/mcp/full` fills each page to about
+  45 KB, so the tool count on a page changes (2 to 20). Follow
+  `nextCursor` through 9 pages to get all 116.
 
 No GPU or model sidecar runs. Earlier versions ran Clay, Prithvi,
 Galileo and JEPA-v2 on a sidecar. Facts that those models signed still
@@ -563,8 +564,9 @@ the process:
 REST and MCP serve the same primitives. `POST /mcp` is JSON-RPC 2.0,
 from `crates/emem-mcp/src/lib.rs` (116 tools on 7 November 2026).
 `tools/list` on `/mcp` gives the 18 core tools. `tools/list` on
-`/mcp/full` gives 12 tools on each page, so a client follows
-`nextCursor` through 9 pages to get all 116.
+`/mcp/full` fills each page to about 45 KB (`PAGE_BYTES`), so the
+tool count on a page changes. A client follows `nextCursor` through 9
+pages to get all 116.
 Both endpoints run any tool by name through `tools/call`.
 
 MCP is not read-only. The caller signs `emem_memory_create`,
