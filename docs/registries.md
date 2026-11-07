@@ -461,10 +461,13 @@ that order and returns the first success. `emem-storage` holds a
 `Dispatcher`, but no serving path calls it. The materializers in
 `emem-api-rest` call their connectors directly.
 
-A fact names what it read in its `sources[]` list: `scheme`, `url` and
-`captured_at`. The receipt has no provider field. On 7 November 2026, a
-recall of `copdem30m.elevation_mean` at Mount Fuji gave scheme
-`copernicus.dem.30m.aws` and the GLO-30 tile URL.
+A fact names what it read in its `sources[]` list (struct `Source` in
+`crates/emem-fact/src/fact.rs`). Each entry has `scheme` and `id`, the
+provider's tile or scene ID. It can also have `cid`, `hash`, `captured_at`
+and `url`. The receipt has no provider field. On 7 November 2026, a recall
+of `copdem30m.elevation_mean` at Mount Fuji gave scheme
+`copernicus.dem.30m.aws`, `captured_at`, and the GLO-30 tile URL as both
+`id` and `url`.
 
 `ConnectorKind` (`sources.rs`) has 8 variants. The provider counts are from
 `sources-v0.json` on 7 November 2026.
