@@ -230,6 +230,11 @@ lets any signing key write facts, and the server says so at boot.
 
 Derivations and edges take no address. They stay open at T1.
 
+Two rungs of the ladder are not complete. The responder does not compute
+`T5_corroborated` yet, so no key reaches it. For `T2_named` it checks the
+signed `profile.md`, but it does not enforce a unique nick. Both gaps are in
+the `computed_here` block of `GET /v1/enlist` (7 November 2026).
+
 A tier records which check passed. It is never a score. `trust:
 caller_decides` stays true. No tier says that a party is trustworthy. Each
 tier says what the responder checked and what a peer may conclude from it.
@@ -529,7 +534,7 @@ network's: `trust: caller_decides`. Sybils add signatures, not credibility.
 The network owes the reader the evidence to judge:
 
 - who signed;
-- what they proved (the T0 to T5 ladder);
+- what they proved (the T0 to T5 ladder; T5 is not computed yet, §5a);
 - whether a third party can check that proof again (DNS or `.well-known`, §5a);
 - where signers disagree.
 
@@ -795,7 +800,7 @@ The three jobs a token does, and what does them here:
 
 | Token job | Web3 mechanism | emem today | Gap |
 |---|---|---|---|
-| Sybil cost on writes | stake (The Graph: 100,000 GRT minimum) | ladder T0 to T5 in `enlistment.rs`; 240 writes per minute per attester; DNS TXT and organisation vouching | the code default now enforces (earlier releases used shadow mode), and emem.dev sets it explicitly. On 2026-09-02 every key read T1, the operator's own agents too, so no key could write to the shared entity space (fixed, §9d) |
+| Sybil cost on writes | stake (The Graph: 100,000 GRT minimum) | ladder T0 to T5 in `enlistment.rs` (T5 not computed yet); 240 writes per minute per attester; DNS TXT and organisation vouching | the code default now enforces (earlier releases used shadow mode), and emem.dev sets it explicitly. On 2026-09-02 every key read T1, the operator's own agents too, so no key could write to the shared entity space (fixed, §9d) |
 | Reward for serving | issuance (The Graph: 3% a year) | none; operators run a node because they need the data, as in the Nostr relay and ATProto PDS model | none needed at four nodes |
 | Settlement | on-chain transfer | none | a payment rail without a token exists (§9b) |
 
@@ -970,7 +975,8 @@ cached `T4_affiliated` tiers from 2026-09-02 would have fallen to T1 on
 2026-10-02, while emem.dev enforced the ladder. The fix shipped as a fallback
 path. If the operator sets `EMEM_AGENTS_WELL_KNOWN`, the handler reads that
 file. If not, it tries the relative `config/` path, then
-`$EMEM_DATA/emem-agents.json`. The image does not include a roster on purpose. The document says that the operator of a domain vouches for these
+`$EMEM_DATA/emem-agents.json`. The image does not include a roster on
+purpose. The document says that the operator of a domain vouches for these
 keys. One roster in every self-hosted image would make each operator vouch
 for keys they never chose.
 
