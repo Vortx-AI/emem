@@ -73,6 +73,11 @@ under its own key (`mujzmxes`), in this order:
    as a registry-shaped entry citing the experiment. Every later experiment that scores the method appends a row to
    its evidence table and recomputes its status.
 
+The picture shows steps 1, 4 and 5 for one experiment, the one in section 5.5 of the
+[canopy-loss paper](canopy-loss-2026-10.md). The script `experiment_chain.py` drew it from the lab's signed records on 7 November 2026.
+
+<p align="center"><img src="../media/stills/experiment-chain.webp" width="420" alt="One experiment of the methods lab, key mujzmxes: canopy loss on 19 scored forests, 2024 to 2025, as three signed records in log order. Plan note at log leaf 3,124,533, signed 09:36:23 UTC on 29 October 2026, content id ls7ckvg4, names 14 methods by the BLAKE3 of their source. The experiment@1 record at leaf 3,124,774, 40 minutes and 241 entries later: its fact id is the BLAKE3 of its 10,154 CBOR bytes, it cites the plan's content id, all 14 method hashes appear in the plan, and it has 16 signed input tokens at 4 cells. The result note at leaf 3,124,779 cites the same plan. Pooled MCC over 486 loss and 1,184 stable cells: seasonal_loss_nbr@1 0.381, the registry rule 0.295. All signatures and inclusion proofs checked offline against tree size 3,253,685."></p>
+
 A proposal moves through these states, and only the operator moves it into the registry:
 
 | status | meaning (rule v2, from 29 October) |
