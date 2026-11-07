@@ -805,8 +805,7 @@ provenance classes by name, for example
 `unclassified`.
 
 - Each fact has its class in `band_metadata.provenance.class`. The other five
-  classes also have a `caution` string beside it, which names how the class
-  can fail. `direct_sensor` and `deterministic_index` have no `caution`
+  classes each have a `caution` string, which names how the class can fail. `direct_sensor` and `deterministic_index` have no `caution`
   (`ProvenanceClass::caution` in `crates/emem-core/src/bands.rs`). On
   7 November 2026, the Mount Fuji elevation fact had class `direct_sensor`
   and no `caution`.
@@ -2024,8 +2023,9 @@ all its cells are within 2 points of the 10 % canopy threshold. Its cell
 had the label `not_in_scope`: JRC showed no forest there in 2020.
 
 The response puts one item for each plot in `per_plot_results`. Each item
-has `verdict`, `verdict_support` and `per_cell_rows_cid`. It is the BLAKE3
-hex of one line for each sampled cell, in the form
+has `verdict`, `verdict_support` and `per_cell_rows_cid`.
+`per_cell_rows_cid` is the BLAKE3 hex of one line for each sampled cell, in
+the form
 `<cell>|<verdict>|<fact_cids joined by ,>\n`. The responder stores the
 facts of each sampled cell, so each fact CID resolves.
 
@@ -2135,8 +2135,9 @@ Branch on the `fix` field:
 
 Two deny codes occur only on a self-hosted guard. `GEO_ZONE` marks a
 cited cell in a zone that the operator restricted. Its fix is
-`contact_admin`. `POLICY_MODULE` means that a policy module that the
-operator loaded gave a deny. Its fix is `redact_and_retry`. The hosted
+`contact_admin`. The modules that ship with emem-guard deny with
+`POLICY_MODULE` and the fix `redact_and_retry`. Each module declares its
+code and fix in its manifest, and `/modules` lists them. The hosted
 route has no zones and no modules, so it never gives these two codes or
 these two fixes.
 
