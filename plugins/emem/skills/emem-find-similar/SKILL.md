@@ -53,12 +53,8 @@ Call `emem_locate` with:
 {"q": "Bengaluru, India"}
 ```
 
-Without MCP, send the same body to `POST https://emem.dev/v1/locate`:
-
-```sh
-curl -s -X POST https://emem.dev/v1/locate -H 'content-type: application/json' \
-  -d '{"q":"Bengaluru, India"}' | jq -c '{cell64, via}'
-```
+Without MCP, send the same body to `POST https://emem.dev/v1/locate`.
+Read `cell64` and `via` in the answer.
 
 Keep the `cell64`. On 7 November 2026 this call returned
 `defi.zb493.zezo.zcb35`. For a coordinate, send
@@ -76,11 +72,6 @@ accepts `cell` as another name for `key`.
 Without MCP, send the same body to `POST https://emem.dev/v1/find_similar`.
 Save the answer as `sim.json`, also when it is an error. Here a
 refusal is an answer.
-
-```sh
-curl -s -X POST https://emem.dev/v1/find_similar -H 'content-type: application/json' \
-  -d '{"key":"defi.zb493.zezo.zcb35","k":5}' -o sim.json
-```
 
 Over MCP, save the JSON text of the tool result as `sim.json`. A
 refusal comes back as a tool error, and its message names the code,
@@ -121,8 +112,12 @@ again. The Bengaluru call answered in 0.13 s. To check the receipt
 without a local verifier, send it to the server:
 
 ```sh
-jq -c '{receipt}' sim.json | curl -s -X POST https://emem.dev/v1/verify_receipt -H 'content-type: application/json' -d @-
+jq -c '{receipt}' sim.json > verify_req.json
 ```
+
+Send `verify_req.json` as the body of
+`POST https://emem.dev/v1/verify_receipt` and read `valid` in the
+answer.
 
 That call returned `"valid": true`. The `cid_not_found` message also
 names `geotessera` in its list of bands for the cell. That list does

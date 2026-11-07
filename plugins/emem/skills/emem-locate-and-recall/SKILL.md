@@ -42,13 +42,7 @@ Call `emem_locate` with this body:
 {"q": "Bengaluru, India"}
 ```
 
-Without MCP, send the same body to `POST https://emem.dev/v1/locate`:
-
-```sh
-curl -s -X POST https://emem.dev/v1/locate -H 'content-type: application/json' \
-  -d '{"q":"Bengaluru, India"}' \
-  | jq -c '{cell64, place_label, via, disambiguation_required}'
-```
+Without MCP, send the same body to `POST https://emem.dev/v1/locate`.
 
 Read `cell64`, `place_label`, `via` and `disambiguation_required` in the
 result. On 6 November 2026 this call returned `defi.zb493.zezo.zcb35`,
@@ -75,13 +69,7 @@ Call `emem_recall` with the `cell64` from step 1:
 ```
 
 Without MCP, send the same body to `POST https://emem.dev/v1/recall`
-and save the result as `recall.json`:
-
-```sh
-curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.zezo.zcb35","bands":["weather.temperature_2m","indices.ndvi"]}' \
-  -o recall.json
-```
+and save the result as `recall.json`.
 
 Over MCP, save the JSON text of the tool result as `recall.json`. Then
 print the latest reading for each band, with the token to cite it:

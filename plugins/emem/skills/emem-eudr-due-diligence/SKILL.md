@@ -29,21 +29,23 @@ A cold plot can take minutes. It can also fail with
 `source_fetch_failed`, which names the slow tile. To prevent this, read
 the forest bands on one cell of the plot first.
 
-Get the cell64 of the plot point:
+Get the cell64 of the plot point. Send this body to
+`POST https://emem.dev/v1/locate` and read `cell64` in the answer:
 
-```sh
-curl -s -X POST https://emem.dev/v1/locate -H 'content-type: application/json' \
-  -d '{"lat":6.8276,"lng":-5.5471}' | jq -r .cell64
+```json
+{"lat": 6.8276, "lng": -5.5471}
 ```
 
 This returned `defi.zb44d.zaedf.bujI` on 7 November 2026. Read the
-three forest bands at that cell:
+three forest bands at that cell. Send this body to
+`POST https://emem.dev/v1/recall`:
 
-```sh
-curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb44d.zaedf.bujI","bands":["jrc_gfc2020.forest_2020","forest_change.lossyear","forest_change.treecover2000"]}' \
-  | jq -c '.facts[] | {band, value, unit}'
+```json
+{"cell": "defi.zb44d.zaedf.bujI", "bands": ["jrc_gfc2020.forest_2020", "forest_change.lossyear", "forest_change.treecover2000"]}
 ```
+
+For each entry of `facts[]` in the answer, read `band`, `value` and
+`unit`.
 
 On 7 November 2026 it returned `jrc_gfc2020.forest_2020` 0,
 `forest_change.lossyear` 0 and `forest_change.treecover2000` 20. The MCP
@@ -57,10 +59,20 @@ source tiles, and neighbour cells share them.
 
 ## Step 2: send the request
 
-```sh
-curl -s -m 300 -X POST https://emem.dev/v1/eudr_dds -H 'content-type: application/json' \
-  -d '{"operator":{"name":"Example Cocoa Importer"},"plots":[{"plot_id":"CIV-001","geometry_geojson":{"type":"Point","coordinates":[-5.5471,6.8276]},"country_of_production":"CIV","commodity_hs":"180100","quantity_kg":1200}]}' \
-  -o dds.json
+Send this body to `POST https://emem.dev/v1/eudr_dds` and save the
+answer as `dds.json`:
+
+```json
+{
+  "operator": {"name": "Example Cocoa Importer"},
+  "plots": [{
+    "plot_id": "CIV-001",
+    "geometry_geojson": {"type": "Point", "coordinates": [-5.5471, 6.8276]},
+    "country_of_production": "CIV",
+    "commodity_hs": "180100",
+    "quantity_kg": 1200
+  }]
+}
 ```
 
 Allow up to 300 s for a cold plot. After step 1, this call answered in
@@ -214,12 +226,16 @@ large plot the receipt signs only the first cids, sorted by cid. The
 response then shows `receipt_fact_cids_capped` and
 `receipt_fact_cids_total`.
 
-Verify the receipt on the server:
+Verify the receipt on the server. Build the body from the saved
+answer:
 
 ```sh
-jq -c '{receipt}' dds.json | curl -s -X POST https://emem.dev/v1/verify_receipt \
-  -H 'content-type: application/json' -d @- | jq -c '{valid, signature_valid, merkle_proof_valid}'
+jq -c '{receipt}' dds.json > verify_req.json
 ```
+
+Send `verify_req.json` as the body of
+`POST https://emem.dev/v1/verify_receipt`. Read `valid`,
+`signature_valid` and `merkle_proof_valid` in the answer.
 
 On 7 November 2026 all three were `true`. To verify offline, without
 trust in the responder, use

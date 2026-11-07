@@ -66,10 +66,15 @@ the area into smaller boxes. To ask for a capture date, add
 `"observed_on": "YYYY-MM-DD"`. The responder pins the scene that it
 used in both cases.
 
+Send this body to `POST https://emem.dev/v1/band_raster`:
+
+```json
+{"bbox": {"min_lat": 32.5699, "min_lng": 77.0328, "max_lat": 32.5727, "max_lng": 77.0362}, "band": "s2.B04"}
+```
+
+Save the answer as `raster.json`. Then print a summary:
+
 ```sh
-curl -s -X POST https://emem.dev/v1/band_raster -H 'content-type: application/json' \
-  -d '{"bbox":{"min_lat":32.5699,"min_lng":77.0328,"max_lat":32.5727,"max_lng":77.0362},"band":"s2.B04"}' \
-  -o raster.json
 jq '{raster: .tokens.raster, artifact: .artifact.url, cid: .artifact.artifact_cid,
      grid: .grid, scene: .derivation.sources[0].id}' raster.json
 ```
@@ -96,13 +101,15 @@ newer scene arrives, the `artifact_cid` changes too.
 ## Step 2: download the bytes and hash them again
 
 Download the file at `artifact.url`. No MCP tool returns the bytes.
+Send a GET to
+`https://emem.dev/v1/artifacts/77zgrf4hiv4cnzqblgkttrg4jssvh5sghhvdqjjq3wnj77nmgpma`
+and save the bytes as `artifact.bin`. Then hash them again:
 
 ```sh
-curl -s -o artifact.bin https://emem.dev/v1/artifacts/77zgrf4hiv4cnzqblgkttrg4jssvh5sghhvdqjjq3wnj77nmgpma
 python3 "${CLAUDE_SKILL_DIR}/scripts/rehash.py" 77zgrf4hiv4cnzqblgkttrg4jssvh5sghhvdqjjq3wnj77nmgpma artifact.bin
 ```
 
-Use your own `artifact_cid` from step 1 in both lines.
+Use your own `artifact_cid` from step 1 in the URL and in the command.
 `${CLAUDE_SKILL_DIR}` is the directory of this skill. Claude Code sets
 it.
 
@@ -129,10 +136,16 @@ bytes.
 `/v1/band_composite` takes the median of one Sentinel-2 band over a
 date window. It removes cloud pixels by their scene class first.
 
+Send this body to `POST https://emem.dev/v1/band_composite`:
+
+```json
+{"bbox": {"min_lat": 32.5699, "min_lng": 77.0328, "max_lat": 32.5727, "max_lng": 77.0362},
+ "band": "s2.B04", "start_date": "2026-06-01", "end_date": "2026-06-30", "max_scenes": 4}
+```
+
+Save the answer as `composite.json`. Then print a summary:
+
 ```sh
-curl -s -X POST https://emem.dev/v1/band_composite -H 'content-type: application/json' \
-  -d '{"bbox":{"min_lat":32.5699,"min_lng":77.0328,"max_lat":32.5727,"max_lng":77.0362},"band":"s2.B04","start_date":"2026-06-01","end_date":"2026-06-30","max_scenes":4}' \
-  -o composite.json
 jq '{raster: .tokens.raster, members: .member_count, window, grid}' composite.json
 ```
 
@@ -144,10 +157,16 @@ steps 2 and 5.
 
 ## Step 4 (optional): fetch the field at several dates
 
+Send this body to `POST https://emem.dev/v1/band_cube`:
+
+```json
+{"bbox": {"min_lat": 32.5699, "min_lng": 77.0328, "max_lat": 32.5727, "max_lng": 77.0362},
+ "band": "s2.B08", "observed_on": ["2026-05-15", "2026-06-15", "2026-07-15"]}
+```
+
+Save the answer as `cube.json`. Then print the members:
+
 ```sh
-curl -s -X POST https://emem.dev/v1/band_cube -H 'content-type: application/json' \
-  -d '{"bbox":{"min_lat":32.5699,"min_lng":77.0328,"max_lat":32.5727,"max_lng":77.0362},"band":"s2.B08","observed_on":["2026-05-15","2026-06-15","2026-07-15"]}' \
-  -o cube.json
 jq '{cube: .tokens.cube, count: .member_count,
      members: [.derivation.members[] | {tslot, scene: .scene_id, requested_dates,
                distance: .requested_date_distance_days, raster: .raster_token}]}' cube.json
@@ -172,13 +191,15 @@ a member, give the requested date and the distance.
 
 ## Step 5: check a token that you received
 
-For a raster token, send it with `spot_check`:
+For a raster token, send it with `spot_check` to
+`POST https://emem.dev/v1/raster/resolve`:
 
-```sh
-curl -s -X POST https://emem.dev/v1/raster/resolve -H 'content-type: application/json' \
-  -d '{"token":"emem:raster:tllufj6jxg3cpuucznj4h75ng3lelg2ki3yb5whw6ggdkzt2gocq:s2.B04:20761:2w5daw7ir2r53u7to6rrz7pcuwa2aj6g2n2ujmkkmw4iwihkj5bq","spot_check":true}' \
-  | jq -c '{resolved, url: .artifact.url, field: .receipt.field, passed: .spot_check.passed, anchors: .spot_check.anchors}'
+```json
+{"token": "emem:raster:tllufj6jxg3cpuucznj4h75ng3lelg2ki3yb5whw6ggdkzt2gocq:s2.B04:20761:2w5daw7ir2r53u7to6rrz7pcuwa2aj6g2n2ujmkkmw4iwihkj5bq", "spot_check": true}
 ```
+
+Read `resolved`, `artifact.url`, `receipt.field`, `spot_check.passed`
+and `spot_check.anchors` in the answer.
 
 On 7 November 2026 this returned `resolved: true`, `passed: true` and
 `anchors: 5`.
@@ -225,11 +246,14 @@ the responder, so this page does not show a live run.
 
 ## List the cells in an area
 
-```sh
-curl -s -X POST https://emem.dev/v1/cells_in_bbox -H 'content-type: application/json' \
-  -d '{"bbox":{"min_lat":32.5699,"min_lng":77.0328,"max_lat":32.5727,"max_lng":77.0362},"page_size":1024}' \
-  | jq -c '{total, count, next_cursor, first: .cells[0]}'
+Send this body to `POST https://emem.dev/v1/cells_in_bbox`:
+
+```json
+{"bbox": {"min_lat": 32.5699, "min_lng": 77.0328, "max_lat": 32.5727, "max_lng": 77.0362}, "page_size": 1024}
 ```
+
+Read `total`, `count`, `next_cursor` and the first entry of `cells[]`
+in the answer.
 
 On 7 November 2026 this box had `total: 1394` cells. The first page
 had 1024 cells and `next_cursor: 1024`. Send `"cursor": <next_cursor>`

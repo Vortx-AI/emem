@@ -45,10 +45,17 @@ Find a band there before you build an analysis on it.
 Send this body to `POST https://emem.dev/v1/recall`, or call
 `emem_recall` with it:
 
+```json
+{"cell": "defi.zb595.zbaf8.zd63c",
+ "bands": ["overture.buildings.count", "overture.places.count",
+           "overture.transportation.road_length_m", "overture.transportation.road_bearing_deg",
+           "population", "indices.ndbi", "esa_worldcover.lc_2021",
+           "surface_water.recurrence", "nightlights.dmsp_ols_avg_dn"]}
+```
+
+Save the answer as `urban.json`. Then print one line for each fact:
+
 ```sh
-curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb595.zbaf8.zd63c","bands":["overture.buildings.count","overture.places.count","overture.transportation.road_length_m","overture.transportation.road_bearing_deg","population","indices.ndbi","esa_worldcover.lc_2021","surface_water.recurrence","nightlights.dmsp_ols_avg_dn"]}' \
-  -o urban.json
 jq -c '.facts[] | {band, value, unit, observed_at, surface_class, args: .derivation.args, token: .memory_token}' urban.json
 ```
 
@@ -82,10 +89,15 @@ use an area call.
 Send this body to `POST https://emem.dev/v1/recall_polygon`, or call
 `emem_recall_polygon` with it:
 
+```json
+{"polygon_bbox": {"min_lat": 35.6585, "max_lat": 35.6605, "min_lng": 139.6995, "max_lng": 139.7015},
+ "bands": ["overture.transportation.road_length_m", "overture.buildings.count"],
+ "budget_ms": 60000}
+```
+
+Save the answer as `area.json`. Then print the coverage and the sums:
+
 ```sh
-curl -s -X POST https://emem.dev/v1/recall_polygon -H 'content-type: application/json' \
-  -d '{"polygon_bbox":{"min_lat":35.6585,"max_lat":35.6605,"min_lng":139.6995,"max_lng":139.7015},"bands":["overture.transportation.road_length_m","overture.buildings.count"],"budget_ms":60000}' \
-  -o area.json
 jq '{area_km2, cells_sampled, native_grid_cells_in_polygon, coverage_fraction, is_exhaustive}' area.json
 jq -c '[.by_cell | .. | objects | select(.band? == "overture.transportation.road_length_m") | .value]
   | {n: length, nonzero: (map(select(. > 0)) | length), sum: add}' area.json

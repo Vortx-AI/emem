@@ -99,21 +99,17 @@ published note: the section index of the emem README, signed on 6
 November 2026. It has 15 rows. Use your own path and `file_cid` in
 place of these.
 
-1. Get the audit path for one row. Give a row number or a label:
-
-   ```sh
-   curl -s -o row.json "https://emem.dev/v1/tree/fucoti2h7r6plhxzd2m2cmtuve?row=3"
-   ```
+1. Get the audit path for one row. Give a row number or a label. Send
+   a GET to `https://emem.dev/v1/tree/fucoti2h7r6plhxzd2m2cmtuve?row=3`
+   and save the answer as `row.json`.
 
    The MCP tool `emem_tree` with `{"file_cid": "...", "row": "3"}`
    returns the same JSON. It is not in the short tool list of the MCP
    server. The server runs it by name through `tools/call`.
 2. Get the raw bytes of the note. Keep the bytes as the server sends
-   them, because they must hash to the `file_cid`:
-
-   ```sh
-   curl -s -o note.md https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261106.md
-   ```
+   them, because they must hash to the `file_cid`. Send a GET to
+   `https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261106.md`
+   and save the answer as `note.md`.
 
 3. Check the unit:
 
@@ -128,13 +124,9 @@ place of these.
    python3 "${CLAUDE_SKILL_DIR}/scripts/tree_proof.py" check row.json note.md report.md
    ```
 
-5. Check who wrote the note. Get the JSON view of the note:
-
-   ```sh
-   curl -s -o view.json -H 'accept: application/json' https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261106.md
-   ```
-
-   Then give `view.json` to `verify_note.py`, as
+5. Check who wrote the note. Get the JSON view of the note: send the
+   same GET with the header `accept: application/json`, and save the
+   answer as `view.json`. Then give `view.json` to `verify_note.py`, as
    [`emem-multi-agent-handoff`](../emem-multi-agent-handoff/SKILL.md)
    describes.
 
@@ -209,8 +201,10 @@ two leaves from `row.json` of step 3, in the order of row 3's audit
 path:
 
 ```sh
-jq -c '{index: 1, leaves: [.path[0].hash_b32, .leaf_b32]}' row.json | curl -s -X POST https://emem.dev/v1/tree/path -H 'content-type: application/json' -d @-
+jq -c '{index: 1, leaves: [.path[0].hash_b32, .leaf_b32]}' row.json > path_req.json
 ```
+
+Send `path_req.json` as the body of `POST https://emem.dev/v1/tree/path`.
 
 On 7 November 2026 it returned `leaves: 2`, one path step with
 `side: "left"`, and a `root_b32`. That root is the node above row 3 in

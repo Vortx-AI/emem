@@ -38,11 +38,11 @@ Call `emem_recall` with this body:
 {"cell": "defi.zb493.zezo.zcb35", "bands": ["weather.temperature_2m"]}
 ```
 
-Without MCP, save the result and pick the token of the current reading:
+Without MCP, send the same body to `POST https://emem.dev/v1/recall`.
+Save the result as `recall.json` and pick the token of the current
+reading:
 
 ```sh
-curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.zezo.zcb35","bands":["weather.temperature_2m"]}' -o recall.json
 jq -r '.current_by_band["weather.temperature_2m"] as $c
        | .facts[] | select(.fact_cid == $c) | .memory_token' recall.json
 ```
@@ -60,13 +60,14 @@ The result also has the provenance block of the band.
 ## Step 2: resolve the token, quote the signed string
 
 The token is `emem:fact:<cell64>:<fact_cid>`. Each agent that resolves
-it gets the same signed object. Call `emem_memory_token_resolve`, or:
+it gets the same signed object. Call `emem_memory_token_resolve`, or
+send the same body to `POST https://emem.dev/v1/memory_token/resolve`:
 
-```sh
-curl -s -X POST https://emem.dev/v1/memory_token/resolve -H 'content-type: application/json' \
-  -d '{"token":"emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq"}' \
-  | jq -c '{value_verbatim, unit, band, kind}'
+```json
+{"token": "emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq"}
 ```
+
+Read `value_verbatim`, `unit`, `band` and `kind` in the answer.
 
 On 7 November 2026 this returned
 `{"value_verbatim":"28.0","unit":"degC","band":"weather.temperature_2m","kind":"primary"}`.
@@ -85,13 +86,13 @@ To resolve many tokens in one call, send `{"tokens": [...]}` to
 
 `emem_echo_verify` (REST `POST https://emem.dev/v1/echo_verify`)
 compares the value that you are about to write with the fact that your
-token names:
+token names. Send this body:
 
-```sh
-curl -s -X POST https://emem.dev/v1/echo_verify -H 'content-type: application/json' \
-  -d '{"token":"emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq","claimed_value":28.0}' \
-  | jq -c '{matches, drift}'
+```json
+{"token": "emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq", "claimed_value": 28.0}
 ```
+
+Read `matches` and `drift` in the answer.
 
 The check compares the strings first, then the numbers. Results on
 7 November 2026:
@@ -122,13 +123,13 @@ resolved token.
 
 Use `emem_change_attribution` (REST
 `POST https://emem.dev/v1/change_attribution`) when the words held and
-the readout changed between visits:
+the readout changed between visits. Send this body:
 
-```sh
-curl -s -X POST https://emem.dev/v1/change_attribution -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.zezo.zcb35"}' \
-  | jq -c '{observed, split, terms: (.terms | keys)}'
+```json
+{"cell": "defi.zb493.zezo.zcb35"}
 ```
+
+Read `observed`, `split` and the keys of `terms` in the answer.
 
 The result is a ledger of evidence for each term. Each term cites its
 fact cids:
@@ -166,13 +167,15 @@ run as tasks.
 
 `emem_memory_contradictions` (REST
 `POST https://emem.dev/v1/memory_contradictions`) finds two or more
-signed values that disagree for the same place, band and time:
+signed values that disagree for the same place, band and time. Send
+this body:
 
-```sh
-curl -s -X POST https://emem.dev/v1/memory_contradictions -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.zezo.zcb35","min_severity":0.2,"limit":20}' \
-  | jq -c '{found: (.contradictions | length), corpus_scanned, scan_truncated}'
+```json
+{"cell": "defi.zb493.zezo.zcb35", "min_severity": 0.2, "limit": 20}
 ```
+
+Read the length of `contradictions`, `corpus_scanned` and
+`scan_truncated` in the answer.
 
 On 7 November 2026 this returned 0 contradictions, with
 `corpus_scanned: 6` and `scan_truncated: false`.

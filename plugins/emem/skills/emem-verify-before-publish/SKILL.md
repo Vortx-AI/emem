@@ -29,13 +29,9 @@ Put the draft in `texts`. This field is an array of strings. Call
  "claim_gating": true}
 ```
 
-Without MCP, send the same body to `POST https://emem.dev/v1/guard/verdict`:
-
-```sh
-curl -s -X POST https://emem.dev/v1/guard/verdict -H 'content-type: application/json' \
-  -d '{"texts":["Bengaluru air temperature is 35 degC (emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq)."],"claim_gating":true}' \
-  | jq -c '{action, reason, citations_found, checked, advisory, citations: [.citations[] | {state}]}'
-```
+Without MCP, send the same body to `POST https://emem.dev/v1/guard/verdict`.
+Read `action`, `reason`, `citations_found`, `checked`, `advisory`, and
+the `state` of each entry of `citations[]` in the answer.
 
 For a chat transcript, send `messages` (a list of `role` and `content`
 objects) in place of `texts`. For a payload from another framework,

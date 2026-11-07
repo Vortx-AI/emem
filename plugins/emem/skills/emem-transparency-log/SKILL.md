@@ -61,12 +61,10 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/verify_log.py" --self-test
 
 The last line is `SELF-TEST PASS`.
 
-Get the current head and an inclusion proof for one leaf:
-
-```sh
-curl -s https://emem.dev/v1/log/sth -o old_sth.json
-curl -s 'https://emem.dev/v1/log/inclusion?leaf_index=12345' -o inc.json
-```
+Get the current head and an inclusion proof for one leaf. Send a GET
+to `https://emem.dev/v1/log/sth` and save the answer as `old_sth.json`.
+Send a GET to `https://emem.dev/v1/log/inclusion?leaf_index=12345` and
+save the answer as `inc.json`.
 
 With MCP, call `emem_log_sth` with `{}`. Then call `emem_log_inclusion`
 with `{"leaf_index": 12345}`. Save each result as a JSON file.
@@ -90,18 +88,20 @@ inclusion    VALID    leaf_index=12345 path=22 hashes
 
 ## Step 2: prove that the log only grew
 
-Later, get a new head and read both tree sizes:
+Later, get a new head and read both tree sizes. Send a GET to
+`https://emem.dev/v1/log/sth` again and save the answer as
+`new_sth.json`. Then:
 
 ```sh
-curl -s https://emem.dev/v1/log/sth -o new_sth.json
 jq .sth.tree_size old_sth.json new_sth.json
 ```
 
 Ask for the consistency proof from the old size to the new size. Put
-your two sizes in the query:
+your two sizes in the query. Send a GET to
+`https://emem.dev/v1/log/consistency?first=3245770&second=3245806` and
+save the answer as `cons.json`. Then check it:
 
 ```sh
-curl -s 'https://emem.dev/v1/log/consistency?first=3245770&second=3245806' -o cons.json
 python3 "${CLAUDE_SKILL_DIR}/scripts/verify_log.py" consistency old_sth.json new_sth.json cons.json
 ```
 
@@ -145,12 +145,10 @@ A changed `tree_size` in a head also gave `INVALID`.
 ## Step 3: prove that a memory note is in the log
 
 A memory write is also a log entry. The JSON view of a note gives the
-inclusion path in its `log` field:
-
-```sh
-curl -s https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261106.md \
-  -H 'accept: application/json' | jq -c '{file_cid, log}'
-```
+inclusion path in its `log` field. Send a GET to
+`https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261106.md`
+with the header `accept: application/json`. Read `file_cid` and `log`
+in the answer.
 
 On 7 November 2026 `log.inclusion` was
 `/v1/log/inclusion?entry_hash=vxtja5r45kg6uiu6kjmstondfq6fxhvnwyojsqaogehtavzqwqwq`.
@@ -165,10 +163,11 @@ python3 -c "import base64,sys; print(base64.b32encode(bytes.fromhex(sys.argv[1])
   2d04e9a347fc7cf59ef91e99a13274a95296f0d84aac32e641db7a887fdf511b
 ```
 
-Then get and check the proof:
+Then get and check the proof. Send a GET to
+`https://emem.dev/v1/log/inclusion?entry_hash=fucoti2h7r6plhxzd2m2cmtuvfjjn4gyjkwdfzsb3n5iq767kenq`
+and save the answer as `note_inc.json`. Then:
 
 ```sh
-curl -s 'https://emem.dev/v1/log/inclusion?entry_hash=fucoti2h7r6plhxzd2m2cmtuvfjjn4gyjkwdfzsb3n5iq767kenq' -o note_inc.json
 jq -c '{matched, memory_note_file_cid, leaf_index}' note_inc.json
 python3 "${CLAUDE_SKILL_DIR}/scripts/verify_log.py" inclusion note_inc.json
 ```
@@ -196,10 +195,13 @@ at `leaf_index` 2457934 and its path verified.
 ## Step 4: read the witnesses
 
 ```sh
-curl -s 'https://emem.dev/v1/log/witnesses?limit=5' | jq -c '{independent_operator_count,
-  independent_operator_domains, head_is_witnessed_by_independent_operator,
-  freshest_independent_operator_entries_behind, witness_keys_by_tier}'
+curl -sf 'https://emem.dev/v1/log/witnesses?limit=5'
 ```
+
+Read `independent_operator_count`, `independent_operator_domains`,
+`head_is_witnessed_by_independent_operator`,
+`freshest_independent_operator_entries_behind` and
+`witness_keys_by_tier` in the answer.
 
 With MCP, call `emem_log_witnesses` with `{"limit": 5}`.
 

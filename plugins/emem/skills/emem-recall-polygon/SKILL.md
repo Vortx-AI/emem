@@ -61,13 +61,11 @@ If your host calls only listed tools, use the REST route.
 
 An MCP result larger than about 24 KB comes back slimmed.
 `_emem_truncation` names what the server removed. For the full
-response, send the same body to the REST route:
+response, send the same body to the REST route,
+`POST https://emem.dev/v1/recall_polygon`. Save the answer as
+`poly.json`. Then print a summary:
 
 ```sh
-curl -s -X POST https://emem.dev/v1/recall_polygon -H 'content-type: application/json' \
-  -d '{"polygon_bbox":{"min_lat":12.95,"max_lat":13.05,"min_lng":77.55,"max_lng":77.65},
-       "bands":["copdem30m.elevation_mean"],"max_cells":16,"budget_ms":20000}' \
-  -o poly.json
 jq '{cells_sampled, facts_returned, area_km2, converged, coverage_fraction,
      is_exhaustive, pending: (.pending | length), source: .polygon_bbox.source}' poly.json
 ```
@@ -191,10 +189,12 @@ jq -r '.by_cell | to_entries[] | .key as $c | .value.receipt.fact_cids[]
 To check one cell receipt on the server, send it as `{"receipt": ...}`:
 
 ```sh
-jq -c '{receipt: .by_cell | to_entries[0].value.receipt}' poly.json \
-  | curl -s -X POST https://emem.dev/v1/verify_receipt -H 'content-type: application/json' -d @- \
-  | jq -c '{valid, signature_valid, merkle_proof_valid}'
+jq -c '{receipt: .by_cell | to_entries[0].value.receipt}' poly.json > verify_req.json
 ```
+
+Send `verify_req.json` as the body of
+`POST https://emem.dev/v1/verify_receipt`. Read `valid`,
+`signature_valid` and `merkle_proof_valid` in the answer.
 
 On 6 and 7 November 2026 both commands ran. The check returned `true` for all
 three fields. To check offline, use

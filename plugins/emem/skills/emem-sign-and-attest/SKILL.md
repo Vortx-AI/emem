@@ -118,9 +118,11 @@ compiled constants. The rule is under `caller_signed_objects`, entry
 `memory_write`, with the `body_hash` of each verb:
 
 ```sh
-curl -s https://emem.dev/v1/verifier_spec \
-  | jq '.caller_signed_objects[] | select(.name=="memory_write") | {preimage, verbs}'
+curl -sf https://emem.dev/v1/verifier_spec
 ```
+
+In the answer, find the entry of `caller_signed_objects[]` whose `name`
+is `memory_write`. Read its `preimage` and `verbs`.
 
 On 7 November 2026 its `preimage_v1` text still said that the server
 accepts version 1 for `create`, `str_replace` and `insert`. The code refuses
@@ -219,12 +221,13 @@ enums, absences, `trend` and `anomaly`.
 
 ## Step 5. Know which tier each write needs
 
-`GET /v1/enlist` gives the tiers. This command shows the minimum tier
-for each write surface:
+`GET /v1/enlist` gives the tiers:
 
 ```sh
-curl -s https://emem.dev/v1/enlist | jq -c '.write_surfaces[] | {surface, min_tier}'
+curl -sf https://emem.dev/v1/enlist
 ```
+
+Read the `surface` and `min_tier` of each entry of `write_surfaces[]`.
 
 On 7 November 2026 it returned:
 

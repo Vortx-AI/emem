@@ -28,12 +28,11 @@ Call `emem_recall` with this body:
 {"cell": "defi.zb493.zezo.zcb35", "bands": ["copdem30m.elevation_mean", "esa_worldcover.lc_2021"]}
 ```
 
-Without MCP, send the same body to the REST endpoint:
+Without MCP, send the same body to the REST endpoint,
+`POST https://emem.dev/v1/recall`. Save the answer as `facts.json`.
+Then print the facts and the spatial basis:
 
 ```sh
-curl -s -o facts.json -X POST https://emem.dev/v1/recall \
-  -H 'content-type: application/json' \
-  -d '{"cell": "defi.zb493.zezo.zcb35", "bands": ["copdem30m.elevation_mean", "esa_worldcover.lc_2021"]}'
 jq -c '.facts[] | {band, value, unit, observed_at, fn: .derivation.fn_key,
        args: .derivation.args, source: .sources[0].id, token: .memory_token}' facts.json
 jq '.spatial_basis' facts.json
@@ -96,11 +95,12 @@ band with `enforced_at_signing: true`. The responder refuses to sign a
 value outside that range, so it never serves one. The list has pages
 (113 materialisers on 7 November 2026). The largest page is 100
 entries. The responder clamps a larger `page_size` to 100 and does not
-give an error. Read both pages, then select the band:
+give an error. Read both pages, then select the band. Send a GET to
+`https://emem.dev/v1/materializers?page_size=100&page=1` and save the
+answer as `mat1.json`. Do the same with `page=2` and save it as
+`mat2.json`. Then:
 
 ```sh
-curl -s -o mat1.json 'https://emem.dev/v1/materializers?page_size=100&page=1'
-curl -s -o mat2.json 'https://emem.dev/v1/materializers?page_size=100&page=2'
 jq -c '.materializers[] | select(.band == "copdem30m.elevation_mean") | .valid_range' mat1.json mat2.json
 ```
 
@@ -141,11 +141,10 @@ Call `emem_change_attribution` with this body:
 The plugin's MCP server does not list `emem_change_attribution` in its
 short tool list. The server runs it by name through `tools/call`. If
 your host calls only listed tools, or has no MCP, send the same body to
-the REST endpoint:
+the REST endpoint, `POST https://emem.dev/v1/change_attribution`.
+Save the answer as `change.json`. Then print a summary:
 
 ```sh
-curl -s -o change.json -X POST https://emem.dev/v1/change_attribution \
-  -H 'content-type: application/json' -d '{"cell": "defi.zb493.zezo.zcb35"}'
 jq '{algorithm_key, split, n_env_evidence_bands, embedding: .observed.embedding.change,
      inputs: (.input_fact_cids | length), terms: (.terms | keys), ledger: .ledger_fact.token}' change.json
 ```
