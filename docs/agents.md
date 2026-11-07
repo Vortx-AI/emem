@@ -1401,8 +1401,9 @@ agronomic and hydrological scores. Examples are `vegetation_class_from_ndvi@1`,
 `rusle_soil_erosion@1`. On 7 November 2026 it held 172 recipes. The list
 returns 20 per page by default. Send `?page=N&page_size=100` and follow `pagination.next_url`.
 
-On the same day, 8 entries had a `parameters` block of named numbers. For
-each parameter, `learned_from` gives `value`, `rationale` and `basis`
+On the same day, 8 entries had a `parameters` block of named numbers. Each
+of these entries also has a `learned_from` object with one key for each
+parameter. Each key gives `value`, `rationale` and `basis`
 (`literature` or `operational_default`).
 
 To replay an algorithm yourself:
@@ -1418,8 +1419,10 @@ To replay an algorithm yourself:
 | `stored_only` | The recipe reads a retired encoder or band. Only facts stored before the retirement feed it |
 | `cannot_run` | The recipe needs a route that is gone |
 
-An entry that does not run can carry `use_instead`: a recipe that runs here
-for a related question. `here.executes` tells who runs the formula. The
+For an entry that does not run, `here.why` tells the cause. `here.use_instead`
+is a list of recipes for a related question. It can be empty. On
+7 November 2026, 25 entries had a recipe in that list.
+`here.executes` tells who runs the formula. The
 values are `responder`, `responder, in part` and `agent`. With `agent`, emem
 signs the inputs and you calculate the result.
 `GET /v1/algorithms?runnable=true` lists only the recipes that run. On
@@ -1500,8 +1503,9 @@ Before you build on `model_answer`, know these rules:
   It does not use a different model in its place.
 - The model can refuse. When the evidence does not support an answer, the
   prose starts with `ABSTAIN:` and tells what is missing.
-- When the model gives no text, `model_answer` holds a typed error.
-  `answer` does not change, because it does not use a model.
+- When the model gives no text, `model_answer` holds a typed error with
+  `code` and `message`. The HTTP status stays 200, so read
+  `model_answer.code`. `answer` does not change, because it does not use a model.
 
 ---
 
