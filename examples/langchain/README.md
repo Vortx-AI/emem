@@ -59,7 +59,7 @@ We also made the emem calls that the agent needs, on the same day:
 |---|---|
 | `emem_locate` with `South Mumbai` | `cell64` is `defi.zb4d7.zb8ec.zf21e`; `place_label` is "South Mumbai (precinct of the city of Mumbai)" |
 | `emem_recall` on that cell, band `copdem30m.elevation_mean` | `facts[0].value` is 6.56 m; `facts[0].fact_cid` and `receipt` come with it |
-| `emem_recall` with the place name | tool error `no_geocoder_match`: the name is ambiguous. Over REST it is HTTP 400 with `code` `no_geocoder_match` |
+| `emem_recall` with the place name | tool error `no_geocoder_match`: the name is ambiguous. Over REST it is HTTP 400 with `code` `no_geocoder_match` and `details.code` `ambiguous_place` |
 
 If the model sends the place name to `emem_recall`, emem refuses to guess.
 The model must use the cell from `emem_locate`.
