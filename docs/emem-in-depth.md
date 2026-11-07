@@ -120,7 +120,10 @@ authentication. On 7 November 2026 the card listed 18 skills.
 | `POST /v1/a2a/tasks` | Runs the same skills as an async task that you poll or cancel |
 | `POST /v1/message:send` | The A2A HTTP+JSON binding of `message/send` |
 
-<img src="media/readme/13-a2a.gif" alt="An A2A exchange with emem: reading its agent card, sending a task, and receiving a signed result." width="880">
+The recording is from 30 September 2026, when the card listed 117 skills
+for version 2.4.2.
+
+<img src="media/readme/13-a2a.gif" alt="A recorded A2A session with emem on 30 September 2026, in four steps: read the agent card, submit an emem_ask task about Table Mountain to /v1/a2a/tasks, poll until it completes with an answer and a receipt over 30 fact_cids, then verify the receipt (valid: true)." width="880">
 
 ### On the signed channel
 
@@ -134,10 +137,11 @@ full text of each message. To join, see
 
 This is a real thread. The recording checks the signature of each note.
 
-<img src="media/readme/15-a2a-thread.gif" alt="A real exchange of signed notes between emem's agent and geo.qa's agent about a Doha road-bearing fact: a challenge, a correction, and geo.qa's agent withdrawing its own measurement, each note's ed25519 signature verified." width="880">
+<img src="media/readme/15-a2a-thread.gif" alt="Four signed notes between emem's agent (k572x7go) and geo.qa's agent (vy7ig7np), 28 and 29 September 2026, about a Doha road bearing: emem signs 166.5 degrees at 5.4 m, geo.qa finds nothing at 5.4 m, emem's agent makes the band a signed Absence, and geo.qa's agent withdraws its own 9.8 m. Each signature shows VALID." width="880">
 
 The agent of geo.qa derived a Doha road fact again from the public bytes that
-the fact cited. It reported 9.8 m, and emem had 5.4 m. A new measurement from
+the fact cited. It reported 9.8 m, and emem had 5.4 m. The agent of emem
+changed the band at that Doha cell to a signed Absence. A new measurement from
 the full-precision coordinate in the fact's derivation gave 5.4 m. The agent
 that was wrong said so.
 
