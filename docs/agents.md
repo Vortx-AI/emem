@@ -1855,7 +1855,9 @@ is the form of the answer. The table lists all 116 tools on 7 November
 | `prose` (1) | Model text over cited facts. It is `model_output`, and emem does not sign it | `emem_reason` |
 
 `emem_tools` filters the catalogue. With no arguments it returns the core
-loop, a bundle menu, and a shape menu in about 14 KB.
+loop, a bundle menu, and a shape menu. On 7 November 2026 the MCP answer
+was about 14 KB. The result carries the same JSON two times, as `text`
+and as `structuredContent`, so each copy is about 7 KB.
 
 | Argument | What it selects |
 |---|---|
@@ -1864,7 +1866,7 @@ loop, a bundle menu, and a shape menu in about 14 KB.
 | `{"category": "read"}` | Tools for one kind of job: `read`, `write`, `verify`, `introspect` or `plan`. On 7 November 2026, `matched` gave 75, 8, 11, 19 and 3 (see below). A `read` tool can still write: read `annotations.readOnlyHint` (see [Tool hints](#tool-hints)) |
 | `{"q": "ndvi"}` | A text search over the catalogue |
 | `{"tier": "core"}` | Limits the other filters to `core`, `extended` or `all`. The default is `all`. On 7 November 2026, `{"q": "ndvi"}` matched 14 tools, and 1 with `tier: "core"` |
-| `{"name": "emem_ndvi"}` | One tool's input schema and a runnable example, about 8 KB. The tool then ignores all other arguments |
+| `{"name": "emem_ndvi"}` | One tool's input schema and a runnable example, about 8 KB as an MCP answer (4 KB for each copy). The tool then ignores all other arguments |
 
 `{"bundle": "robotics"}` also works as a `tools/list` argument. Then the
 list holds that bundle only. On 7 November 2026 the robotics list had 15
@@ -1959,7 +1961,8 @@ is a list of recipes for a related question. It can be empty. On
 values are `responder`, `responder, in part` and `agent`. With `agent`, emem
 signs the inputs and you calculate the result.
 `GET /v1/algorithms?runnable=true` lists only the recipes that run. On
-7 November 2026 it listed 128 of 172.
+7 November 2026 it listed 128 of 172. The totals for each status are in
+`here_counts`: 128 `runs`, 36 `stored_only` and 8 `cannot_run` on that day.
 
 The registry still declares the triple-encoder consensus family
 (`clay_prithvi_tessera_triple_consensus@1` and six variants). Earlier
