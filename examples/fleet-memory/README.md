@@ -49,6 +49,9 @@ offline verify    : VALID (recomputed locally, no trust in the responder)
 Done. The map entry outlives both robots, both sessions, and both vendors; any third fleet can repeat robot B's half verbatim.
 ```
 
+The words `already named` and `already linked` mean that `resolve` found
+records from an earlier signed run. The script did not write them.
+
 Without `blake3`, `cbor2` and `cryptography`, the offline line says `skipped`.
 It says `INVALID` only when the signature does not match the preimage.
 Any other error, for example a malformed receipt, prints `ERROR`.
@@ -71,7 +74,9 @@ On 7 November 2026, `resolve` returned `contested: true` with two candidates
 for both phrasings. The script takes the first candidate. A real fleet should
 read `corroboration` and `independent_attesters` before it picks one.
 On 7 November 2026 these fields did not break the tie. Both candidates had
-`corroboration: none_attributed` and `independent_attesters: 0`.
+`corroboration: none_attributed` and `independent_attesters: 0`. Both had
+the same cell and bounding box. Only the first, `4itylz3k...`, had an
+`external_ids` entry (`osm: relation/1411107`), so that is one way to choose.
 
 ## What the script does not do
 
