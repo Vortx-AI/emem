@@ -115,6 +115,9 @@ pub async fn select_candidates(
                 Ok(v) => v,
                 Err(_) => continue,
             };
+            // A path that `memory_view` just returned has at least one
+            // version, so 1 is a floor when the history read fails.
+            let history_len = client.history_len(path).await.unwrap_or(1).max(1);
             files.push(MemoryFile {
                 path: path.to_string(),
                 file_cid: view
@@ -132,9 +135,7 @@ pub async fn select_candidates(
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string(),
-                // The view does not surface history length directly; we
-                // infer churn from sibling-cluster size below. Default 1.
-                history_len: 1,
+                history_len,
             });
         }
     }
@@ -257,6 +258,26 @@ mod tests {
         }
         assert_eq!(cands[0].cluster.len(), 2);
         assert_eq!(cands[0].canonical_path, "notes/borneo-1");
+    }
+
+    #[test]
+    fn a_single_path_rewritten_past_the_threshold_is_a_churn_candidate() {
+        let mut rewritten = MemoryFile::stub("notes/lake", "level fell");
+        rewritten.history_len = cfg().churn_threshold;
+        let mut once = MemoryFile::stub("notes/river", "level rose");
+        once.history_len = cfg().churn_threshold - 1;
+        let cands = select_candidates_from_parts(&json!({}), vec![rewritten, once], &cfg());
+        assert_eq!(cands.len(), 1);
+        match &cands[0].source {
+            CandidateSource::Churn {
+                stem,
+                total_versions,
+            } => {
+                assert_eq!(stem, "notes/lake");
+                assert_eq!(*total_versions, cfg().churn_threshold);
+            }
+            other => panic!("expected churn, got {other:?}"),
+        }
     }
 
     #[test]

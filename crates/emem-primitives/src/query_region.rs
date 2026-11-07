@@ -27,7 +27,7 @@ use crate::cbor_ops::{as_f64, as_vec_f32};
 use crate::recall::{build_as_of_bound, TemporalAdvice};
 
 /// Hard ceiling on cells synthesised from a bbox. At the cell64 ~10 m
-/// pitch this covers ~6.4 km × 6.4 km at the equator; agents asking for
+/// pitch this is 64 × 64 cells, about 0.6 km × 0.6 km at the equator; agents asking for
 /// regional aggregates beyond that are almost certainly better served
 /// by a coarser-grain primitive (and would otherwise OOM the responder).
 pub const MAX_BBOX_CELLS: usize = 4096;
@@ -396,11 +396,11 @@ fn agg_percentile(values: &[&ciborium::Value], p: f64) -> Option<ciborium::Value
 /// Parse a `lon_min,lat_min,lon_max,lat_max` bbox into the deduped
 /// list of cell64s that cover it at the active grid pitch.
 ///
-/// The grid is ~9.54 m × ~9.55 m at the equator (cell64.geo bit layout);
-/// stepping at 8 m on each axis is half a bucket, which guarantees we
-/// don't skip over a cell at the corner of a stride. Cells repeat for
-/// adjacent strides falling in the same bucket, so we dedupe via
-/// `BTreeSet` to keep ordering stable for the receipt.
+/// The grid is ~9.54 m × ~9.55 m at the equator (cell64.geo bit layout).
+/// Each axis is sampled one bucket apart, with the far edge sampled too
+/// (`axis_samples`), so every bucket the bbox touches gets a sample.
+/// Samples can repeat a bucket, so we dedupe via `BTreeSet` to keep
+/// ordering stable for the receipt.
 fn cells_from_bbox(spec: &str) -> Result<Vec<String>, StorageError> {
     let parts: Vec<&str> = spec.split(',').map(|s| s.trim()).collect();
     if parts.len() != 4 {
@@ -443,7 +443,7 @@ fn cells_from_bbox(spec: &str) -> Result<Vec<String>, StorageError> {
         });
     }
 
-    // Half-bucket stride in degrees. The active geo codec is 21 lat × 22 lng
+    // One-bucket stride in degrees. The active geo codec is 21 lat × 22 lng
     // bits, so one bucket is ~180/2^21° on lat and ~360/2^22° on lng.
     let lat_step_deg = 180.0_f64 / ((1u64 << 21) as f64);
     let lng_step_deg = 360.0_f64 / ((1u64 << 22) as f64);
@@ -454,17 +454,17 @@ fn cells_from_bbox(spec: &str) -> Result<Vec<String>, StorageError> {
         return Err(StorageError::Protocol {
             code: ErrorCode::InvalidCell,
             message: format!(
-                "query_region: bbox would synthesise ~{} cells (cap {MAX_BBOX_CELLS}). Shrink the bbox or pass 'cells:c1,c2,...' for explicit selection. Active grid pitch is ~10 m, so the cap covers ~6.4 km × 6.4 km at the equator.",
+                "query_region: bbox would synthesise ~{} cells (cap {MAX_BBOX_CELLS}). Shrink the bbox or pass 'cells:c1,c2,...' for explicit selection. Active grid pitch is ~10 m, so the cap covers about 0.6 km × 0.6 km at the equator.",
                 lat_n.saturating_mul(lng_n)
             ),
         });
     }
 
+    let lats = axis_samples(lat_min, lat_max, lat_step_deg);
+    let lngs = axis_samples(lon_min, lon_max, lng_step_deg);
     let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    let mut lat = lat_min;
-    while lat <= lat_max {
-        let mut lng = lon_min;
-        while lng <= lon_max {
+    for &lat in &lats {
+        for &lng in &lngs {
             seen.insert(cell64_from_latlng(lat, lng));
             if seen.len() > MAX_BBOX_CELLS {
                 return Err(StorageError::Protocol {
@@ -474,17 +474,24 @@ fn cells_from_bbox(spec: &str) -> Result<Vec<String>, StorageError> {
                     ),
                 });
             }
-            lng += lng_step_deg;
         }
-        lat += lat_step_deg;
     }
-    // Always include the four corners so a bbox that's narrower than the
-    // step still produces at least the corner cells.
-    seen.insert(cell64_from_latlng(lat_min, lon_min));
-    seen.insert(cell64_from_latlng(lat_min, lon_max));
-    seen.insert(cell64_from_latlng(lat_max, lon_min));
-    seen.insert(cell64_from_latlng(lat_max, lon_max));
     Ok(seen.into_iter().collect())
+}
+
+/// Sample points from `min` to `max` no more than one bucket apart, with
+/// `max` itself always last. A stride of one bucket from `min` alone can
+/// stop just short of the bucket that holds `max`, which dropped the whole
+/// top row and right column of a bbox except for its corners.
+fn axis_samples(min: f64, max: f64, step: f64) -> Vec<f64> {
+    let mut out = Vec::new();
+    let mut v = min;
+    while v < max {
+        out.push(v);
+        v += step;
+    }
+    out.push(max);
+    out
 }
 
 fn agg_vector_centroid(values: &[&ciborium::Value]) -> Option<ciborium::Value> {
@@ -574,5 +581,34 @@ mod bbox_tests {
             msg.contains("inverted") || msg.contains("antimeridian"),
             "expected inverted-box message, got: {msg}"
         );
+    }
+
+    /// Every bucket the bbox touches must come back, including the top row
+    /// and right column. A dense walk at 1/16 of a bucket is the reference.
+    #[test]
+    fn bbox_covers_its_far_edge_rows() {
+        let lat_w = 180.0_f64 / ((1u64 << 21) as f64);
+        let lng_w = 360.0_f64 / ((1u64 << 22) as f64);
+        for k in 0..8 {
+            let off = k as f64 * 0.13;
+            let lat_min = 35.3606 + off * lat_w;
+            let lon_min = 138.7274 + off * lng_w;
+            let lat_max = lat_min + 4.6 * lat_w;
+            let lon_max = lon_min + 5.3 * lng_w;
+            let spec = format!("{lon_min},{lat_min},{lon_max},{lat_max}");
+            let got: std::collections::BTreeSet<String> =
+                cells_from_bbox(&spec).unwrap().into_iter().collect();
+            let mut want = std::collections::BTreeSet::new();
+            for i in 0..=16 * 5 {
+                let lat = (lat_min + i as f64 * lat_w / 16.0).min(lat_max);
+                for j in 0..=16 * 6 {
+                    let lng = (lon_min + j as f64 * lng_w / 16.0).min(lon_max);
+                    want.insert(cell64_from_latlng(lat, lng));
+                }
+            }
+            let missing: Vec<_> = want.difference(&got).collect();
+            assert!(missing.is_empty(), "offset {k}: missing {missing:?}");
+            assert_eq!(got, want, "offset {k}");
+        }
     }
 }

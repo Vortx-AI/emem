@@ -282,14 +282,21 @@ const OPENAI_NOTE: &str = "emem-guard checks grounding: whether cited observatio
      detects no content-safety category and is not a replacement for a \
      moderation endpoint.";
 
-/// Every category this route can report, with the deny code it comes from.
-fn openai_categories() -> [(&'static str, Option<DenyCode>); 4] {
-    [
-        ("emem/unverified_citation", Some(DenyCode::ProvSig)),
-        ("emem/altered_citation", Some(DenyCode::ProvBytes)),
-        ("emem/stale_observation", Some(DenyCode::ProvDrift)),
-        ("emem/ungrounded_claim", Some(DenyCode::ClaimUngrounded)),
-    ]
+/// The category a deny code reports under.
+///
+/// Exhaustive on purpose: a fixed list once left PROV_VALUE, GEO_ZONE and
+/// POLICY_MODULE out, so those denies came back `flagged: true` with every
+/// category false and a client could not tell which rule fired.
+fn openai_category(code: DenyCode) -> &'static str {
+    match code {
+        DenyCode::ProvSig => "emem/unverified_citation",
+        DenyCode::ProvBytes => "emem/altered_citation",
+        DenyCode::ProvDrift => "emem/stale_observation",
+        DenyCode::GeoZone => "emem/restricted_zone",
+        DenyCode::ClaimUngrounded => "emem/ungrounded_claim",
+        DenyCode::ProvValue => "emem/value_mismatch",
+        DenyCode::PolicyModule => "emem/policy_module",
+    }
 }
 
 impl Adapter for OpenAiGate {
@@ -311,8 +318,9 @@ impl Adapter for OpenAiGate {
     fn render(&self, d: &Decision) -> OpenAiResponse {
         let mut categories = std::collections::BTreeMap::new();
         let mut scores = std::collections::BTreeMap::new();
-        for (name, code) in openai_categories() {
-            let hit = d.code.is_some() && d.code == code;
+        for &code in DenyCode::ALL {
+            let name = openai_category(code);
+            let hit = d.code == Some(code);
             categories.insert(name.to_string(), hit);
             scores.insert(name.to_string(), if hit { 1.0 } else { 0.0 });
         }
@@ -729,6 +737,31 @@ mod tests {
                 assert!(k.starts_with("emem/"), "{k} is not namespaced");
             }
         }
+    }
+
+    /// A client that branches on `categories` must find the rule that fired,
+    /// whichever deny code it was, and only that rule.
+    #[test]
+    fn every_deny_code_flags_exactly_its_own_category() {
+        for &code in DenyCode::ALL {
+            let d = Decision::block(code, None, Fix::ContactAdmin);
+            let r = &OpenAiGate.render(&d).results[0];
+            assert!(r.flagged, "{} not flagged", code.as_str());
+            let hits: Vec<&String> = r
+                .categories
+                .iter()
+                .filter(|(_, v)| **v)
+                .map(|(k, _)| k)
+                .collect();
+            assert_eq!(hits, vec![openai_category(code)], "{}", code.as_str());
+        }
+        assert_eq!(
+            OpenAiGate.render(&blocked()).results[0].categories.len(),
+            DenyCode::ALL.len(),
+            "two codes share a category name"
+        );
+        let allow = OpenAiGate.render(&Decision::proceed());
+        assert!(allow.results[0].categories.values().all(|v| !v));
     }
 
     /// Scores are 0 or 1 only. A grounding verdict is established or it is

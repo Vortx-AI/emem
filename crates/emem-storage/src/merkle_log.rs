@@ -5,11 +5,14 @@
 //! ```text
 //! segment files: merkle.log.<u64-segment-index>
 //! per record:    [u32 LE: cbor_len][cbor_bytes][32 bytes: blake3(cbor_bytes)]
-//! per segment:   trailing 32-byte segment hash = blake3(all_records)
+//! per segment:   trailing 32-byte segment hash = blake3(all_records),
+//!                written only when the segment rotates at 1 GiB
 //! ```
 //!
-//! Segments rotate at 1 GiB. Replay-restore = "for each segment, re-hash
-//! and verify trailing hash." Snapshots ship the segment file + the
+//! Every process start opens a fresh segment, so a segment closed by a
+//! restart has no trailing hash. Replay-restore = "for each segment, re-hash
+//! every record, and the trailing hash when there is one" (see
+//! [`AttestationLog::verify`]). Snapshots ship the segment file + the
 //! per-segment hash to S3/IPFS every N segments.
 
 use std::fs::OpenOptions;
@@ -562,43 +565,44 @@ impl AttestationLog {
         Ok(())
     }
 
-    /// Verify the on-disk integrity of every sealed segment. Open
-    /// (current) segment is not verified because it has no trailing
-    /// hash yet.
+    /// Verify the on-disk integrity of every segment below the highest
+    /// index. Each record must match its per-record hash. A segment then
+    /// ends either with the trailing segment hash (rotated at
+    /// [`SEGMENT_BYTES`]) or with no trailer at all: `open` starts a fresh
+    /// segment, so every restart leaves the previous one closed without a
+    /// trailer. The highest-indexed segment can still grow, so it is
+    /// counted only when it is sealed and is otherwise skipped.
     pub fn verify(&self) -> std::io::Result<VerifyReport> {
-        let mut sealed = 0u64;
-        let mut bad: Vec<(u64, String)> = Vec::new();
+        let mut segments: Vec<(u64, PathBuf)> = Vec::new();
         for entry in std::fs::read_dir(&self.root)? {
             let entry = entry?;
-            let name = match entry.file_name().to_str() {
-                Some(s) => s.to_string(),
-                None => continue,
-            };
-            let n = match name
-                .strip_prefix("merkle.log.")
-                .and_then(|s| s.parse::<u64>().ok())
-            {
-                Some(n) => n,
-                None => continue,
-            };
-            let mut bytes = Vec::new();
-            std::fs::File::open(entry.path())?.read_to_end(&mut bytes)?;
-            if bytes.len() < 32 {
-                continue;
-            }
-            let (body, trailer) = bytes.split_at(bytes.len() - 32);
-            let mut h = Hasher::new();
-            h.update(body);
-            if h.finalize().as_bytes() == trailer {
-                sealed += 1;
-            } else {
-                bad.push((n, "trailing hash mismatch".into()));
+            let n = entry
+                .file_name()
+                .to_str()
+                .and_then(|s| s.strip_prefix("merkle.log."))
+                .and_then(|s| s.parse::<u64>().ok());
+            if let Some(n) = n {
+                segments.push((n, entry.path()));
             }
         }
-        Ok(VerifyReport {
-            sealed_ok: sealed,
-            bad,
-        })
+        let newest = segments.iter().map(|(n, _)| *n).max();
+        let mut report = VerifyReport {
+            sealed_ok: 0,
+            closed_ok: 0,
+            bad: Vec::new(),
+        };
+        for (n, path) in segments {
+            let mut bytes = Vec::new();
+            std::fs::File::open(&path)?.read_to_end(&mut bytes)?;
+            match check_segment(&bytes) {
+                Ok(SegmentEnd::Sealed) => report.sealed_ok += 1,
+                _ if Some(n) == newest => {}
+                Ok(SegmentEnd::Closed) => report.closed_ok += 1,
+                Err(reason) => report.bad.push((n, reason)),
+            }
+        }
+        report.bad.sort_unstable_by_key(|(n, _)| *n);
+        Ok(report)
     }
 }
 
@@ -618,10 +622,52 @@ pub struct AppendOutcome {
 /// Output of [`AttestationLog::verify`].
 #[derive(Debug, Clone)]
 pub struct VerifyReport {
-    /// Sealed segments whose trailing hash matched.
+    /// Segments whose records and trailing segment hash all matched.
     pub sealed_ok: u64,
-    /// Sealed segments that failed verification, with reason.
+    /// Segments closed by a restart: no trailing hash, and every record
+    /// matched its per-record hash up to the end of the file.
+    pub closed_ok: u64,
+    /// Segments that failed verification, by index, with the reason.
     pub bad: Vec<(u64, String)>,
+}
+
+/// How a segment whose records all check out ends.
+enum SegmentEnd {
+    /// The 32-byte `blake3` of every record byte before it.
+    Sealed,
+    /// The last record, with no trailer.
+    Closed,
+}
+
+/// Walk a segment's `[u32 LE len][cbor][blake3(cbor)]` frames from the start
+/// and say how it ends, or where it stops making sense. A frame is at least
+/// 36 bytes, so a 32-byte rest is never a record and can only be the trailer.
+fn check_segment(bytes: &[u8]) -> Result<SegmentEnd, String> {
+    let mut off = 0usize;
+    loop {
+        let rest = &bytes[off..];
+        if rest.is_empty() {
+            return Ok(SegmentEnd::Closed);
+        }
+        if rest.len() == 32 && blake3::hash(&bytes[..off]).as_bytes() == rest {
+            return Ok(SegmentEnd::Sealed);
+        }
+        if rest.len() < 4 {
+            return Err(format!("{} stray bytes at offset {off}", rest.len()));
+        }
+        let mut len = [0u8; 4];
+        len.copy_from_slice(&rest[..4]);
+        let len = u32::from_le_bytes(len) as usize;
+        let frame = match len.checked_add(36) {
+            Some(f) if f <= rest.len() => f,
+            _ => return Err(format!("record at offset {off} is truncated")),
+        };
+        let (cbor, hash) = rest[4..frame].split_at(len);
+        if blake3::hash(cbor).as_bytes() != hash {
+            return Err(format!("record at offset {off} does not match its hash"));
+        }
+        off += frame;
+    }
 }
 
 fn seal_segment(root: &std::path::Path, s: &mut LogState) -> std::io::Result<()> {
@@ -1407,6 +1453,50 @@ mod tests {
         // Past the end is empty, not an error: a caller that has already read
         // the highest segment asks this every time the log has not grown.
         assert!(log.leaf_hashes_from(99).unwrap().is_empty());
+    }
+
+    /// A restart closes a segment without a trailer. `verify` used to call
+    /// every such segment a "trailing hash mismatch", which on a log with one
+    /// segment per restart flagged almost the whole log as damaged.
+    #[tokio::test]
+    async fn verify_accepts_segments_closed_by_a_restart_and_finds_real_damage() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut sealed = Vec::new();
+        for i in 0..2u64 {
+            let mut cbor = Vec::new();
+            ciborium::ser::into_writer(&distinct_attestation(i), &mut cbor).unwrap();
+            sealed.extend_from_slice(&(cbor.len() as u32).to_le_bytes());
+            sealed.extend_from_slice(&cbor);
+            sealed.extend_from_slice(blake3::hash(&cbor).as_bytes());
+        }
+        let trailer = *blake3::hash(&sealed).as_bytes();
+        sealed.extend_from_slice(&trailer);
+        std::fs::write(tmp.path().join("merkle.log.0"), &sealed).unwrap();
+        for seq in 10..12u64 {
+            let log = AttestationLog::open(tmp.path()).unwrap();
+            log.append(&distinct_attestation(seq)).await.unwrap();
+        }
+        let log = AttestationLog::open(tmp.path()).unwrap();
+        assert_eq!(log.leaf_hashes().unwrap().len(), 4, "segments 0, 1 and 2");
+
+        let report = log.verify().unwrap();
+        assert!(report.bad.is_empty(), "{:?}", report.bad);
+        assert_eq!(report.sealed_ok, 1, "segment 0 carries a trailer");
+        assert_eq!(report.closed_ok, 1, "segment 1 was closed by a restart");
+
+        let one = tmp.path().join("merkle.log.1");
+        let mut b = std::fs::read(&one).unwrap();
+        b[10] ^= 0xff;
+        std::fs::write(&one, &b).unwrap();
+        let zero = tmp.path().join("merkle.log.0");
+        std::fs::write(&zero, &sealed[..sealed.len() - 5]).unwrap();
+        let report = log.verify().unwrap();
+        assert_eq!(report.bad.len(), 2, "{:?}", report.bad);
+        assert_eq!(report.bad[0].0, 0);
+        assert!(report.bad[0].1.contains("truncated"), "{:?}", report.bad);
+        assert_eq!(report.bad[1].0, 1);
+        assert!(report.bad[1].1.contains("does not match its hash"));
+        assert_eq!((report.sealed_ok, report.closed_ok), (0, 0));
     }
 
     /// Sealed segments get a leaf sidecar on first read and are served from it

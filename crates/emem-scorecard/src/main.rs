@@ -26,6 +26,8 @@
 //! illustrative only) vs FULL (user-supplied dataset) so a sample score is
 //! never mistaken for the published benchmark.
 
+#![forbid(unsafe_code)]
+
 mod dataset;
 mod fixture;
 mod live;

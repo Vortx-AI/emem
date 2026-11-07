@@ -9,7 +9,7 @@ import pytest
 import respx
 
 from emem_langmem import EmemAttestationError, EmemSigner, EmemStore, EmemStoreError
-from emem_langmem.signing import attester_preimage, body_hash
+from emem_langmem.signing import BASE_ABSENT, attester_preimage_v2, body_hash
 from emem_langmem.store import _key_to_path, _decode_value, _encode_value
 
 # Fixed, throwaway seed so the derived namespace is stable. Test-only.
@@ -43,6 +43,22 @@ def test_path_mapping_bare_string():
 
 def test_path_mapping_namespace_tuple():
     assert _key_to_path((["user", "u1"], "note")) == "/memories/user/u1/note"
+
+
+def test_path_mapping_string_namespace_tuple():
+    """A plain string namespace is one segment, as the README shows."""
+    assert _key_to_path(("notes", "harvest")) == "/memories/notes/harvest"
+    assert _key_to_path(("ns", "key"), _SIGNER.namespace_root) == (
+        f"{_SIGNER.namespace_root}/ns/key"
+    )
+    assert _key_to_path((("prefs",), "tone")) == "/memories/prefs/tone"
+
+
+def test_path_mapping_rejects_other_shapes():
+    with pytest.raises(TypeError):
+        _key_to_path(("a", "b", "c"))
+    with pytest.raises(TypeError):
+        _key_to_path(42)
 
 
 def test_path_mapping_under_an_attester_root():
@@ -133,16 +149,58 @@ def test_mdelete_dispatches_emem_memory_delete():
 # ---------- signed writes ----------
 
 
-def _verify_block(block: dict, verb: str, path: str, body: bytes) -> None:
-    """Check an attester block the way the responder does."""
+def _verify_block(
+    block: dict, verb: str, path: str, body: bytes, base: str = BASE_ABSENT
+) -> None:
+    """Check an attester block the way the responder does: v2 only."""
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
     def _b32d(s: str) -> bytes:
         return base64.b32decode(s.upper() + "=" * (-len(s) % 8))
 
     Ed25519PublicKey.from_public_bytes(_b32d(block["pubkey_b32"])).verify(
-        _b32d(block["sig_b32"]), attester_preimage(verb, path, body_hash(body))
+        _b32d(block["sig_b32"]), attester_preimage_v2(verb, path, body_hash(body), base)
     )
+
+
+@respx.mock
+def test_mset_over_an_existing_note_signs_its_file_cid_as_base():
+    """The responder refuses v1 on every verb, and a v2 create must name
+    the file_cid it replaces, or `absent` for a new note."""
+    captured = {}
+    cid = "3aytp566f6s4nvb64ex2pn5o5i"
+
+    def _fn(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if body["params"]["name"] == "emem_memory_view":
+            return httpx.Response(
+                200,
+                json={"jsonrpc": "2.0", "id": "x", "result": {"structuredContent": {"file_cid": cid}}},
+            )
+        captured["body"] = body
+        return _ok(request)
+
+    respx.post("https://emem.dev/mcp").mock(side_effect=_fn)
+    EmemStore(base_url="https://emem.dev", signing_key=_SEED).mset([("my-note", b"v2")])
+    args = _args_of(captured)
+    _verify_block(args["attester"], "create", args["path"], b"v2", base=cid)
+
+
+@respx.mock
+def test_mset_of_a_new_note_signs_absent():
+    captured = {}
+
+    def _fn(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if body["params"]["name"] == "emem_memory_view":
+            return _refusal("cid_not_found: no memory at that path")
+        captured["body"] = body
+        return _ok(request)
+
+    respx.post("https://emem.dev/mcp").mock(side_effect=_fn)
+    EmemStore(base_url="https://emem.dev", signing_key=_SEED).mset([("new", b"x")])
+    args = _args_of(captured)
+    _verify_block(args["attester"], "create", args["path"], b"x")
 
 
 def test_signing_key_reroots_the_store():
@@ -262,7 +320,77 @@ def test_yield_keys_walks_the_store_root():
     respx.post("https://emem.dev/mcp").mock(side_effect=_listing)
     store = EmemStore(base_url="https://emem.dev", signing_key=_SEED)
     assert list(store.yield_keys()) == ["/memories/a"]
-    assert _args_of(captured)["path"] == _SIGNER.namespace_root
+    # The responder lists a folder only when the path ends with "/".
+    assert _args_of(captured)["path"] == _SIGNER.namespace_root + "/"
+
+
+def _page(entries, next_offset=None):
+    content = {"entries": [{"path": p} for p in entries]}
+    if next_offset is not None:
+        content["_emem_truncation"] = {
+            "omitted_fields": [
+                {"field": "entries", "stub": {"_truncated": True, "_next_offset": next_offset}}
+            ]
+        }
+    return httpx.Response(
+        200, json={"jsonrpc": "2.0", "id": "x", "result": {"structuredContent": content}}
+    )
+
+
+@respx.mock
+def test_yield_keys_follows_a_truncated_listing():
+    seen = []
+
+    def _listing(request: httpx.Request):
+        args = json.loads(request.content)["params"]["arguments"]
+        seen.append(args.get("offset"))
+        if args.get("offset") is None:
+            return _page(["/m/a", "/m/b"], next_offset=2)
+        if args["offset"] == 2:
+            return _page(["/m/c"], next_offset=3)
+        return _page(["/m/d"])
+
+    respx.post("https://emem.dev/mcp").mock(side_effect=_listing)
+    store = EmemStore(base_url="https://emem.dev", signing_key=_SEED)
+    assert list(store.yield_keys(prefix="ns")) == ["/m/a", "/m/b", "/m/c", "/m/d"]
+    assert seen == [None, 2, 3]
+
+
+@respx.mock
+def test_yield_keys_stops_on_a_cursor_that_does_not_advance():
+    respx.post("https://emem.dev/mcp").mock(return_value=_page(["/m/a"], next_offset=0))
+    store = EmemStore(base_url="https://emem.dev", signing_key=_SEED)
+    assert list(store.yield_keys()) == ["/m/a"]
+
+
+@respx.mock
+def test_yield_keys_on_an_empty_namespace_yields_nothing():
+    """The miss names a by_attester path. That is not an attestation error."""
+    respx.post("https://emem.dev/mcp").mock(
+        return_value=_refusal(f"cid_not_found: no memory at {_SIGNER.namespace_root}/")
+    )
+    store = EmemStore(base_url="https://emem.dev", signing_key=_SEED)
+    assert list(store.yield_keys()) == []
+
+
+@respx.mock
+def test_ayield_keys_follows_a_truncated_listing():
+    # Sync wrapper: CI installs no pytest-asyncio.
+    import asyncio
+
+    def _listing(request: httpx.Request):
+        args = json.loads(request.content)["params"]["arguments"]
+        if args.get("offset") is None:
+            return _page(["/m/a"], next_offset=1)
+        return _page(["/m/b"])
+
+    respx.post("https://emem.dev/mcp").mock(side_effect=_listing)
+    store = EmemStore(base_url="https://emem.dev", signing_key=_SEED)
+
+    async def _collect():
+        return [k async for k in store.ayield_keys()]
+
+    assert asyncio.run(_collect()) == ["/m/a", "/m/b"]
 
 
 # ---------- the refusal is legible ----------
@@ -337,3 +465,14 @@ def test_mget_still_reports_a_miss_as_none():
     respx.post("https://emem.dev/mcp").mock(return_value=_refusal("not_found: no such path"))
     store = EmemStore(base_url="https://emem.dev", signing_key=_SEED)
     assert store.mget(["missing"]) == [None]
+
+
+@respx.mock
+def test_a_by_attester_path_alone_is_not_an_attestation_error():
+    respx.post("https://emem.dev/mcp").mock(
+        return_value=_refusal(f"internal: storage busy at {_SIGNER.namespace_root}/x")
+    )
+    store = EmemStore(base_url="https://emem.dev", signing_key=_SEED)
+    with pytest.raises(EmemStoreError) as ei:
+        store.mget(["x"])
+    assert not isinstance(ei.value, EmemAttestationError)

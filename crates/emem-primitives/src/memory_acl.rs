@@ -159,15 +159,14 @@ pub fn attester_preimage_v2(verb: &str, path: &str, body_hash: &[u8; 32], base: 
 }
 
 /// Verbs where a replayed signature destroys or overwrites existing content,
-/// and which therefore require v2.
+/// and for which [`verify_attester_versioned`] never reports a v1 signature
+/// as valid.
 ///
-/// Enforcement is graduated on measurement rather than on principle: across
-/// thirty days of this responder's log there were 50 `create` calls and ZERO
-/// `delete` or `rename`. Requiring v2 for the destructive pair costs no live
-/// caller anything today, and closes the sharp edge now instead of at the end
-/// of a deprecation window. The additive verbs keep accepting v1 while clients
-/// migrate, because breaking a working signer to fix a weaker case would be
-/// trading a real outage for a smaller risk.
+/// This list does not decide which new writes the responder accepts. The
+/// REST write path refuses a v1 signature for every verb (reason
+/// `v1_retired`, owner decision 2026-11-05). The function still verifies v1
+/// for the additive verbs because the read path re-verifies notes that were
+/// written with v1 before that date.
 pub const V2_REQUIRED_VERBS: &[&str] = &["delete", "rename"];
 
 /// Whether this verb refuses a v1 signature.
@@ -284,8 +283,8 @@ pub fn verify_attester(
 /// harm, and the responder's log shows no live caller using either.
 ///
 /// A v1 signature that verifies is REPORTED as such rather than silently
-/// accepted, so the caller can be told it is signing a deprecated shape while
-/// its write still succeeds.
+/// accepted. The REST write path refuses it (`v1_retired`); the read path
+/// uses the report to state which formula an old note was signed with.
 pub fn verify_attester_versioned(
     verb: &str,
     path: &str,
@@ -341,7 +340,8 @@ pub fn verify_attester_versioned(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreimageVersion {
     /// `blake3("emem.memory_write|" || verb || "|" || path || "|" || body_hash)`.
-    /// Replayable across a restart; accepted only for additive verbs.
+    /// Replayable across a restart. Verifies only for additive verbs, and
+    /// the REST write path refuses it for new writes.
     V1,
     /// v1 plus the base version being replaced. Not replayable.
     V2,
@@ -414,8 +414,10 @@ mod tests {
         assert_eq!(on_absent, AttestationVerdict::BadSignature);
     }
 
-    /// v1 is refused for the destructive verbs and still accepted for the
-    /// additive ones, which is the migration this ships with.
+    /// v1 never verifies for the destructive verbs and still verifies for the
+    /// additive ones, so notes signed with v1 before its retirement stay
+    /// checkable on read. New v1 writes are refused one layer up, in the REST
+    /// write path.
     #[test]
     fn v1_is_refused_where_replay_destroys_and_accepted_where_it_does_not() {
         use ed25519_dalek::{Signer, SigningKey};
@@ -436,7 +438,7 @@ mod tests {
             }
         };
 
-        // Additive: a v1 signature still works, so no live signer breaks today.
+        // Additive: a v1 signature still verifies, so an old note reads back.
         let (verdict, version) =
             verify_attester_versioned("create", &path, &bh, BASE_ABSENT, &v1("create"));
         assert_eq!(

@@ -105,6 +105,10 @@ mod tests {
                 cost_usd: 0.001,
             })
         }
+
+        fn max_cost_usd(&self, _req: &LlmRequest) -> f64 {
+            0.001
+        }
     }
 
     /// A mock responder that captures memory_create calls and serves a
@@ -280,6 +284,40 @@ mod tests {
         assert!(text.contains("two attestations agree"));
         assert!(text.contains("merged-by: emem-sleep-agent"));
         assert!(text.contains("notes/borneo-2@cidB"));
+    }
+
+    #[tokio::test]
+    async fn a_call_whose_worst_case_passes_the_cap_never_starts() {
+        let created = Arc::new(Mutex::new(Vec::new()));
+        let base = spawn_mock_responder(created.clone()).await;
+        let client = ResponderClient::new(base);
+        // Spend is 0.0 at the gate, so the old `spend >= cap` check let
+        // this call through and its 0.001 went over the 0.0005 cap.
+        let cfg = SleepAgentConfig {
+            dry_run: false,
+            budget_usd: 0.0005,
+            ..SleepAgentConfig::from_env(false, None)
+        };
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let mock = MockLlm {
+            merged: "never used".into(),
+            seen_prompts: seen.clone(),
+        };
+
+        let summary = run_pass(&client, Some(&mock), &cfg).await.unwrap();
+
+        assert!(seen.lock().unwrap().is_empty(), "no call may start");
+        assert!(
+            created.lock().unwrap().is_empty(),
+            "no merge may be written"
+        );
+        assert_eq!(summary.merges_written, 0);
+        assert_eq!(summary.spend_usd, 0.0);
+        assert!(
+            summary.notes.iter().any(|n| n.contains("could cost up to")),
+            "notes: {:?}",
+            summary.notes
+        );
     }
 
     #[tokio::test]

@@ -43,8 +43,9 @@ pub enum HunterKind {
     Drought,
     /// soil_salinity_index@1 — SAVI-anchored salinity proxy.
     SoilSalinity,
-    /// crop_stress_score@1 — NDVI z-score against the crop polygon's
-    /// rolling baseline. Used in growing-season checks.
+    /// crop_stress_score@1 — fixed weighted sum of NDVI, NDMI, a
+    /// high-temperature sigmoid and a low-precipitation sigmoid.
+    /// Used in growing-season checks.
     CropStress,
     /// water_turbidity_red_band@1 — sediment plume proxy from S2
     /// red-band reflectance over water.

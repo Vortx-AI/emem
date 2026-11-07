@@ -129,31 +129,50 @@ fn unprocessable(msg: impl Into<String>) -> ApiError {
     )
 }
 
-/// Pull the first Primary fact for `band` out of a recall response and
-/// return its scalar value + fact CID. Returns `None` for absences,
-/// non-scalar values, or a missing band.
+/// The finite scalar Primary fact for `band` with the highest tslot, as
+/// value + fact CID. Recall returns facts oldest first, so the first match
+/// is the oldest scene. Returns `None` for absences, non-scalar values, or
+/// a missing band.
 fn primary_scalar_for_band(
     resp: &emem_primitives::RecallResp,
     band: &str,
 ) -> Option<(f64, String)> {
-    for (idx, f) in resp.facts.iter().enumerate() {
+    primary_candidates_for_band(&resp.facts, &resp.receipt.fact_cids, band)
+        .pop()
+        .map(|(_, v, cid, _)| (v, cid))
+}
+
+/// Every finite scalar Primary fact for `band` in a recall response, as
+/// `(tslot, value, fact_cid, fact)`, sorted by tslot ascending. On equal
+/// tslots the recall order is kept.
+fn primary_candidates_for_band(
+    facts: &[Fact],
+    cids: &[emem_fact::FactCid],
+    band: &str,
+) -> Vec<(u64, f64, String, PrimaryFact)> {
+    let mut out = Vec::new();
+    for (idx, f) in facts.iter().enumerate() {
         if let Fact::Primary(p) = f {
             if p.band == band {
                 if let ciborium::Value::Float(v) = p.value {
                     if v.is_finite() {
-                        let cid = resp
-                            .receipt
-                            .fact_cids
-                            .get(idx)
-                            .map(|c| c.0.clone())
-                            .unwrap_or_default();
-                        return Some((v, cid));
+                        let cid = cids.get(idx).map(|c| c.0.clone()).unwrap_or_default();
+                        out.push((p.tslot, v, cid, p.clone()));
                     }
                 }
             }
         }
     }
-    None
+    out.sort_by_key(|(t, _, _, _)| *t);
+    out
+}
+
+/// Index of the candidate at `target` tslot when one exists, else of the
+/// newest. `tslots` must be sorted ascending.
+fn candidate_at_or_newest(tslots: &[u64], target: Option<u64>) -> Option<usize> {
+    target
+        .and_then(|t| tslots.iter().rposition(|ts| *ts == t))
+        .or_else(|| tslots.len().checked_sub(1))
 }
 
 /// Pull every Primary fact for `band` out of a recall response, sorted
@@ -185,14 +204,14 @@ fn primary_history_for_band(
     out
 }
 
-/// Walk the responder-signed primary fact for `band` at `cell` (auto-
-/// materialising on miss) and surface `(value, fact_cid, primary_clone)`.
-/// Returns a structured error if the materializer found nothing.
-async fn fetch_primary_scalar(
+/// Every finite scalar primary fact for `band` at `cell` (auto-
+/// materialising on miss), as `(tslot, value, fact_cid, fact)` sorted by
+/// tslot ascending. Returns a structured error if there is none.
+async fn fetch_primary_candidates(
     cell: &str,
     band: &str,
     state: &AppState,
-) -> Result<(f64, String, PrimaryFact), ApiError> {
+) -> Result<Vec<(u64, f64, String, PrimaryFact)>, ApiError> {
     let req = RecallReq {
         cell: cell.to_string(),
         bands: Some(vec![band.to_string()]),
@@ -200,27 +219,28 @@ async fn fetch_primary_scalar(
         ..Default::default()
     };
     let (resp, _notes) = recall_with_auto_materialize(&req, state).await?;
-    for (idx, f) in resp.facts.iter().enumerate() {
-        if let Fact::Primary(p) = f {
-            if p.band == band {
-                if let ciborium::Value::Float(v) = p.value {
-                    if v.is_finite() {
-                        let cid = resp
-                            .receipt
-                            .fact_cids
-                            .get(idx)
-                            .map(|c| c.0.clone())
-                            .unwrap_or_default();
-                        return Ok((v, cid, p.clone()));
-                    }
-                }
-            }
-        }
+    let candidates = primary_candidates_for_band(&resp.facts, &resp.receipt.fact_cids, band);
+    if candidates.is_empty() {
+        return Err(unprocessable(format!(
+            "no usable {band} primary fact at cell {cell}: \
+             materializer returned no scalar value (absence, non-scalar, or upstream failure)"
+        )));
     }
-    Err(unprocessable(format!(
-        "no usable {band} primary fact at cell {cell}: \
-         materializer returned no scalar value (absence, non-scalar, or upstream failure)"
-    )))
+    Ok(candidates)
+}
+
+/// The newest (highest tslot) responder-signed primary fact for `band` at
+/// `cell`, as `(value, fact_cid, primary_clone)`.
+async fn fetch_primary_scalar(
+    cell: &str,
+    band: &str,
+    state: &AppState,
+) -> Result<(f64, String, PrimaryFact), ApiError> {
+    let mut candidates = fetch_primary_candidates(cell, band, state).await?;
+    let (_, v, cid, p) = candidates
+        .pop()
+        .ok_or_else(|| unprocessable(format!("no usable {band} primary fact at cell {cell}")))?;
+    Ok((v, cid, p))
 }
 
 /// 8 closest cell64 neighbours around `centre_cell` plus the centre, in a
@@ -499,32 +519,21 @@ pub async fn heat_solve(mut req: HeatSolveReq, state: &AppState) -> Result<JsonV
     let band = "modis.lst_day_8day";
     // Fetch all 9 facts in parallel — one ORNL DAAC round-trip per
     // missing cell otherwise dominates wall time.
-    type FetchOutcome = (usize, Result<(f64, String, PrimaryFact), ApiError>);
+    type FetchOutcome = (
+        usize,
+        Result<Vec<(u64, f64, String, PrimaryFact)>, ApiError>,
+    );
     let mut set: tokio::task::JoinSet<FetchOutcome> = tokio::task::JoinSet::new();
     for (idx, c) in cells.iter().enumerate() {
         let cell = c.clone();
         let st = state.clone();
-        set.spawn(async move { (idx, fetch_primary_scalar(&cell, band, &st).await) });
+        set.spawn(async move { (idx, fetch_primary_candidates(&cell, band, &st).await) });
     }
-    let mut values: [f64; 9] = [0.0; 9];
-    let mut cids: [String; 9] = Default::default();
-    let mut signed_ats: [String; 9] = Default::default();
-    let mut units: [String; 9] = Default::default();
-    let mut centre_unit: Option<String> = None;
-    let mut have_centre = false;
+    let mut candidates: [Vec<(u64, f64, String, PrimaryFact)>; 9] = Default::default();
     let mut errors: Vec<JsonValue> = Vec::new();
     while let Some(j) = set.join_next().await {
         match j {
-            Ok((idx, Ok((v, cid, p)))) => {
-                values[idx] = v;
-                cids[idx] = cid;
-                signed_ats[idx] = p.signed_at.clone();
-                units[idx] = p.unit.clone().unwrap_or_default();
-                if idx == 4 {
-                    have_centre = true;
-                    centre_unit = p.unit.clone();
-                }
-            }
+            Ok((idx, Ok(c))) => candidates[idx] = c,
             Ok((idx, Err(e))) => {
                 errors.push(json!({
                     "neighbor_index": idx,
@@ -539,6 +548,35 @@ pub async fn heat_solve(mut req: HeatSolveReq, state: &AppState) -> Result<JsonV
             }
         }
     }
+    // The stencil is one moment in time: the centre's newest composite
+    // sets the tslot, and each neighbour uses its fact at that tslot.
+    // A neighbour without one falls back to its newest fact, and
+    // `time_aligned` turns false.
+    let centre_tslot = candidates[4].last().map(|(t, _, _, _)| *t);
+    let mut values: [f64; 9] = [0.0; 9];
+    let mut cids: [String; 9] = Default::default();
+    let mut signed_ats: [String; 9] = Default::default();
+    let mut tslots: [Option<u64>; 9] = [None; 9];
+    let mut units: [String; 9] = Default::default();
+    let mut centre_unit: Option<String> = None;
+    let mut have_centre = false;
+    for (idx, cands) in candidates.iter().enumerate() {
+        let ts: Vec<u64> = cands.iter().map(|(t, _, _, _)| *t).collect();
+        let Some(pick) = candidate_at_or_newest(&ts, centre_tslot) else {
+            continue;
+        };
+        let (tslot, v, cid, p) = &cands[pick];
+        values[idx] = *v;
+        cids[idx] = cid.clone();
+        signed_ats[idx] = p.signed_at.clone();
+        tslots[idx] = Some(*tslot);
+        units[idx] = p.unit.clone().unwrap_or_default();
+        if idx == 4 {
+            have_centre = true;
+            centre_unit = p.unit.clone();
+        }
+    }
+    let time_aligned = tslots.iter().flatten().all(|t| Some(*t) == centre_tslot);
     if !have_centre {
         return Err(unprocessable(format!(
             "centre cell {} has no usable {band} fact: cannot integrate without an initial condition. Errors: {}",
@@ -621,6 +659,11 @@ pub async fn heat_solve(mut req: HeatSolveReq, state: &AppState) -> Result<JsonV
         "initial_condition_k": centre_initial_k,
         "neighborhood_initial_k": values,
         "neighborhood_signed_at": signed_ats,
+        "neighborhood_tslots": tslots,
+        "time_aligned": time_aligned,
+        "time_alignment_note": if time_aligned { JsonValue::Null } else {
+            json!("Some cells have no fact at the centre's tslot and use their newest fact instead. Compare `neighborhood_tslots`: part of the stencil range can be a change in time, not in space.")
+        },
         "neighborhood_units": units,
         "imputed_neighbor_indices": imputed,
         "imputation_note": if imputed.is_empty() { JsonValue::Null } else {
@@ -732,7 +775,7 @@ const WAVE_MAX_STEPS: usize = 200_000;
 const WAVE_MIN_OCEAN_FRACTION: f64 = 0.5;
 
 /// The deepest cell of the seaward profile (after the offshore-to-coast
-/// reverse — index 0 in the FD solver) must have at least this much
+/// reverse — index 0 in the FD solver) must have more than this much
 /// water under it for the sinusoidal offshore forcing to attach to a
 /// physical wave. Without it, c² = g·h shrinks to numerical noise at the
 /// boundary and the integration is meaningless. Surfaced via the
@@ -807,9 +850,9 @@ enum ProfileClassification {
     /// Profile is oceanic enough — at least
     /// [`WAVE_MIN_OCEAN_FRACTION`] of cells are deeper than
     /// [`WAVE_OCEAN_DEPTH_THRESHOLD_M`] AND the offshore boundary cell
-    /// has at least [`WAVE_MIN_OFFSHORE_DEPTH_M`] of water.
+    /// has more than [`WAVE_MIN_OFFSHORE_DEPTH_M`] of water.
     Oceanic,
-    /// Offshore boundary cell is too shallow (< [`WAVE_MIN_OFFSHORE_DEPTH_M`]).
+    /// Offshore boundary cell is too shallow (<= [`WAVE_MIN_OFFSHORE_DEPTH_M`]).
     OffshoreBoundaryTooShallow,
     /// Too few cells in the profile are oceanic
     /// (< [`WAVE_MIN_OCEAN_FRACTION`] over [`WAVE_OCEAN_DEPTH_THRESHOLD_M`]).
@@ -885,7 +928,7 @@ fn land_locked_profile_error(
     let message = match classification {
         ProfileClassification::OffshoreBoundaryTooShallow => format!(
             "land-locked seaward profile from coastal_cell={coastal_cell}: \
-             offshore boundary cell has depth {:.2} m, need >= {:.1} m. \
+             offshore boundary cell has depth {:.2} m, need more than {:.1} m. \
              The seaward walk did not reach genuinely deep water — `c² = g·h` \
              at the boundary collapses to numerical noise and the explicit-FD \
              integration would just propagate the sinusoidal forcing across a \
@@ -1330,6 +1373,50 @@ pub fn ar2_seasonal_predict(history: &[f64], lag_12_value: Option<f64>) -> Optio
     Some(pred.clamp(-1.0, 1.0))
 }
 
+/// One month of predictor input: the 30-day month slot
+/// (`Tempo::Medium`), the band-tempo tslot of the observation that
+/// stands for it, its value and its fact CID.
+type MonthSample = (u64, u64, f64, String);
+
+/// Reduce band-tempo observations (sorted by tslot ascending) to one
+/// sample per 30-day month, latest observation wins, and keep the months
+/// in the `lookback_months` window that ends at the latest month.
+///
+/// `indices.ndvi` has a daily tempo, so a raw fact history is a list of
+/// scene days. The AR(2) terms (lag-12, the slope, the one-step forecast)
+/// are defined per month; this is where days become months. Each sample
+/// keeps a real signed value instead of an average so a reader can check
+/// every input against its fact. Months with no observation are absent.
+fn monthly_history(
+    obs: &[(u64, f64, String)],
+    tempo: emem_core::tslot::Tempo,
+    lookback_months: u32,
+) -> Vec<MonthSample> {
+    use emem_core::tslot::{Tempo, Tslot};
+    let mut months: Vec<MonthSample> = Vec::new();
+    for (tslot, value, cid) in obs {
+        let unix = Tslot(*tslot).to_unix_start(tempo);
+        let month = Tslot::from_unix(unix, Tempo::Medium).0;
+        match months.last_mut() {
+            Some(last) if last.0 == month => *last = (month, *tslot, *value, cid.clone()),
+            _ => months.push((month, *tslot, *value, cid.clone())),
+        }
+    }
+    if let Some(latest) = months.last().map(|m| m.0) {
+        let first_kept = latest.saturating_sub(u64::from(lookback_months.saturating_sub(1)));
+        months.retain(|m| m.0 >= first_kept);
+    }
+    months
+}
+
+/// The band-tempo tslot that holds the start of the month after
+/// `latest_month` (a `Tempo::Medium` slot).
+fn next_month_tslot(latest_month: u64, tempo: emem_core::tslot::Tempo) -> u64 {
+    use emem_core::tslot::{Tempo, Tslot};
+    let unix = Tslot(latest_month + 1).to_unix_start(Tempo::Medium);
+    Tslot::from_unix(unix, tempo).0
+}
+
 /// Run the closed-form seasonal NDVI predictor.
 pub async fn jepa_predict(
     mut req: JepaPredictReq,
@@ -1375,9 +1462,10 @@ pub async fn jepa_predict(
         ));
     }
 
-    // 1) Recall every monthly NDVI fact already attested at this cell.
-    //    `indices.ndvi` is Tempo::Medium (~30-day slot) so each fact is
-    //    one calendar month. We don't auto-backfill here — that's a
+    // 1) Recall every NDVI fact already attested at this cell.
+    //    `indices.ndvi` is Tempo::Fast (one-day slot), so
+    //    `monthly_history` groups the facts into 30-day months before the
+    //    predictor runs. We don't auto-backfill here — that's a
     //    separate (slower) call the agent can chain via /v1/backfill —
     //    but we do auto-materialize the latest tslot through the
     //    standard recall path so a brand-new cell still answers.
@@ -1388,12 +1476,17 @@ pub async fn jepa_predict(
         ..Default::default()
     };
     let (resp, materialize_notes) = recall_with_auto_materialize(&req_recall, state).await?;
-    let mut history = primary_history_for_band(&resp, &req.band);
-    // Keep only the most recent `lookback_months` months.
-    if history.len() > req.lookback_months as usize {
-        let drop_n = history.len() - req.lookback_months as usize;
-        history.drain(..drop_n);
-    }
+    let tempo = crate::tempo_for_band(&req.band).ok_or_else(|| {
+        unprocessable(format!(
+            "band {} has no tempo in the band registry; cannot group its facts into months",
+            req.band
+        ))
+    })?;
+    let history = monthly_history(
+        &primary_history_for_band(&resp, &req.band),
+        tempo,
+        req.lookback_months,
+    );
     if history.is_empty() {
         // Distinguish "genuinely no observation" from "the latest observation
         // is a signed Absence" (e.g. every candidate Sentinel-2 scene was
@@ -1417,25 +1510,25 @@ pub async fn jepa_predict(
             req.band, req.cell, req.cell, req.band, req.lookback_months
         )));
     }
-    // Look for a lag-12 sample if any of the available history is 12
-    // tslots before the latest. We DON'T assume a perfect calendar
-    // alignment — we look for the closest tslot to (latest - 12).
-    let latest_tslot = history.last().expect("non-empty").0;
-    let lag12_target = latest_tslot.saturating_sub(12);
+    // Lag-12 is the month closest to (latest month - 12), within one
+    // month, so a missing scene month does not drop the seasonal term.
+    let latest_month = history.last().map(|m| m.0).unwrap_or_default();
+    let lag12_target = latest_month.saturating_sub(12);
     let lag_12_value = history
         .iter()
-        .min_by_key(|(t, _, _)| (*t as i64 - lag12_target as i64).abs())
-        .filter(|(t, _, _)| (*t as i64 - lag12_target as i64).abs() <= 1)
-        .map(|(_, v, _)| *v);
+        .min_by_key(|m| m.0.abs_diff(lag12_target))
+        .filter(|m| m.0.abs_diff(lag12_target) <= 1)
+        .map(|m| m.2);
 
-    let history_values: Vec<f64> = history.iter().map(|(_, v, _)| *v).collect();
-    let history_tslots: Vec<u64> = history.iter().map(|(t, _, _)| *t).collect();
-    let history_cids: Vec<String> = history.iter().map(|(_, _, c)| c.clone()).collect();
+    let history_values: Vec<f64> = history.iter().map(|m| m.2).collect();
+    let history_tslots: Vec<u64> = history.iter().map(|m| m.1).collect();
+    let history_months: Vec<u64> = history.iter().map(|m| m.0).collect();
+    let history_cids: Vec<String> = history.iter().map(|m| m.3.clone()).collect();
 
     let prediction = ar2_seasonal_predict(&history_values, lag_12_value).ok_or_else(|| {
         unprocessable("predictor returned None (history was empty after filtering)")
     })?;
-    let forecast_tslot = latest_tslot + 1;
+    let forecast_tslot = next_month_tslot(latest_month, tempo);
 
     let pubkey = pubkey_b32(state);
     let receipt = state.sign_receipt(
@@ -1461,6 +1554,7 @@ pub async fn jepa_predict(
         "lookback_months_used": history_values.len(),
         "history_values": history_values,
         "history_tslots": history_tslots,
+        "history_month_slots": history_months,
         "history_fact_cids": history_cids,
         "lag_12_value": lag_12_value,
         "lag_12_used": lag_12_value.is_some(),
@@ -1473,6 +1567,7 @@ pub async fn jepa_predict(
         "predictor_form": "y_{t+1} = α · (lag-12 NDVI or recent mean) + β · (last + slope) + γ · recent_mean, clamped to [-1, 1]",
         "forecast_value": prediction,
         "forecast_tslot": forecast_tslot,
+        "forecast_month_slot": latest_month + 1,
         "forecast_horizon_months": req.forecast_horizon_months,
         "forecast_unit": "ndvi",
         "scheme": "closed-form AR(2) seasonal NDVI predictor (not a learned model).",
@@ -1518,6 +1613,62 @@ pub async fn post_jepa_predict(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn lst_fact(tslot: u64, v: f64) -> Fact {
+        Fact::Primary(PrimaryFact {
+            cell: "defi.zb595.nizu.zd4b1".into(),
+            band: "modis.lst_day_8day".into(),
+            tslot,
+            value: ciborium::Value::Float(v),
+            unit: Some("K".into()),
+            confidence: 1.0,
+            uncertainty: None,
+            sources: vec![],
+            derivation: emem_fact::Derivation {
+                fn_key: "t@1".into(),
+                args: None,
+            },
+            privacy_class: "public".into(),
+            schema_cid: emem_fact::SchemaCid::new("s"),
+            signer: emem_core::AttesterKey([1u8; 32]),
+            signed_at: "2026-11-07T00:15:41Z".into(),
+            served_via: None,
+        })
+    }
+
+    /// Tokyo on emem.dev, 7 Nov 2026: the centre cell held tslots 2572,
+    /// 2585, 2589 and 2593, oldest first. heat_solve took the first one
+    /// (305.04 K, signed 28 May) while the 8 neighbours were at 2593
+    /// (289.58 K), so the 15.46 K stencil range was a change in time.
+    #[test]
+    fn heat_solve_reads_the_centre_at_its_newest_tslot() {
+        let facts = vec![
+            lst_fact(2572, 305.04),
+            lst_fact(2585, 309.52),
+            lst_fact(2593, f64::NAN),
+            lst_fact(2589, 302.54),
+            lst_fact(2593, 289.58),
+        ];
+        let cids: Vec<_> = ["a", "b", "c", "d", "e"]
+            .iter()
+            .map(|c| emem_fact::FactCid::new(*c))
+            .collect();
+        let cands = primary_candidates_for_band(&facts, &cids, "modis.lst_day_8day");
+        let tslots: Vec<u64> = cands.iter().map(|c| c.0).collect();
+        assert_eq!(tslots, vec![2572, 2585, 2589, 2593]);
+        let newest = cands.last().unwrap();
+        assert_eq!((newest.1, newest.2.as_str()), (289.58, "e"));
+        assert!(primary_candidates_for_band(&facts, &cids, "era5.t2m").is_empty());
+    }
+
+    #[test]
+    fn a_neighbour_uses_the_centre_tslot_when_it_has_one() {
+        let ts = [2572, 2589, 2593];
+        assert_eq!(candidate_at_or_newest(&ts, Some(2589)), Some(1));
+        assert_eq!(candidate_at_or_newest(&ts, Some(2580)), Some(2));
+        assert_eq!(candidate_at_or_newest(&ts, None), Some(2));
+        assert_eq!(candidate_at_or_newest(&[], Some(2589)), None);
+    }
 
     #[test]
     fn heat_choose_timestep_satisfies_cfl() {
@@ -1688,6 +1839,47 @@ mod tests {
         let history = vec![-0.5, -0.7, -0.9, -1.0, -1.0, -1.0];
         let pred = ar2_seasonal_predict(&history, Some(-1.0)).expect("should predict");
         assert!(pred >= -1.0, "predictor failed to clamp lower bound");
+    }
+
+    /// Daily NDVI facts become one sample per 30-day month (latest scene
+    /// wins), the lookback counts months rather than facts, lag-12 sits
+    /// 12 months back, and the forecast slot is the next month's first
+    /// day, not the latest day + 1.
+    #[test]
+    fn jepa_history_groups_daily_facts_into_months() {
+        use emem_core::tslot::{Tempo, Tslot};
+        let day = |unix: i64| Tslot::from_unix(unix, Tempo::Fast).0;
+        let month_s = Tempo::Medium.slot_seconds() as i64;
+        let m0 = 20_000_i64; // a 30-day month slot in 2024
+        let at = |m: i64, d: i64| day((m0 + m) * month_s + d * 86_400);
+        let obs: Vec<(u64, f64, String)> = vec![
+            (at(0, 3), 0.30, "a".into()),
+            (at(1, 2), 0.31, "b".into()),
+            (at(12, 1), 0.40, "c".into()),
+            (at(12, 20), 0.42, "d".into()),
+            (at(13, 5), 0.50, "e".into()),
+        ];
+
+        let all = monthly_history(&obs, Tempo::Fast, 24);
+        let months: Vec<u64> = all.iter().map(|m| m.0).collect();
+        let m = |k: i64| (m0 + k) as u64;
+        assert_eq!(months, vec![m(0), m(1), m(12), m(13)]);
+        assert_eq!(all[2].2, 0.42, "the latest scene in a month stands for it");
+        assert_eq!(all[2].3, "d");
+        assert_eq!(all[2].1, at(12, 20), "the sample keeps its own day slot");
+
+        let lag12_target = all.last().unwrap().0 - 12;
+        assert_eq!(lag12_target, m(1), "lag-12 is 12 months back, not 12 days");
+
+        let recent = monthly_history(&obs, Tempo::Fast, 2);
+        let kept: Vec<u64> = recent.iter().map(|m| m.0).collect();
+        assert_eq!(kept, vec![m(12), m(13)], "lookback counts months");
+
+        let fc = next_month_tslot(m(13), Tempo::Fast);
+        assert_eq!(fc, day((m0 + 14) * month_s));
+        assert!(fc - at(13, 5) >= 25, "forecast is about a month ahead");
+
+        assert!(monthly_history(&[], Tempo::Fast, 6).is_empty());
     }
 
     /// AR(2): empty history must surface as `None`, not panic.
@@ -1996,6 +2188,22 @@ mod tests {
             classify_seaward_profile(&[0.5]),
             ProfileClassification::OffshoreBoundaryTooShallow
         );
+        // The offshore check is strict: a boundary at exactly the minimum
+        // depth is rejected, so the message must not say it would pass.
+        assert_eq!(
+            classify_seaward_profile(&[WAVE_MIN_OFFSHORE_DEPTH_M]),
+            ProfileClassification::OffshoreBoundaryTooShallow
+        );
+        let err = land_locked_profile_error(
+            ProfileClassification::OffshoreBoundaryTooShallow,
+            "c",
+            &["c".to_string()],
+            &[WAVE_MIN_OFFSHORE_DEPTH_M],
+            &[7.0],
+            1,
+        );
+        let msg = err.1.message;
+        assert!(msg.contains("depth 5.00 m, need more than 5.0 m"), "{msg}");
         // Two cells, one deep one shallow: 1/2 == 50%, exactly at the
         // boundary. Per `< WAVE_MIN_OCEAN_FRACTION` (strict), 50% does
         // NOT trip the fraction check — the offshore-boundary check

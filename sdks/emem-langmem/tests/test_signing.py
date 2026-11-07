@@ -156,8 +156,9 @@ def test_signature_verifies_like_the_rust_verifier(verb):
         body = f"{signer.namespace_root}/old.md".encode()
     else:
         body = b"some body"
-    # delete and rename are refused under v1, so they sign v2 against a base.
-    base = {"delete": "3aytp566f6s4nvb64ex2pn5o5i", "rename": signing.BASE_ABSENT}.get(verb)
+    # Every verb signs v2. A create names `absent`; the others edit a note
+    # that exists, so they name its file_cid.
+    base = signing.BASE_ABSENT if verb in ("create", "rename") else "3aytp566f6s4nvb64ex2pn5o5i"
     block = signer.attester_block(verb, path, body, base=base)
 
     def _b32d(s: str) -> bytes:
@@ -167,11 +168,7 @@ def test_signature_verifies_like_the_rust_verifier(verb):
     sig = _b32d(block["sig_b32"])
     assert len(pubkey) == 32 and len(sig) == 64
 
-    preimage = (
-        signing.attester_preimage_v2(verb, path, body_hash(body), base)
-        if base
-        else attester_preimage(verb, path, body_hash(body))
-    )
+    preimage = signing.attester_preimage_v2(verb, path, body_hash(body), base)
     # No exception means the responder's verify_strict would pass too.
     Ed25519PublicKey.from_public_bytes(pubkey).verify(sig, preimage)
 
@@ -186,7 +183,30 @@ def test_tampered_body_fails_verification():
         base64.b32decode(block["pubkey_b32"].upper() + "====")
     )
     with pytest.raises(InvalidSignature):
-        pubkey.verify(sig, attester_preimage("create", path, body_hash(b"different")))
+        pubkey.verify(
+            sig,
+            signing.attester_preimage_v2(
+                "create", path, body_hash(b"different"), signing.BASE_ABSENT
+            ),
+        )
+
+
+def test_no_verb_signs_the_retired_v1_preimage():
+    """The responder refuses v1 on every verb. A create without base signs
+    v2 against `absent`; other verbs without base are refused here."""
+    signer = _signer()
+    path = f"{signer.namespace_root}/n.md"
+    block = signer.attester_block("create", path, b"hi")
+    sig = base64.b32decode(block["sig_b32"].upper() + "=")
+    pubkey = Ed25519PublicKey.from_public_bytes(signer.pubkey)
+    pubkey.verify(
+        sig, signing.attester_preimage_v2("create", path, body_hash(b"hi"), signing.BASE_ABSENT)
+    )
+    with pytest.raises(InvalidSignature):
+        pubkey.verify(sig, attester_preimage("create", path, body_hash(b"hi")))
+    for verb in ("str_replace", "insert", "delete", "rename"):
+        with pytest.raises(ValueError):
+            signer.attester_block(verb, path, b"x")
 
 
 # ---------- the rename contract ----------

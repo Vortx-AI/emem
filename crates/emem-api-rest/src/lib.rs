@@ -676,16 +676,17 @@ pub fn router(state: AppState) -> Router {
     // spawn_warm_priority_loop for the file format.
     spawn_warm_priority_loop(state.clone());
 
-    // Warm the GeoNames cities5000 index on a worker thread so the first
-    // find_similar / locate / reverse-geocode call doesn't pay the ~150 ms
-    // decompress+parse hit synchronously. The OnceLock inside emem-fetch
-    // makes this idempotent, repeated calls are a no-op.
+    // Warm every embedded gazetteer index on a worker thread, not only
+    // GeoNames. The locate cascade reads all of them, and each builds inside a
+    // OnceLock on first use, synchronously, on the async worker that serves the
+    // request. Measured 2026-11-07 on a fresh debug node: the first
+    // `POST /v1/locate` took 25 s, and one earlier took 55 s and returned 504.
+    // Work that holds the worker thread also delays the 40 s TimeoutLayer.
+    // admin2 and admin3 re-read cities1000 to build their bboxes, so they cost
+    // the most. Each OnceLock makes a repeated call a no-op.
     std::thread::Builder::new()
-        .name("emem-geonames-warm".into())
-        .spawn(|| {
-            let n = emem_fetch::geonames::warm_index();
-            tracing::info!(target: "emem::geocoder", geonames_index_warm = n, "geonames_index_warm");
-        })
+        .name("emem-gazetteer-warm".into())
+        .spawn(warm_gazetteer_indexes)
         .ok();
 
     // Open the embedded Lance vector index, install it on
@@ -1724,7 +1725,10 @@ pub fn router(state: AppState) -> Router {
         // not the wiring, so a fix that was written, documented and shipped had
         // never once run. /v1/memory_bundle returned `content-length: 0` on a
         // route this was supposed to be covering.
-        .layer(axum::middleware::from_fn(timeout_to_typed_504))
+        .layer(axum::middleware::from_fn_with_state(
+            timeout_seconds(),
+            timeout_to_typed_504,
+        ))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             body_limit_bytes(),
         ))
@@ -1780,7 +1784,10 @@ fn splats_router(state: AppState) -> Router {
             std::time::Duration::from_secs(timeout_s),
         ))
         // Same reason as the main router: outermost, or it cannot see the 504.
-        .layer(axum::middleware::from_fn(timeout_to_typed_504))
+        .layer(axum::middleware::from_fn_with_state(
+            timeout_s,
+            timeout_to_typed_504,
+        ))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             body_limit_bytes(),
         ))
@@ -1856,7 +1863,10 @@ fn perception_router(state: AppState) -> Router {
             std::time::Duration::from_secs(timeout_s),
         ))
         // Same reason as the main router: outermost, or it cannot see the 504.
-        .layer(axum::middleware::from_fn(timeout_to_typed_504))
+        .layer(axum::middleware::from_fn_with_state(
+            timeout_s,
+            timeout_to_typed_504,
+        ))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             body_limit_bytes(),
         ))
@@ -1865,6 +1875,7 @@ fn perception_router(state: AppState) -> Router {
 }
 
 fn eudr_router(state: AppState) -> Router {
+    let timeout_s = eudr_route_timeout_secs();
     Router::new()
         .route("/v1/eudr_dds", post(post_eudr_dds))
         // The field signals warm a season of scenes before they answer, the
@@ -1896,10 +1907,13 @@ fn eudr_router(state: AppState) -> Router {
         // The dedicated, larger EUDR timeout (vs the 40 s blanket).
         .layer(tower_http::timeout::TimeoutLayer::with_status_code(
             StatusCode::GATEWAY_TIMEOUT,
-            std::time::Duration::from_secs(eudr_route_timeout_secs()),
+            std::time::Duration::from_secs(timeout_s),
         ))
         // Same reason as the main router: outermost, or it cannot see the 504.
-        .layer(axum::middleware::from_fn(timeout_to_typed_504))
+        .layer(axum::middleware::from_fn_with_state(
+            timeout_s,
+            timeout_to_typed_504,
+        ))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             body_limit_bytes(),
         ))
@@ -1913,6 +1927,32 @@ fn eudr_router(state: AppState) -> Router {
 /// Off by ≈0.5 % vs the proper geodetic distance, acceptable for the
 /// "what scale is this cell" UX hint, not for survey-grade calculations.
 const METERS_PER_DEGREE_LAT: f64 = 111_320.0;
+
+/// Builds the embedded gazetteer indexes that `locate_inner` reads, and logs
+/// the size and time of each. GeoNames comes first because the countries and
+/// admin1 indexes build from its records.
+fn warm_gazetteer_indexes() {
+    type Warm = fn() -> usize;
+    let indexes: [(&str, Warm); 6] = [
+        ("geonames", emem_fetch::geonames::warm_index),
+        ("countries", emem_fetch::countries::warm_index),
+        ("admin1", emem_fetch::admin1::warm_index),
+        ("admin2", emem_fetch::admin2::warm_index),
+        ("admin3", emem_fetch::admin3::warm_index),
+        ("pois", emem_fetch::pois::warm_index),
+    ];
+    for (name, warm) in indexes {
+        let t0 = std::time::Instant::now();
+        let n = warm();
+        tracing::info!(
+            target: "emem::geocoder",
+            index = name,
+            records = n,
+            elapsed_ms = t0.elapsed().as_millis() as u64,
+            "gazetteer_index_warm"
+        );
+    }
+}
 
 /// Hard cap on POST bodies. Defaults to 16 MiB; tunable via
 /// `EMEM_BODY_LIMIT_MB` (clamped to 1..=256 MiB).
@@ -3328,7 +3368,12 @@ fn panic_to_typed_500(err: Box<dyn std::any::Any + Send + 'static>) -> Response 
 /// This runs OUTSIDE the timeout layer, so it sees the 504 the layer
 /// produced. It only rewrites a 504 that has no body of its own: an endpoint
 /// that deliberately answers 504 with a typed body keeps it.
+///
+/// `secs` is the budget of the router this wraps, not the global one: the
+/// EUDR, splats and perception routers each have a longer timeout, and a 504
+/// from them that named the 40 s main budget told the caller a false limit.
 async fn timeout_to_typed_504(
+    axum::extract::State(secs): axum::extract::State<u64>,
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
@@ -3345,7 +3390,6 @@ async fn timeout_to_typed_504(
     if has_body {
         return resp;
     }
-    let secs = timeout_seconds();
     let body = serde_json::json!({
         "schema": "emem.error.v1",
         "code": "compute_timeout",
@@ -4348,6 +4392,8 @@ fn docs_book_mime(rel: &str) -> &'static str {
         "svg" => "image/svg+xml; charset=utf-8",
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
         "woff" => "font/woff",
         "woff2" => "font/woff2",
         "ttf" => "font/ttf",
@@ -4726,15 +4772,23 @@ async fn serve_405(req: axum::http::Request<axum::body::Body>) -> Response {
             })
             .unwrap_or_default()
     };
+    // A GET-only path must not be told to use POST: DELETE /v1/errors was
+    // answered "call it with POST" with a POST curl on a route that only
+    // answers GET.
     let primary = allowed
         .iter()
         .find(|m| *m != "GET" && *m != "HEAD" && *m != "OPTIONS")
+        .or_else(|| allowed.iter().find(|m| *m == "GET"))
         .cloned()
         .unwrap_or_else(|| "POST".to_string());
     let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
-    let example = format!(
-        "curl -s -X {primary} {origin}{path} -H 'content-type: application/json' -d '{{...}}'"
-    );
+    let example = if primary == "GET" {
+        format!("curl -s {origin}{path}")
+    } else {
+        format!(
+            "curl -s -X {primary} {origin}{path} -H 'content-type: application/json' -d '{{...}}'"
+        )
+    };
 
     let accept = req
         .headers()
@@ -8557,14 +8611,53 @@ async fn serve_agents_txt() -> Response {
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
-/// `GET /v1/deprecations`, empty list with the deprecation policy.
+/// MCP tool names that still dispatch (see the `"emem_memory_*" |
+/// "memory_*"` arms of the tools/call match) but are not advertised, with
+/// the release that announced the removal. CHANGELOG 2.1.0 names seven of
+/// them and says 3.0 removes them. `memory_supersede` is an alias that was
+/// never advertised (`emem_memory_supersede` came in 2.2.0 under its prefixed
+/// name), so no release announced it; it is listed so all eight bare names
+/// carry one removal date. The list was empty, so a caller polling the
+/// route was told nothing would go away.
+const DEPRECATED_MCP_TOOL_NAMES: [(&str, &str, Option<&str>); 8] = [
+    ("memory_view", "emem_memory_view", Some("2.1.0")),
+    ("memory_create", "emem_memory_create", Some("2.1.0")),
+    (
+        "memory_str_replace",
+        "emem_memory_str_replace",
+        Some("2.1.0"),
+    ),
+    ("memory_insert", "emem_memory_insert", Some("2.1.0")),
+    ("memory_delete", "emem_memory_delete", Some("2.1.0")),
+    ("memory_supersede", "emem_memory_supersede", None),
+    ("memory_rename", "emem_memory_rename", Some("2.1.0")),
+    (
+        "memory_list_by_kind",
+        "emem_memory_list_by_kind",
+        Some("2.1.0"),
+    ),
+];
+
+/// `GET /v1/deprecations`, the deprecated surfaces with the policy.
 /// ClaudeBot polls this; returning a typed stable list (instead of
-/// 404) tells a crawler the surface exists and is intentionally empty.
+/// 404) tells a crawler the surface exists.
 async fn serve_deprecations() -> Json<JsonValue> {
+    let deprecated: Vec<JsonValue> = DEPRECATED_MCP_TOOL_NAMES
+        .iter()
+        .map(|(old, new, announced)| {
+            json!({
+                "surface": "mcp_tool",
+                "path": format!("tools/call name={old}"),
+                "replacement": format!("tools/call name={new}"),
+                "announced_in": announced,
+                "removed_in": "3.0",
+            })
+        })
+        .collect();
     Json(json!({
         "schema":     "emem.deprecations.v1",
-        "deprecated": [],
-        "policy":     "Pre-1.0. A breaking change carries a deprecation entry here one minor release before removal. Entries name the path, the replacement, and the earliest version that removes the old surface.",
+        "deprecated": deprecated,
+        "policy":     "A breaking change carries a deprecation entry here one minor release before removal. Entries name the path, the replacement, and the earliest version that removes the old surface.",
         "spec":       "https://emem.dev/spec.md",
         "served_at":  iso8601_utc(now_unix_s() as u64),
     }))
@@ -8916,12 +9009,13 @@ async fn well_known_emem_agents() -> Response {
         // domain vouches for these keys", and shipping one roster to every
         // self-hoster would have them attesting to keys they never chose.
         let explicit = std::env::var("EMEM_AGENTS_WELL_KNOWN").ok();
-        let data_dir = std::env::var("EMEM_DATA").unwrap_or_else(|_| "/var/emem".to_string());
         let candidates: Vec<String> = match &explicit {
             Some(p) => vec![p.clone()],
             None => vec![
                 "config/emem-agents.json".to_string(),
-                format!("{}/emem-agents.json", data_dir.trim_end_matches('/')),
+                emem_core::data_dir::data_path("emem-agents.json")
+                    .to_string_lossy()
+                    .into_owned(),
             ],
         };
         let mut path = candidates[0].clone();
@@ -9030,7 +9124,7 @@ async fn federation_json(s: &AppState, responder_b32: &str) -> JsonValue {
                 "independent_witnesses": independent_distinct.len(),
                 "freshest_independent_witness_entries_behind": independent_freshest,
                 "head_is_independently_witnessed": independent_freshest == Some(0),
-                "independence_note": "head_is_witnessed counts this node's own co-signatures, made every two minutes by its write-liveness canary. The independent_* fields exclude witness_pubkey_b32 above and are the ones that bear on split view.",
+                "independence_note": "head_is_witnessed counts this node's own co-signatures, made every two minutes by its write-liveness canary. The independent_* fields exclude witness_pubkey_b32 above, but keys are free, so one party with many keys can satisfy them. For split view, read head_is_witnessed_by_independent_operator at /v1/log/witnesses: it counts only keys vouched by a domain that is not this node's own.",
                 "url": "/v1/log/witnesses",
             })
         }
@@ -12638,7 +12732,27 @@ async fn errors() -> Json<JsonValue> {
 
 async fn tools(Query(params): Query<std::collections::HashMap<String, String>>) -> Json<JsonValue> {
     let tier = params.get("tier").map(|s| s.as_str()).unwrap_or("all");
-    let filtered = emem_mcp::tools_at_tier(tier);
+    // `name` and `q` were accepted and ignored, so a caller asking for one
+    // tool received all of them with no sign the filter was dropped.
+    let name = params
+        .get("name")
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
+    let q = params
+        .get("q")
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty());
+    let filtered: Vec<_> = emem_mcp::tools_at_tier(tier)
+        .into_iter()
+        .filter(|t| name.is_none_or(|n| t.name == n))
+        .filter(|t| {
+            q.as_deref().is_none_or(|q| {
+                t.name.to_lowercase().contains(q)
+                    || t.title.to_lowercase().contains(q)
+                    || t.description.to_lowercase().contains(q)
+            })
+        })
+        .collect();
     let descriptors: Vec<JsonValue> = filtered.iter().map(|t| json!({
         "name": t.name,
         "title": t.title,
@@ -12658,7 +12772,13 @@ async fn tools(Query(params): Query<std::collections::HashMap<String, String>>) 
             "openWorldHint":   t.open_world_hint,
         },
     })).collect();
-    Json(json!({ "tools": descriptors, "total": emem_mcp::TOOLS.len(), "showing_tier": tier }))
+    Json(json!({
+        "tools": descriptors,
+        "total": emem_mcp::TOOLS.len(),
+        "matched": filtered.len(),
+        "showing_tier": tier,
+        "filter": {"name": name, "q": q},
+    }))
 }
 
 async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
@@ -21204,7 +21324,10 @@ async fn get_eudr_dds_schema() -> Json<JsonValue> {
                                 "schema": {"const": "emem.visual_evidence.v2"},
                                 "method": {"type": "string", "$comment": "Always 'annual_s2_l2a_least_cloudy + annual_s1_rtc_vv_cloud_independent'"},
                                 "anchor_policy": {"type": "string", "$comment": "Per-year anchor date + the cloud-fallback ladder applied"},
-                                "verdict": {"type": "string", "enum": ["no_visual_deforestation", "visual_deforestation_suspected", "indeterminate_no_baseline"]},
+                                "verdict": {"type": "string", "enum": ["no_visual_deforestation", "visual_deforestation_suspected", "indeterminate_no_baseline", "incomplete"], "$comment": "incomplete: the timeline did not finish within budget_secs; that block carries only schema, verdict, complete:false, budget_secs and reason"},
+                                "complete": {"type": "boolean", "$comment": "Present and false only on an incomplete block"},
+                                "budget_secs": {"type": "integer", "$comment": "EMEM_EUDR_VISUAL_BUDGET_SECS in effect; incomplete block only"},
+                                "reason": {"type": "string", "$comment": "Why the block is incomplete; incomplete block only"},
                                 "verdict_basis": {"type": "string", "enum": ["ndvi_and_s1_vv", "ndvi_only", "s1_vv_only", "neither"], "$comment": "Which declared signals the verdict actually rests on"},
                                 "signals": {"type": "object", "$comment": "Per signal: evaluated (it had a 2020 baseline and a latest reading), breached, and why_not when it did not run"},
                                 "thresholds": {
@@ -22144,7 +22267,7 @@ async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
                 "construction": "blake3_pipe",
                 "preimage": "blake3(\"emem.memory_write.v2|\" || verb || \"|\" || path || \"|\" || body_hash || \"|\" || base)",
                 "base": "the file_cid currently at `path`, or the literal `absent` when the path holds nothing (a create of a new path signs `absent`)",
-                "preimage_v1": "blake3(\"emem.memory_write|\" || verb || \"|\" || path || \"|\" || body_hash), still accepted for create/str_replace/insert and refused for delete/rename",
+                "preimage_v1": "blake3(\"emem.memory_write|\" || verb || \"|\" || path || \"|\" || body_hash). Retired for new writes of every verb: a v1-signed write is refused with 401 reason v1_retired. Notes written with v1 before the retirement still verify when read.",
                 "which_was_signed": "memory_view's authorship block states preimage_version (1 or 2) and base for each note; verify against that one rather than trying both",
                 "source_of_truth": "emem_primitives::attester_preimage_v2 and attester_preimage, the functions the responder verifies against (verify_attester_versioned tries v2 first).",
                 "signed_bytes": "ed25519 signs the 32-byte blake3 digest, same as preimage_v1",
@@ -24438,7 +24561,7 @@ async fn get_log_witnesses(
         },
         "witnesses": out,
         "nearest_witnessed": nearest,
-        "note": "Each entry is a witness's ed25519 co-signature over (tree_size, root). Verify offline; then call /v1/log/consistency?first=<that tree_size>&second=<current> to confirm the log the witness saw is an append-only prefix of the log you see. A witness attests ONLY the prefix it signed: `entries_behind_current` is how much of the current log no witness has seen, and `head_is_witnessed` is false whenever that is non-zero. Read `head_is_witnessed` with care: it counts ANY co-signature including this node's own write-liveness canary, which signs the head every two minutes, so it is nearly always true and is not a measure of outside oversight. `head_is_independently_witnessed` is the same question with `self_witness_pubkey_b32` removed, and it is the one that speaks to split view. Consistency proofs remain checkable by anyone regardless — split-view detection is what needs a second pair of eyes, and that is what a stale witness cannot give you.",
+        "note": "Each entry is a witness's ed25519 co-signature over (tree_size, root). Verify offline; then call /v1/log/consistency?first=<that tree_size>&second=<current> to confirm the log the witness saw is an append-only prefix of the log you see. A witness attests ONLY the prefix it signed: `entries_behind_current` is how much of the current log no witness has seen, and `head_is_witnessed` is false whenever that is non-zero. Read `head_is_witnessed` with care: it counts ANY co-signature including this node's own write-liveness canary, which signs the head every two minutes, so it is nearly always true and is not a measure of outside oversight. `head_is_independently_witnessed` is the same question with `self_witness_pubkey_b32` removed. Keys are free, so one party with many fresh keys can make it true. `head_is_witnessed_by_independent_operator` counts only org_vouched keys (fresh DNS or well-known evidence under a domain that is not this node's own), and it is the one that speaks to split view. Anyone can check a consistency proof. Split-view detection needs a second party, and a stale witness cannot give you that.",
         "submit": "POST /v1/log/witness {tree_size, root_b32, witness_pubkey_b32, signature_b32}",
         "preimage": "PreimageV1(\"emem.translog.witness.v1\"){1:u64_be tree_size, 2:root, 3:witness_pubkey}"
     })))
@@ -35016,7 +35139,11 @@ fn openapi_spec() -> JsonValue {
             "/v1/log/witness":       {"post":{"summary":"transparency log: submit a witness ed25519 co-signature over a (tree_size, root) tree-head claim. The responder verifies the signature AND that the root matches its own history at that size before recording it. Preimage: PreimageV1(\"emem.translog.witness.v1\"){1:u64_be tree_size, 2:root, 3:witness_pubkey}.","operationId":"emem_log_witness","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tree_size","root_b32","witness_pubkey_b32","signature_b32"],"properties":{"tree_size":{"type":"integer","minimum":1},"root_b32":{"type":"string"},"witness_pubkey_b32":{"type":"string"},"signature_b32":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
             "/v1/topics":            {"get":{"summary":"topic-grouped band + algorithm registry (single source of truth shared with `/v1/locate`'s `data_at_this_cell` block)","operationId":"emem_topics","parameters":[{"name":"q","in":"query","required":false,"schema":{"type":"string","maxLength":500},"description":"a question: returns how POST /v1/ask would route it (topics, scores, keyword or embedding), without running the ask"}],"responses":{"200":json_ok}}},
             "/v1/algorithms/{key}":  {"get":{"summary":"per-key drill-down on a single algorithm (formula, inputs, citation), pair with /v1/algorithms's catalog","operationId":"emem_explain_algorithm","parameters":[{"name":"key","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
-            "/v1/tools":             {"get":{"summary":"MCP tool descriptors with schemas","operationId":"emem_tools","responses":{"200":json_ok}}},
+            "/v1/tools":             {"get":{"summary":"MCP tool descriptors with schemas","operationId":"emem_tools","parameters":[
+                {"name":"tier","in":"query","required":false,"schema":{"type":"string","default":"all"},"description":"Tool tier, for example `core`. Default `all`."},
+                {"name":"name","in":"query","required":false,"schema":{"type":"string"},"description":"Exact tool name, for example `emem_recall`. Returns that tool only."},
+                {"name":"q","in":"query","required":false,"schema":{"type":"string"},"description":"Case-insensitive text that the tool name, title or description must contain. MCP emem_tools also searches trigger text; this route does not."}
+            ],"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}":    {"get":{"summary":"recall facts at a cell","operationId":"emem_recall_cell_get","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/recall":            {"post":{"summary":"recall facts (algebra: ensure; reuses what exists, materializes what is missing)","operationId":"emem_recall","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/RecallReq"}}}},"responses":{"200":json_ok}}},
             "/v1/query_region":      {"post":{"summary":"query region","operationId":"emem_query_region","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/QueryRegionReq"}}}},"responses":{"200":json_ok}}},
@@ -35081,8 +35208,8 @@ fn openapi_spec() -> JsonValue {
             "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence. The envelope carries `reasoning`: the ordered stages (located, routed, recalled, scored) with the fact_cids each grounded, and one emem:state: address per stage. Send `Accept: text/event-stream` to receive the same stages as they complete, one emem.ask_stage.v1 JSON object per event, ending in an `answer` stage that carries the envelope a plain POST returns for the same body, or a `failed` stage. One additional event, schema `emem.spatial_trace_event.v1` with `stage: \"splat\"`, is emitted at `recalled`: the signed readings as drawable primitives (band, value, unit, age, provenance class, and an index into the fact_cids already cited), so a consumer can render the evidence before the prose is written. The same projection is in every envelope under `spatial_trace`. One route, negotiated by Accept; there is no separate stream path.","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":{"description":"application/json envelope by default; text/event-stream of emem.ask_stage.v1 events when the request sends Accept: text/event-stream","content":{"application/json":{"schema":{"type":"object"}},"text/event-stream":{"schema":{"type":"string"}}}}}}},
             "/v1/hunt":              {"post":{"summary":"hunter-mode event discovery: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text or polygon_bbox); returns the top 8 ranked hotspots with cell64, primary-band value, fact_cid, and scene URL. Algal-bloom and water-turbidity ranks are NDWI-gated; UHI uses a slow-band fan-out cap. Tessera embedding rerank fires when ≥3 cells have geotessera vectors, otherwise the response falls back to primary-scalar order with the reason exposed. Oil-slick is honestly not-yet-implemented; closest available physics are flood_extent_sar_threshold@1 and water_turbidity_red_band@1.","operationId":"emem_hunt","tags":["hunter"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HuntReq"}}}},"responses":{"200":json_ok}}},
             "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115, Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 baseline + Hansen GFC v1.13 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence, under its own 60 s budget (EMEM_EUDR_VISUAL_BUDGET_SECS): a first-time plot whose timeline does not finish returns its verdict with `visual_evidence.verdict: \"incomplete\"`, and a repeat fills it in from what was stored. Each plot also carries a `loss_year_histogram`: the per-year distribution of Hansen loss-year over the plot's sampled cells (calendar years, plus `after_cutoff_cells`), emitted as its own signed `forest_change.lossyear_histogram` derivative whose CID is folded into the receipt, so the loss-year breakdown is a verifiable figure, not an unsigned sample (weight by the plot's `sampled_polygon_fraction` to extrapolate to the full polygon). The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the per-cell fact_cids (the first EMEM_EUDR_RECEIPT_MAX_FACTS by cid when there are more, disclosed as `receipt_fact_cids_capped` and `receipt_fact_cids_total`); verifiable offline at `/verify` (or `/v1/verify_receipt`). Every sampled cell's facts decide the verdict and are stored, because each plot's `per_cell_rows_cid` addresses all of them, inlined or not (`facts_computed` vs `facts_persisted`, per plot and in total); every fact_cid in the response, and every one behind `per_cell_rows_cid`, resolves at /v1/facts/<cid>.","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
-            "/v1/attest":            {"post":{"summary":"Submit a signed attestation (JSON). FACT PLANE IS CLOSED BY DEFAULT: an attestation whose facts occupy an address (cell, band, tslot) is accepted only from this responder's own key, a device enrolled through the OS-trace gate, or a key the operator lists; any other verified signature is refused 403 level_too_low. Derivations and edges take no address and are accepted from any T1 key (see /v1/derive). Body carries a batch envelope: `batch_root` (the 32-byte BLAKE3 merkle root over the per-fact CIDs, serialized as a 32-element array of byte integers, NOT a hex string), `attester`, `signature` (ed25519 over blake3(batch_root||registry_cid||schema_cid)), and `facts[]` (each is a tagged variant carrying `kind` plus cell, band, tslot, value, and per-fact metadata). The responder rejects facts that don't hash into the named batch_root, and rejects the envelope if the signature does not verify against the attester pubkey under the corresponding ed25519 key.","operationId":"emem_attest","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["batch_root","attester","signature","facts"],"properties":{"batch_root":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte BLAKE3 merkle root over the per-fact CIDs, as a 32-element array of byte integers (serde [u8;32]). A hex string is NOT accepted."},"attester":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte ed25519 attester pubkey, as a 32-element array of byte integers (serde [u8;32]). NOT a base32 string, despite base32 being the spelling everywhere else on this responder: these bytes sit inside the canonical CBOR that fact_cid hashes, so the wire form cannot be changed without moving every content address ever issued. Convert with base64.b32decode(pubkey_b32.upper()+'='*((8-len(pubkey_b32)%8)%8))."},"signature":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":64,"maxItems":64,"description":"ed25519 signature over blake3(batch_root||registry_cid||schema_cid), as a 64-element array of byte integers (serde [u8;64]). Same reason as `attester`: not a base32 string."},"facts":{"type":"array","items":{"type":"object","required":["kind","cell","band","value"],"properties":{"kind":{"type":"string","enum":["primary","derivative","absence"],"description":"Tagged fact variant; required. `primary` = direct observation, `derivative` = deterministic function over parent facts, `absence` = signed confirmed-absence."},"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"},"value":{},"signed_at":{"type":"string"},"privacy_class":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
-            "/v1/attest_cbor":       {"post":{"summary":"submit signed attestation (canonical CBOR)","operationId":"emem_attest_cbor","requestBody":{"required":true,"description":"Canonical CBOR, not JSON: the bytes are the signature preimage, so any re-encoding invalidates the attestation.","content":{"application/cbor":{"schema":{"type":"string","format":"binary","description":"canonical-CBOR AttestationEnvelope"}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
+            "/v1/attest":            {"post":{"summary":"Submit a signed attestation (JSON). FACT PLANE IS CLOSED BY DEFAULT: an attestation whose facts occupy an address (cell, band, tslot) is accepted only from this responder's own key, a device enrolled through the OS-trace gate, or a key the operator lists; any other verified signature is refused 403 level_too_low. Derivations and edges take no address and are accepted from any T1 key (see /v1/derive). Body carries a batch envelope: `batch_root` (the 32-byte BLAKE3 merkle root over the per-fact CIDs, serialized as a 32-element array of byte integers, NOT a hex string), `attester`, `attester_key_epoch`, `registry_cid`, `schema_cid`, `attested_at`, `signature`, and `facts[]` (each is a tagged variant carrying `kind` plus cell, band, tslot, value, and per-fact metadata). `preimage_version` selects the rule for both the root and the signature. Set it to 1 for new writes: leaves and nodes take the 0x00/0x01 prefixes, a duplicate leaf is refused, and the signature is ed25519 over the domain-separated attestation preimage (GET /v1/verifier_spec, `preimage_v1`). Omitted or 0 is the legacy v0 rule, still accepted: unprefixed merkle hashing and ed25519 over blake3(batch_root||registry_cid||schema_cid). The responder rejects facts that don't hash into the named batch_root, and rejects the envelope if the signature does not verify against the attester pubkey under the corresponding ed25519 key.","operationId":"emem_attest","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["batch_root","attester","attester_key_epoch","registry_cid","schema_cid","signature","attested_at","facts"],"properties":{"batch_root":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte BLAKE3 merkle root over the per-fact CIDs, as a 32-element array of byte integers (serde [u8;32]). A hex string is NOT accepted."},"attester":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte ed25519 attester pubkey, as a 32-element array of byte integers (serde [u8;32]). NOT a base32 string, despite base32 being the spelling everywhere else on this responder: these bytes sit inside the canonical CBOR that fact_cid hashes, so the wire form cannot be changed without moving every content address ever issued. Convert with base64.b32decode(pubkey_b32.upper()+'='*((8-len(pubkey_b32)%8)%8))."},"signature":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":64,"maxItems":64,"description":"ed25519 signature over the preimage `preimage_version` selects (v1: the domain-separated attestation preimage; v0: blake3(batch_root||registry_cid||schema_cid)), as a 64-element array of byte integers (serde [u8;64]). Same reason as `attester`: not a base32 string."},"attester_key_epoch":{"type":"integer","minimum":0,"description":"Key rotation epoch of `attester` (u32)."},"registry_cid":{"type":"string","description":"CID of the function-registry version in force. Signed: part of the preimage."},"schema_cid":{"type":"string","description":"CID of the CDDL schema profile in force. Signed: part of the preimage."},"attested_at":{"type":"string","description":"ISO 8601 wall clock at submission. Not signed."},"preimage_version":{"type":"integer","enum":[0,1],"default":0,"description":"Signature-preimage and merkle rule. 1 for new writes; 0 or omitted is the legacy v0 rule."},"scope":{"type":"object","description":"Optional multi-tenant scope. An index hint only: not in batch_root and not signed."},"edges":{"type":"array","items":{"type":"object"},"description":"Optional temporal edges. Each edge's blake3(canonical_cbor(edge)) joins the leaf set before sorting, so the signature covers them."},"facts":{"type":"array","items":{"type":"object","required":["kind","cell","band","value"],"properties":{"kind":{"type":"string","enum":["primary","derivative","absence"],"description":"Tagged fact variant; required. `primary` = direct observation, `derivative` = deterministic function over parent facts, `absence` = signed confirmed-absence."},"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"},"value":{},"signed_at":{"type":"string"},"privacy_class":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
+            "/v1/attest_cbor":       {"post":{"summary":"Submit a signed attestation (CBOR). The body is the CBOR encoding of the same Attestation that POST /v1/attest takes as JSON, with the same fields, write gate, per-key rate limit and `preimage_version` rule. The responder decodes the body, recomputes batch_root from the canonical CBOR of each decoded fact and edge, and checks the signature over the preimage built from batch_root, registry_cid and schema_cid. The request bytes are not the preimage: two encodings that decode to the same Attestation verify alike. A body that does not decode returns 400 canonical_encoding_divergence. Returns {cids, count}.","operationId":"emem_attest_cbor","requestBody":{"required":true,"description":"CBOR, not JSON. Fields and byte-array forms as in the /v1/attest JSON schema.","content":{"application/cbor":{"schema":{"type":"string","format":"binary","description":"CBOR-encoded Attestation"}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             // A2A surface. Absent from this spec until 2026-08-05, which
             // meant the agent-to-agent front door the .well-known descriptor
             // advertises could not be discovered by anything reading the
@@ -35116,7 +35243,7 @@ fn openapi_spec() -> JsonValue {
             },
             "/v1/grid":              {"post":{"summary":"a place as an n x n table of signed facts in one call: cells row-major (north row first), per band values + fact_cids + captured_at + one emem:bundle token, one receipt citing every fact. The cold half is read as one area (one Sentinel-2 scene search per grid, not per square). Accepts budget_ms with the partial-results contract.","operationId":"emem_grid","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["center","bands"],"properties":{"center":{"type":"string","description":"place name, cell64, or lat,lng"},"bands":{"type":"array","items":{"type":"string"},"maxItems":8},"n":{"type":"integer","minimum":2,"maximum":16,"default":12},"half_km":{"type":"number","minimum":0.05,"maximum":25,"default":3},"tslot":{"type":"integer"},"budget_ms":{"type":"integer"},"bundle":{"type":"boolean","default":true}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/recall_many":       {"post":{"summary":"bulk recall over up to 256 cells per call. Accepts budget_ms: the partial-results contract (docs/plans/partial-results.md), converged/pending[]/retry, monotone identical-request retry; a band the materializer skipped is in pending[] when retryable and in skipped[] when not. compact:true returns each fact as band, value, unit, tslot, observed_at, kind, confidence, fact_cid, memory_token.","operationId":"emem_recall_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cells"],"properties":{"cells":{"type":"array","items":{"type":"string"}},"bands":{"type":"array","items":{"type":"string"}},"budget_ms":{"type":"integer"},"compact":{"type":"boolean","default":false}}}}}},"responses":{"200":json_ok}}},
-            "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon. Accepts budget_ms (docs/plans/partial-results.md): a soft materialization budget. converged is false whenever pending[] is non-empty, with or without budget expiry; the response is then a first-class partial 200 with a typed pending[] (materializing: the budget expired while the cell's fetch was in flight; upstream_failed: the cell's recall failed; skipped or deferred: the materializer skipped or held back these bands for a retryable reason; each entry stating its reason) and a retry hint. skipped[] lists, per cell, bands skipped for a reason a retry does not change (unknown band, retired, no materializer); in projection:compact it is one row per bands and reason with a cell count. Detached fetches persist, so the identical request retried returns strictly more from cache. Pending is unsigned and is NOT a signed absence; the receipt semantics are unchanged","operationId":"emem_recall_polygon","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"free-text region; one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only. An array is refused: bbox array orders disagree between conventions ([west,south,east,north] in GeoJSON/OGC, [south,north,west,east] from Nominatim), so naming the corners is the only unambiguous form.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"bands":{"type":"array","items":{"type":"string"}},"max_cells":{"type":"integer","minimum":1,"maximum":1024,"default":64,"description":"Cap on cells sampled from the polygon. Out-of-range is a 400, not a silent clamp."},"budget_ms":{"type":"integer"},"tslot":{"type":"integer"},"as_of_tslot":{"type":"integer"},"as_of_signed_at":{"type":"string"},"include":{"type":"array","items":{"type":"string"},"description":"opt-in supplements; currently ftw_fields"},"polygon_geojson":{"type":"object"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
+            "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon. Accepts budget_ms (docs/plans/partial-results.md): a soft materialization budget. converged is false whenever pending[] is non-empty, with or without budget expiry; the response is then a first-class partial 200 with a typed pending[] (materializing: the budget expired while the cell's fetch was in flight; upstream_failed: the cell's recall failed; skipped or deferred: the materializer skipped or held back these bands for a retryable reason; each entry stating its reason) and a retry hint. skipped[] lists, per cell, bands skipped for a reason a retry does not change (unknown band, retired, no materializer); in projection:compact it is one row per bands and reason with a cell count. Detached fetches persist, so the identical request retried returns strictly more from cache. Pending is unsigned and is NOT a signed absence; the receipt semantics are unchanged","operationId":"emem_recall_polygon","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"free-text region; one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only. An array is refused: bbox array orders disagree between conventions ([west,south,east,north] in GeoJSON/OGC, [south,north,west,east] from Nominatim), so naming the corners is the only unambiguous form.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"bands":{"type":"array","items":{"type":"string"}},"max_cells":{"type":"integer","minimum":1,"maximum":1024,"default":64,"description":"Cap on cells sampled from the polygon. Out-of-range is a 400, not a silent clamp."},"budget_ms":{"type":"integer"},"tslot":{"type":"integer"},"as_of_tslot":{"type":"integer"},"as_of_signed_at":{"type":"string"},"include":{"type":"array","items":{"type":"string"},"description":"opt-in supplements; currently ftw_fields"},"polygon_geojson":{"type":"object"},"scope":{"type":"object","description":"Optional multi-tenant scope {user_id, agent_id, run_id, org_id}, sent to every per-cell recall.","properties":{"user_id":{"type":"string"},"agent_id":{"type":"string"},"run_id":{"type":"string"},"org_id":{"type":"string"}}},"cells_per_sqkm":{"type":"number","exclusiveMinimum":0,"description":"Target sample density. Cells sampled = round(cells_per_sqkm x area_km2), clamped to [1, max_cells]. 1.0 gives about a 1 km stride, 4.0 about 500 m. Zero or less is a 400."},"drill_on_water":{"type":"boolean","default":false,"description":"Two-stage scan. The coarse pass uses max_cells / 4 cells; then 9-cell sub-grids are sampled around each cell with surface_water.recurrence above 25 %. The total stays within max_cells."},"verbose":{"type":"boolean","default":false,"description":"true puts band_metadata on every fact. false gives one top-level band_metadata map keyed by band."},"projection":{"type":"string","default":"full","description":"`compact` replaces by_cell and merged_facts with a paged cells_compact array of {cell, lat, lng, band, value, confidence}. Any other value gives the full response."},"compact_offset":{"type":"integer","minimum":0,"description":"Row offset into cells_compact (compact projection only). Pass compact_page.next_offset until it is null."}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/field_boundaries":  {"post":{"summary":"per-field agricultural-boundary polygons (Fields of The World, CC-BY-4.0)","operationId":"emem_field_boundaries","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only; see /v1/recall_polygon for why an array is refused.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"zoom":{"type":"integer","description":"web-Mercator zoom; default min(14, archive max)"},"max_features":{"type":"integer","description":"cap on returned polygons; default 10000"},"clean":{"type":"boolean","default":false,"description":"resolve overlaps and drop nested duplicate rings before returning; the response then carries a `synthesis` record (operator overlap_resolution@1, the vintage and source cid it ran on, overlap before and after in m2, what was dropped) on the envelope and on every feature. Gaps between parcels are left alone on purpose: on farmland they are bunds and tracks, not defects. Not a regularisation and not an infill of unmapped ground."}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/building_footprints": {"post":{"summary":"Overture building footprints over a bbox, as GeoJSON polygons with height where the source carries one. The per-cell `overture.buildings.count` band answers how many; this answers where and how tall, which is what a renderer needs. `height_m` is null for most buildings and null is NOT zero: use `num_floors` times your own storey height as the fallback and say which you used.","operationId":"emem_building_footprints","tags":["render","vector"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only; array corner orders disagree between conventions and are refused.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"max_features":{"type":"integer","description":"cap on returned footprints; default 10000. `count` still reports the true total, so a truncated answer is distinguishable from a complete one."}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":json_bad_request}}},
             "/v1/grid_info":         {"get":{"summary":"declare the active spatial grid (cell64 / Hilbert / future H3)","operationId":"emem_grid_info","responses":{"200":json_ok}}},
@@ -35124,7 +35251,9 @@ fn openapi_spec() -> JsonValue {
             "/v1/algorithms":        {"get":{"summary":"composition recipe registry (formulas that fuse band facts)","operationId":"emem_algorithms","responses":{"200":json_ok}}},
             "/v1/compare_bands":     {"post":{"summary":"per-band diff at one cell: scalar delta or vector cosine between band A and band B (optionally pinned to specific tslots), with optional consistency predicate","operationId":"emem_compare_bands","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/CompareBandsReq"}}}},"responses":{"200":json_ok}}},
             "/v1/coverage_matrix":   {"get":{"summary":"per-band facts_count + has_materializer + last_attested_at","operationId":"emem_coverage_matrix","responses":{"200":json_ok}}},
-            "/v1/coverage":          {"get":{"summary":"JSON snapshot of where data lives (cells + lat/lng + counts)","operationId":"emem_coverage","responses":{"200":json_ok}}},
+            "/v1/coverage":          {"get":{"summary":"JSON snapshot of where data lives (cells + lat/lng + counts)","operationId":"emem_coverage","parameters":[
+                    {"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":0,"default":1000,"description":"the most cells to return, highest fact_count first. Values above EMEM_COVERAGE_MAX_CELLS (default 200000) are lowered to it."}}
+                ],"responses":{"200":json_ok,"503":{"description":"the storage index scan failed; retry later","content":{"application/json":{"schema":{"type":"object","properties":{"schema":{"type":"string","const":"emem.error.v1"},"code":{"type":"string","const":"cache_error"},"message":{"type":"string"}}}}}}}}},
             "/v1/coverage_map.svg":  {"get":{"summary":"SVG render of corpus density","operationId":"emem_coverage_map","responses":{"200":svg_ok}}},
             "/v1/fleet":             {"get":{"summary":"satellite/sensor lineage feeding each band","operationId":"emem_fleet","responses":{"200":json_ok}}},
             "/v1/substrates":        {"get":{"summary":"substrate profile registry: per contributor class, the admission rule (archive recomputability or complete OS execution trace) and the required trace layers; content-addressed by manifest CID","operationId":"emem_substrates","responses":{"200":json_ok}}},
@@ -35255,7 +35384,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/guard/capabilities": {"get":{"summary":"The emem-guard contract, machine-readable: every deny code and what it means, every remedy and what to do about it, the reason grammar, what the hosted route will and will not do, and how to stand up a node that enforces. Mirrors the /.well-known/emem-guard.json a self-hosted node serves, so an agent that learned one learned both.","operationId":"emem_guard_capabilities","tags":["verify","introspect"],"responses":{"200":json_ok}}},
             "/v1/guard/selfhost":    {"get":{"summary":"The full self-host procedure for emem-guard as markdown, plus the exact build, test and run commands. Every step is a command and a check, written to be run unattended by an agent. A node you run needs no account here and no key from us: it generates its own signing key, keeps its own append-only verdict log, verifies what it holds, and cites what it does not. It serves checkpoints for Anthropic Inference hooks, Claude Code client hooks, MCP tools/call, OpenAI-shaped clients, CloudEvents 1.0 and OPA-style policy clients, plus a native route that belongs to no vendor.","operationId":"emem_guard_selfhost","tags":["introspect"],"responses":{"200":json_ok}}},
             "/v1/memory_bundle":     {"post":{"summary":"Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple runs through the standard auto-materialize recall path; the resulting fact_cids are collapsed into a content-addressed bundle and the responder signs a receipt over the whole set. Returns `bundle_token` (emem:bundle:<bundle_cid>) plus per-triple citations, and `members`/`resolved` so partial coverage is visible without walking them. The memory algebra's `merge`: one handle that cites many facts. CAP: at most 256 triples per call. A bundle token is O(1) in size for any N, but covering N facts costs ceil(N/256) calls, so budget round trips accordingly rather than discovering the limit at 257.","operationId":"emem_memory_bundle","tags":["memory","cite"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"fact_cids":{"type":"array","maxItems":256,"items":{"type":"string"},"description":"Instead of triples: the exact facts to bind, by cid (a triple is resolved through recall and can bind a newer fact). Pass one of triples or fact_cids."},"triples":{"type":"array","maxItems":256,"description":"At most 256 per call; 257 is a typed 400. Chunk larger sets into ceil(N/256) bundles.","items":{"type":"object","properties":{"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"}}}},"purpose":{"type":"string","description":"Optional free-text purpose folded into the bundle_cid, so the same triples bundled for a different purpose get a distinct id."}}}}}},"responses":{"200":json_ok}}},
-            "/v1/memory_bundle/{token}": {"get":{"summary":"Dereference a bundle token back to its signed envelope: the citations, the fact_cids, the cells, and the receipt. Accepts emem:bundle:<bundle_cid> (legacy memb: also accepted) or a bare bundle_cid; the response always re-emits the canonical `bundle_token`. 404 when this responder did not compose the bundle (the composer is stateless, the resolver is sled-backed, so paste the token at the responder that minted it or re-compose from the original triples).","operationId":"emem_memory_bundle_resolve","tags":["memory","cite"],"parameters":[{"name":"token","in":"path","required":true,"schema":{"type":"string"},"description":"emem:bundle:<bundle_cid> (legacy memb: or bare cid accepted)"}],"responses":{"200":json_ok,"404":json_not_found}}},
+            "/v1/memory_bundle/{token}": {"get":{"summary":"Dereference a bundle token back to its signed envelope: the citations, the fact_cids, the cells, and the receipt. Accepts emem:bundle:<bundle_cid> (legacy memb: also accepted); a bare bundle_cid is refused with 400 invalid_argument. The response always re-emits the canonical `bundle_token`. 404 when this responder did not compose the bundle (the composer is stateless, the resolver is sled-backed, so paste the token at the responder that minted it or re-compose from the original triples).","operationId":"emem_memory_bundle_resolve","tags":["memory","cite"],"parameters":[{"name":"token","in":"path","required":true,"schema":{"type":"string"},"description":"emem:bundle:<bundle_cid> (legacy memb:<bundle_cid> also accepted; a bare cid is refused)"}],"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found}}},
             "/v1/entity":            {"post":{"summary":"Mint (or idempotently get) a canonical, content-addressed identity for a real-world object. Anchor with `place`, `cell`, or `lat`+`lng`; returns `entity_token` (emem:entity:<entity_cid>) + a signed receipt attesting the resolution. Identity converges on a stable external id (Overture GERS / OSM) when known, so two agents naming the same object mint the same entity_cid. The object-level antidote to referential drift.","operationId":"emem_entity","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["label"],"properties":{"attester":{"type":"object","description":"Your ed25519 signature over the digest this responder names for this exact body. Send the body unsigned first: the refusal returns details.how_to_sign with the digest to sign.","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}}},"label":{"type":"string"},"kind":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"external_ids":{"type":"object","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}},"parent":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
             "/v1/entity/resolve":    {"post":{"summary":"Resolve a fuzzy phrasing to the objects agents have bound it to, ranked by INDEPENDENT corroboration: each candidate carries `asserted_by`, `disputed_by`, `independent_attesters` and `corroboration` (single_key vs multiple_independent_keys), and the response says `contested` when more than one object claims the name. Or dereference an emem:entity: `token` directly. `text` for candidates, optional `near` to narrow by place, `k` for count. Read-only; alias text is other agents' data.","operationId":"emem_entity_resolve","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"text":{"type":"string"},"label":{"type":"string"},"token":{"type":"string","description":"emem:entity:<entity_cid> (legacy meme: accepted) to dereference"},"near":{"type":"string"},"k":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/entity/alias":      {"post":{"summary":"Record a signed, ATTRIBUTED claim that an alternate label or a stable external id (GERS/OSM/Wikidata) denotes an existing entity -- or, with `stance: disputes`, that it does not. Shared-space write: T3 tier, per-key rate backstop. It changes what other agents see when they resolve this phrasing, so it is stored with your key and ranked by how many independent keys agree, never by arrival order.","operationId":"emem_entity_link","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"attester":{"type":"object","description":"Your ed25519 signature over the digest this responder names for this exact body. Send the body unsigned first: the refusal returns details.how_to_sign with the digest to sign.","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}}},"stance":{"type":"string","enum":["asserts","disputes"],"description":"asserts (default) or disputes; both attributed to your key, append-only"},"entity_cid":{"type":"string"},"entity_token":{"type":"string"},"alias":{"type":"string"},"external_ids":{"type":"object","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}}}}}}},"responses":{"200":json_ok}}},
@@ -35264,14 +35393,14 @@ fn openapi_spec() -> JsonValue {
             "/v1/memory_contradictions":{"post":{"summary":"(algebra: competing evidence) Scan for (cell, band, tslot) triples where signed observations disagree. By default it reports two kinds, each labelled in disagreement_scope: two or more DISTINCT attesters that disagree, and one attester answering from two different upstreams. Pass include_same_attester_sources: false for the first kind only. A scan stopped by its time budget returns resume_after; send it back to continue. Severity is computed per band kind: scalar (max-min over band range), vector (1 - mean cosine), categorical (1 - mode share). Receipt cites every fact CID involved.","operationId":"emem_memory_contradictions","tags":["memory","contradiction-detection"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"cell_prefix":{"type":"string","description":"A cell64 to scan, or a bytewise prefix of one (e.g. \"defi.zb5f9\"). Omit to scan the whole corpus up to the scan cap."},"cell":{"type":"string","description":"Alias for cell_prefix, and the name the other tools that take a cell64 use."},"cell64":{"type":"string","description":"Alias for cell_prefix."},"band":{"type":"string","description":"Band key filter (e.g. \"indices.ndvi\"). Omit to include all bands."},"window_unix_s":{"type":"array","items":{"type":"integer","minimum":0},"minItems":2,"maxItems":2,"description":"[lo, hi] inclusive Unix-seconds filter on attestations' signed_at. All disagreeing attestations must fall in the window."},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100},"min_severity":{"type":"number","minimum":0,"maximum":1,"default":0.1,"description":"Drop contradictions whose severity falls below this floor."},"include_same_attester_sources":{"type":"boolean","default":true,"description":"Default true: also report keys where ONE attester answered the same address from two different upstreams (a changed derivation.fn_key or sources[].scheme set). The same provider re-signed is a refresh and stays out. Each record names its disagreement_scope. Pass false to ask only whether two or more DISTINCT attesters disagree."},"resume_after":{"type":"string","description":"The resume_after of a scan that stopped at its time budget (cell|band|tslot of the last key it examined). The scan continues from the next key."}}}}}},"responses":{"200":json_ok}},
                                        "get":{"summary":"Same primitive as POST, exposed in query-string form for casual exploration. window_unix_s is split into window_lo + window_hi.","operationId":"emem_memory_contradictions_get","tags":["memory","contradiction-detection"],"parameters":[{"name":"cell_prefix","in":"query","required":false,"schema":{"type":"string"}},{"name":"band","in":"query","required":false,"schema":{"type":"string"}},{"name":"window_lo","in":"query","required":false,"schema":{"type":"integer"}},{"name":"window_hi","in":"query","required":false,"schema":{"type":"integer"}},{"name":"limit","in":"query","required":false,"schema":{"type":"integer"}},{"name":"min_severity","in":"query","required":false,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
             "/v1/edges":             {"post":{"summary":"Persist temporal knowledge-graph edges. Body is a signed Attestation envelope whose `edges[]` array carries each edge {subj, pred, obj, valid_from, valid_to?, confidence, signer, signed_at, schema_cid?, note?}. The edge leaves are folded into the merkle root so the signature commits to them. Additive: an attestation with no edges behaves exactly as /v1/attest.","operationId":"emem_edges_write","tags":["edges","knowledge-graph"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["facts","edges","batch_root","attester","signature"],"properties":{"edges":{"type":"array","items":{"type":"object","required":["subj","pred","obj","valid_from","confidence","signer","signed_at"],"properties":{"subj":{"type":"string","description":"subject fact CID"},"pred":{"type":"string"},"obj":{"type":"string","description":"object fact CID"},"valid_from":{"type":"integer"},"valid_to":{"type":"integer"},"confidence":{"type":"number"},"note":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
-            "/v1/edges/recall":      {"post":{"summary":"Recall temporal knowledge-graph edges in either direction, bi-temporally filtered. Forward (subj, direction=\"out\", default): edges originating at a subject fact. Reverse (obj, direction=\"in\"): edges pointing AT a fact (what disagrees-with / supersedes / relates-to it). Set exactly one of subj/obj, ambiguous or empty requests are rejected with a 400, never a silent empty. With as_of_tslot set, returns the latest edge per neighbour whose [valid_from, valid_to) interval covers as_of_tslot (supersession keeps the newest). pred=\"\" scans all predicates. Response carries `direction`, `objs` (always), and `subjs` (reverse only). Receipt cites the anchor + neighbour fact CIDs and commits the returned edge CIDs into the signature preimage.","operationId":"emem_edges_recall","tags":["edges","knowledge-graph"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"subj":{"type":"string","description":"subject fact CID (forward / direction=out); set exactly one of subj/obj"},"obj":{"type":"string","description":"object fact CID (reverse / direction=in): what points at this fact"},"direction":{"type":"string","enum":["out","in"],"description":"out (default)=subj→objs; in=obj→subjs; inferred from which of subj/obj is set when omitted"},"pred":{"type":"string","description":"predicate filter; empty string scans all predicates"},"as_of_tslot":{"type":"integer","description":"valid-time bound; latest edge per neighbour whose interval covers it"},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100}}}}}},"responses":{"200":json_ok}}},
+            "/v1/edges/recall":      {"post":{"summary":"Recall temporal knowledge-graph edges in either direction, bi-temporally filtered. Forward (subj, direction=\"out\", default): edges originating at a subject fact. Reverse (obj, direction=\"in\"): edges pointing AT a fact (what disagrees-with / supersedes / relates-to it). Set exactly one of subj/obj, ambiguous or empty requests are rejected with a 400, never a silent empty. With as_of_tslot set, returns the latest edge per neighbour whose closed [valid_from, valid_to] interval covers as_of_tslot (an edge is still valid at its valid_to; supersession keeps the newest). pred=\"\" scans all predicates. Response carries `direction`, `objs` (always), and `subjs` (reverse only). Receipt cites the anchor + neighbour fact CIDs and commits the returned edge CIDs into the signature preimage.","operationId":"emem_edges_recall","tags":["edges","knowledge-graph"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"subj":{"type":"string","description":"subject fact CID (forward / direction=out); set exactly one of subj/obj"},"obj":{"type":"string","description":"object fact CID (reverse / direction=in): what points at this fact"},"direction":{"type":"string","enum":["out","in"],"description":"out (default)=subj→objs; in=obj→subjs; inferred from which of subj/obj is set when omitted"},"pred":{"type":"string","description":"predicate filter; empty string scans all predicates"},"as_of_tslot":{"type":"integer","description":"valid-time bound; latest edge per neighbour whose interval covers it"},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100}}}}}},"responses":{"200":json_ok}}},
             "/v1/stream":            {"get":{"summary":"Server-Sent Events corpus stream. Emits a signed corpus.state event every `interval` seconds (default 15, clamped to [5,300]). Each tick carries a deterministic preimage and ed25519 signature so subscribers can verify without re-fetching.","operationId":"emem_stream","parameters":[{"name":"interval","in":"query","required":false,"schema":{"type":"integer","minimum":5,"maximum":300,"default":15}}],"responses":{"200":{"description":"text/event-stream","content":{"text/event-stream":{"schema":{"type":"string"}}}}}}},
             "/v1/benchmark":         {"get":{"summary":"hand-verified evaluation items for grading an agent against the responder. Returns {items[], grader_url, _note}. Submit answers to POST /v1/benchmark/grade for per-item scores.","operationId":"emem_benchmark","responses":{"200":json_ok}}},
             "/v1/benchmark/grade":   {"post":{"summary":"grade an agent's submission against /v1/benchmark items. Body: {answers: {<item_id>: <fact_cid or cell64>}}. Returns per-item correctness plus an aggregate score.","operationId":"emem_benchmark_grade","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["answers"],"properties":{"answers":{"type":"object","additionalProperties":{"type":"string"}}}}}}},"responses":{"200":json_ok}}}
         },
         "components": {
             "schemas": {
-                "RecallReq":       {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 string"},"bands":{"type":"array","items":{"type":"string"}},"tslot":{"type":"integer"},"as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound."},"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."},"scope":{"type":"object","description":"Optional multi-tenant scope {user_id, agent_id, run_id, org_id}. When at least one field is set the recall is filtered to facts written under the same four-tuple and the receipt binds the scope. Omit for the global recall.","properties":{"user_id":{"type":"string"},"agent_id":{"type":"string"},"run_id":{"type":"string"},"org_id":{"type":"string"}}},"provenance":{"type":"array","items":{"type":"string","enum":["direct_sensor","deterministic_index","estimator","attested_execution","model_output","human_curated","unclassified"]},"description":"Tamper-provenance filter: return only facts whose band's provenance class is in this list. Applied before the receipt is signed, so the receipt covers exactly the returned facts."},"deterministic":{"type":"boolean","description":"Sugar over `provenance`: true keeps only classes any third party can recompute from the cited raw source (direct_sensor, deterministic_index); false keeps the rest. Composable with `provenance` (intersection)."}}},
+                "RecallReq":       {"type":"object","additionalProperties":false,"description":"Give the location ONE way: `cell` (or its alias `cell64`), `place`, or `lat`+`lng`. When more than one is sent, `cell` wins, then `place`, then `lat`+`lng`. Unknown fields are refused with a 400.","anyOf":[{"required":["cell"]},{"required":["cell64"]},{"required":["place"]},{"required":["lat","lng"]}],"properties":{"cell":{"type":"string","description":"cell64 string, or a place name (geocoded)."},"cell64":{"type":"string","description":"Alias for `cell`. Do not send both."},"place":{"type":"string","description":"Free-text place name, an alternative to `cell`."},"lat":{"type":"number","minimum":-90,"maximum":90,"description":"WGS-84 latitude, an alternative to `cell`; paired with `lng`."},"lng":{"type":"number","minimum":-180,"maximum":180,"description":"WGS-84 longitude, paired with `lat`. `lon` is not accepted here."},"band":{"type":"string","description":"One band key, the same as bands:[band]. Merged with `bands` when both are sent."},"bands":{"type":"array","items":{"type":"string"}},"include":{"type":"array","items":{"type":"string","enum":["freshness","edges","provenance"]},"description":"Opt-in response expansion. `provenance` attaches each fact's provenance class; `freshness` attaches an advisory staleness block (not in the receipt); `edges` attaches typed temporal edges and binds their CIDs into the receipt."},"tslot":{"type":"integer"},"as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound."},"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."},"scope":{"type":"object","description":"Optional multi-tenant scope {user_id, agent_id, run_id, org_id}. When at least one field is set the recall is filtered to facts written under the same four-tuple and the receipt binds the scope. Omit for the global recall.","properties":{"user_id":{"type":"string"},"agent_id":{"type":"string"},"run_id":{"type":"string"},"org_id":{"type":"string"}}},"provenance":{"type":"array","items":{"type":"string","enum":["direct_sensor","deterministic_index","estimator","attested_execution","model_output","human_curated","unclassified"]},"description":"Tamper-provenance filter: return only facts whose band's provenance class is in this list. Applied before the receipt is signed, so the receipt covers exactly the returned facts."},"deterministic":{"type":"boolean","description":"Sugar over `provenance`: true keeps only classes any third party can recompute from the cited raw source (direct_sensor, deterministic_index); false keeps the rest. Composable with `provenance` (intersection)."}}},
                 "QueryRegionReq":  {"type":"object","description":"Either `geometry` (cell64 or 'cells:c1,c2,...') or `bbox` ([west, south, east, north] WGS-84 degrees) is required. When `bbox` is given the responder samples it to up to `max_cells` cells (default 256, max 1024) and runs the canonical primitive over the cell list.","properties":{"geometry":{"type":"string","description":"cell64 or `cells:c1,c2,...`"},"bbox":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"[west, south, east, north] in WGS-84 degrees (longitude first)"},"max_cells":{"type":"integer","minimum":1,"maximum":1024,"default":256,"description":"Cap on cells sampled from `bbox`. Ignored when `geometry` is supplied."},"bands":{"type":"array","items":{"type":"string"}},"agg":{"type":"string","enum":["mean","median","p90","vector_centroid"]}}},
                 "CompareReq":      {"type":"object","required":["a","b"],"properties":{"a":{"type":"string"},"b":{"type":"string"},"family":{"type":"string"}}},
                 "FindSimilarReq":  {"type":"object","required":["key"],"properties":{"key":{"type":"string","description":"cell64 (look up that cell's vector) or 'inline:[x,y,...]' literal vector"},"k":{"type":"integer","minimum":1,"maximum":1000,"default":10},"band":{"type":"string","default":"geotessera","description":"Vector band to scan. Default geotessera (128-D, int8+scale upstream → decoded f32 over the wire). Pass `geotessera.bin128` (or any band's `.bin128` sibling, plus `mode:\"hamming\"`) for the binary fast path."},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"],"default":"cosine","description":"Scoring mode. `cosine` (default) is fp32 over the full vector. `hamming` is sign-bit popcount over the binary sibling band, ~1000× faster scan, ~65% recall@10 alone. `hamming_then_rerank` triages with Hamming then re-ranks the top 4·k by cosine, matches cosine precision at ~16× less work."}}},
@@ -35279,12 +35408,12 @@ fn openapi_spec() -> JsonValue {
                 "TrajectoryReq":   {"type":"object","required":["band"],"properties":{"cell":{"type":"string","description":"cell64 or place name; or give place, or lat+lng"},"cell64":{"type":"string"},"place":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"[start_tslot, end_tslot]; or give from_date+to_date"},"from_date":{"type":"string","description":"YYYY-MM-DD"},"to_date":{"type":"string","description":"YYYY-MM-DD"},"as_of_tslot":{"type":"integer","minimum":0},"as_of_signed_at":{"type":"string","format":"date-time"},"scope":{"type":"object"}}},
                 "VerifyReq":       {"type":"object","required":["claim","cell"],"properties":{"cell":{"type":"string"},"mode":{"type":"string","enum":["fast","resolve"]},"claim":{"$ref":"#/components/schemas/Claim"}}},
                 "Claim":           {"type":"object","required":["band","op","value"],"properties":{"band":{"type":"string","description":"Band key (e.g. `indices.ndvi`, `copdem30m.elevation_mean`)"},"op":{"type":"string","enum":["eq","ne","lt","le","gt","ge","in","ni","exists","absent"],"description":"Comparison or membership operator"},"value":{"description":"Right-hand value, band-typed (number for scalar bands, array for vector bands, set for in/ni). Required even for exists/absent where it is ignored."},"tslot":{"type":"integer","description":"Specific tslot; one of `tslot` or `window` MUST be set"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Inclusive [start, end] u64 Unix-epoch range"},"agg":{"type":"string","enum":["any","all","mean","min","max"],"description":"Aggregation over `window`"}}},
-                "AskReq":          {"type":"object","required":["q"],"properties":{"q":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"model":{"type":"string","description":"Optional. Compose an extra prose answer with a named model, returned as `model_answer` BESIDE the deterministic `answer` rather than instead of it. `answer` never calls a model, so every number in it traces to a fact_cid; `model_answer` carries provenance.class = model_output. Name by base_model (nvidia/Cosmos3-Edge), by family (cosmos3_edge, gemma), or by any fragment that picks out exactly one of them (cosmos). A fragment matching several is refused and names them; an unroutable name is refused with the routable list; a routable model whose service is not answering is refused as busy or down, never substituted."},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false},"verbose":{"type":"boolean","default":false,"description":"When false (default), trim per-algorithm formulas + per-fact band_metadata + long _explanation prose. The signed receipt stays intact in either mode. The MCP projection of an answer is small (about 7 KB); this REST envelope is larger."}}},
+                "AskReq":          {"type":"object","description":"Send the question as `q`, or as its alias `question` or `query`. Send only one of the three.","anyOf":[{"required":["q"]},{"required":["question"]},{"required":["query"]}],"properties":{"q":{"type":"string","description":"The natural-language question."},"question":{"type":"string","description":"Alias for `q`."},"query":{"type":"string","description":"Alias for `q`."},"place":{"type":"string","description":"Free-text place name. Optional: the place can also be inside `q`."},"cell":{"type":"string","description":"cell64 string, an alternative to `place`."},"include":{"type":"array","items":{"type":"string","enum":["band_observations","algorithm_outcomes","facts_full","temporal_composition","scene","inventory","reasoning","algorithms"]},"description":"Opt-in sections of the REST envelope. Ignored when `verbose` is true."},"model":{"type":"string","description":"Optional. Compose an extra prose answer with a named model, returned as `model_answer` BESIDE the deterministic `answer` rather than instead of it. `answer` never calls a model, so every number in it traces to a fact_cid; `model_answer` carries provenance.class = model_output. Name by base_model (nvidia/Cosmos3-Edge), by family (cosmos3_edge, gemma), or by any fragment that picks out exactly one of them (cosmos). A fragment matching several is refused and names them; an unroutable name is refused with the routable list; a routable model whose service is not answering is refused as busy or down, never substituted."},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false},"verbose":{"type":"boolean","default":false,"description":"When false (default), trim per-algorithm formulas + per-fact band_metadata + long _explanation prose. The signed receipt stays intact in either mode. The MCP projection of an answer is small (about 7 KB); this REST envelope is larger."}}},
                 "HuntReq":         {"type":"object","required":["event"],"properties":{
                     "event":{"type":"string","enum":["algal_bloom","deforestation","flood_extent","wildfire","urban_heat_island","methane_plume","landslide","drought","soil_salinity","crop_stress","water_turbidity","oil_slick"],"description":"Event keyword. Maps to one registered detection algorithm. Aliases accepted (case-insensitive): bloom/algae_bloom/chlorophyll_bloom → algal_bloom; forest_loss/tree_loss → deforestation; flood/inundation/flooded_fields → flood_extent; fire/bushfire/burn_severity → wildfire; uhi/heat_island/heat → urban_heat_island; methane/ghg_leak/super_emitter → methane_plume; mudslide/debris_flow/slope_failure → landslide; dry_spell/rainfall_deficit → drought; salinity → soil_salinity; crop_damage/stressed_crops → crop_stress; turbidity/sediment_plume → water_turbidity; oil_spill → oil_slick. The classifier in /v1/ask accepts the same set on free-text input."},
                     "region":{"type":"string","description":"Free-text region. Resolved through the same geocoder as /v1/locate. REQUIRED unless `polygon_bbox` is provided."},
                     "polygon_bbox":{"type":"object","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"}},"description":"Explicit polygon bbox; alternative to `region`."}
-                }, "description":"Hunter-mode body. Either `region` (geocoded) or `polygon_bbox` (explicit). The responder samples up to 32 cells (8 for slow primary bands such as MODIS LST), recalls the algorithm's primary scalar input plus any configured gate band, optionally re-ranks the top-K via Tessera embedding coherence, and returns the top 8 hotspots."},
+                }, "description":"Hunter-mode body. Either `region` (geocoded) or `polygon_bbox` (explicit). The responder sets a target n = ceil(sqrt(area_km2) / 8), at least 12 and at most EMEM_HUNT_MAX_CELLS (default 64, clamped 12 to 128), and samples at most n distinct cells. A bbox grid gives at most floor(sqrt(n))^2, so a target of 12 gives 9 cells; a region with a boundary polygon can give up to n. Slow primary bands such as MODIS LST use a target of 8 (EMEM_HUNTER_SLOW_BAND_CAP), so 4 cells on a bbox grid. It recalls the algorithm's primary scalar input plus any configured gate band, ranks each cell on its newest reading of the primary band, optionally re-ranks the top-K via Tessera embedding coherence, and returns the top 8 hotspots."},
                 "EudrDdsReq": {"type":"object","required":["plots"],"description":"POST /v1/eudr_dds body, produces a signed Annex II-shaped Due Diligence Statement per Regulation (EU) 2023/1115. Pair every plot with its operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint runs eudr_compliance@1 per cell (JRC GFC2020 legal baseline + Hansen GFC v1.13 post-cut-off loss-year consensus; JRC GFC2020 is read as 10° COG tiles for fast cold reads across all geographies). JRC TMF DeforestationYear is read on every cell and reported as `tmf_cross_check` (a TMF-only loss sets review_required); WRI-Sims driver attribution and RADD SAR are not wired here. Applies the Article 2(4) 0.5 ha MMU floor at plot aggregation, validates `commodity_hs` against Annex I, and emits the structured envelope. The response carries an explicit `legality_disclaimer` because Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) is structurally out of Earth-observation scope. Response includes an ed25519-signed `receipt` over the per-cell fact_cids (the first EMEM_EUDR_RECEIPT_MAX_FACTS by cid when there are more, disclosed as `receipt_fact_cids_capped` and `receipt_fact_cids_total`); verifiable offline at `/verify` (or `/v1/verify_receipt`). Every sampled cell's facts decide the verdict and are stored, because each plot's `per_cell_rows_cid` addresses all of them, inlined or not (`facts_computed` vs `facts_persisted`, per plot and in total); every fact_cid in the response, and every one behind `per_cell_rows_cid`, resolves at /v1/facts/<cid>. Pass an optional `scope` block (`{user_id, agent_id, run_id, org_id}`) to bind the receipt to a tenant.", "properties":{
                     "per_cell_detail":{"type":"string","enum":["rows","anchor"],"description":"rows (default) inlines per_cell_verdicts; anchor leaves them out and keeps per_cell_rows_cid, a blake3 address over every cell's verdict and fact cids. Ask again with rows to expand it."},
                     "per_cell_offset":{"type":"integer","minimum":0,"description":"page the rows in the order per_cell_rows_cid hashes them, from this index, one inline cap at a time; follow per_cell_next_offset until null, and the joined pages recompute per_cell_rows_cid"},
@@ -35324,7 +35453,7 @@ fn openapi_spec() -> JsonValue {
                 "MaterializeNote": {"type":"object","description":"One entry in the response's `materialize_notes[]`, recording what the lazy materializer did during this call. status:\"materialized\" means a signed fact was minted and persisted (a Primary observation OR a confirmed, evidence-backed Absence - both are signed and citeable by fact_cid). status:\"skipped\" means nothing was signed: `reason_class` says why (transient `timeout`/`upstream_error`, retryable; or structural `unknown_band`/`no_materializer`, not retryable here) and `absence` is always false, because a skip is 'unknown', never a confirmed absence.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"ok":{"type":"boolean"},"status":{"type":"string","enum":["materialized","skipped"]},"fact_cid":{"type":"string"},"reason":{"type":"string"},"reason_class":{"type":"string","enum":["timeout","upstream_error","upstream_gone","unknown_band","no_materializer","deferred","retired","not_geographic","no_data"]},"retryable":{"type":"boolean"},"absence":{"type":"boolean","description":"Always false on a skip; a confirmed absence is a signed fact with status:materialized, not a skip."},"latency_ms":{"type":"number"}}},
                 "SignedResponse":  {"type":"object","description":"Standard recall envelope. `facts` is the array of signed facts touched by this call (subset of `bands_already_attested_at_cell` after auto-materialization). `receipt` is the responder's signature over the call. `materialize_notes` lists any lazy-materializer activity that happened to satisfy the request, empty for purely warm reads.","required":["facts","receipt"],"properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"receipt":{"$ref":"#/components/schemas/Receipt"},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"},"description":"Bands the cell already has facts for, regardless of whether they were requested. Useful for follow-up calls without a second /v1/coverage_matrix hit."},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"caveats":{"type":"array","items":{"type":"string"},"description":"Plain-language constraints the caller should fold into their answer (grid resolution, revisit cadence, sample-size warnings)."}}},
                 "TrajectoryResp":  {"type":"object","description":"Response of /v1/trajectory. `series` has one point per tempo slot in the window that holds a signed fact, oldest first. Each point carries its `fact_cid`, its `emem:fact:` token, the civil date its slot starts on, and the value. `receipt` signs the call. An empty `series` means emem holds no signed fact there yet, not that nothing was observed. For a band with history, an empty read without as_of or scope also carries `fill.call`: the exact /v1/backfill body for the window read.","required":["series","receipt"],"properties":{"series":{"type":"array","items":{"type":"object","required":["tslot","value","fact_cid"],"properties":{"tslot":{"type":"integer"},"value":{"description":"a number for a scalar band, an array for a vector band"},"fact_cid":{"type":"string"},"token":{"type":"string"},"slot_start":{"type":"string","description":"YYYY-MM-DD the slot starts on; the fact carries the capture time"}}}},"receipt":{"$ref":"#/components/schemas/Receipt"},"fill":{"type":"object","description":"Only on an empty, unpinned, unscoped read of a band with history.","properties":{"why":{"type":"string"},"call":{"type":"object","properties":{"method":{"type":"string"},"path":{"type":"string"},"mcp_tool":{"type":"string"},"body":{"type":"object"}}},"then":{"type":"string"}}},"unknown_band":{"type":"string"},"warning":{"type":"string"}}},
-                "LocateResp":      {"type":"object","description":"Response of /v1/locate. `cell64` is the canonical handle for the resolved place; `polygon_bbox` is present when the geocoder found an extent (city / park / lake / country / region), absent for point features. `via` declares which layer of the seven-tier embedded cascade answered, falling back to network (Photon → Nominatim) only when no embedded layer matched.","required":["cell64","via"],"properties":{"cell64":{"$ref":"#/components/schemas/Cell64"},"label":{"type":"string","description":"Reader-friendly place label."},"lat":{"type":"number"},"lng":{"type":"number"},"polygon_bbox":{"type":"object","description":"Present when the place has spatial extent.","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"},"source":{"type":"string","enum":["wide_bbox_table","country_table","admin1_table","admin2_table","admin3_table","nominatim_boundingbox","overture_division_area","centre_cell_bbox"],"description":"`overture_division_area` is authoritative (conflated OSM+Esri+Meta+TomTom polygon), preferred whenever Overture has a row for the entity. `country_table` / `admin1_table` / `admin2_table` / `admin3_table` are cities1000-aggregated approximations used when Overture is unreachable. `wide_bbox_table` is the curated wide-feature override for Sahara/Amazon/Himalayas etc."}}},"polygon_geojson":{"type":"object","description":"True OSM/Overture boundary as GeoJSON `Polygon` or `MultiPolygon` when an admin tier resolved. Pass back to /v1/recall_polygon to mask the cell grid against the boundary."},"polygon_sample_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Up to 64 representative cells covering the polygon, pass to /v1/recall_many or /v1/recall_polygon."},"neighborhood_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Eight neighbouring cell64s of the resolved centre cell."},"via":{"type":"string","enum":["direct_latlng","wide_bbox_table","country","admin1","admin2","admin3","embedded","pois","cache","photon","nominatim"],"description":"Layer of the seven-tier locate cascade that answered. `country`/`admin1`/`admin2`/`admin3` = GeoNames hierarchical-admin tables (in-process); `embedded` = cities1000 populated places (in-process); `pois` = curated GeoNames well-known landmarks (peaks/lakes/parks/airports/monuments, in-process); `wide_bbox_table` = curated wide regions (in-process); `cache` = sled hot cache; `photon`/`nominatim` = network fallback."},"overture_division":{"type":"object","description":"Overture-divisions provenance, present when the cascade pulled an authoritative admin polygon. `division_id` is the GERS ID (globally stable, citable in receipts). `subtype` declares the admin level (country/region/county/locality/etc). `country` is the ISO 3166-1 alpha-2 owner.","properties":{"division_id":{"type":"string"},"subtype":{"type":"string","enum":["country","region","county","localadmin","locality","borough","macrohood","neighborhood","microhood","dependency"]},"country":{"type":"string","description":"ISO 3166-1 alpha-2 (e.g. `BD`, `US`)."},"schema_url":{"type":"string"}}},"localized_names":{"type":"object","additionalProperties":{"type":"string"},"description":"Map of ISO 639 language tag (`en`, `bn`, `zh-Hans`, `ar`, …) to localized name, when the resolved entity is in Overture and carries `names.common`. Lets an agent surface the user's-language label without a second geocoder call."},"data_at_this_cell":{"type":"object","description":"Topic-grouped inventory of recallable bands and applicable algorithms at this cell. Lets the caller chain into /v1/recall without a second introspection round-trip."}}},
+                "LocateResp":      {"type":"object","description":"Response of /v1/locate. `cell64` is the canonical handle for the resolved place; `polygon_bbox` is present when the geocoder found an extent (city / park / lake / country / region), absent for point features. `via` declares which layer of the seven-tier embedded cascade answered, falling back to network (Photon → Nominatim) only when no embedded layer matched.","required":["cell64","via"],"properties":{"cell64":{"$ref":"#/components/schemas/Cell64"},"label":{"type":"string","description":"Reader-friendly place label."},"lat":{"type":"number"},"lng":{"type":"number"},"polygon_bbox":{"type":"object","description":"Present when the place has spatial extent.","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"},"source":{"type":"string","enum":["wide_bbox_table","country_table","admin1_table","admin2_table","admin3_table","nominatim_boundingbox","overture_division_area","centre_cell_bbox"],"description":"`overture_division_area` is authoritative (conflated OSM+Esri+Meta+TomTom polygon), preferred whenever Overture has a row for the entity. `country_table` / `admin1_table` / `admin2_table` / `admin3_table` are cities1000-aggregated approximations used when Overture is unreachable. `wide_bbox_table` is the curated wide-feature override for Sahara/Amazon/Himalayas etc."}}},"polygon_geojson":{"type":"object","description":"True OSM/Overture boundary as GeoJSON `Polygon` or `MultiPolygon` when an admin tier resolved. Pass back to /v1/recall_polygon to mask the cell grid against the boundary."},"polygon_sample_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Up to 64 representative cells covering the polygon, pass to /v1/recall_many or /v1/recall_polygon."},"neighborhood_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Eight neighbouring cell64s of the resolved centre cell."},"via":{"type":"string","enum":["direct","wide_bbox_table","country","admin1","geonames","admin2","admin3","embedded","pois","cache","overture_admin_fallback","photon","nominatim","wikidata"],"description":"Layer of the locate cascade that answered. `direct` = the caller sent lat/lng; `country`/`admin1`/`admin2`/`admin3` = GeoNames hierarchical-admin tables (in-process); `embedded`/`geonames` = cities1000 populated places (in-process); `pois` = curated GeoNames well-known landmarks (peaks/lakes/parks/airports/monuments, in-process); `wide_bbox_table` = curated wide regions (in-process); `cache` = sled hot cache; `overture_admin_fallback` = an Overture division polygon matched when the tables did not; `photon`/`nominatim` = network fallback; `wikidata` = a Wikidata prominence decision replaced the cascade's centre with a more prominent namesake."},"overture_division":{"type":"object","description":"Overture-divisions provenance, present when the cascade pulled an authoritative admin polygon. `division_id` is the GERS ID (globally stable, citable in receipts). `subtype` declares the admin level (country/region/county/locality/etc). `country` is the ISO 3166-1 alpha-2 owner.","properties":{"division_id":{"type":"string"},"subtype":{"type":"string","enum":["country","region","county","localadmin","locality","borough","macrohood","neighborhood","microhood","dependency"]},"country":{"type":"string","description":"ISO 3166-1 alpha-2 (e.g. `BD`, `US`)."},"schema_url":{"type":"string"}}},"localized_names":{"type":"object","additionalProperties":{"type":"string"},"description":"Map of ISO 639 language tag (`en`, `bn`, `zh-Hans`, `ar`, …) to localized name, when the resolved entity is in Overture and carries `names.common`. Lets an agent surface the user's-language label without a second geocoder call."},"data_at_this_cell":{"type":"object","description":"Topic-grouped inventory of recallable bands and applicable algorithms at this cell. Lets the caller chain into /v1/recall without a second introspection round-trip."}}},
                 "FindSimilarResp": {"type":"object","description":"Response of /v1/find_similar. `neighbors` is the top-k list ordered by similarity (descending). `mode` echoes the scoring choice (`cosine` / `hamming` / `hamming_then_rerank`).","required":["neighbors","receipt"],"properties":{"neighbors":{"type":"array","items":{"type":"object","required":["cell","score","lat","lng"],"description":"Stable neighbor schema: cell/score/lat/lng/place_label_cached are always present. lat/lng are explicit null for inline-vector queries or undecodable cells (no honest centroid), never absent, never fabricated.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"score":{"type":"number","description":"Cosine similarity in [-1, 1] for `cosine` / `hamming_then_rerank`; normalised Hamming agreement in [0, 1] for `hamming`."},"lat":{"type":["number","null"],"description":"Centroid latitude decoded from `cell`; null when the cell has no honest centroid (inline vector / undecodable)."},"lng":{"type":["number","null"],"description":"Centroid longitude decoded from `cell`; null when unknown (see `lat`)."},"place_label_cached":{"type":["string","null"],"description":"Best-effort gazetteer label (~25 km gate); null when the cell isn't near a known anchor."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"label":{"type":"string","description":"Reader-friendly place label, if the cell is named in the gazetteer."}}}},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"]},"band":{"type":"string"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "CompareResp":     {"type":"object","description":"Response of /v1/compare. Single cosine similarity score (vector bands) or scalar delta (scalar bands) plus per-band breakdown.","required":["score","receipt"],"properties":{"score":{"type":"number"},"deltas":{"type":"object","additionalProperties":{"type":"number"},"description":"Per-band scalar delta for scalar comparisons; absent for vector cosine."},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "CompareBandsResp":{"type":"object","description":"Response of /v1/compare_bands. Numeric delta + percent change for scalar pairs; cosine + L2 for vector pairs. `predicate_verdict` is present when a consistency predicate was passed.","required":["delta","receipt"],"properties":{"delta":{"type":"number"},"percent_change":{"type":"number"},"cosine":{"type":"number"},"l2":{"type":"number"},"predicate_verdict":{"type":"object","properties":{"kind":{"type":"string"},"threshold":{"type":"number"},"holds":{"type":"boolean"}}},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
@@ -35992,11 +36121,8 @@ fn splats_root() -> std::path::PathBuf {
         // default named a path that exists on exactly one machine, so a
         // self-hoster who did not set EMEM_SPLATS_DIR got 404s from a route
         // the site advertises as hosted.
-        .unwrap_or_else(|_| {
-            let data = std::env::var("EMEM_DATA").unwrap_or_else(|_| "/var/emem".to_string());
-            format!("{}/splats-site", data.trim_end_matches('/'))
-        })
-        .into()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| emem_core::data_dir::data_path("splats-site"))
 }
 
 /// Parse a single `Range: bytes=<start>-<end>` spec against a known content length.
@@ -37252,12 +37378,42 @@ struct LocateBody {
     req: LocateReq,
     #[serde(default)]
     strict: bool,
+    /// Not a locate field. Read only so that a caller who sends a question
+    /// here is told where questions go; it was dropped with a 200 before.
+    #[serde(default)]
+    question: Option<String>,
+}
+
+/// A whole question is not a place name: geocoding "what is the NDVI near
+/// Mount Fuji?" matches whatever the geocoder can name in it. So `question`
+/// is refused with the fields locate does take, instead of being ignored.
+fn locate_refuse_question(req: &LocateReq, question: Option<&str>) -> Result<(), ApiError> {
+    let has_location = req.place.is_some() || (req.lat.is_some() && req.lng.is_some());
+    if has_location || question.is_none() {
+        return Ok(());
+    }
+    Err(ApiError(
+        StatusCode::BAD_REQUEST,
+        ErrorBody {
+            code: ErrorCode::InvalidArgument,
+            message: "locate takes a place, not a question: pass `place` (aliases `q`, \
+                      `query`, `name`) or `lat`+`lng`. To ask a question, POST /v1/ask \
+                      {\"q\": \"...\"}."
+                .into(),
+            details: Some(json!({
+                "unsupported_field": "question",
+                "accepted_fields": ["place", "q", "query", "name", "lat", "lng", "lon", "strict"],
+                "ask": "/v1/ask",
+            })),
+        },
+    ))
 }
 
 async fn post_locate(
     State(s): State<AppState>,
     Json(body): Json<LocateBody>,
 ) -> Result<Json<JsonValue>, ApiError> {
+    locate_refuse_question(&body.req, body.question.as_deref())?;
     let Json(mut v) = locate_inner(body.req).await?;
     if body.strict {
         strict_locate_check(&v)?;
@@ -38284,6 +38440,20 @@ async fn post_state_diff(
     }
 }
 
+/// A retired band never materialises, so telling the caller to recall it
+/// first sends them round a loop that cannot end.
+fn state_diff_no_facts_message(band: &str, which: &str, requested_tslot: u64) -> String {
+    if is_retired(band) {
+        format!(
+            "/v1/state_diff: no fact at tslot_{which}={requested_tslot} for ({band}) at this cell. This band is retired at this responder: it keeps the facts it already signed but materialises no new ones, so a recall will not fill this gap. Diff a band that GET /v1/bands lists, or two tslots that this cell already holds for {band}."
+        )
+    } else {
+        format!(
+            "/v1/state_diff: no fact at tslot_{which}={requested_tslot} for (this cell,{band}). The responder holds no facts on this band at this cell. Try /v1/recall with `bands:[{band}]` (no tslot) to materialise the latest vintage first, then ask state_diff against two tslots that show up under /v1/recall_polygon or /v1/coverage_matrix."
+        )
+    }
+}
+
 async fn post_state_diff_inner(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<StateDiffReq>,
@@ -38388,10 +38558,7 @@ async fn post_state_diff_inner(
                         "/v1/state_diff: {encoder} is a confirmed absence at this cell (signed \"no data\" at tslot_{which}={requested_tslot}), so there is nothing to diff on this side. For Tessera this means the vintage was never published upstream here, annual coverage before 2024 is regional, not global. Diff two vintages that both exist (check with /v1/recall on each `geotessera.YYYY`), or use the fused `geotessera.multi_year` which NaN-masks absent years."
                     )
                 } else if available.is_empty() {
-                    format!(
-                        "/v1/state_diff: no fact at tslot_{which}={requested_tslot} for ({cell},{encoder}). The responder holds no facts on this band at this cell. Try /v1/recall with `bands:[{encoder}]` (no tslot) to materialise the latest vintage first, then ask state_diff against two tslots that show up under /v1/recall_polygon or /v1/coverage_matrix.",
-                        cell = "this cell"
-                    )
+                    state_diff_no_facts_message(encoder, which, requested_tslot)
                 } else {
                     let preview: Vec<String> =
                         available.iter().rev().take(6).map(|t| t.to_string()).collect();
@@ -39852,6 +40019,32 @@ struct MemoryTokenResolveResp {
 /// [`resolve_one_token`] can accept it in degraded mode (U1) rather than
 /// fail closed with no recovery path. Deliberately strict: exactly the
 /// shape a full-width fact CID has, so it can never swallow a typo'd token.
+/// Token kinds that carry several 52-character cids. Without this check,
+/// [`recover_fact_cid`] takes the first one (an aoi_cid or bundle_cid, not a
+/// fact) and the caller gets a `cid_not_found` that sends it to `/v1/fetch`.
+const NON_FACT_TOKEN_RESOLVERS: &[(&str, &str)] = &[
+    ("emem:raster:", "POST /v1/raster/resolve"),
+    ("emem:cube:", "POST /v1/cube/resolve"),
+    ("emem:rasterset:", "POST /v1/raster_bundle/resolve"),
+    ("emem:bundle:", "GET /v1/memory_bundle/{token}"),
+    ("memb:", "GET /v1/memory_bundle/{token}"),
+    ("emem:entity:", "GET /v1/entity/{id}"),
+    ("meme:", "GET /v1/entity/{id}"),
+    (
+        "emem:tree:",
+        "GET /v1/tree/{file_cid} or POST /v1/tree/path",
+    ),
+    ("emem:trace:", "POST /v1/trace_resolve"),
+];
+
+fn non_fact_token_resolver(token: &str) -> Option<(&'static str, &'static str)> {
+    let t = token.trim();
+    NON_FACT_TOKEN_RESOLVERS
+        .iter()
+        .find(|(prefix, _)| t.starts_with(prefix))
+        .map(|(prefix, resolver)| (prefix.trim_end_matches(':'), *resolver))
+}
+
 fn recover_fact_cid(token: &str) -> Option<(String, &'static str)> {
     let t = token.trim().to_ascii_lowercase();
     let is_c = |b: u8| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b);
@@ -40097,6 +40290,18 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
     // costs a fifth of the loop. The cell is left empty and taken from the
     // signed body below; the cell-binding check is skipped because a bare cid
     // asserts no location to contradict.
+    if let Some((kind, resolver)) = non_fact_token_resolver(token) {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "this is an `{kind}` token, not an `emem:fact:` token; resolve it with {resolver}"
+                ),
+                details: Some(json!({ "token_kind": kind, "resolver": resolver })),
+            },
+        ));
+    }
     let mut degraded = false;
     let mut degraded_how = "";
     let (cell, cid, descriptor) = match parse_fact_token(token) {
@@ -40921,10 +41126,11 @@ const DERIVE_SIGNATURE_ATTESTS: &str =
      responder stored it. It does NOT attest that the value is true: the responder did not \
      recompute it THIS TIME. The parents are checked to exist here, so the lineage is real even \
      though the arithmetic over it is the caller's claim. Recomputation is available and was not \
-     used: pin a `code_cid` and use a tier-1 pure op (delta, sum) and this responder will re-run \
-     the arithmetic over the cited parents and award deterministic_index on an exact match. \
-     `mean` is excluded because f64 division after accumulation lands a representable step away \
-     from any other implementation's, so it cannot be reproduced and is not pretended to be.";
+     used: pin a `code_cid` and use a tier-1 pure op (delta, mean, sum) and this responder will \
+     re-run the arithmetic over the cited parents and award deterministic_index on a match. \
+     `delta` must match exactly. `mean` and `sum` over more than two parents may differ by at \
+     most 4 ULP, because no summation order is specified; the response reports the measured \
+     `ulp_gap`.";
 
 /// The sentence the responder's signature supports when GC-1 tier-1
 /// recomputation succeeded: the responder did not merely store the claim, it
@@ -40961,10 +41167,6 @@ const GC1_TIER1_PURE_OPS: &[&str] = &["delta", "mean", "sum"];
 /// see for themselves.
 const REDUCTION_ULP_TOLERANCE: u64 = 4;
 
-/// Distance between two f64s counted in representable steps.
-///
-/// Bit-pattern comparison rather than a relative epsilon, so the window means
-/// the same thing at 1e-9 as at 1e9 and does not silently widen with magnitude.
 /// Does the reduction window apply to this recomputation?
 ///
 /// ONLY `mean` and `sum` over more than two parents. This boundary is the
@@ -40987,6 +41189,10 @@ fn is_reduction_op(op: &str, n_parents: usize) -> bool {
     matches!(op, "mean" | "sum") && n_parents > 2
 }
 
+/// Distance between two f64s counted in representable steps.
+///
+/// Bit-pattern comparison rather than a relative epsilon, so the window means
+/// the same thing at 1e-9 as at 1e9 and does not silently widen with magnitude.
 fn ulps_between(a: f64, b: f64) -> u64 {
     if a == b {
         return 0;
@@ -49494,6 +49700,16 @@ async fn memory_rename_inner(s: &AppState, req: MemoryRenameReq) -> Result<JsonV
     }))
 }
 
+/// Every kind `MemoryKind::from_wire` accepts, in the order a refusal lists them.
+const MEMORY_KINDS_ON_THE_WIRE: [&str; 6] = [
+    "core",
+    "episodic",
+    "semantic",
+    "procedural",
+    "resource",
+    "vault",
+];
+
 async fn memory_list_by_kind_inner(
     s: &AppState,
     req: MemoryListByKindReq,
@@ -49504,8 +49720,9 @@ async fn memory_list_by_kind_inner(
             ErrorBody {
                 code: ErrorCode::InvalidArgument,
                 message: format!(
-                    "memory_list_by_kind: unknown kind `{}`; expected one of episodic | semantic | procedural | resource",
-                    req.kind
+                    "memory_list_by_kind: unknown kind `{}`; expected one of {}",
+                    req.kind,
+                    MEMORY_KINDS_ON_THE_WIRE.join(" | ")
                 ),
                 details: None,
             },
@@ -51121,7 +51338,9 @@ async fn get_locate(
     let strict = q
         .get("strict")
         .is_some_and(|s| matches!(s.as_str(), "1" | "true" | "yes"));
-    let Json(mut v) = locate_inner(LocateReq { lat, lng, place }).await?;
+    let req = LocateReq { lat, lng, place };
+    locate_refuse_question(&req, q.get("question").map(String::as_str))?;
+    let Json(mut v) = locate_inner(req).await?;
     if strict {
         strict_locate_check(&v)?;
     }
@@ -60191,12 +60410,17 @@ async fn materialize_wri_gdm_band(
             // Not built is not "no driver here": an Absence would read as a
             // statement about the cell.
             let _ = (&url, &signed_at);
-            Err(format!(
-                "no materializer wired for {band} at this responder: {reason}. The per-cell sampler awaits a range-readable mirror that supports the LZW + 8 samples-per-pixel encoding."
-            ))
+            Err(wri_gdm_not_wired_message(band, &reason))
         }
         Err(e) => Err(format!("wri_gdm.driver_class fetch failed: {e}")),
     }
+}
+
+/// The connector's reason already names the fix (`EMEM_WRI_GDM_CACHE`). The
+/// shared COG sampler reads the file's LZW, 8-samples-per-pixel layout, so
+/// adding "awaits a sampler" here would send an operator the wrong way.
+fn wri_gdm_not_wired_message(band: &str, reason: &str) -> String {
+    format!("no materializer wired for {band} at this responder: {reason}")
 }
 
 // ---------------- RADD SAR-alerts materializer ----------------
@@ -61983,6 +62207,11 @@ impl MaterializeOutcome {
 fn classify_skip_reason(reason: &str) -> (&'static str, bool) {
     if reason.starts_with(BUDGET_DEFERRED) {
         ("deferred", true)
+    } else if reason.starts_with("topic_name_used_as_band") {
+        // A topic key such as `vegetation_condition.ndvi` is not in the band
+        // registry. The note lists the topic's real bands, and every retry of
+        // the same key gets the same note, so it is an unknown band.
+        ("unknown_band", false)
     } else if reason.contains("retired") {
         ("retired", false)
     } else if reason.contains("not a geo-aperture cell") {
@@ -65317,12 +65546,12 @@ fn chrono_iso8601_utc() -> String {
 
 /// `GET /v1/coverage`, JSON snapshot of where data lives. Returns a list
 /// of (cell64, lat, lng, fact_count) up to `limit` (default 1000, max
-/// 10000) so agents can cluster, sort, or inspect the actual data
-/// distribution programmatically.
+/// `EMEM_COVERAGE_MAX_CELLS`, default 200000) so agents can cluster, sort,
+/// or inspect the actual data distribution programmatically.
 async fn coverage_json(
     State(s): State<AppState>,
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
-) -> Json<JsonValue> {
+) -> Result<Json<JsonValue>, ApiError> {
     // Hard cap is tunable so the homepage map can stream the whole corpus, not
     // a slice. Default raised to 200k (well above the current distinct-cell
     // count) so "show everywhere Earth is remembered" is literally true; the
@@ -65337,52 +65566,508 @@ async fn coverage_json(
         .and_then(|v| v.parse().ok())
         .unwrap_or(1000)
         .min(max_cells);
-    let storage = s.storage.as_ref();
-    let entries = storage
-        .iter_index(Some(limit * 8))
+    // The scan window has a floor so that `total_cells` does not shrink with
+    // a small page: `?limit=1` used to scan 8 index entries and report
+    // total_cells 2 where `?limit=1000` reported 2424.
+    let scan_index_limit = coverage_scan_index_limit(limit);
+    let entries = s
+        .storage
+        .as_ref()
+        .iter_index(Some(scan_index_limit))
         .await
-        .unwrap_or_default();
-    // Bin by cell64 and count facts per cell.
-    let mut by_cell: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
-    for (k, _) in &entries {
-        *by_cell.entry(k.cell.clone()).or_default() += 1;
+        // An empty list here would read as a complete scan of an empty corpus.
+        .map_err(|e| {
+            ApiError(
+                StatusCode::SERVICE_UNAVAILABLE,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("the coverage index scan failed: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+    Ok(Json(coverage_page(
+        entries.iter().map(|(k, _)| k.cell.as_str()),
+        limit,
+        scan_index_limit,
+    )))
+}
+
+const COVERAGE_MIN_PAGE_FOR_SCAN: usize = 1000;
+const COVERAGE_SCAN_ENTRIES_PER_CELL: usize = 8;
+
+fn coverage_scan_index_limit(limit: usize) -> usize {
+    limit
+        .max(COVERAGE_MIN_PAGE_FOR_SCAN)
+        .saturating_mul(COVERAGE_SCAN_ENTRIES_PER_CELL)
+}
+
+/// Builds the `/v1/coverage` body from the cell of each scanned index entry.
+/// Keys that do not decode as a cell64, such as note namespaces, have no
+/// position. They are left out of `cells` and `total_cells`, so a page never
+/// holds fewer cells than `limit` while `total_cells` is larger.
+fn coverage_page<'a>(
+    scanned_cells: impl Iterator<Item = &'a str>,
+    limit: usize,
+    scan_index_limit: usize,
+) -> JsonValue {
+    let mut index_entries_scanned: usize = 0;
+    let mut by_cell: std::collections::HashMap<&'a str, u64> = std::collections::HashMap::new();
+    for c in scanned_cells {
+        index_entries_scanned += 1;
+        *by_cell.entry(c).or_default() += 1;
     }
-    // Honest total: distinct cells seen in this scan window BEFORE the
-    // per-page `limit` truncation below. The field used to report the
-    // truncated `cells.len()`, so a client (e.g. the homepage map legend)
-    // could not tell a capped page from the whole corpus, it read
-    // "50,000 cells" when 133k existed. `returned` carries the page size.
-    let total_distinct = by_cell.len();
-    let mut cells: Vec<JsonValue> = by_cell
+    let scan_complete = index_entries_scanned < scan_index_limit;
+    // `total_cells` is counted before the `limit` truncation, so a client
+    // (e.g. the homepage map legend) can tell a capped page from the corpus.
+    let mut cells: Vec<(u64, JsonValue)> = by_cell
         .into_iter()
         .filter_map(|(c, n)| {
-            let info = emem_codec::latlng_from_cell64(&c).ok()?;
-            Some(json!({
-                "cell64": c,
-                "lat_deg": info.lat_deg,
-                "lng_deg": info.lng_deg,
-                "fact_count": n,
-            }))
+            let info = emem_codec::latlng_from_cell64(c).ok()?;
+            Some((
+                n,
+                json!({
+                    "cell64": c,
+                    "lat_deg": info.lat_deg,
+                    "lng_deg": info.lng_deg,
+                    "fact_count": n,
+                }),
+            ))
         })
         .collect();
+    let total_cells = cells.len();
     cells.sort_by(|a, b| {
-        b["fact_count"]
-            .as_u64()
-            .unwrap_or(0)
-            .cmp(&a["fact_count"].as_u64().unwrap_or(0))
+        b.0.cmp(&a.0)
+            .then_with(|| a.1["cell64"].as_str().cmp(&b.1["cell64"].as_str()))
     });
     cells.truncate(limit);
-    Json(json!({
+    let cells: Vec<JsonValue> = cells.into_iter().map(|(_, v)| v).collect();
+    json!({
         "schema": "emem.coverage.v1",
-        "total_cells": total_distinct,
+        "total_cells": total_cells,
         "returned": cells.len(),
         "limit": limit,
+        "index_entries_scanned": index_entries_scanned,
+        "scan_index_limit": scan_index_limit,
+        "scan_complete": scan_complete,
+        "note": "index_entries_scanned includes entries with no cell64 position, such as notes. total_cells counts distinct cells with a position among the entries scanned. When scan_complete is false the scan stopped at scan_index_limit, in index key order: total_cells is then a lower bound, and cells are the cells with the most facts among the entries scanned, not across the whole corpus.",
         "cells": cells,
         "next": [
             "GET /v1/coverage_map.svg , same data as a 1440×720 raster (multimodal agents)",
             "POST /v1/recall           , read facts at any cell64 listed here"
         ]
-    }))
+    })
+}
+
+#[cfg(test)]
+mod reported_bug_tests {
+    use super::*;
+
+    /// A raster token holds two 52-character cids. The fact resolver took the
+    /// first (the aoi_cid) and answered `cid_not_found` with a hint to fetch.
+    #[test]
+    fn the_fact_resolver_names_the_resolver_for_other_token_kinds() {
+        let cid = "a".repeat(52);
+        let raster = format!("emem:raster:{cid}:s2.B04:20651:{cid}");
+        assert!(recover_fact_cid(&raster).is_some());
+        assert_eq!(
+            non_fact_token_resolver(&raster),
+            Some(("emem:raster", "POST /v1/raster/resolve"))
+        );
+        assert_eq!(
+            non_fact_token_resolver(&format!(" emem:cube:{cid}:s2.B04:1..2:{cid}")),
+            Some(("emem:cube", "POST /v1/cube/resolve"))
+        );
+        assert_eq!(
+            non_fact_token_resolver(&format!("emem:rasterset:{cid}:{cid}")).map(|k| k.0),
+            Some("emem:rasterset")
+        );
+        assert_eq!(
+            non_fact_token_resolver(&format!("emem:fact:defi.zb592.nUkO.zEzE:{cid}")),
+            None
+        );
+        assert_eq!(non_fact_token_resolver(&cid), None);
+    }
+
+    /// temporal_route took the absolute age, so a fact signed after
+    /// `query_time` scored as a fresh observation at that time.
+    #[test]
+    fn temporal_route_ignores_facts_signed_after_the_query_time() {
+        let signed = vec![
+            (
+                "indices.ndvi".to_string(),
+                "2026-01-01T00:00:00Z".to_string(),
+            ),
+            (
+                "indices.ndwi".to_string(),
+                "2026-11-07T00:00:00Z".to_string(),
+            ),
+            ("cams.pm25".to_string(), "2026-11-07T00:00:00Z".to_string()),
+        ];
+        let query = parse_iso8601_unix("2026-11-01T00:00:00Z").unwrap();
+        let map = latest_signed_at_by_band(&signed, query);
+        assert_eq!(
+            map.get("indices").copied(),
+            parse_iso8601_unix("2026-01-01T00:00:00Z")
+        );
+        assert!(!map.contains_key("cams"));
+
+        let (q_fresh, _, _) = score_band(emem_core::tslot::Tempo::Fast, query, Some(query));
+        let (q_future, _, _) = score_band(
+            emem_core::tslot::Tempo::Fast,
+            query,
+            Some(query + 86_400 * 6),
+        );
+        assert!(q_future <= q_fresh);
+    }
+
+    /// docs/media/ holds GIF and WebP files. Every response carries
+    /// `x-content-type-options: nosniff`, so an octet-stream type made a
+    /// browser download them instead of showing them.
+    #[test]
+    fn the_docs_book_serves_gif_and_webp_as_images() {
+        assert_eq!(docs_book_mime("media/world-rondonia.gif"), "image/gif");
+        assert_eq!(
+            docs_book_mime("media/readme/20-encode-decode.webp"),
+            "image/webp"
+        );
+        assert_eq!(docs_book_mime("media/x.bin"), "application/octet-stream");
+    }
+
+    /// crop_stress_score@1 in algorithms-v0.json is a fixed weighted sum.
+    /// The hunter text said it z-scores against a rolling baseline, which
+    /// no code computes.
+    #[test]
+    fn the_crop_stress_hunter_text_matches_the_registry_formula() {
+        let spec = ranking_spec_for(ask_foundation::HunterKind::CropStress).expect("spec");
+        assert!(
+            !spec.interpretation.contains("z-score"),
+            "{}",
+            spec.interpretation
+        );
+        assert!(
+            !spec.interpretation.contains("baseline"),
+            "{}",
+            spec.interpretation
+        );
+        let reg: serde_json::Value =
+            serde_json::from_str(include_str!("../../emem-core/data/algorithms-v0.json")).unwrap();
+        let algo = reg["algorithms"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["key"] == "crop_stress_score@1")
+            .expect("crop_stress_score@1 in the registry");
+        for input in algo["inputs"].as_array().unwrap() {
+            let w = format!("{:.2}", input["weight"].as_f64().unwrap());
+            assert!(
+                spec.interpretation.contains(&w),
+                "weight {w} missing: {}",
+                spec.interpretation
+            );
+        }
+    }
+
+    /// Two paths read EMEM_DATA with a `/var/emem` default while the rest of
+    /// the node uses `./var/emem` (emem_core::data_dir).
+    #[test]
+    fn the_splats_root_follows_the_shared_data_dir_default() {
+        if std::env::var("EMEM_SPLATS_DIR").is_ok() {
+            return;
+        }
+        assert_eq!(splats_root(), emem_core::data_dir::data_path("splats-site"));
+        let src = include_str!("lib.rs");
+        let bad = ["unwrap_or_else(|_| \"/var/", "emem\".to_string())"].concat();
+        assert!(!src.contains(&bad), "a second EMEM_DATA default remains");
+    }
+
+    /// The write path refuses v1 for every verb (`v1_retired`), so the
+    /// verifier spec must not tell a signer that v1 still works for create.
+    #[test]
+    fn the_verifier_spec_says_v1_memory_writes_are_retired() {
+        let src = include_str!("lib.rs");
+        let line = src
+            .lines()
+            .find(|l| {
+                l.trim_start()
+                    .starts_with("\"preimage_v1\": \"blake3(\\\"emem.memory_write|")
+            })
+            .expect("caller_signed_objects.memory_write.preimage_v1 line");
+        assert!(line.contains("v1_retired"), "{line}");
+        assert!(!line.contains("still accepted"), "{line}");
+    }
+
+    #[tokio::test]
+    async fn a_get_only_path_is_not_told_to_use_post() {
+        let req = axum::http::Request::builder()
+            .method(Method::DELETE)
+            .uri("/v1/errors")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = serve_405(req).await;
+        assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+        assert_eq!(resp.headers()[axum::http::header::ALLOW], "GET");
+        let body: JsonValue = serde_json::from_slice(
+            &axum::body::to_bytes(resp.into_body(), 1 << 16)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let example = body["example"].as_str().unwrap();
+        assert!(!example.contains("-X POST"), "{example}");
+        assert!(example.starts_with("curl -s "), "{example}");
+        let legacy = body["_legacy_message"].as_str().unwrap();
+        assert!(legacy.contains("call it with GET"), "{legacy}");
+    }
+
+    #[tokio::test]
+    async fn a_post_path_still_gets_a_post_example() {
+        let req = axum::http::Request::builder()
+            .method(Method::GET)
+            .uri("/v1/verify_receipt")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let body: JsonValue = serde_json::from_slice(
+            &axum::body::to_bytes(serve_405(req).await.into_body(), 1 << 16)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(body["example"].as_str().unwrap().contains("-X POST"));
+    }
+
+    /// The spec listed `direct_latlng`, which /v1/locate never sends (it
+    /// sends `direct`), and lacked four values the cascade does send.
+    #[test]
+    fn locate_via_enum_names_what_locate_sends() {
+        let spec = openapi_spec();
+        let via: Vec<&str> = spec["components"]["schemas"]["LocateResp"]["properties"]["via"]
+            ["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert!(via.contains(&"direct"));
+        assert!(!via.contains(&"direct_latlng"));
+        for v in ["geonames", "overture_admin_fallback", "wikidata"] {
+            assert!(via.contains(&v), "{v} missing");
+        }
+        // Every value except `geonames` has its own confidence reason;
+        // a value outside the cascade would fall to the "default" arm.
+        for v in via.iter().filter(|v| **v != "geonames") {
+            assert_ne!(
+                locate_confidence(v, 1.0, false, false, 1).1,
+                "default",
+                "{v}"
+            );
+        }
+    }
+
+    /// The refusal named four kinds while `from_wire` takes six.
+    #[test]
+    fn list_by_kind_error_names_every_accepted_kind() {
+        for k in MEMORY_KINDS_ON_THE_WIRE {
+            assert_eq!(MemoryKind::from_wire(k).map(|m| m.as_str()), Some(k));
+        }
+        assert_eq!(MEMORY_KINDS_ON_THE_WIRE.len(), 6);
+    }
+
+    /// The spec said a bare bundle_cid resolves; `parse_bundle_token`
+    /// refuses it, and the handler maps that refusal to 400.
+    #[test]
+    fn bundle_resolve_spec_matches_the_token_parser() {
+        let spec = openapi_spec();
+        let get = &spec["paths"]["/v1/memory_bundle/{token}"]["get"];
+        let summary = get["summary"].as_str().unwrap();
+        assert!(summary.contains("bare bundle_cid is refused"), "{summary}");
+        assert!(get["responses"]["400"].is_object());
+        let cid = "bafkreiabcdefghijklmnopqrstuvwxyz";
+        assert!(emem_primitives::memory_bundle::parse_bundle_token(cid).is_err());
+        assert!(
+            emem_primitives::memory_bundle::parse_bundle_token(&format!("emem:bundle:{cid}"))
+                .is_ok()
+        );
+    }
+
+    /// The visual evidence block sends `incomplete` when its budget runs
+    /// out; the published schema enum did not list it.
+    #[tokio::test]
+    async fn eudr_schema_lists_the_incomplete_visual_verdict() {
+        let Json(schema) = get_eudr_dds_schema().await;
+        let text = schema.to_string();
+        assert!(
+            text.contains(r#""indeterminate_no_baseline","incomplete""#),
+            "visual verdict enum lacks incomplete"
+        );
+    }
+
+    fn scalar_fact(band: &str, tslot: u64, v: f64) -> emem_fact::Fact {
+        emem_fact::Fact::Primary(emem_fact::PrimaryFact {
+            cell: "defi.zb592.nUkO.zEzE".into(),
+            band: band.into(),
+            tslot,
+            value: ciborium::Value::Float(v),
+            unit: None,
+            confidence: 1.0,
+            uncertainty: None,
+            sources: vec![],
+            derivation: emem_fact::Derivation {
+                fn_key: "t@1".into(),
+                args: None,
+            },
+            privacy_class: "public".into(),
+            schema_cid: emem_fact::SchemaCid::new("s"),
+            signer: emem_core::AttesterKey([1u8; 32]),
+            signed_at: "2026-11-05T15:00:00Z".into(),
+            served_via: None,
+        })
+    }
+
+    /// Recall returns facts oldest first; a hunt ranked on the first one,
+    /// so on the oldest scene at the cell.
+    #[test]
+    fn a_hunt_ranks_a_cell_on_its_newest_reading() {
+        let facts = vec![
+            scalar_fact("indices.ndci", 100, 0.1),
+            scalar_fact("indices.ndci", 300, f64::NAN),
+            scalar_fact("indices.ndci", 200, 0.4),
+            scalar_fact("surface_water.recurrence", 50, 80.0),
+            scalar_fact("indices.ndci", 200, 0.9),
+        ];
+        let cids: Vec<_> = ["a", "b", "c", "d", "e"]
+            .iter()
+            .map(|c| emem_fact::FactCid::new(*c))
+            .collect();
+        assert_eq!(
+            newest_finite_scalar(&facts, &cids, "indices.ndci"),
+            Some((0.4, Some("c".into())))
+        );
+        assert_eq!(
+            newest_finite_scalar(&facts, &cids, "surface_water.recurrence"),
+            Some((80.0, Some("d".into())))
+        );
+        assert_eq!(newest_finite_scalar(&facts, &cids, "era5.t2m"), None);
+    }
+
+    /// A hotspot link is followed with GET; /v1/recall is POST only.
+    #[test]
+    fn a_hotspot_facts_url_is_a_get_route() {
+        let spec = RankingSpec {
+            primary_band: "indices.ndci",
+            gate: None,
+            higher_is_hotter: true,
+            interpretation: "",
+        };
+        let r = RankedCell {
+            cell: "defi.zb592.nUkO.zEzE".into(),
+            scalar: 0.4,
+            fact_cid: None,
+            gate_value: None,
+        };
+        let blob = build_hotspot_blob(&r, 0.0, spec, "http://127.0.0.1:5051");
+        assert_eq!(
+            blob["facts_url"],
+            "http://127.0.0.1:5051/v1/cells/defi.zb592.nUkO.zEzE"
+        );
+        let spec = openapi_spec();
+        assert!(spec["paths"]["/v1/cells/{cell64}"]["get"].is_object());
+        assert!(spec["paths"]["/v1/recall"]["get"].is_null());
+    }
+
+    /// Storage keeps an edge at `as_of == valid_to` (it drops only
+    /// `valid_to < as_of`); the spec said the interval was half-open.
+    #[test]
+    fn the_edges_recall_spec_states_the_closed_interval() {
+        let spec = openapi_spec();
+        let summary = spec["paths"]["/v1/edges/recall"]["post"]["summary"]
+            .as_str()
+            .unwrap();
+        assert!(summary.contains("[valid_from, valid_to]"), "{summary}");
+        assert!(!summary.contains("valid_to)"), "{summary}");
+    }
+
+    /// The spec lacked six fields `RecallPolygonReq` accepts, and said a
+    /// hunt samples "up to 32 cells" while the cap is 64.
+    #[test]
+    fn recall_polygon_and_hunt_specs_match_the_code() {
+        let spec = openapi_spec();
+        let props = &spec["paths"]["/v1/recall_polygon"]["post"]["requestBody"]["content"]
+            ["application/json"]["schema"]["properties"];
+        for f in [
+            "scope",
+            "cells_per_sqkm",
+            "drill_on_water",
+            "verbose",
+            "projection",
+            "compact_offset",
+        ] {
+            assert!(props[f].is_object(), "{f} missing");
+        }
+        let req: RecallPolygonReq = serde_json::from_value(json!({
+            "place": "Lake Bled", "cells_per_sqkm": 4.0, "drill_on_water": true,
+            "verbose": true, "projection": "compact", "compact_offset": 10,
+            "scope": {"user_id": "u"}
+        }))
+        .unwrap();
+        assert_eq!(req.cells_per_sqkm, Some(4.0));
+        assert_eq!(req.compact_offset, Some(10));
+        let hunt = spec["components"]["schemas"]["HuntReq"]["description"]
+            .as_str()
+            .unwrap();
+        assert!(!hunt.contains("up to 32"), "{hunt}");
+        assert!(hunt.contains("default 64"), "{hunt}");
+    }
+}
+
+#[cfg(test)]
+mod coverage_page_tests {
+    use super::*;
+
+    const FUJI: &str = "defi.zb592.nUkO.zEzE";
+
+    #[test]
+    fn openapi_lists_the_limit_parameter_and_the_scan_failure() {
+        let spec = openapi_spec();
+        let get = &spec["paths"]["/v1/coverage"]["get"];
+        assert_eq!(get["parameters"][0]["name"], "limit");
+        assert_eq!(
+            get["responses"]["503"]["content"]["application/json"]["schema"]["properties"]["code"]
+                ["const"],
+            serde_json::to_value(ErrorCode::CacheError).unwrap()
+        );
+    }
+
+    #[test]
+    fn scan_window_does_not_shrink_with_a_small_page() {
+        assert_eq!(
+            coverage_scan_index_limit(1),
+            coverage_scan_index_limit(1000)
+        );
+        assert_eq!(coverage_scan_index_limit(5000), 40_000);
+        assert_eq!(coverage_scan_index_limit(usize::MAX), usize::MAX);
+    }
+
+    #[test]
+    fn keys_without_a_position_are_not_counted_or_returned() {
+        let scanned = ["notes/agent-a", "notes/agent-a", FUJI, "notes/agent-b"];
+        let body = coverage_page(scanned.iter().copied(), 1, 8000);
+        assert_eq!(body["total_cells"], 1);
+        assert_eq!(body["returned"], 1);
+        assert_eq!(body["cells"][0]["cell64"], FUJI);
+        assert_eq!(body["cells"][0]["fact_count"], 1);
+        assert_eq!(body["index_entries_scanned"], 4);
+        assert_eq!(body["scan_complete"], true);
+    }
+
+    #[test]
+    fn a_full_scan_window_is_reported_as_incomplete() {
+        let scanned = [FUJI, FUJI];
+        let body = coverage_page(scanned.iter().copied(), 1000, 2);
+        assert_eq!(body["scan_complete"], false);
+        assert_eq!(body["total_cells"], 1);
+        assert_eq!(body["cells"][0]["fact_count"], 2);
+    }
 }
 
 /// `GET /v1/coverage_map.svg`, visual gym for multimodal agents.
@@ -70422,7 +71107,7 @@ fn ranking_spec_for(kind: ask_foundation::HunterKind) -> Option<RankingSpec> {
             primary_band: "indices.ndvi",
             gate: None,
             higher_is_hotter: false,
-            interpretation: "lower NDVI in growing season = stress; the full algorithm z-scores against a per-polygon rolling baseline",
+            interpretation: "lower NDVI in growing season = stress; the full algorithm is a weighted sum: 0.40 NDVI, 0.35 NDMI, 0.15 high-temperature sigmoid, 0.10 low-precipitation sigmoid (crop_stress_score@1). It is a relative ranking, not a calibrated stress level.",
         },
         K::OilSlick => return None,
     };
@@ -70459,6 +71144,36 @@ struct RankedCell {
     /// gate band wasn't recallable for this cell (no materializer,
     /// missing tslot, etc.). The caller treats `None` as "drop".
     gate_value: Option<f64>,
+}
+
+/// The finite scalar of `band` with the highest tslot, and its fact_cid.
+/// Recall returns facts oldest first, so taking the first match ranked a
+/// hunt on the oldest scene at each cell. A derivative counts at the end
+/// of its window. On equal tslots the earlier fact in recall order wins.
+fn newest_finite_scalar(
+    facts: &[emem_fact::Fact],
+    cids: &[emem_fact::FactCid],
+    band: &str,
+) -> Option<(f64, Option<String>)> {
+    let mut best: Option<(u64, f64, Option<String>)> = None;
+    for (idx, fact) in facts.iter().enumerate() {
+        let (b, tslot, value) = match fact {
+            emem_fact::Fact::Primary(p) => (p.band.as_str(), p.tslot, &p.value),
+            emem_fact::Fact::Derivative(d) => (d.band.as_str(), d.tslot_window[1], &d.value),
+            emem_fact::Fact::Absence(_) => continue,
+        };
+        if b != band {
+            continue;
+        }
+        let Some(v) = ciborium_to_json(value).as_f64().filter(|v| v.is_finite()) else {
+            continue;
+        };
+        if best.as_ref().is_some_and(|(t, _, _)| *t >= tslot) {
+            continue;
+        }
+        best = Some((tslot, v, cids.get(idx).map(|c| c.0.clone())));
+    }
+    best.map(|(_, v, cid)| (v, cid))
 }
 
 /// Fan out over `cells`, recall the primary (and gate, when present)
@@ -70538,31 +71253,11 @@ async fn fan_out_and_rank(s: &AppState, cells: &[String], spec: RankingSpec) -> 
         let Ok((cell, Ok((resp, _notes)))) = j else {
             continue;
         };
-        let mut primary_scalar: Option<(f64, Option<String>)> = None;
-        let mut gate_scalar: Option<f64> = None;
-        for (idx, fact) in resp.facts.iter().enumerate() {
-            let (band, value_json) = match fact {
-                emem_fact::Fact::Primary(p) => (p.band.as_str(), ciborium_to_json(&p.value)),
-                emem_fact::Fact::Derivative(d) => (d.band.as_str(), ciborium_to_json(&d.value)),
-                emem_fact::Fact::Absence(_) => continue,
-            };
-            if band == spec.primary_band && primary_scalar.is_none() {
-                if let Some(v) = value_json.as_f64() {
-                    if v.is_finite() {
-                        let cid = resp.receipt.fact_cids.get(idx).map(|c| c.0.clone());
-                        primary_scalar = Some((v, cid));
-                    }
-                }
-            } else if let Some(g) = spec.gate.as_ref() {
-                if band == g.band && gate_scalar.is_none() {
-                    if let Some(v) = value_json.as_f64() {
-                        if v.is_finite() {
-                            gate_scalar = Some(v);
-                        }
-                    }
-                }
-            }
-        }
+        let primary_scalar =
+            newest_finite_scalar(&resp.facts, &resp.receipt.fact_cids, spec.primary_band);
+        let gate_scalar = spec.gate.as_ref().and_then(|g| {
+            newest_finite_scalar(&resp.facts, &resp.receipt.fact_cids, g.band).map(|(v, _)| v)
+        });
         let Some((scalar, fact_cid)) = primary_scalar else {
             continue;
         };
@@ -70624,7 +71319,8 @@ fn build_hotspot_blob(
         "value":        r.scalar,
         "fact_cid":     r.fact_cid,
         "scene_url":    format!("{origin}/v1/cells/{}/scene.png", r.cell),
-        "facts_url":    format!("{origin}/v1/recall?cell={}", r.cell),
+        // GET, because a link is followed with GET; /v1/recall is POST only.
+        "facts_url":    format!("{origin}/v1/cells/{}", r.cell),
     });
     if let (Some(g), Some(gv)) = (spec.gate.as_ref(), r.gate_value) {
         blob["gate_band"] = json!(g.band);
@@ -86386,6 +87082,30 @@ mod recall_freshness_tests {
     }
 }
 
+/// Latest `signed_at` per band prefix among facts signed at or before
+/// `query_unix_s`. A fact signed after the query time did not exist then;
+/// counting it made a past query score as freshly observed.
+fn latest_signed_at_by_band(
+    signed: &[(String, String)],
+    query_unix_s: i64,
+) -> std::collections::HashMap<String, i64> {
+    let mut map = std::collections::HashMap::new();
+    for (band, signed_at) in signed {
+        let Some(t) = parse_iso8601_unix(signed_at) else {
+            continue;
+        };
+        if t > query_unix_s {
+            continue;
+        }
+        let prefix = band.split('.').next().unwrap_or(band).to_string();
+        let entry = map.entry(prefix).or_insert(t);
+        if t > *entry {
+            *entry = t;
+        }
+    }
+    map
+}
+
 /// Score a band given the query time, the band's last-known
 /// observation time at the cell (or None if we have nothing), and
 /// the band's tempo class. Returns (score, kernel, derivation).
@@ -86395,7 +87115,7 @@ fn score_band(
     last_obs_unix_s: Option<i64>,
 ) -> (f64, &'static str, String) {
     let dt_s: f64 = match last_obs_unix_s {
-        Some(t) => (query_unix_s - t).abs() as f64,
+        Some(t) => (query_unix_s - t).max(0) as f64,
         None => {
             // No observation → the kernel has no anchor. We score by
             // the *opportunity*: a static band still rates 1 because a
@@ -86583,26 +87303,19 @@ async fn temporal_route_inner(
         {
             let pairs = s.storage.scan_cell(&cell, None).await.unwrap_or_default();
             let cids: Vec<emem_fact::FactCid> = pairs.into_iter().map(|(_k, c)| c).collect();
-            let mut map = std::collections::HashMap::new();
+            let mut signed: Vec<(String, String)> = Vec::new();
             if !cids.is_empty() {
                 if let Ok(facts) = s.storage.get_facts_many(&cids).await {
                     for f in facts.into_iter().flatten() {
-                        let (band, signed_at) = match f {
-                            Fact::Primary(p) => (p.band, p.signed_at),
-                            Fact::Absence(n) => (n.band, n.signed_at),
-                            Fact::Derivative(_) => continue,
-                        };
-                        if let Some(t) = parse_iso8601_unix(&signed_at) {
-                            let prefix = band.split('.').next().unwrap_or(&band).to_string();
-                            let entry = map.entry(prefix).or_insert(t);
-                            if t > *entry {
-                                *entry = t;
-                            }
+                        match f {
+                            Fact::Primary(p) => signed.push((p.band, p.signed_at)),
+                            Fact::Absence(n) => signed.push((n.band, n.signed_at)),
+                            Fact::Derivative(_) => {}
                         }
                     }
                 }
             }
-            map
+            latest_signed_at_by_band(&signed, query_unix)
         }
     };
 
@@ -86632,7 +87345,7 @@ async fn temporal_route_inner(
                 "kernel":           kernel,
                 "derivation":       derivation,
                 "last_obs_unix_s":  last_obs,
-                "last_obs_age_s":   last_obs.map(|t| (query_unix - t).abs()),
+                "last_obs_age_s":   last_obs.map(|t| query_unix - t),
             }),
             intent_matched,
         ));
@@ -88733,6 +89446,35 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The prose must send a split-view reader to the operator field, not to
+    /// the key count that the test below shows a swarm of keys can inflate.
+    #[tokio::test]
+    async fn witnesses_note_points_split_view_readers_at_operators() {
+        use tower::ServiceExt;
+        let app = Router::new()
+            .route("/v1/log/witnesses", get(get_log_witnesses))
+            .with_state(test_app_state());
+        let req = axum::extract::Request::builder()
+            .uri("/v1/log/witnesses")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let doc: JsonValue = serde_json::from_slice(&body).unwrap();
+        let note = doc["note"].as_str().unwrap();
+        assert!(
+            note.contains("`head_is_witnessed_by_independent_operator`")
+                && note.contains("it is the one that speaks to split view"),
+            "{note}"
+        );
+        assert!(doc
+            .get("head_is_witnessed_by_independent_operator")
+            .is_some());
+    }
+
     /// A swarm of fresh keys must not look like independent oversight: only
     /// fresh org evidence lifts a key, domains are counted once, and our own
     /// key or domain is us.
@@ -89551,6 +90293,106 @@ mod tests {
         // The one that was already right, asserted so a future tidy-up cannot
         // quietly reintroduce the same defect on the third field.
         assert_eq!(props["batch_root"]["type"], "array");
+    }
+
+    /// The `/v1/attest` spec listed four required fields and the v0 signature
+    /// rule only. The parser needs eight fields, and `preimage_version: 1`
+    /// switches both the merkle rule and the signature preimage. A writer who
+    /// built the body from the spec got a serde 400 for `attester_key_epoch`.
+    #[test]
+    fn the_attest_spec_names_every_field_the_parser_requires() {
+        let doc = openapi_spec();
+        let post = &doc["paths"]["/v1/attest"]["post"];
+        let schema = &post["requestBody"]["content"]["application/json"]["schema"];
+        let required: std::collections::BTreeSet<String> = schema["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        let att = Attestation {
+            facts: vec![],
+            edges: vec![],
+            batch_root: [0u8; 32],
+            attester: emem_core::AttesterKey([1u8; 32]),
+            attester_key_epoch: emem_core::KeyEpoch(0),
+            registry_cid: emem_fact::RegistryCid::new("r"),
+            schema_cid: emem_fact::SchemaCid::new("s"),
+            signature: emem_core::Signature([0u8; 64]),
+            attested_at: "2026-11-07T00:00:00Z".into(),
+            scope: None,
+            preimage_version: 1,
+        };
+        let body = serde_json::to_value(&att).unwrap();
+        let body = body.as_object().unwrap();
+        for key in body.keys() {
+            assert!(
+                schema["properties"].get(key).is_some(),
+                "{key} is on the wire but not in the spec"
+            );
+        }
+        for key in body.keys() {
+            let mut without = body.clone();
+            without.remove(key);
+            let parses = serde_json::from_value::<Attestation>(JsonValue::Object(without)).is_ok();
+            assert_eq!(
+                !parses,
+                required.contains(key),
+                "{key}: spec says required={}, parser says required={}",
+                required.contains(key),
+                !parses
+            );
+        }
+        let summary = post["summary"].as_str().unwrap();
+        assert!(summary.contains("preimage_version"), "{summary}");
+        assert!(summary.contains("verifier_spec"), "{summary}");
+    }
+
+    /// The `/v1/attest_cbor` spec said the request bytes are the signature
+    /// preimage, so any re-encoding invalidates the attestation. The handler
+    /// decodes the body into an `Attestation` and the signature covers
+    /// batch_root, registry_cid and schema_cid, so two encodings that decode
+    /// alike verify alike.
+    #[test]
+    fn attest_cbor_signature_does_not_cover_the_request_bytes() {
+        let att = Attestation {
+            facts: vec![],
+            edges: vec![],
+            batch_root: [7u8; 32],
+            attester: emem_core::AttesterKey([1u8; 32]),
+            attester_key_epoch: emem_core::KeyEpoch(0),
+            registry_cid: emem_fact::RegistryCid::new("r"),
+            schema_cid: emem_fact::SchemaCid::new("s"),
+            signature: emem_core::Signature([0u8; 64]),
+            attested_at: "2026-11-07T00:00:00Z".into(),
+            scope: None,
+            preimage_version: 1,
+        };
+        let mut in_order = Vec::new();
+        ciborium::ser::into_writer(&att, &mut in_order).unwrap();
+        let ciborium::value::Value::Map(mut entries) =
+            ciborium::value::Value::serialized(&att).unwrap()
+        else {
+            panic!("an Attestation encodes as a CBOR map");
+        };
+        entries.reverse();
+        let mut reversed = Vec::new();
+        ciborium::ser::into_writer(&ciborium::value::Value::Map(entries), &mut reversed).unwrap();
+        assert_ne!(in_order, reversed);
+        let a: Attestation = ciborium::de::from_reader(in_order.as_slice()).unwrap();
+        let b: Attestation = ciborium::de::from_reader(reversed.as_slice()).unwrap();
+        assert_eq!(
+            serde_json::to_value(&a).unwrap(),
+            serde_json::to_value(&b).unwrap()
+        );
+
+        let summary = openapi_spec()["paths"]["/v1/attest_cbor"]["post"]["summary"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(!summary.contains("re-encoding invalidates"), "{summary}");
+        assert!(summary.contains("/v1/attest"), "{summary}");
+        assert!(summary.contains("preimage_version"), "{summary}");
     }
 
     /// `bands` means the same thing on every tool, so it must accept the same
@@ -98673,6 +99515,70 @@ mod tests {
         assert_eq!(alts[1]["rank"], 1);
     }
 
+    #[test]
+    fn deprecated_tool_names_are_hidden_and_their_replacements_listed() {
+        for (old, new, _) in DEPRECATED_MCP_TOOL_NAMES {
+            assert!(emem_mcp::TOOLS.iter().all(|t| t.name != old), "{old}");
+            assert!(emem_mcp::TOOLS.iter().any(|t| t.name == new), "{new}");
+        }
+    }
+
+    #[tokio::test]
+    async fn get_tools_applies_name_and_q() {
+        let call = |pairs: &[(&str, &str)]| {
+            let map: std::collections::HashMap<String, String> = pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            tools(Query(map))
+        };
+        let all = call(&[]).await.0;
+        assert_eq!(all["matched"], json!(emem_mcp::TOOLS.len()));
+
+        let one = call(&[("name", "emem_recall")]).await.0;
+        assert_eq!(one["matched"], 1);
+        assert_eq!(one["tools"][0]["name"], "emem_recall");
+
+        let some = call(&[("q", "RECALL")]).await.0;
+        let n = some["matched"].as_u64().unwrap() as usize;
+        assert!(n >= 1 && n < emem_mcp::TOOLS.len(), "{n}");
+        assert_eq!(some["tools"].as_array().unwrap().len(), n);
+
+        let none = call(&[("name", "no_such_tool")]).await.0;
+        assert_eq!(none["matched"], 0);
+    }
+
+    #[test]
+    fn a_question_sent_to_locate_is_refused_with_the_accepted_fields() {
+        let body: LocateBody =
+            serde_json::from_value(json!({"question": "what is the NDVI near Mount Fuji?"}))
+                .unwrap();
+        let err = locate_refuse_question(&body.req, body.question.as_deref())
+            .expect_err("a question is not a place");
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert!(err.1.message.contains("/v1/ask"), "{}", err.1.message);
+        let details = err.1.details.expect("details");
+        assert_eq!(details["unsupported_field"], "question");
+        assert!(details["accepted_fields"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("place")));
+
+        // A real location alongside it wins, and no question is no refusal:
+        // the empty body keeps its documented needs_location envelope.
+        for ok in [
+            json!({"question": "x", "place": "Mount Fuji"}),
+            json!({"question": "x", "lat": 35.36, "lng": 138.73}),
+            json!({}),
+        ] {
+            let body: LocateBody = serde_json::from_value(ok.clone()).unwrap();
+            assert!(
+                locate_refuse_question(&body.req, body.question.as_deref()).is_ok(),
+                "{ok}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn an_overlong_place_is_refused_at_once_without_echoing_it() {
         let junk = "x".repeat(4000);
@@ -98821,6 +99727,13 @@ mod tests {
             classify_skip_reason("ndvi denom ≈ 0"),
             ("no_data", false),
             "a no-data pixel in the newest scene reads the same on retry"
+        );
+        assert_eq!(
+            classify_skip_reason(
+                "topic_name_used_as_band: 'vegetation_condition.ndvi' looks like topic.dimension, not a real band."
+            ),
+            ("unknown_band", false),
+            "a topic key is not a band, and a retry returns the same note"
         );
     }
 
@@ -99322,7 +100235,10 @@ mod tests {
                 StatusCode::GATEWAY_TIMEOUT,
                 std::time::Duration::from_millis(50),
             ))
-            .layer(axum::middleware::from_fn(timeout_to_typed_504));
+            .layer(axum::middleware::from_fn_with_state(
+                1u64,
+                timeout_to_typed_504,
+            ));
 
         let resp = app
             .oneshot(
@@ -99352,6 +100268,52 @@ mod tests {
         assert!(
             v.get("code").is_some(),
             "the typed 504 carries no `code`: {v}"
+        );
+    }
+
+    /// The typed 504 names the budget of the router that timed out. The EUDR
+    /// router waits up to 610 s; a 504 from it that said 40 s was false.
+    #[tokio::test]
+    async fn the_typed_504_names_its_own_routers_budget() {
+        use axum::{routing::get, Router};
+        use tower::ServiceExt;
+
+        let app = Router::new()
+            .route(
+                "/slow",
+                get(|| async {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    "unreachable"
+                }),
+            )
+            .layer(tower_http::timeout::TimeoutLayer::with_status_code(
+                StatusCode::GATEWAY_TIMEOUT,
+                std::time::Duration::from_millis(50),
+            ))
+            .layer(axum::middleware::from_fn_with_state(
+                610u64,
+                timeout_to_typed_504,
+            ));
+        let resp = app
+            .oneshot(
+                axum::extract::Request::builder()
+                    .uri("/slow")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
+        let bytes = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["details"]["budget_secs"], 610, "{v}");
+        let msg = v["message"].as_str().unwrap_or("");
+        assert!(msg.contains("610s transport budget"), "{msg}");
+        assert_eq!(
+            v["details"]["same_cause_over_mcp"],
+            "exceeded the 610s call budget"
         );
     }
 
@@ -103518,6 +104480,27 @@ mod tests {
     }
 
     #[test]
+    fn state_diff_does_not_tell_a_retired_band_to_materialise() {
+        let r = retired_bands()
+            .iter()
+            .next()
+            .expect("one retired band")
+            .clone();
+        for band in [r.clone(), format!("{r}.2023")] {
+            let msg = state_diff_no_facts_message(&band, "a", 53);
+            assert!(msg.contains("retired"), "{msg}");
+            assert!(!msg.contains("materialise the latest"), "{msg}");
+            assert!(msg.contains("GET /v1/bands"), "{msg}");
+        }
+        let live = state_diff_no_facts_message("indices.ndvi", "b", 53);
+        assert!(!live.contains("retired"), "{live}");
+        assert!(
+            live.contains("`bands:[indices.ndvi]`") && live.contains("tslot_b=53"),
+            "{live}"
+        );
+    }
+
+    #[test]
     fn a_retired_band_is_refused_before_the_materializer_is_tried() {
         let src = include_str!("lib.rs");
         let i = src
@@ -104495,6 +105478,16 @@ mod tests {
     /// The pure-op semantics are PINNED, so a caller anywhere recomputes the
     /// same value. `delta` is `inputs[1] - inputs[0]` (signed order matters),
     /// `mean`/`sum` are over all inputs, and anything else is not tier-1.
+    #[test]
+    fn the_unrecomputed_sentence_names_every_recomputable_op() {
+        let ops = GC1_TIER1_PURE_OPS.join(", ");
+        assert!(
+            DERIVE_SIGNATURE_ATTESTS.contains(&format!("({ops})")),
+            "the sentence must list exactly the ops recompute_pure_op runs"
+        );
+        assert!(!DERIVE_SIGNATURE_ATTESTS.contains("excluded"));
+    }
+
     #[test]
     fn recompute_pure_op_is_pinned_and_order_sensitive() {
         assert_eq!(recompute_pure_op("delta", &[0.40, 0.54]), Some(0.54 - 0.40));
@@ -106931,6 +107924,62 @@ mod cbor_scalar_tests {
         }
     }
 
+    /// /openapi.json said RecallReq requires `cell` and listed no `place`,
+    /// `lat`, `lng`, `cell64`, `band` or `include`, which the handler takes;
+    /// AskReq lacked the `question`/`query` aliases. A client generated from
+    /// the spec could not send what the server reads. Pin the two together.
+    #[test]
+    fn openapi_recall_and_ask_bodies_match_their_deserialisers() {
+        let spec = openapi_spec();
+        let recall = &spec["components"]["schemas"]["RecallReq"];
+        let props = recall["properties"]
+            .as_object()
+            .expect("RecallReq properties");
+        let mcp: JsonValue = serde_json::from_str(emem_mcp::SCHEMA_RECALL).unwrap();
+        for field in mcp["properties"].as_object().unwrap().keys() {
+            assert!(
+                props.contains_key(field),
+                "RecallReq lacks `{field}`, which the handler reads"
+            );
+        }
+        for field in props.keys() {
+            let one = serde_json::json!({ field.as_str(): sample_for(field) });
+            assert!(
+                serde_json::from_value::<RecallApiReq>(one).is_ok(),
+                "openapi RecallReq advertises `{field}` but RecallApiReq refuses it"
+            );
+        }
+        assert!(
+            recall.get("required").is_none(),
+            "no single field is required"
+        );
+        for alt in recall["anyOf"].as_array().expect("anyOf") {
+            let body: serde_json::Map<String, JsonValue> = alt["required"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|k| {
+                    let k = k.as_str().unwrap();
+                    (k.to_string(), sample_for(k))
+                })
+                .collect();
+            let req: RecallReq = serde_json::from_value::<RecallApiReq>(JsonValue::Object(body))
+                .unwrap()
+                .into();
+            assert!(!req.cell.is_empty(), "{alt} must name a location");
+        }
+
+        let ask = &spec["components"]["schemas"]["AskReq"];
+        for alt in ask["anyOf"].as_array().expect("AskReq anyOf") {
+            let field = alt["required"][0].as_str().unwrap();
+            assert!(ask["properties"].get(field).is_some(), "{field}");
+            let parsed: AskReq =
+                serde_json::from_value(serde_json::json!({ field: "ndvi in Pune?" }))
+                    .unwrap_or_else(|e| panic!("AskReq refuses `{field}`: {e}"));
+            assert_eq!(parsed.q, "ndvi in Pune?");
+        }
+    }
+
     /// The safety check on the change above: refusing unknown fields is only
     /// safe if the advertised surface and the accepted surface are the same
     /// set. This sends every property `SCHEMA_RECALL` advertises.
@@ -107695,6 +108744,32 @@ mod absence_reason_store_tests {
             cid.as_str()
         );
         assert_eq!(reason_text_in(&t, "absent"), None);
+    }
+}
+
+#[cfg(test)]
+mod wri_gdm_message_tests {
+    use super::*;
+
+    /// The error an operator reads must name the one setting that turns the
+    /// band on, and must not send them to wait for a sampler that already
+    /// exists.
+    #[tokio::test]
+    async fn the_not_wired_error_names_the_cache_and_no_missing_sampler() {
+        if std::env::var_os("EMEM_WRI_GDM_CACHE").is_some() {
+            return;
+        }
+        let cli = reqwest::Client::new();
+        let reason = match emem_fetch::wri_gdm_drivers::fetch_driver_class(&cli, -3.0, -60.5).await
+        {
+            Err(emem_fetch::wri_gdm_drivers::WriGdmError::NotImplemented { reason }) => reason,
+            other => panic!("expected NotImplemented without a cache, got {other:?}"),
+        };
+        let msg = wri_gdm_not_wired_message("wri_gdm.driver_class", &reason);
+        assert!(msg.contains("EMEM_WRI_GDM_CACHE"), "{msg}");
+        assert!(msg.contains("wri_gdm.driver_class"), "{msg}");
+        assert!(!msg.contains("awaits"), "{msg}");
+        assert!(!msg.contains("range-readable mirror"), "{msg}");
     }
 }
 

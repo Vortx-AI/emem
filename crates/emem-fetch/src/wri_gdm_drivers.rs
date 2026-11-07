@@ -76,12 +76,12 @@ use crate::cog::CogError;
 /// for any `Range:` header rather than a 206. That means callers
 /// CANNOT rely on the shared [`cog`](crate::cog) sampler to
 /// range-read a single 512×512 tile — every request pulls the whole
-/// 295 MB COG. Until a range-readable mirror is wired (Earth Engine
-/// asset export to a public GCS bucket, or a Cloudflare-fronted
-/// proxy), [`fetch_driver_class`] returns
-/// [`WriGdmError::NotImplemented`] rather than silently pulling 295 MB
-/// per cell. The pure-logic helpers ([`class_label`],
-/// [`is_commodity_driven`], [`is_natural`]) ship today.
+/// 295 MB COG. So [`fetch_driver_class`] reads only a local copy named
+/// by `EMEM_WRI_GDM_CACHE`; without one it returns
+/// [`WriGdmError::NotImplemented`] rather than pulling 295 MB per cell.
+/// No range-readable mirror is wired. The pure-logic helpers
+/// ([`class_label`], [`is_commodity_driven`], [`is_natural`]) need no
+/// copy.
 const WRI_GDM_BASE_URL: &str =
     "https://zenodo.org/records/15366671/files/drivers_forest_loss_1km_2001_2024_v1_2.tif";
 
@@ -147,12 +147,9 @@ pub enum WriGdmError {
         /// message — currently 80.0°).
         bound: f64,
     },
-    /// The fetch path is not yet wired for this release. The pure
-    /// class-label helpers ship today; the per-cell fetch will land
-    /// once a range-readable mirror is available (Zenodo's nginx does
-    /// not honour HTTP Range, so the shared COG sampler would pull
-    /// the full 295 MB file on every cell — unacceptable for a
-    /// per-cell materializer). See module docs for the full rationale.
+    /// `EMEM_WRI_GDM_CACHE` is unset or names no file. Zenodo's nginx
+    /// does not honour HTTP Range, so a remote read would pull the full
+    /// 295 MB file on every cell; the connector reads only a local copy.
     #[error("not_implemented: {reason}")]
     NotImplemented {
         /// Human-readable explanation of what's missing.
@@ -190,10 +187,9 @@ pub fn cog_url() -> &'static str {
 /// - `Ok(None)` for a confirmed on-land pixel with no Hansen loss
 ///   event — a meaningful Primary fact ("no loss → no driver").
 /// - `Err(CoverageGap)` for cells outside the ±80° latitude envelope.
-/// - `Err(NotImplemented)` while the wired fetch path is pending a
-///   range-readable mirror (see module docs).
-/// - `Err(Transport)` / `Err(Decode)` for the wired-fetch failure
-///   modes once it lands.
+/// - `Err(NotImplemented)` when `EMEM_WRI_GDM_CACHE` names no local
+///   copy of the COG (see [`cog_url`]).
+/// - `Err(Transport)` / `Err(Decode)` when reading the local copy fails.
 pub async fn fetch_driver_class(
     client: &Client,
     lat: f64,
@@ -543,17 +539,15 @@ mod tests {
     }
 
     /// `fetch_driver_class` for an in-envelope (lat, lng) MUST surface
-    /// `NotImplemented` rather than fabricating a class or silently
-    /// pulling the full 295 MB Zenodo COG. The reason string MUST
-    /// mention the missing-range-support root cause and the Zenodo
-    /// URL so operators can grep for it in logs.
-    ///
-    /// This is the only place in the module where the
-    /// `NotImplemented` shape is exercised. Once a range-readable
-    /// mirror wires up, the variant goes away and this test flips to
-    /// asserting `Ok(Some(class))` or `Ok(None)` (the no-loss path).
+    /// `NotImplemented` when no local cache is set, rather than
+    /// fabricating a class or pulling the full 295 MB Zenodo COG. The
+    /// reason string MUST name the cache variable, the missing-range
+    /// root cause and the Zenodo URL so operators can act on it.
     #[tokio::test]
     async fn fetch_in_envelope_is_not_implemented_with_clear_reason() {
+        if std::env::var_os("EMEM_WRI_GDM_CACHE").is_some() {
+            return;
+        }
         let client = reqwest::Client::new();
         // Central Amazon — well inside the ±80° envelope, a region
         // where Hansen GFC ships dense loss attribution. If/when the
@@ -567,6 +561,10 @@ mod tests {
                     "reason must mention the missing-range root cause: got {reason:?}"
                 );
                 assert!(
+                    reason.contains("EMEM_WRI_GDM_CACHE"),
+                    "reason must name the cache variable: got {reason:?}"
+                );
+                assert!(
                     reason.contains("zenodo.org"),
                     "reason must mention the Zenodo URL so operators can grep for it: got {reason:?}"
                 );
@@ -577,10 +575,8 @@ mod tests {
 
     /// `WriGdmError::from_cog` maps a `CogError::Transport` to the
     /// connector's `Transport` variant and everything else to
-    /// `Decode`. Pinned here so the helper stays correct even though
-    /// it's currently dead code (the fetch path is not implemented).
-    /// Without this test the helper's behaviour drifts silently when
-    /// the fetch wires up later.
+    /// `Decode`. The local-cache read path uses it; no test there runs
+    /// against a real COG, so this pins the mapping.
     #[test]
     fn from_cog_transport_maps_to_transport_decode_otherwise() {
         let err = WriGdmError::from_cog(CogError::Transport("status 503".into()));

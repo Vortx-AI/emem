@@ -15,6 +15,8 @@
 //! same node, and it never creates one: an identity conjured by a sidecar is a
 //! key nobody meant to exist.
 
+#![forbid(unsafe_code)]
+
 use std::path::{Path, PathBuf};
 
 use ed25519_dalek::SigningKey;
@@ -88,7 +90,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // writable mount, and the encoder cannot read an identity file that was
     // never allowed to exist. Checked first so a node provisioned this way
     // never looks at --data at all.
-    let supplied = emem_airgap::seed_from_environment()?;
+    let supplied = emem_airgap::seed_from_environment(None)?;
 
     // Otherwise shared with the decoder, and never created here. Both halves
     // must speak for the same node, and a sidecar that minted its own key on

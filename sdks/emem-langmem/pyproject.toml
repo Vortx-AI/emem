@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "emem-langmem"
 version = "2.4.4"
-description = "LangChain BaseStore backed by emem.dev — drop-in agent memory for LangGraph"
+description = "LangChain BaseStore backed by emem.dev: signed key-value memory for agents"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "Apache-2.0" }

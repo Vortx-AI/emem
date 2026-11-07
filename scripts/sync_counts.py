@@ -708,7 +708,10 @@ PROSE_CLAIMS = (
     ("mcp_tools",    r"every one of the\s+(\d{2,4})\b"),
     ("mcp_tools",    r"for all\s+(\d{2,4})\b"),
     ("algorithms",   r"(\d{2,4})\s+algorithms\b"),
-    ("topics",       r"(\d{1,3})\s+topics\b"),
+    # Not a sub-count ("24 topics had a materializer for every band") or a
+    # cap ("the result has at most 5 topics"): the hook rewrote both to the
+    # catalogue size on 2026-11-07.
+    ("topics",       r"(?<!at most )(\d{1,3})\s+topics\b(?!\s+(?:had|have|are|were)\b)"),
     ("rest_paths_openapi_total", r"\((\d{2,4})\s+total(?:\s+in OpenAPI)?\)"),
 )
 

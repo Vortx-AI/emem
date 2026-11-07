@@ -1,6 +1,6 @@
 //! Temporal knowledge-graph edges — a signed, content-addressed relation
-//! between two facts, valid over a half-open `[valid_from, valid_to)`
-//! interval (Zep / Graphiti edge model, arXiv 2501.13956).
+//! between two facts, valid over the closed interval
+//! `[valid_from, valid_to]` (Zep / Graphiti edge model, arXiv 2501.13956).
 //!
 //! An `EdgeFact` is a *sibling* of the frozen [`crate::fact::Fact`] enum,
 //! NOT a fourth variant. Keeping it separate means the v0.0.7 / v0.0.8
@@ -17,7 +17,8 @@
 //!   `(subj, pred, obj)` *supersedes* the earlier one; the storage layer
 //!   keeps both rows (non-destructive) and an `as_of` read picks the
 //!   newest edge whose `valid_from <= as_of` and whose `valid_to` (if
-//!   any) is `> as_of`.
+//!   any) is `>= as_of`. An edge is still valid AT its `valid_to`; the
+//!   storage filter drops it only when `valid_to < as_of`.
 //!
 //! ## Canonical CBOR + CID
 //!
@@ -34,7 +35,7 @@ use crate::cid::{EdgeCid, FactCid, SchemaCid};
 use emem_core::AttesterKey;
 
 /// A signed temporal relation `subj --pred--> obj` valid over
-/// `[valid_from, valid_to)`. Content-addressed under canonical CBOR.
+/// `[valid_from, valid_to]`. Content-addressed under canonical CBOR.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EdgeFact {
     /// CID of the subject fact.
@@ -45,7 +46,7 @@ pub struct EdgeFact {
     pub obj: FactCid,
     /// Valid-time start (Unix-epoch tslot scale). Inclusive.
     pub valid_from: u64,
-    /// Valid-time end. `None` means "still valid". Exclusive when set.
+    /// Valid-time end. `None` means "still valid". Inclusive when set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub valid_to: Option<u64>,
     /// Attester-declared confidence in `[0, 1]`.

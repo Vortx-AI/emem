@@ -11,6 +11,8 @@
 //!             --observed-at 2026-08-20T09:00:00Z
 //! ```
 
+#![forbid(unsafe_code)]
+
 use std::path::PathBuf;
 
 use ed25519_dalek::SigningKey;
@@ -149,7 +151,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or("unknown")
         .to_string();
     let out_path = PathBuf::from(&output);
-    let (key, idfile) = load_or_create_identity(&data_dir, &created, Some(&out_path))?;
+    let seed_file = env_or("--seed-file", "", &args);
+    let (key, idfile) =
+        load_or_create_identity(&data_dir, &created, Some(&out_path), seed_file.as_deref())?;
     let node_key = idfile.pubkey_b32.clone();
 
     let settings = DecodeSettings {
@@ -250,6 +254,7 @@ fn load_or_create_identity(
     data_dir: &std::path::Path,
     created: &str,
     output_dir: Option<&std::path::Path>,
+    seed_file: Option<&str>,
 ) -> Result<(SigningKey, NodeKeyFile), Box<dyn std::error::Error>> {
     // Supplied out of band, before anything touches a disk.
     //
@@ -262,7 +267,7 @@ fn load_or_create_identity(
     // on the ground with `keygen`, hold it wherever they hold secrets, and
     // hand it to the node in the environment, where it never lands on storage
     // this node can write or anyone else can read off a downlink.
-    if let Some(file) = emem_airgap::seed_from_environment()? {
+    if let Some(file) = emem_airgap::seed_from_environment(seed_file)? {
         let key = file
             .signing_key()
             .ok_or("EMEM_AIRGAP_SEED_HEX is not 32 bytes of hex")?;
@@ -540,7 +545,7 @@ fn cmd_keygen(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     );
     // No output directory to compare against here: keygen is run deliberately,
     // by a person, against a directory they chose.
-    let (_, file) = load_or_create_identity(&data_dir, "keygen", None)?;
+    let (_, file) = load_or_create_identity(&data_dir, "keygen", None, None)?;
     println!("node    {}", file.pubkey_b32);
     println!("short   {}", file.pubkey8);
     println!("at      {}", key_path(&data_dir).display());
@@ -564,10 +569,16 @@ fn cmd_identity(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     // read, so this reported that it had no identity at all and an operator
     // running that way could not get their own public key to hand to an
     // endorser. Reported from a real deployment.
-    if let Some(file) = emem_airgap::seed_from_environment()? {
+    let seed_file = env_or("--seed-file", "", args);
+    if let Some(file) = emem_airgap::seed_from_environment(seed_file.as_deref())? {
         println!("node    {}", file.pubkey_b32);
         println!("short   {}", file.pubkey8);
-        println!("from    the environment; nothing is stored on this machine");
+        let source = if seed_file.is_some() {
+            "--seed-file"
+        } else {
+            "the environment"
+        };
+        println!("from    {source}; nothing is stored on this machine");
         return Ok(());
     }
     let path = key_path(&data_dir);
@@ -834,8 +845,9 @@ a path, for a platform that mounts secrets but cannot set an environment.
 The node REFUSES to create its identity inside --output: that file holds the
 private seed, and the output directory is the one that leaves the machine.
 
-Writes one <name>.<node>.custody.json per payload, plus run.<node>.json. Every
-output carries the node's short key, so several nodes can share one output
+Writes one <name>.<node>.<time>.custody.json per payload, plus
+run.<node>.<time>.json. Every output carries the node's short key and the
+observation time, so several nodes and several runs can share one output
 mount without overwriting each other. The payload itself never leaves: only
 the record does.";
 
@@ -863,7 +875,7 @@ mod tests {
             let handles: Vec<_> = (0..8)
                 .map(|_| {
                     s.spawn(|| {
-                        let (_, file) = load_or_create_identity(&d, "2026-08-20", None)
+                        let (_, file) = load_or_create_identity(&d, "2026-08-20", None, None)
                             .expect("a process that loses the race must load, not fail");
                         file.pubkey_b32
                     })
@@ -887,6 +899,39 @@ mod tests {
             entries,
             vec!["node_identity.json".to_string()],
             "{entries:?}"
+        );
+    }
+
+    /// `--seed-file` supplies the identity and nothing is written to `--data`.
+    ///
+    /// The flag passed the unknown-flag check but nothing read it, so a run
+    /// given only the flag minted a different key in the data directory.
+    #[test]
+    fn the_seed_file_flag_supplies_the_identity() {
+        let d = std::env::temp_dir().join("emem-airgap-seedfile");
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let seed_path = d.join("seed.hex");
+        std::fs::write(&seed_path, format!("{}\n", "07".repeat(32))).unwrap();
+        let data = d.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+
+        let (_, file) =
+            load_or_create_identity(&data, "2026-11-07", None, seed_path.to_str()).unwrap();
+        let expected = NodeKeyFile::new([7u8; 32], "x", "x");
+        assert_eq!(file.pubkey_b32, expected.pubkey_b32);
+        assert!(
+            !key_path(&data).exists(),
+            "a supplied seed must not be written to --data"
+        );
+
+        let flags = vec![
+            "emem-airgap".to_string(),
+            format!("--seed-file={}", seed_path.display()),
+        ];
+        assert_eq!(
+            env_or("--seed-file", "", &flags).as_deref(),
+            seed_path.to_str()
         );
     }
 

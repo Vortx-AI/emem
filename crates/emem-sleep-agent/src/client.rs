@@ -179,6 +179,18 @@ impl ResponderClient {
             .await
     }
 
+    /// Number of versions a path has held: the `count` of
+    /// `memory_view {path, view: "history"}`.
+    pub async fn history_len(&self, path: &str) -> Result<usize, SleepAgentError> {
+        let out = self
+            .mcp_call(
+                "emem_memory_view",
+                json!({ "path": path, "view": "history" }),
+            )
+            .await?;
+        history_count(&out)
+    }
+
     /// Create / overwrite a memory file. A write to an existing `path`
     /// supersedes the previous version bi-temporally (latest `signed_at`
     /// wins; the prior version stays in `memory_file_history`). Returns
@@ -221,5 +233,39 @@ impl ResponderClient {
     /// Base URL accessor (used by the ask-gateway LLM transport).
     pub fn base(&self) -> &str {
         &self.base
+    }
+}
+
+/// The version count of a `view: "history"` response. A response without
+/// `kind: "history"` and a numeric `count` is a decode error, not 1: a
+/// default of 1 made every path look never rewritten.
+fn history_count(view: &Value) -> Result<usize, SleepAgentError> {
+    if view.get("kind").and_then(|k| k.as_str()) != Some("history") {
+        return Err(SleepAgentError::Decode(
+            "memory_view history: response kind is not `history`".into(),
+        ));
+    }
+    view.get("count")
+        .and_then(|c| c.as_u64())
+        .map(|c| c as usize)
+        .ok_or_else(|| SleepAgentError::Decode("memory_view history: no numeric `count`".into()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn history_count_reads_the_count_of_a_history_view() {
+        let v = json!({ "kind": "history", "path": "/memories/a", "count": 4, "versions": [] });
+        assert_eq!(history_count(&v).unwrap(), 4);
+    }
+
+    #[test]
+    fn history_count_rejects_a_view_that_is_not_a_history() {
+        let file = json!({ "kind": "file", "content": "x" });
+        assert!(history_count(&file).is_err());
+        let no_count = json!({ "kind": "history" });
+        assert!(history_count(&no_count).is_err());
     }
 }

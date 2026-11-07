@@ -210,27 +210,29 @@ async fn main() -> anyhow::Result<()> {
          EMEM_REFINEMENT_ENABLED=1 EMEM_REFINEMENT_INTERVAL_SECS=3 \
          EMEM_REFINEMENT_MIN_SEVERITY=0.1"
     );
+    // The refinement loop orients each edge smaller CID -> larger CID, so
+    // A's fact is the subject or the object depending on how the CIDs sort.
+    let anchors = [
+        json!({"subj": &a_fact_cid, "pred": "disagrees_with"}),
+        json!({"obj": &a_fact_cid, "pred": "disagrees_with", "direction": "in"}),
+    ];
     let mut found = false;
-    for attempt in 0..8 {
-        let dw = post_json(
-            &client,
-            &format!("{base}/v1/edges/recall"),
-            &json!({"subj": &a_fact_cid, "pred": "disagrees_with"}),
-        )
-        .await?;
-        if let Some(edges) = dw["edges"].as_array() {
-            if let Some(e0) = edges.first() {
-                println!(
-                    "  auto disagrees_with edge APPEARED (attempt {}): subj={} obj={} valid_from={} confidence={}",
-                    attempt + 1,
-                    e0["subj"],
-                    e0["obj"],
-                    e0["valid_from"],
-                    e0["confidence"]
-                );
-                found = true;
-                break;
-            }
+    'poll: for attempt in 0..8 {
+        for anchor in &anchors {
+            let dw = post_json(&client, &format!("{base}/v1/edges/recall"), anchor).await?;
+            let Some(e0) = dw["edges"].as_array().and_then(|a| a.first()) else {
+                continue;
+            };
+            println!(
+                "  auto disagrees_with edge APPEARED (attempt {}): subj={} obj={} valid_from={} confidence={}",
+                attempt + 1,
+                e0["subj"],
+                e0["obj"],
+                e0["valid_from"],
+                e0["confidence"]
+            );
+            found = true;
+            break 'poll;
         }
         tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
     }
