@@ -186,7 +186,7 @@
       <figcaption>
         <div class="num">01 / 10 · ARCHITECTURE</div>
         <h2>the simple architecture</h2>
-        <p>One Rust binary, two wire surfaces (REST, MCP) sharing handlers. Storage is sled plus an append-only Merkle log. Everything else is open data on the wire.</p>
+        <p>One Rust binary serves REST and MCP from the same handlers. It stores facts in sled and in an append-only Merkle log. All other data is open data that it reads from upstream sources.</p>
       </figcaption>
     </a></figure>
 
@@ -212,8 +212,8 @@
       <object class="frame" type="image/svg+xml" data="/docs/diagrams/04-agent-loop.svg" aria-label="A loop of five steps: the agent asks, recalls a signed fact, cites its fact_cid, acts, and writes back a new memory."><img src="/docs/diagrams/04-agent-loop.svg" alt="A loop of five steps: the agent asks, recalls a signed fact, cites its fact_cid, acts, and writes back a new memory." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">04 / 10 · AGENT LOOP</div>
-        <h2>how an agent actually uses us</h2>
-        <p>Ask, recall, cite, act, write back. The agent cites the <code>fact_cid</code> it read, and a signed note it writes is there for the next turn.</p>
+        <h2>how an agent uses emem</h2>
+        <p>The agent asks, recalls, cites, acts and writes back. It cites the <code>fact_cid</code> it read, and a signed note it writes is there for the next turn.</p>
       </figcaption>
     </a></figure>
 
@@ -222,7 +222,7 @@
       <figcaption>
         <div class="num">05 / 10 · REASONING</div>
         <h2>fact → reasoning</h2>
-        <p>The shape of a signed fact in the LLM's context window. The agent reasons over the value and cites the CID, so another agent can fetch the same fact.</p>
+        <p>This is a signed fact as it sits in the model context window. The agent reasons over the value and cites the CID, so another agent can fetch the same fact.</p>
       </figcaption>
     </a></figure>
 
@@ -231,7 +231,7 @@
       <figcaption>
         <div class="num">06 / 10 · NEIGHBOURS</div>
         <h2>why a memory, not a catalog</h2>
-        <p>STAC points to where the bytes live; emem answers the question at the place. emem uses STAC to find scenes; STAC is not the protocol.</p>
+        <p>STAC points to where the bytes are. emem answers the question at the place. emem uses STAC to find scenes, but STAC is not part of the protocol.</p>
       </figcaption>
     </a></figure>
 
@@ -249,7 +249,7 @@
       <figcaption>
         <div class="num">08 / 10 · TOPOLOGY</div>
         <h2>the decentralised way</h2>
-        <p>Each responder signs under its own key, and the same registries give the same CIDs. The eight nodes are illustrative: on 6 November 2026 emem.dev declared one peer, geo.qa/emem. Verification needs only the public key.</p>
+        <p>Each responder signs under its own key, and the same registries give the same CIDs. The eight nodes are illustrative: on 7 November 2026 emem.dev declared one peer, geo.qa/emem. Verification needs only the public key.</p>
       </figcaption>
     </a></figure>
 
