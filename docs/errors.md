@@ -119,6 +119,16 @@ curl -s -X POST https://emem.dev/v1/recall \
   -d '{"cell":5}'
 ```
 
+A value out of its range gives HTTP 400 with `code: invalid_argument` and
+`details.error: invalid_field`. The details also have `field`, `allowed`
+(the `min` and `max`, or an `enum`) and `got`. The `lat` and `lng` routes
+such as `/v1/at` send this body. `/v1/heat_solve`, `/v1/wave_solve` and
+`/v1/jepa_predict` send it for their numeric and `band` fields.
+
+```sh
+curl -s 'https://emem.dev/v1/at?lat=95&lng=10'
+```
+
 An unknown band key needs care, because the answer depends on the other
 bands in the request:
 
@@ -387,6 +397,12 @@ with `isError: true`, and the number is the negative of the protocol code
 | -32000 | 200 | The responder could not start a background task for the call. |
 
 The agent card also lists -32002 `TaskNotCancelable`. No A2A path sends it.
+
+`GET /mcp` with `Accept: text/event-stream` gives HTTP 405 and the header
+`allow: POST, OPTIONS`. The body is plain JSON, not JSON-RPC, with `error:
+sse_stream_not_offered`. The endpoint is stateless and has no stream. Send
+JSON-RPC over POST to the same URL. A `GET /mcp` without that `Accept` value
+gives the discovery document.
 
 We sent requests to emem.dev on 7 November 2026. Each gave the code and
 status in the tables. From `/mcp` we got -32600, -32601, -32602 (three
