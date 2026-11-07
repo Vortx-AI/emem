@@ -249,6 +249,10 @@ upstreams and background work. Each default comes from the code.
 | `EMEM_SHUTDOWN_GRACE_S` | `3` | Seconds that open connections get to finish at stop, 30 at most. |
 | `EMEM_STOP_GRACE_S` | `60` | The stop grace of the container, from 5 to 3600 seconds. Set it to your `docker stop -t` value. The node closes `facts.redb` before this time ends, so a kill does not leave the file for recovery. |
 
+The memory TTL pass, the combine pass and the refinement pass are also background work. All three are off by
+default. The files in `deploy/` do not turn them on. [Self-host, Memory variables](../self-host.md#memory-variables)
+lists their variables.
+
 ### Identity, discovery and logs
 
 | Variable | Default | What it does |
