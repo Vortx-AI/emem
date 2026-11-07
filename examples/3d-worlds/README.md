@@ -101,7 +101,7 @@ Edit the `window.EMEM_WORLD` block at the top of a template:
 
 | Key | What it does |
 | --- | --- |
-| `responder` | The emem node to read from. For a local node, run `docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest` and use `http://localhost:5051`. |
+| `responder` | The emem node to read from. For a local node, run `docker run -p 127.0.0.1:5051:5051 ghcr.io/vortx-ai/emem:latest` and use `http://localhost:5051`. Docker is not on our test host, so we did not run this command. |
 | `bbox` | `[west, south, east, north]` in WGS-84 degrees. |
 | `maxCells` | The number of cells to sample. The responder picks the grid and caps it at 1,024. |
 | `bands` | The bands to recall. `heightBand` picks the band that sets height. |
