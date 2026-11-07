@@ -25,6 +25,7 @@ check that you can run offline. The step-by-step checks are in
 | A fact is in the batch that the receipt signs | [protocol §8](./protocol.md#8-merkle-inclusion-proof) |
 | A signed tree head commits a log entry | [protocol §9.6.1](./protocol.md#961-check-an-inclusion-proof-by-hand) |
 | The log only grew since a head you kept | [protocol §9.6.1.1](./protocol.md#9611-check-a-consistency-proof-by-hand) |
+| A witness key co-signed a head of this log | [protocol §9.6.2.1](./protocol.md#9621-check-a-witness-co-signature-by-hand) |
 | A `fact_cid` matches the fact bytes | [protocol §5.5](./protocol.md#55-recompute-a-fact_cid-by-hand) |
 | Which code answered you | [section 1](#1-which-code-answered-you) |
 | What each refusal means | [errors](./errors.md) |
@@ -344,7 +345,8 @@ If you pinned a head earlier, add `at_or_after=<your tree_size>`. The
 response then has a `nearest_witnessed` block. It gives the nearest co-signed
 head at or after your size, with an independent key first. It also gives a
 consistency proof from your size to that head. Check each witness signature,
-then check the proof.
+then check the proof
+([protocol §9.6.2.1](./protocol.md#9621-check-a-witness-co-signature-by-hand)).
 
 The node hash is `blake3(0x01 || left || right)`. A witness that uses SHA-256
 cannot reproduce the root. From outside, that failure looks the same as

@@ -30,6 +30,7 @@ read the sections it names.
 | Check that a fact is in a signed batch | [§8 Merkle inclusion proof](#8-merkle-inclusion-proof) |
 | Check that a fact or a memory note is in the transparency log | [§9.6 Transparency log](#transparency-log), then the steps in [§9.6.1](#961-check-an-inclusion-proof-by-hand) |
 | Check that the log only grew since a head you kept | The steps in [§9.6.1.1](#9611-check-a-consistency-proof-by-hand) |
+| Check a witness co-signature on a tree head | The steps in [§9.6.2.1](#9621-check-a-witness-co-signature-by-hand) |
 | Calculate a `fact_cid` from a fact | The steps in [§5.5](#55-recompute-a-fact_cid-by-hand), then [§3 CID](#3-cid-and-factcid) and [§4 CBOR](#4-cbor-canonicalisation) for the rules |
 | Change a latitude and a longitude into a cell64 | [§1 Cell64](#1-cell64-the-spatial-primitive) |
 | Change a time into a tslot | [§2 Tslot](#2-tslot-temporal-addressing) |
@@ -2556,6 +2557,85 @@ every `key_only` key, and keys cost nothing. Use
 `org_vouched` domain other than this node's own signed the current head.
 On 7 November 2026 it was `false`. `independent_operator_count` was 1,
 and `independent_witness_count` was 112 keys.
+
+##### 9.6.2.1 Check a witness co-signature by hand
+
+This check shows that a key signed a `(tree_size, root)` pair, and that
+the pair is a prefix of the current signed head. It does not show that
+the key is independent of the responder. You decide that in step 5.
+
+1. Get co-signatures: `curl -s 'https://emem.dev/v1/log/witnesses?limit=5'`.
+   To get all co-signatures for one size, add `&tree_size=<n>`.
+2. For each row, rebuild the digest. Use the `PreimageV1` rules of §7.1
+   with domain `emem.translog.witness.v1` and three segments.
+   `tree_size` is 8 bytes big-endian. `root` and `witness_pubkey` are the
+   raw 32 bytes from base32. There is no time segment, so the signature
+   does not cover `cosigned_at`.
+3. Verify `signature_b32` over that digest with `witness_pubkey_b32`.
+   The script below does steps 2 and 3 for every row in the file.
+4. Connect the witnessed root to a signed head. Use the row as the kept
+   STH of §9.6.1.1. The row has the two fields that the consistency
+   script reads, `tree_size` and `root_b32`.
+5. Identify who holds the key. For an `org_vouched` row, read
+   `vouched_by_domain`, then get `https://<domain>/.well-known/emem-agents.json`.
+   The key must be in `agents[].key`. Read `organisation` in the same
+   document. Then decide if that organisation is independent of the
+   operator of the responder.
+
+Save the step 1 answer as `witnesses.json`. Save this script as
+`check_witness.py`. It needs Python 3 and the `blake3` and `pynacl`
+packages:
+
+```python
+import base64, json, sys
+from blake3 import blake3
+from nacl.signing import VerifyKey
+
+def b32(s):
+    return base64.b32decode(s.upper() + "=" * (-len(s) % 8))
+
+def preimage_v1(domain, segs):
+    h = blake3(b"emem.preimage.v1\x00")
+    h.update(len(domain).to_bytes(4, "little") + domain.encode())
+    for tag, b in segs:
+        h.update(bytes([tag]) + len(b).to_bytes(4, "little") + b)
+    return h.digest()
+
+for w in json.load(open(sys.argv[1]))["witnesses"]:
+    pk = b32(w["witness_pubkey_b32"])
+    digest = preimage_v1("emem.translog.witness.v1", [
+        (1, w["tree_size"].to_bytes(8, "big")),
+        (2, b32(w["root_b32"])),
+        (3, pk),
+    ])
+    VerifyKey(pk).verify(digest, b32(w["signature_b32"]))  # raises if bad
+    print("VALID", w["tree_size"], w["tier"], w["witness_pubkey_b32"][:8])
+```
+
+For step 4, put one row in the shape of an STH answer. Then get a new
+STH and a consistency proof from the row's size to the new size:
+
+```sh
+python3 check_witness.py witnesses.json
+jq '{sth: .witnesses[0]}' witnesses.json > old.json
+curl -s https://emem.dev/v1/log/sth > new.json
+curl -s 'https://emem.dev/v1/log/consistency?first=<old size>&second=<new size>' > cons.json
+python3 check_consistency.py old.json new.json cons.json
+```
+
+The Rust function for steps 2 and 3 is `witness_preimage` in
+`crates/emem-api-rest/src/lib.rs`. The plugin script `verify_log.py`
+does not check witness co-signatures.
+
+On 7 November 2026 these steps passed against emem.dev at 01:55 UTC.
+Three keys had co-signed `tree_size` 3,245,195: one `org_vouched`, one
+`key_only` and one `self_operator`. All three signatures were VALID. A
+root with one changed character gave `InvalidSignature`. The consistency
+proof from 3,245,195 to the STH at 3,245,579 gave CONSISTENT. The
+`org_vouched` key `r6eqktcl…` had `vouched_by_domain` `eudr.dev`. The
+eudr.dev document lists it with role `transparency_log_witness`. Its
+`organisation.legal_name` is `VORTX AI PRIVATE LIMITED`. The emem
+repository is in the `Vortx-AI` GitHub organisation.
 
 #### 9.6.3 Memory writes in the log
 
