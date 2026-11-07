@@ -28,7 +28,8 @@ curl -sX POST http://localhost:5051/v1/locate \
     -d '{"q":"South Mumbai"}'
 ```
 
-`/live` is the cheap probe. `/health` also reports corpus statistics and can be slower. The node needs no key and no
+`/live` is the cheap probe. Its reply has `ok`, `version` and the node's `responder_pubkey_b32`. The locate reply has
+the `cell64` of the place. `/health` also reports corpus statistics and can be slower. The node needs no key and no
 account. On the first recall of a cell, it reads the open archives, signs the values and stores them.
 
 On 6 November 2026 the host that wrote this page had no Docker. A registry query found the image manifest, and
@@ -63,7 +64,8 @@ Without `--user`, the uid 65532 process cannot write to a directory that your ow
 ### Use Docker Compose
 
 [`docker-compose.yml`](https://github.com/Vortx-AI/emem/blob/main/docker-compose.yml) starts a node for the witness role in
-[Federation](federation.md). It binds `127.0.0.1:5051` and stores data in the volume `emem-data`.
+[Federation](federation.md). It binds `127.0.0.1:5051` and stores data in the volume `emem-data`, mounted at `/data`
+(`EMEM_DATA=/data`). It witnesses `https://emem.dev` unless you set `EMEM_PEERS`.
 
 ```bash
 docker compose up -d
@@ -130,7 +132,7 @@ Each default below comes from the code on 6 November 2026.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `EMEM_BIND` | `0.0.0.0:5051`; `127.0.0.1:5051` when TLS is on | The plain HTTP listener. Give `host:port`, not only a host. |
+| `EMEM_BIND` | `0.0.0.0:5051`; `127.0.0.1:5051` when TLS is on (binary only; the image always sets it) | The plain HTTP listener. Give `host:port`, not only a host. |
 | `EMEM_DATA` | `./var/emem` (image: `/var/emem`) | The data directory. `:memory:` keeps the store in RAM only, and the node loses it at exit. |
 | `EMEM_TLS_DOMAINS` | unset | Comma-separated domains. When set, the node gets certificates from Let's Encrypt and serves TLS. |
 | `EMEM_TLS_BIND` | `0.0.0.0:443` | The TLS listener. The node uses it only when `EMEM_TLS_DOMAINS` has a value. |
@@ -232,6 +234,10 @@ EMEM_TLS_CONTACT=mailto:ops@example.com \
 
 The node then serves HTTPS on `0.0.0.0:443`. The plain listener moves to `127.0.0.1:5051`, so signed writes do not cross
 the public network without encryption. Set `EMEM_BIND` only if you want the plain listener on another address.
+
+The image works differently. Its entrypoint always sets `EMEM_BIND`, by default to `0.0.0.0:5051`. With TLS on in the
+image, the plain listener therefore stays open on all interfaces. To keep it on loopback, add
+`-e EMEM_BIND=127.0.0.1:5051` to `docker run`, or do not publish port 5051.
 
 The first start takes about 15 to 30 seconds while Let's Encrypt checks the domain. Later starts use the certificate
 in `$EMEM_DATA/acme.cache/`. Set `EMEM_TLS_STAGING=1` while you test, because the production service of Let's Encrypt
