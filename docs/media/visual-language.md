@@ -97,6 +97,16 @@ It fails when a still or a poster has a transparent pixel or a corner that is no
 on a width that these rules do not give. It fails when a diagram has no `#0d1117` rect over its full view box, or has
 text smaller than 16 px.
 
+Text in a still must stay readable on a phone. A phone shows a still in a column about 360 px wide. On that column,
+no text may be smaller than 9.9 px. On a still drawn 800 px wide, that is 22 px. Chart text inside an SVG counts at
+its drawn size, after the view box scales it. To measure every still, run its renderer and read the smallest text.
+This needs Playwright:
+
+    python docs/media/stills/src/text_floor.py
+
+On 7 November 2026, all 25 stills passed. The phone copies of the hero and `what-crosses` have their smallest
+text at 12.0 px. All other stills have theirs at 9.9 px.
+
 ## Media that follows these rules
 
 Each row gives the question the image answers and the page that shows it. Paths are relative to `docs/media/`.

@@ -65,7 +65,7 @@ cross = {k[0]: next(n for n in range(1, 300) if bundle_chars(n) < n * k[2]) for 
 assert cross["Fact token, cell64 form"] == 1
 
 # Chart: x is N on a log2 axis (1..1024), y is characters on a log10 axis (1..1e6).
-W, H, L, R, T, Bm = 1000, 700, 120, 330, 30, 80
+W, H, L, R, T, Bm = 1000, 760, 130, 340, 30, 100
 pw, ph = W - L - R, H - T - Bm
 
 
@@ -77,15 +77,15 @@ def Y(c):
     return T + ph * (1 - math.log10(c) / 6)
 
 
-svg = [f'<svg viewBox="0 0 {W} {H}" width="100%" font-family="DejaVu Sans" font-size="26">']
+svg = [f'<svg viewBox="0 0 {W} {H}" width="100%" font-family="DejaVu Sans" font-size="34">']
 for e in range(0, 7):
     y = Y(10 ** e)
     svg.append(f'<line x1="{L}" x2="{L + pw}" y1="{y}" y2="{y}" stroke="#30363d"/>')
-    svg.append(f'<text x="{L - 12}" y="{y + 9}" fill="#8b949e" text-anchor="end">'
+    svg.append(f'<text x="{L - 12}" y="{y + 12}" fill="#8b949e" text-anchor="end">'
                f'{["1", "10", "100", "1k", "10k", "100k", "1M"][e]}</text>')
 for n in (1, 4, 16, 64, 256, 1024):
     svg.append(f'<line x1="{X(n)}" x2="{X(n)}" y1="{T}" y2="{T + ph}" stroke="#30363d"/>')
-    svg.append(f'<text x="{X(n)}" y="{T + ph + 34}" fill="#8b949e" text-anchor="middle">{n}</text>')
+    svg.append(f'<text x="{X(n)}" y="{T + ph + 44}" fill="#8b949e" text-anchor="middle">{n}</text>')
 svg.append(f'<text x="{L + pw / 2}" y="{H - 6}" fill="#8b949e" text-anchor="middle">N facts carried</text>')
 ends = []
 for label, col, per, _, _ in kinds:
@@ -100,9 +100,9 @@ ends.append((Y(bundle_chars(1024)), "#7ee787", "bundle"))
 ends.sort()
 last = -1e9
 for y, col, lab in ends:
-    y = max(y, last + 34)
+    y = max(y, last + 44)
     last = y
-    svg.append(f'<text x="{X(1024) + 14}" y="{y + 9}" fill="{col}">{lab}</text>')
+    svg.append(f'<text x="{X(1024) + 14}" y="{y + 12}" fill="{col}">{lab}</text>')
 svg.append("</svg>")
 
 rows = "".join(
@@ -124,7 +124,7 @@ h1{{font-size:42px;line-height:1.2;margin:0 0 10px}}
 .h + .row{{border-top:none}}
 .lab{{font-size:26px}}
 .num{{font-size:34px}} .num span{{font-size:22px;color:#8b949e}}
-.ex{{font-size:21px;color:#c9d1d9;word-break:break-all;margin:4px 0}}
+.ex{{font-size:22px;color:#c9d1d9;word-break:break-all;margin:4px 0}}
 .note{{font-size:22px;color:#8b949e}}
 .big{{font-size:34px;color:#7ee787}}
 .foot{{color:#8b949e;font-size:22px;margin-top:6px;line-height:1.4}}

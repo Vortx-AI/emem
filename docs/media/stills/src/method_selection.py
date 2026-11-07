@@ -143,18 +143,18 @@ h1{{font-size:40px;line-height:1.2;margin:0 0 10px}}
 .ph{{font-size:27px;margin-bottom:4px}}
 .sub{{font-size:23px;margin:18px 0 4px}}
 .g{{border-collapse:collapse;width:100%;font-size:22px;margin-top:10px}}
-.g th{{color:#8b949e;font-weight:normal;font-size:19px;text-align:left;padding:0 6px 6px 0;vertical-align:bottom}}
+.g th{{color:#8b949e;font-weight:normal;font-size:22px;text-align:left;padding:0 6px 6px 0;vertical-align:bottom}}
 .g td{{padding:3px 6px 3px 0;border-top:1px solid #30363d}}
 .n{{color:#8b949e;text-align:right;padding-right:24px!important}}
 .sq{{width:30px;height:22px;border-radius:4px}}
 .same{{background:#30363d}} .diff{{background:#ffa657}}
-.fl{{color:#ff7b72;font-size:20px}}
+.fl{{color:#ff7b72;font-size:22px}}
 .pair{{display:grid;grid-template-columns:120px 1fr 110px;align-items:center;gap:12px;margin:5px 0}}
 .bl{{color:#8b949e;font-size:22px}}
 .track{{background:#0d1117;border:1px solid #30363d;border-radius:4px;height:24px}}
 .fill{{height:100%;border-radius:3px}}
 .g0{{background:#79c0ff}} .g1{{background:#ffa657}} .g2{{background:#d2a8ff}}
-.pv{{font-size:21px;text-align:right}}
+.pv{{font-size:22px;text-align:right}}
 .axis{{position:relative;height:30px;border-bottom:1px solid #30363d}}
 .zero{{position:absolute;top:0;bottom:-6px;width:2px;background:#e6edf3}}
 .ci{{position:absolute;top:9px;height:12px;background:#ffa657;border-radius:6px;opacity:.85}}
