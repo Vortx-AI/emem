@@ -343,6 +343,13 @@ In 2026 that is 7 years × 8 cells × 2 bands = 112 reads for each plot.
 | Whole `/v1/eudr_dds` call | 280 s | `EMEM_EUDR_TIMEOUT_SECS` | 15 to 600 s |
 | Visual reads at one time | 6 | `EMEM_EUDR_VISUAL_CONCURRENCY` | 1 to 64 |
 | EUDR requests at one time | 3 | `EMEM_EUDR_MAX_INFLIGHT` | 1 to 64 |
+| Wait for a free EUDR slot | 30 s | `EMEM_EUDR_QUEUE_SECS` | 0 to 120 s |
+
+`/v1/eudr_dds`, `/v1/field_burn_scar` and `/v1/field_actual_et` share these slots.
+When all slots are in use, up to 4 times that number of requests wait for a slot.
+A request that gets no slot in the wait time gets HTTP 503 with `code: "overloaded"` and `Retry-After: 1`.
+A request that arrives when the wait queue is full gets the same 503 at once.
+A wait time of 0 sends the 503 at once when all slots are in use.
 
 If the visual budget runs out, the plot still gets its verdict.
 The visual block then has `verdict: "incomplete"`.
