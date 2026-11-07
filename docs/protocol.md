@@ -31,7 +31,7 @@ read the sections it names.
 | Calculate a `fact_cid` from a fact | [§3 CID](#3-cid-and-factcid), [§4 CBOR](#4-cbor-canonicalisation), [§5 Fact](#5-fact) |
 | Change a latitude and a longitude into a cell64 | [§1 Cell64](#1-cell64-the-spatial-primitive) |
 | Change a time into a tslot | [§2 Tslot](#2-tslot-temporal-addressing) |
-| Sign a memory write | [§7.5 Memory writes](#75-capability-binding-for-memory-writes) |
+| Sign a memory write | [§7.5 Signed memory writes](#75-capability-binding-for-memory-writes) |
 | Check who wrote a memory note | The steps in [§7.5.1](#751-check-a-notes-authorship-by-hand) |
 | Test your own encoder or verifier | [§12 Conformance gates](#12-conformance-gates-the-four-cids), [§13 Test vectors](#13-test-vectors) |
 
@@ -53,7 +53,7 @@ dots, for example `dedi.zaf00.bafi.baba`. Hashes and comparisons use the
 integer form. Facts and receipts contain the dotted text form.
 
 ![address algebra: cell + band + tslot → canonical CBOR → blake3 → 52-character base32 CID](/docs/diagrams/09-address-algebra.svg)
-*The full address pipeline at a glance. Section 4 walks each box; the SVG also names every constant the encoder uses.*
+*The full address pipeline in one picture. Section 4 walks each box; the SVG also names every constant the encoder uses.*
 
 ### 1.1 Bit layout
 
@@ -76,9 +76,9 @@ Defined in `crates/emem-codec/src/geo.rs:41-50`.
 | 42..22 | lat_q | 21 bits | quantised latitude, `[0, 2^21)` over the 180° range |
 | 21..00 | lng_q | 22 bits | quantised longitude, `[0, 2^22)` over the 360° range |
 
-The lat axis carries one fewer bit than the lng axis on purpose:
-180° / 2^21 ≈ 360° / 2^22, so the bucket is square at the equator
-(about 9.55 m on each axis; the test at geo.rs:367 pins this).
+The lat axis carries one fewer bit than the lng axis on purpose.
+180° / 2^21 ≈ 360° / 2^22, so the bucket is square at the equator.
+Each axis is about 9.55 m; the test at geo.rs:367 pins this.
 Equal bit counts would give 1:2-rectangular cells.
 
 ### 1.2 Encoding rule (lat/lng → Cell)
@@ -151,8 +151,8 @@ a 65,536-entry alphabet built deterministically in
   `z<hex4>`, where `<hex4>` is the four-digit lowercase hex of the
   index itself.
 
-Index → bigram is `O(1)` via `ALPHABET[i]`; bigram → index is `O(1)`
-via the precomputed reverse map `ALPHABET_INDEX`.
+Index → bigram is `O(1)` through `ALPHABET[i]`. Bigram → index is `O(1)`
+through the precomputed reverse map `ALPHABET_INDEX`.
 
 ### 1.4 Worked example: lat=0.0, lng=0.0
 
@@ -222,13 +222,13 @@ The tests in `geo.rs:357-700` pin the contract.
 ### 1.7 Legacy 16-bit grid: rejected
 
 Pre-0.0.3 emem used a `GEO_RES = 12` (16-bit-per-axis, ~305 m) grid.
-That encoding is **not** decodable by the current codec. The test at
-`geo.rs:478-493` constructs a legacy-shaped raw word and confirms
-`latlng_from_cell64` returns `Err(CodecError::NotGeoCell)`: the
-resolution field changed (12 → 21), `GEO_PREFIX_MASK` keys on it, so
-legacy strings fail closed instead of silently misplacing a fact by
-hundreds of metres. Implementations MUST NOT serve, accept, or quietly
-upgrade legacy cell64 strings.
+The current codec does **not** decode that encoding. The test at
+`geo.rs:478-493` makes a legacy-shaped raw word. It confirms that
+`latlng_from_cell64` returns `Err(CodecError::NotGeoCell)`. The
+resolution field changed (12 → 21) and `GEO_PREFIX_MASK` keys on it.
+So legacy strings fail closed; they do not put a fact hundreds of
+metres from its true place. A responder or client MUST NOT serve, accept,
+or quietly upgrade legacy cell64 strings.
 
 ---
 
@@ -251,7 +251,7 @@ collapsed to `Tslot(0)`. The current code (tslot.rs:64-76) computes
 Tslot(unix_seconds.max(0) / tempo.slot_seconds())
 ```
 
-The constant `EMEM_EPOCH_UNIX` is retained as protocol metadata only;
+The code keeps the constant `EMEM_EPOCH_UNIX` as protocol metadata only;
 nothing in the encode path subtracts it. Pre-1970 (negative Unix)
 inputs clamp to `Tslot(0)`.
 
@@ -375,16 +375,16 @@ On 6 November 2026 a recall at Mount Fuji on emem.dev returned
 `fact_cid` values of 52 characters.
 
 This page said `[..16]` until 2026-08-13, and so did the agent guide. The
-whitepaper's own errata already called that the most consequential error
-in the v1 draft, and it was still live in two other documents, which is
-the failure this repo keeps finding: a correction lands where it was
-noticed and not where it is read. `dpwotikn` reported the widths as
+whitepaper's own errata called that the most serious error in the v1
+draft. But the error was still live in two other documents. This repo
+finds that failure often: a correction lands where someone noticed it,
+not where people read it. `dpwotikn` reported the widths as
 inconsistent across our documents while building a telescope pipeline,
 and they were right.
 
-The truncated rule is real but belongs to two other identifiers:
-`entity_cid` and `bundle_cid` are `blake3(...)[..16]`, 26 characters,
-because they anchor a reference rather than binding a whole body.
+The truncated rule is real, but it belongs to two other identifiers.
+`entity_cid` and `bundle_cid` are `blake3(...)[..16]`, 26 characters.
+They anchor a reference; they do not bind a whole body.
 
 Mutating any field of the fact changes its CBOR bytes and therefore its
 FactCid; the round-trip test at `crates/emem-fact/tests/round_trip.rs`
@@ -451,7 +451,7 @@ the map with already-sorted keys; emem does not re-sort silently.
 | 65002 | emem vec64 | 32-byte vector CID |
 | 42 | IPLD CID | base32 multibase string (`b...`) |
 
-Two implementations MUST produce byte-identical CBOR for the same fact.
+Two encoders MUST produce byte-identical CBOR for the same fact.
 A round-trip test (encode → decode → encode → byte-compare) is the
 gate; `crates/emem-fact/tests/round_trip.rs` enforces it.
 
@@ -749,8 +749,8 @@ in a default read of another agent. The storage layout prevents this
 for the keyed reads:
 
 > `fact_canonical_key` returns `None` for the `Derivative` variant
-> (`crates/emem-cache/src/sled_hot.rs`), so a derivative is stored
-> content-addressed but is **never written to the canonical index**, the
+> (`crates/emem-cache/src/sled_hot.rs`). So the store keeps a derivative
+> content-addressed, but **never writes it to the canonical index**, the
 > multi-attester index, or the scope index.
 
 Every keyed read uses one of those indexes. Thus `recall`,
@@ -1154,12 +1154,18 @@ The receipt segments, in tag order (constants live in
 | `0x0a` | `field_hex` | scalar | optional |
 | `0x0b` | `merkle_hex` | scalar | required in v2, absent in v1 |
 
-Each optional digest is the blake3-hex of the canonical CBOR of its
-receipt field: `scope_hex` over the non-empty `Scope`, `as_of_hex` over
-the bounded `as_of`, `edges_hex` over the sorted `edge_cids`, and
-`manifest_hex` over the sorted `source_versions{registry_cid,
-schema_cid, bands_cid, sources_cid}`. `bands_cid` rides inside the
-manifest digest, so the active band set is transitively attested.
+Each optional digest is the blake3-hex of the canonical CBOR of one
+receipt field:
+
+| Digest | Field it covers |
+|---|---|
+| `scope_hex` | the non-empty `Scope` |
+| `as_of_hex` | the bounded `as_of` |
+| `edges_hex` | the sorted `edge_cids` |
+| `manifest_hex` | the sorted `source_versions{registry_cid, schema_cid, bands_cid, sources_cid}` |
+
+`bands_cid` is inside the manifest digest, so the signature also
+attests the active band set.
 
 The last two segments are digests of their own sub-preimages. Each
 sub-preimage uses the same stream rules as above, with its own domain.
@@ -1170,12 +1176,13 @@ sub-preimage uses the same stream rules as above, with its own domain.
   `seg(0x01, aoi_cid)` and `seg(0x02, derivation_cid)`. It is not a
   hash of the JSON object.
 - `merkle_hex` is the lowercase hex of `emem_attest::merkle_binding_v2`,
-  domain `merkle`. When the receipt carries a `merkle_proof`, the
-  segments are `seg(0x01, root)` (32 raw bytes),
-  `seg(0x02, u32-LE leaf_index)`, `seg(0x03, path)` (the 32-byte
-  siblings concatenated as one segment) and
-  `seg(0x04, [version])` (one byte; `version` is omitted from the JSON
-  when it is 0). With no proof, the only segment is `seg(0x05, "")`.
+  domain `merkle`. When the receipt carries a `merkle_proof`, it has
+  four segments:
+  `seg(0x01, root)` (32 raw bytes),
+  `seg(0x02, u32-LE leaf_index)`,
+  `seg(0x03, path)` (the 32-byte siblings joined as one segment) and
+  `seg(0x04, [version])` (one byte). The JSON omits `version` when it
+  is 0. With no proof, the only segment is `seg(0x05, "")`.
   A v2 receipt always writes `0x0b`, so a stripped proof changes the
   digest.
 
@@ -1191,11 +1198,10 @@ the four real keys the two orders differ. If you use the RFC order, every
 valid receipt fails (`Server::manifest_versions_blake3_hex`,
 `crates/emem-storage/src/server.rs:231`).
 
-The canonical, code-generated segment table is served at
-`GET /v1/verifier_spec` (also `/.well-known/emem-verifier.json`); it is
-emitted from the same compiled `emem_attest` constants the signer uses,
-so it cannot drift from the wire. Treat it as the source of truth over
-any prose here.
+`GET /v1/verifier_spec` (also `/.well-known/emem-verifier.json`) serves
+the canonical segment table. The responder makes it from the same
+compiled `emem_attest` constants that the signer uses. So it cannot
+drift from the wire. If it and this page disagree, trust the endpoint.
 
 **Legacy v0.** Receipts with `preimage_version` absent or `0` were
 signed under the pre-cutover untagged pipe rule
@@ -1204,13 +1210,13 @@ signed under the pre-cutover untagged pipe rule
 v0 anymore.
 
    **What the preimage does NOT cover.** The segments above are the
-   complete signed surface. Notably **NOT** in the preimage:
+   complete signed surface. These items are **NOT** in the preimage:
 
    - The caller's free-text `place` / `q` string. A wrong-place
-     geocode produces a clean signature for the wrong cell64; the
-     trust chain attests *the responder claims these facts at these
-     cells*, never *these cells were the right resolution of the
-     question*. Agents bind the resolution decision themselves via
+     geocode gives a clean signature for the wrong cell64. The trust
+     chain attests *the responder claims these facts at these cells*.
+     It never attests *these cells were the right answer to the
+     question*. Agents bind that decision themselves, with
      `selected.is_high_confidence` from `POST /v1/locate`.
    - The caller's raw `lat` / `lng`. Quantisation collapses sub-cell
      precision into `cell_from_latlng` *before* signing; the receipt
@@ -1219,14 +1225,14 @@ v0 anymore.
      what it returned; whether the returned facts answer the agent's
      question is the agent's interpretive responsibility.
 
-   Echo the original query alongside the receipt if the downstream
-   needs *"the user asked X and the responder agreed"*: the receipt
-   alone does not testify to the resolution-of-intent step.
+   The receipt alone does not show how the responder read the question.
+   If a later reader needs *"the user asked X and the responder
+   agreed"*, send the original query with the receipt.
 
-   **The `as_of` block enters the preimage.** When a read carried a
-   bi-temporal bound (`as_of_tslot` and/or `as_of_signed_at`), the
+   **The `as_of` block enters the preimage.** A read can carry a
+   bi-temporal bound: `as_of_tslot`, `as_of_signed_at`, or both. Then the
    receipt body carries an `as_of: {valid_time?, transaction_time?}`
-   block, and its blake3-hex over canonical CBOR is hashed in as the
+   block. Its blake3-hex over canonical CBOR goes into the stream as the
    optional `0x04` segment (`as_of_hex`). A verifier recomputes that
    digest from the `as_of` block to reproduce the signed bytes; a
    current-state read omits the block and the segment alike.
@@ -1234,7 +1240,7 @@ v0 anymore.
    time to `YYYY-MM-DDTHH:MM:SSZ` (`normalise_rfc3339_utc`). It removes
    fractional seconds and changes `+00:00` or `-00:00` to `Z`. A
    verifier must do the same, or a valid receipt fails. The bound
-   is therefore bound both directly (via `as_of_hex`) and transitively
+   is therefore bound both directly (through `as_of_hex`) and transitively
    (it selects which `fact_cids` the preimage also binds).
 
    **Per-replica fact identity.** Each Primary / Negative /
@@ -1246,10 +1252,10 @@ v0 anymore.
    responder signs independently under its own identity). The
    cross-replica join key for "does any responder have this
    observation" is the tuple `(cell, band, tslot)`, not `fact_cid`.
-   Aggregate fan-out endpoints (notably `POST /v1/recall_polygon`)
-   emit one independently signed receipt per cell under
-   `by_cell.<cell>.receipt`; the top-level `merged_facts[]` is
-   convenience-only and is **not** covered by an aggregate signature.
+   Fan-out endpoints over many cells, for example
+   `POST /v1/recall_polygon`, emit one separately signed receipt per
+   cell under `by_cell.<cell>.receipt`. The top-level `merged_facts[]`
+   is for convenience only. **No** signature covers the merged list.
 
 ### 7.2 Worked example: preimage layout
 
@@ -1291,27 +1297,28 @@ Then `signature = ed25519_sign( blake3(stream) )`. The same receipt
 with empty `cells` still writes the `0x08` segment with count 0
 (`08 00000000`); its digest is
 `da65c4ee7514a370b8158f103a085461850cb5776761781a38d2aeaa278885c0`.
-When a read carries a scope, bi-temporal bound, edges, or
-`source_versions`, the matching optional segment
-(`0x03`/`0x04`/`0x05`/`0x06`) is inserted before `0x07` in tag order,
-each the blake3-hex of the field's canonical CBOR (see §7.1).
+A read can carry a scope, a bi-temporal bound, edges, or
+`source_versions`. Then the signer puts the matching optional segment
+(`0x03`/`0x04`/`0x05`/`0x06`) before `0x07`, in tag order. Each one is
+the blake3-hex of the field's canonical CBOR (see §7.1).
 
 ### 7.3 Merkle proof attachment
 
 `sign_receipt_v1_inner` (`crates/emem-storage/src/server.rs:354-359`)
 attaches `merkle_proof` for `fact_cids[0]` only.
-The receipt's signature already binds **all** cited CIDs together
-(they appear in the preimage), so a single inclusion anchor to the
-attestation tree is sufficient: the verifier checks the signature,
-then checks the one inclusion proof, and is convinced the whole batch
+The receipt's signature already binds **all** cited CIDs together,
+because they are in the preimage. So one inclusion anchor to the
+attestation tree is enough. The verifier checks the signature, then
+checks the one inclusion proof. Then it knows that the whole batch
 came from the declared attester.
 
 If the cited facts pre-date the proof tree (ephemeral run, or facts
 written before `persist_fact_proofs` shipped), `merkle_proof` is
 absent. The receipt is still a valid signed statement; only the
-attestation-tree anchor is missing. Under v2 that absence is itself
-signed: `merkle_binding_v2(None)` hashes an explicit ABSENT marker, so "I have no proof" is a statement the responder made, not a gap an
-intermediary can create.
+attestation-tree anchor is missing. Under v2 the signature also covers
+that absence: `merkle_binding_v2(None)` hashes an explicit ABSENT marker.
+So "I have no proof" is a statement that the responder made. An
+intermediary cannot make that gap.
 
 The binding covers `leaf_index`, `path`, `root` and `version`. Three more
 fields ride beside them **unsigned**, to say where the proof sits:
@@ -1324,13 +1331,19 @@ fields ride beside them **unsigned**, to say where the proof sits:
   `ceil(log2(leaf_count))` siblings. Reject any other length before you
   fold.
 - `log_entry_hash`: the transparency-log entry of the attestation that carried
-  the batch, `blake3(attestation CBOR)` in base32. `GET
-  /v1/log/inclusion?entry_hash=` (or `?fact_cid=`) proves it into a signed tree
-  head, so a holder goes fact → batch root → attestation → log entry → STH.
+  the batch, `blake3(attestation CBOR)` in base32.
+  `GET /v1/log/inclusion?entry_hash=` (or `?fact_cid=`) proves it into a
+  signed tree head. The full chain is fact → batch root → attestation →
+  log entry → STH.
 
-All three are absent on proofs written before they were recorded. The batch
-tree and the log tree are different trees with different rules (sorted leaves
-and a self-paired odd node, against append order and a promoted lone node);
+All three are absent on proofs written before the responder recorded them.
+The batch tree and the log tree are different trees with different rules:
+
+| Tree | Leaf order | Odd node |
+|---|---|---|
+| batch tree | sorted leaves | paired with itself |
+| log tree | append order | promoted alone |
+
 `GET /v1/log/test_vectors` gives known answers for both.
 
 ### 7.3.1 A receipt is byte-for-byte or nothing
@@ -1347,9 +1360,9 @@ not trust them on their own. Some
 SDKs drop `merkle_proof` because it looks redundant, re-key a field,
 summarise the envelope, or round-trip it through a lossy format. Each
 of these gives `signature_valid: false` on data that nobody changed.
-That is not a defect in the verifier; it is the same property that
-stops an intermediary stripping a proof in transit, seen from the
-other side. Store and forward the responder's exact bytes.
+That is not a defect in the verifier. The same property stops an
+intermediary that removes a proof in transit. Store and forward the
+responder's exact bytes.
 
 Only two omissions reach a signature failure. A live recall receipt has
 16 keys. If you drop `responder_pubkey_b32` or `signature_b32`, nothing
@@ -1359,25 +1372,29 @@ a 400 `invalid_argument`. The two that fall through are v2's own:
 
 - `merkle_proof`, which v2 binds, so its removal changes the preimage.
 - `preimage_version`, which deserialises to `0` when absent and so
-  silently selects the v0 rule. This is the worse of the two: the
-  inclusion proof is untouched and still walks to its root, so the
-  response reports `merkle_proof_valid: true` beside a signature it
-  calls invalid. That pairing is this failure, not a contradiction.
+  silently selects the v0 rule. This is the worse of the two. The
+  inclusion proof is untouched and still walks to its root. So the
+  response reports `merkle_proof_valid: true` next to a signature that
+  it calls invalid. That pair shows this failure; it is not a
+  contradiction.
 
-The failure is worth distinguishing because it is indistinguishable on
-the wire from real tampering, and a false "forged" is more expensive
-than a missed one: it teaches an agent to distrust the one thing that
-was provable. `POST /v1/verify_receipt` names which it is *where it can
-prove the difference*. When the responder still holds the receipt's
-first fact, it rebuilds the receipt under v2 with the inclusion proof
-it recorded, re-checks the same signature, and if that verifies it
-reports `reason:
-receipt_reshaped_after_signing` with a `failure_detail` instead of
-`signature_invalid`. It never returns `valid: true` for such a receipt,
-and a body altered anywhere else fails the restored rebuild too, so the
-distinction is not a way back to the v1 downgrade
-(`crates/emem-attest/src/lib.rs::restoring_a_proof_rescues_only_an_untouched_body`
-pins that). An offline verifier holds no recorded proof and cannot make
+On the wire, this failure looks the same as real tampering. A false
+"forged" costs more than a missed one: it teaches an agent to distrust
+the one thing that it could prove. So `POST /v1/verify_receipt` names
+the cause *where it can prove the difference*:
+
+1. The responder still holds the receipt's first fact.
+2. It rebuilds the receipt under v2 with the inclusion proof that it
+   recorded.
+3. It checks the same signature again.
+4. If that passes, it reports `reason: receipt_reshaped_after_signing`
+   with a `failure_detail`, not `signature_invalid`.
+
+It never returns `valid: true` for such a receipt. A body changed in any
+other place also fails the restored rebuild. So this check is not a way
+back to the v1 downgrade.
+`crates/emem-attest/src/lib.rs::restoring_a_proof_rescues_only_an_untouched_body`
+pins that. An offline verifier holds no recorded proof and cannot make
 the distinction at all; `web/verify.html` says so rather than guessing.
 
 ### 7.4 Offline verification (Python)
@@ -1531,7 +1548,9 @@ is the reference verifier. A verifier that can reproduce this preimage
 and run ed25519 verify is the entire trust-rebinding path; no other call
 to the responder is required.
 
-### 7.5 Capability binding for memory writes
+<a id="75-capability-binding-for-memory-writes"></a>
+
+### 7.5 Signed memory writes
 
 In short: the author of a note signs it with their own Ed25519 key. The
 responder stores that signature next to the note. Any reader can check
@@ -1552,7 +1571,7 @@ attester_preimage = blake3(
 attester_sig = ed25519_sign(caller_signing_key, attester_preimage)
 ```
 
-`base` is the `file_cid` currently at `path`, or the literal `absent` when
+`base` is the `file_cid` now at `path`, or the literal `absent` when
 the path holds nothing, so a create of a new path signs `absent`. It makes
 each signature name the version it replaces, so a signature read off the
 public ledger cannot be replayed later. The v1 preimage is the same without
@@ -1560,12 +1579,17 @@ public ledger cannot be replayed later. The v1 preimage is the same without
 is refused for every verb (`reason: v1_retired`); notes signed with v1
 before then still verify when read.
 
-`memory_view` returns an `authorship` block that says which one was signed:
-`preimage_version` (1 or 2), `base`, and `preimage_version_source`, which is
-`recorded_at_write` for writes that stored the version, `reverified_at_read`
-for older rows the responder re-checked (v2 with `base = absent`, then v1),
-or `unknown` when neither verifies. Verify against the stated version; do
-not try both.
+`memory_view` returns an `authorship` block that says which version the
+author signed. It has `preimage_version` (1 or 2), `base`, and
+`preimage_version_source`:
+
+| `preimage_version_source` | Meaning |
+|---|---|
+| `recorded_at_write` | the write stored the version |
+| `reverified_at_read` | an older row; the responder checked v2 with `base = absent`, then v1 |
+| `unknown` | neither version verifies |
+
+Verify against the stated version. Do not try both.
 
 where:
 
@@ -1585,20 +1609,20 @@ where:
 | `supersede` | the UTF-8 bytes of `superseded_by + "\|" + reason` (`reason` is empty when omitted) |
 
 The body is the *content*, never the JSON envelope the caller POSTs.
-For the edit verbs the caller must apply the edit locally and hash the
-resulting file, which makes the signature commit to the state the
-responder will persist rather than to the patch that produced it.
+For the edit verbs, the caller must apply the edit locally and hash the
+result. Then the signature commits to the file that the responder will
+store, not to the patch that made it.
 
 `rename` binds both ends of the move with one signature: the
 destination is the preimage's `path`, the source is its `body_hash`.
-Verifying the same signature a second time against a preimage built
-from `old_path` would check one signature against two messages, which
-no ed25519 signature satisfies, so a responder MUST treat the source as
-a namespace question: if `old_path` is under `by_attester`, the
-attester key MUST own it, else 403 `memory_namespace_violation`
-(`reason: source_namespace`).
+A second check of the same signature against a preimage built from
+`old_path` would check one signature against two messages. No ed25519
+signature can pass both. So a responder MUST treat the source as a
+namespace question. If `old_path` is under `by_attester`, the attester
+key MUST own it. If not, the responder returns 403
+`memory_namespace_violation` (`reason: source_namespace`).
 
-The reference implementation is `crates/emem-primitives/src/memory_acl.rs`:
+The reference code is in `crates/emem-primitives/src/memory_acl.rs`:
 
 ```rust
 pub fn attester_preimage(verb: &str, path: &str, body_hash: &[u8; 32]) -> [u8; 32]
@@ -1628,11 +1652,19 @@ write with an invalid signature returns 401
 
 Bare `/memories/...` paths (no `by_attester` segment) are governed by
 the responder's memory-write policy, not by the namespace rule. A
-release build defaults to refusing every unattested write with 401
-`memory_attestation_required`; an operator re-opens the bare namespace
-for the unsigned Anthropic memory-tool form with `EMEM_MEMORY_OPEN=1`,
-or admits unattested `create` / `str_replace` / `insert` while gating
-`delete` and `rename` with `EMEM_MEMORY_HARDEN_DESTRUCTIVE=1`. A
+release build refuses every unattested write by default, with 401
+`memory_attestation_required`. An operator sets the policy with an
+environment variable, read once at start:
+
+| Setting | Effect on bare paths |
+|---|---|
+| `EMEM_MEMORY_REQUIRE_ATTESTER=1` | every write needs a signature (the release default, stated explicitly) |
+| `EMEM_MEMORY_OPEN=1` | opens them to the unsigned Anthropic memory-tool form |
+| `EMEM_MEMORY_HARDEN_DESTRUCTIVE=1` | admits unattested `create` / `str_replace` / `insert`; `delete` and `rename` still need a signature |
+
+If more than one is set, `REQUIRE_ATTESTER` wins, then `OPEN`, then
+`HARDEN_DESTRUCTIVE` (`memory_write_policy` in
+`crates/emem-api-rest/src/lib.rs`). A
 conforming client MUST NOT assume the bare namespace accepts unattested
 writes; it MUST treat 401 `memory_attestation_required` as the expected
 response and sign. The policy never relaxes `by_attester`, which
@@ -1816,7 +1848,7 @@ hash `b3(left || right)`. For version 1, read each `b3(x || y)` as
        l0          l1               l2          l3
 ```
 
-Inclusion proof for fact at sorted index 1 (i.e. promoted-leaf `l1`):
+Inclusion proof for fact at sorted index 1 (that is, promoted-leaf `l1`):
 
 - `leaf_index = 1`
 - `path = [ l0, L23 ]`
@@ -2145,23 +2177,28 @@ note (blake3 of its bytes) and then answers
 no entry. An entry added now would record the time of logging, not the
 time of writing.
 
-`GET /v1/log/entries?summary=1` serves one light row per entry instead
-of its bytes: `leaf_index`, `entry_kind`, `entry_hash_b32` and
-`entry_bytes`; for an attestation also `facts`, the first fact's `band`
-and `cell`, a `centre` rounded to 3 decimals, and `attested_at`; for a
-memory write `path`, `verb` and `signed_at`. On 2026-11-05 the last
-256 full entries, as served, had a median of 5.4 KB, a mean of 277 KB and
-a maximum of 2.6 MB: the bytes come twice in base32, once under each
-name. So a live feed on a phone reads summaries. Only `entry_hash_b32`
+`GET /v1/log/entries?summary=1` serves one light row per entry, not its
+bytes:
+
+| Entry | Fields in the summary row |
+|---|---|
+| every entry | `leaf_index`, `entry_kind`, `entry_hash_b32`, `entry_bytes` |
+| attestation, also | `facts`, the first fact's `band` and `cell`, a `centre` rounded to 3 decimals, `attested_at` |
+| memory write, also | `path`, `verb`, `signed_at` |
+
+On 2026-11-05 we measured the last 256 full entries, as served. The
+median was 5.4 KB, the mean 277 KB and the maximum 2.6 MB. The bytes come
+twice in base32, once under each name. So a live feed on a phone reads
+summaries. Only `entry_hash_b32`
 is checkable: fetch the full entry to re-hash it against the leaf.
 
 
 ### 9.7 Signed readings of things emem did not measure
 
-Four routes sign what the responder read, not what it measured. None of them
-persists anything, and none of their outputs is a fact: each receipt says
-which bytes, url, engine or model went together, never that the content is
-true. All use the same PreimageV1 construction as the STH (§9.6), under the
+Five signing domains on six routes sign what the responder read, not
+what it measured. None of these routes stores anything. None of their
+outputs is a fact. Each receipt says which bytes, url, engine or model
+went together. It never says that the content is true. All use the same PreimageV1 construction as the STH (§9.6), under the
 responder key; `/v1/verifier_spec` lists every segment.
 
 | domain | route | segments, in tag order |
@@ -2172,25 +2209,38 @@ responder key; `/v1/verifier_spec` lists every segment.
 | `emem.doc_parse.v1` | `POST /v1/lab_report_parse`, `POST /v1/land_record_parse` | kind (`lab_report_parse@1` or `land_record_parse@1`), text_blake3, result_blake3, parser (`doc_parse@1`), parsed_at, responder_pubkey. result_blake3 is blake3 over the `result` object serialised as compact JSON with keys in sorted order (serde_json's default map), which is how the response carries it |
 | `emem.decide.v1` | `POST /v1/decide` | blake3(request body), model id, blake3(answers json), decided_at, responder_pubkey |
 
-The fetching routes share one set of egress bounds: https on port 443 only,
-no IP literals or local names, the name resolved once and the connection
-pinned to publicly routable addresses, at most three redirects each admitted
-and pinned the same way, a size cap, and a per-IP daily quota. `range_hash`
-also requires a 206 whose Content-Range is exactly the bytes asked.
+The fetching routes share one set of egress bounds:
 
-`/v1/ocr` runs Tesseract; `/v1/decide` reads the first-token probabilities of
-the node's local open-weights model over option letters and abstains when the
-letters carry under half of that token. Both are `model_output`.
+- https on port 443 only
+- no IP literals or local names
+- the name resolved once, and the connection pinned to publicly
+  routable addresses
+- at most three redirects, each checked and pinned the same way
+- a size cap
+- a per-IP daily quota
+
+`range_hash` also requires a 206 whose Content-Range is exactly the
+bytes asked.
+
+`/v1/ocr` runs Tesseract. `/v1/decide` reads the first-token
+probabilities of the node's local open-weights model over the option
+letters. It abstains when the letters carry less than half of that
+token's probability. Both are `model_output`.
 
 #### emem:tree
 
 `GET /v1/tree/{file_cid}?row=` returns the audit path from one row of a
 `pointer.v1` or `directory.v1` note's table to the root the note states.
-The tree is the one those notes commit to: `leaf = blake3(url || u64_be
-offset || u64_be length || hash)`, `node = blake3(left || right)`, an odd
-node promoted unchanged; a pointer row at the note's own source hashes an
-empty url, and a directory row's `hash` is `blake3(path "\n" size "\n"
-publisher_hash)` over `(url, 0, size)`. Unlike §9.6 this tree has no
+It is the tree that those notes commit to:
+
+- `leaf = blake3(url || u64_be offset || u64_be length || hash)`
+- `node = blake3(left || right)`
+- an odd node goes up unchanged
+- a pointer row at the note's own source hashes an empty url
+- a directory row's `hash` is `blake3(path "\n" size "\n" publisher_hash)`
+  over `(url, 0, size)`
+
+Unlike §9.6 this tree has no
 leaf/node domain separation. A note whose stated root does not match its
 rows gets `root_mismatch` and no path. `POST /v1/tree/path` computes the same
 path over leaves or chunks the caller holds.
