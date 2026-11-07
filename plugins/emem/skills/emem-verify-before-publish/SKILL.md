@@ -68,7 +68,8 @@ The cited fact signs `28.0` degC. On 6 November 2026 at 23:59 UTC:
 | `28.0 degC` | `allow` | `null`. The citation state was `verified`. |
 | `35 degC`, sent as `"text"` and not `"texts"` | `allow` | `null`, with `citations_found: 0` and `checked: 0`. |
 
-A run on 28 September 2026 gave the same first two results.
+A run on 28 September 2026 gave the same first two results. On 7
+November 2026 at 02:10 UTC, all three rows gave the same results again.
 
 ## Step 3: act on a deny
 
@@ -107,6 +108,23 @@ Thus you must check the band yourself. Resolve the token with
 `emem_memory_token_resolve`. Its `band` must be the quantity that the
 sentence names, and its cell must be the place.
 
+Claim gating finds fewer claims than a reader does. A sentence is a
+claim only when it has a number with a unit and an anchor. The anchor
+is an ISO date, coordinates, a year, or a word such as "in", "at" or
+"near" before a capitalised word (`crates/emem-guard/src/claim.rs`).
+Results on 7 November 2026, with `claim_gating: true` and no citation:
+
+| Draft says | `action` |
+|---|---|
+| `The temperature in Bengaluru is 35 degC.` | `deny`, `CLAIM_UNGROUNDED`, with `source_band` `weather.temperature_2m` |
+| `Elevation in Leh is 3500 m.` | `deny`, `CLAIM_UNGROUNDED`, with `source_band` `copdem30m.elevation_mean` |
+| `Bengaluru air temperature is 35 degC.` | `allow`. The place is not after "in", so the sentence has no anchor. |
+
+Also, one citation that resolves turns off claim gating for the whole
+request (`crates/emem-guard/src/policy.rs`). A draft that cites one fact
+and then makes ten claims without a citation gets `allow`. Thus an
+`allow` does not prove that each claim has a citation.
+
 The hosted route is advisory. To enforce the verdict, run your own
 node. `GET https://emem.dev/v1/guard/selfhost` returns the procedure.
 The same procedure is in `crates/emem-guard/SKILL.md` in the repository.
@@ -136,4 +154,5 @@ deny as a stop.
 | You send `text` and not `texts`. | The guard reads nothing and returns `allow`. |
 | You send only the tokens, without the prose. | The value check has no words to compare. |
 | You retry a deny without a change. | You get the same deny. The `fix` field says what to change. |
+| You read an `allow` with `claim_gating` as "every claim has a citation". | One resolved citation turns the gate off. Check each sentence yourself. |
 | You skip the guard because the receipt verified. | A valid signature on a fact that does not support the sentence still gives a wrong answer. |
