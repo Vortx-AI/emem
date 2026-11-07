@@ -122,6 +122,7 @@ pages, so the PRs can merge without a conflict. The description of PR #34 gives 
 | `stills/what-crosses.webp`, `stills/what-crosses-phone.webp` | For a file, a device and an archive, what stays, what crosses and how is it checked? | README line 25 in the proposal | `stills/src/what_crosses.py`, reads from `fetch_crosses.py` (7 November 2026 15:22 UTC) and the Mount Fuji reads |
 | `stills/one-place-many-names.webp` | Do two names for one place give the same cell? | `start-here.md` | `stills/src/one_place.py`, live reads from `fetch_one_place.py` |
 | `stills/time-filters-live.webp` | What do the two time filters return on real data? | `intro.md` under `time-filters.svg` | `stills/src/time_filters.py`, live reads from `fetch_asof.py` |
+| `stills/wire-forms.webp` | What does each id in one real fact decode to? | `protocol.md` section 1, under `09-address-algebra.svg` | `stills/src/wire_forms.py`, decoder and checks in `wire_data.py`, reads in `data/wire/` (7 November 2026 15:40 UTC) |
 
 Each film also has a WebM copy and a `-poster.webp` file with the same name. The `fetch_*.py` scripts in
 `stills/src/` make the live reads. The drawing scripts read only the saved responses in `stills/src/data/`.

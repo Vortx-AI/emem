@@ -25,6 +25,12 @@ receipts.
 ![A table of the four wire forms. cell: 64 bits, four base-65,536 bigrams. tslot: 64 bits, base32 LEB128 with a t. prefix. cid: a 32-byte BLAKE3 digest in lowercase base32. vec: a 1792-D fp16 vector. Its short id (vec64) is the first 12 bytes of its BLAKE3 hash. /v1/state returns the full vector. Cells that are near each other share a string prefix.](/docs/diagrams/09-address-algebra.svg)
 *The four wire forms and their sizes. Section 1 gives the cell, section 2 the tslot and section 3 the CID.*
 
+<img src="media/stills/wire-forms.webp" alt="Still from live emem.dev reads on 7 November 2026. One NDVI fact at Mount Fuji, with its three ids decoded. The cell64 defi.zb592.nUkO.zEzE is four 16-bit lanes, 4,442, 46,482, 22,968 and 43,466, of the word 0x115ab59259b8a9ca. Its fields are mode 1, resolution 21, base 0xab, reserved 0, lat_q 1,460,582 and lng_q 3,713,482. They give the centre 35.362818 N, 138.730793 E, the same centre that /v1/locate returns for Mount Fuji. The tslot 20,389 times 86,400 seconds opens on 28 October 2025 at 00:00 UTC. The Sentinel-2 scene was captured at 01:37 UTC that day. Its text form is t.uwpqc. The fact_cid has 52 base32 characters. They are the 32 bytes of the BLAKE3 digest of the 790 canonical CBOR bytes of the fact. Hashed again offline, the bytes give the same fact_cid." width="540">
+
+*One live fact with each id decoded. The cell decodes to the centre that `/v1/locate` gives. The tslot day contains the
+scene capture time. The 790 bytes of the fact hash to its `fact_cid`. Data and checks:
+[media/stills/src/wire_data.py](media/stills/src/wire_data.py).*
+
 ### 1.1 Bit layout
 
 Defined in `crates/emem-codec/src/geo.rs:38-45`.
@@ -254,10 +260,10 @@ durable lengths:
 | Form | Bytes | Chars | Source | Use |
 |------|-------|-------|--------|-----|
 | `cid64` | 8 | 13 | `crates/emem-codec/src/cid64.rs:9-11` | short visible ID for inline text |
-| `FactCid` | 16 | 26 | `crates/emem-fact/src/cbor.rs:38-41` (`base32_prefix(&hash, 16)`) | durable storage and signing |
+| `FactCid` | 32 | 52 | `crates/emem-cache/src/sled_hot.rs:813-820` (`fact_cid_of`) | durable storage and signing |
 
-The full 32-byte hash is computed once (`blake3_32`, cbor.rs:30-35);
-the two encodings are prefixes.
+One BLAKE3 call makes the full 32-byte hash (`blake3_32`, cbor.rs:78).
+`cid64` is its first 8 bytes. `FactCid` is all 32 bytes.
 
 ### 3.1 cid64
 
