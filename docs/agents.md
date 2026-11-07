@@ -1198,9 +1198,9 @@ marks an optional field.
 | `/v1/recall_many` | `{cells, bands?, tslot?, budget_ms?, compact?}`, at most 256 cells |
 | `/v1/recall_polygon` | `{place?, polygon_bbox?, polygon_geojson?, bands?, tslot?, as_of_tslot?, as_of_signed_at?, max_cells?, budget_ms?, include?}` |
 | `/v1/grid` | `{center, bands, n?, half_km?, tslot?, budget_ms?, bundle?}` |
-| `/v1/field_boundaries` | `{place?, polygon_bbox?, zoom?, clean?, max_features?}` |
+| `/v1/field_boundaries` | `{place?, polygon_bbox?, zoom?, clean?, max_features?, vintage?}` |
 | `GET /v1/cells/:cell64` | No body. Recall of all bands at one cell |
-| `/v1/query_region` | `{geometry or bbox, bands?, agg?, max_cells?, as_of_tslot?, as_of_signed_at?}` |
+| `/v1/query_region` | `{geometry or bbox, bands?, agg?, max_cells?, as_of_tslot?, as_of_signed_at?, scope?}` |
 | `/v1/compare` | `{a, b, family?}` |
 | `/v1/compare_bands` | `{cell, a, b, tslot_a?, tslot_b?, predicate?}` |
 | `/v1/find_similar` | `{key, k?, band?, mode?, filter?, as_of_tslot?, as_of_signed_at?, scope?}`. `cell` and `cell64` are aliases of `key` |
@@ -1221,6 +1221,15 @@ all nine keys. Each NDVI fact had eight keys, because NDVI has no `unit`.
 Each band has its own `bundle_token`. It is null when you send
 `bundle: false` or when the band has no facts. The answer has one receipt.
 Cells that did not finish are in `pending` or `skipped`.
+
+`/v1/field_boundaries` returns one annual map by default, the newest over
+the bbox. `vintages` lists each map with its `time` and field count. To
+get an older map, send its `time` string exactly as `vintage`. Send
+`"all"` to get all maps together, but then `count` counts a field once
+for each map. A `vintage` that matches no `time` returns 0 features and
+no error. On 7 November 2026, Bathinda had maps for
+`2025-01-01 00:00:00.0` (152,291 fields) and `2024-01-01 00:00:00.0`
+(141,877 fields). `"2024"` returned 0.
 
 `/v1/query_region` sets `max_cells` from the bbox area when you do not
 send it. The target is one cell for each 100 km², clamped to 64 to 1024.
@@ -1284,7 +1293,7 @@ Run it, then read again.
 | Method | Path | Body |
 |---|---|---|
 | GET, POST | `/v1/locate` | `{place or q or name or query, lat?, lng?, strict?}` |
-| POST | `/v1/ask` | `{q, place?, cell?, lat?, lng?, model?, verbose?, include_image?}` |
+| POST | `/v1/ask` | `{q, place?, cell?, lat?, lng?, model?, verbose?, include?, include_image?}` |
 | POST | `/v1/intent` | A typed intent. Always send `type`; the other fields depend on it |
 
 With `strict: true`, `/v1/locate` answers 404 `no_geocoder_match` when the
@@ -1292,6 +1301,13 @@ name matched only weakly. The error names the weak candidate. On
 7 November 2026, "Qwzxv Mountain Lake" gave this 404. `strict` has no effect on
 coordinates. For `model` on `/v1/ask`, see
 [Ask a model to read the signed answer](#ask-a-model-to-read-the-signed-answer).
+
+`/v1/ask` gives short summaries by default. `include` adds full sections,
+for example `["band_observations", "facts_full"]`. On 7 November 2026
+that call added `band_observations` and `facts` to the answer. `/v1/ask`
+reads text only. A body with `image`, `image_url` or another media field
+gets 400 `invalid_argument`. The error names `/v1/ocr` (MCP `emem_ocr`),
+which reads text from an image.
 
 `/v1/intent` (MCP `emem_intent`) accepts eight values of `type`. Each one
 needs its own fields:
