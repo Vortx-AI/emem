@@ -18,8 +18,8 @@ responder does not show its author. Its bytes still match its cid.
 
 Status on 7 November 2026:
 
-- Every study measurement on this page is from 20 July to 11 August 2026. Nobody has
-  run them again.
+- Every study measurement on this page is from 20 July to 11 August 2026.
+  Nobody has run them again.
 - Nobody has benchmarked a peer memory product. Section 6 is still correct.
 - The fact token (`emem:fact:<cell64>:<fact_cid>`) and the bundle token have
   the same grammar today. A live Mount Fuji elevation token was 83 characters,
@@ -112,8 +112,8 @@ Limits that apply to every number below:
 
 The first two rows tie. Our own re-score found that the citation arm shows a
 rounded value. So that arm and plain context measure the same skill: copying a
-number that is already in the context window. A content address adds nothing that we
-could measure in that arm. If your answer needs one value and the value fits in
+number that is already in the context window. A content address adds nothing
+that we could measure in that arm. If your answer needs one value and the value fits in
 context, plain context is as good as emem and costs less.
 
 The dereference row tests what emem claims. It reached 99.2% only after four
@@ -163,7 +163,9 @@ plain values unless you bundle.
 
 A bundle reverses this. It is the clearest result in the study. At every N up
 to 256, a bundle is 38 characters and one round trip. N=256 individual tokens
-are 26,624 characters and 256 round trips. The breakevens are:
+are about 21,530 characters (256 x 84.1) and 256 round trips. The study gives
+26,624 characters. That is 256 x 104, from the old token length that the
+grammar cannot make. The breakevens are:
 
 | a bundle beats | from | numbers |
 |---|---|---|
@@ -265,9 +267,9 @@ Two results follow:
 
 - The gaps are one or two representable steps. That is about 1e-16 relative.
   The tightest threshold of any decision in this study is 1e-6.
-- The failure does not grow steadily with N. Accumulation error cancels as often as it
-  adds. So under strict equality, a caller cannot predict if a sum will
-  verify. That looks like a guarantee but behaves like chance, which is worse
+- The failure does not grow steadily with N. Accumulation error cancels as
+  often as it adds. So under strict equality, a caller cannot predict if a sum
+  will verify. That looks like a guarantee but behaves like chance, which is worse
   than a stated bound.
 
 So the tolerance is back, with a limit, and the response always shows it:
@@ -313,7 +315,8 @@ we stand behind runs on your models
 ([`examples/benchmark-arm/`](../examples/benchmark-arm/)). The raw data
 carries signatures, and you can replay it. The same directory holds the
 scorer that disagreed with its own authors. During this study, people found
-six scoring bugs in two separately written instruments. A seventh bug is more likely than not.
+six scoring bugs in two separately written instruments. A seventh bug is more
+likely than not.
 
 ## Scorecard
 
@@ -326,5 +329,5 @@ six scoring bugs in two separately written instruments. A seventh bug is more li
 | Model agreement is evidence of correctness | Refuted, p = 0.035. |
 | Addressed memory is O(1) | Only when bundled. See section 3. |
 | Individual tokens save context | Refuted, by more than we once said. A token is 84 chars / 51 LLM tokens. The value it replaces is 10.9 chars / 5.4 LLM tokens on average. So N tokens cost 7.7x the characters and 9.5x the LLM tokens of the plain numbers, and fill the context sooner. |
-| A bundle saves context | Supported. 38 chars and one round trip at every N up to 256, against 26,624 chars and 256 round trips. |
+| A bundle saves context | Supported. 38 chars and one round trip at every N up to 256, against about 21,530 chars and 256 round trips. |
 | emem outperforms peer memory products | Not tested. There is no evidence either way. |
