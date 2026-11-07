@@ -1453,7 +1453,7 @@ otherwise valid.
 | 404 | `derive_parent_unresolved` | The responder does not hold that parent fact. |
 | 409 | `derive_parent_cell_mismatch` | The token names a cell that is not the cell of the fact. |
 | 401 | `derive_attestation_required` | No `attester` block. |
-| 401 | `derive_attestation_invalid` | Bad key, or the signature does not verify. The message gives the digest that the responder expected. |
+| 401 | `derive_attestation_invalid` | Bad key (`details.reason: "bad_pubkey"`), or the signature does not verify (`"bad_signature"`). The message gives the digest that the responder expected. |
 
 A derivation is idempotent for each pair of attester and body. If you
 send the same signed body again, you get the same token with
@@ -1509,7 +1509,10 @@ it admits each key that this responder reads at `T4_affiliated` or
 above. For such a key, an organisation vouched for it by DNS or
 `.well-known` within the last 30 days (`GET /v1/enlist`). Send
 `min_tier` to move that floor. Send `attesters` to admit only the keys
-that you name. `attesters` takes at most 64 keys. More keys get 400
+that you name, at any tier. `attesters` replaces the tier rule. If you
+send both, the response sets `trust_policy.min_tier_ignored` to `true`.
+`T5_corroborated` admits no key, because this responder does not compute
+that tier. `attesters` takes at most 64 keys. More keys get 400
 `inferences_too_many_attesters`. Send `attesters` as a JSON list, or
 as one string with commas between the keys. `min_tier` takes a full
 tier name such as `T4_affiliated`, or the short form `T4`. Case does
@@ -1536,7 +1539,12 @@ These reads refuse a bad request with 400 and a `details.code`. On
 The response gives these items:
 
 - the newest derivation per `(cell, fn_key, attester)`
-- `excluded_by_policy`, the count that the policy left out
+- `excluded_by_policy`, the count that the policy left out, and
+  `excluded_attesters`, the key and tier of each one (at most 20)
+- `truncated: true` when more items match than `limit`
+- `scan_truncated: true` when the circle holds more than 5,000 index
+  rows. The read stops at the nearest 5,000. Send a smaller `radius_m`
+  or a `fn_key_prefix` to reach the rest.
 - a mark on each value that it is data, not instructions
 - a sentence that says what a signature proves: who concluded
   something, never that it is true
