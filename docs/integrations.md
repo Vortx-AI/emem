@@ -2,7 +2,8 @@
 
 emem is a Streamable HTTP MCP server at `https://emem.dev/mcp`. Any MCP host can use it as a long-term memory for
 facts about places. You need no SDK, no API key and no account to read. The same handlers also answer plain REST,
-described at `/openapi.json`.
+described at `/openapi.json`. To use your own node, start it with [Self-host](self-host.md) and change the
+URL in each config.
 
 This page gives the smallest config for each runtime and a link to a runnable example in `examples/`. Then it shows
 the calls an agent makes after it connects. The requests and responses on this page ran on emem.dev on 7 November
@@ -126,7 +127,8 @@ The other folders use the same steps with these values:
 | `agno/` | `pip install agno openai` | `MCPTools` | `/mcp` |
 | `mastra/` | `npm install`, then `npx tsx emem_mcp_geospatial_agent.ts` | `MCPClient` from `@mastra/mcp` | `/mcp/full` |
 
-Set `EMEM_MCP_URL` to point a script at your own node. On 7 November 2026, `tools/list` on `/mcp` returned 18
+Set `EMEM_MCP_URL` to point a script at your own node (see
+[Connect a client to your node](self-host.md#connect-a-client-to-your-node)). On 7 November 2026, `tools/list` on `/mcp` returned 18
 tools in one page. On `/mcp/full` the first page had 12 tools and a `nextCursor`.
 
 To use REST instead of MCP, `examples/langchain.py` wraps nine routes as LangChain tools and `examples/llamaindex.py`

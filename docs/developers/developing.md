@@ -131,6 +131,9 @@ use a real directory. The server then keeps its Ed25519 key in
 `<EMEM_DATA>/identity.secret.b32` (mode 0600). The default directory is
 `./var/emem`.
 
+To run the published image instead of a local build, and to connect a
+client to the node, see [Self-host](../self-host.md).
+
 ## Call each primitive
 
 This sequence calls the main read primitives in the order that an
