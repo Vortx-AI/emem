@@ -309,26 +309,46 @@ the `BAAI/bge-base-en-v1.5` model on the CPU.
 |---|---|
 | `EMEM_TOPIC_BACKEND` | `ort` (default), `model2vec` or `keyword`. Use `keyword` in tests: it loads no model. |
 | `EMEM_TOPIC_MODEL_DIR` | The directory that holds `model.onnx` and `tokenizer.json` |
+| `EMEM_TOPIC_MODEL` | A `minishlab/` model for the `model2vec` backend. The server ignores other names. |
 
 Run `scripts/install-topic-model.sh` once to download the model (about
 435 MB) before the first `/v1/ask` call. The script writes it to
-`<EMEM_DATA>/models/bge-base-en-v1.5/`, the default model directory.
+`EMEM_TOPIC_MODEL_DIR`. If that is not set, it writes to
+`<EMEM_DATA>/models/bge-base-en-v1.5/`, with `EMEM_DATA` default
+`./var/emem`.
+
+The server looks for the model in `EMEM_TOPIC_MODEL_DIR`, then in
+`<EMEM_DATA>/models/bge-base-en-v1.5/`. It does not use the `./var/emem`
+default for this search. If you do not set `EMEM_DATA`, or you set it to
+`:memory:`, set `EMEM_TOPIC_MODEL_DIR` too:
+
+```sh
+EMEM_DATA=:memory: EMEM_TOPIC_MODEL_DIR=./var/emem/models/bge-base-en-v1.5 \
+  cargo run --release --bin emem-server
+```
+
+Without the model, the server does not stop. It uses the next backend.
 
 If the `ort` model does not load, the server tries `model2vec`. That
-backend downloads `minishlab/potion-base-8M` from Hugging Face. If that
-also fails, the server uses `keyword`. The log shows a warning for each
-step (`topic_router.rs`).
+backend downloads `minishlab/potion-base-8M` (about 32 MB) from Hugging
+Face into `~/.cache/huggingface`. Set `HF_HOME` to move that cache. If
+the download also fails, the server uses `keyword`. The log shows a
+warning for each step (`topic_router.rs`).
 
-After a routing change, run the
-routing check by hand. No CI job runs it.
+After a routing change, run the routing check by hand. No CI job runs
+it. The tool sends 14 questions to `/v1/ask`. Without `--base`, it uses
+`EMEM_BASE_URL`, then `http://127.0.0.1:5051`.
 
 ```sh
 cargo run -p emem-cli --bin emem-ask-eval -- --base http://127.0.0.1:5051
 ```
 
-Exit code 0 means that every question went to its expected topic and
-returned a signed receipt. On a failure, the tool prints the question and
-the topic that the router chose.
+The tool prints one line for each question: pass or fail, the first
+matched topic, the fact count and the receipt CID count. The last line
+gives the pass rate, for example `trigger-rate: 14/14`. Exit code 0 means
+that every question went to its expected topic and returned a signed
+receipt. One question expects no topic (out of scope). On 7 November
+2026, the same 14 requests to `https://emem.dev` all passed.
 
 ## Record a demo run
 
