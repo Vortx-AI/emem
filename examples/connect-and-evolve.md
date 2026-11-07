@@ -91,9 +91,9 @@ facts above. A scan that stops at its time budget returns
 Keep `cell_prefix` (alias `cell`) narrow. A full cell64 scans few keys.
 On 7 November 2026, this cell answered in less than 0.1 s. A short
 prefix scans up to 50,000 keys. On 7 November 2026, the prefix `defi`
-took 8 s, scanned about 44,700 keys, found 74 contradictions and stopped with
-`scan_truncated: true`. On 6 November 2026, one 10-character prefix took
-108 s.
+took 8 s, scanned about 44,700 keys, found 74 contradictions and
+stopped with `scan_truncated: true`. On 6 November 2026, one
+10-character prefix took 108 s.
 
 A GET form also exists. It returns the same contradiction for this cell:
 `GET $EMEM/v1/memory_contradictions?cell_prefix=...&band=...&min_severity=...`.
@@ -134,7 +134,7 @@ Request fields:
 | `subj` | Start fact CID. Required for `direction: "out"` (the default). |
 | `obj` | End fact CID. Setting it reads the reverse direction, `"in"`: what points at this fact. |
 | `pred` | Predicate filter. `""` (the default) returns every predicate. |
-| `as_of_tslot` | Read the graph as of this Unix time. An edge counts when `valid_from <= as_of_tslot` and it has no `valid_to` or `valid_to >= as_of_tslot`. The newest edge per neighbour wins. |
+| `as_of_tslot` | Read the graph at this tslot. It uses the same scale as the edge's `valid_from`. An edge counts when `valid_from <= as_of_tslot` and it has no `valid_to` or `valid_to >= as_of_tslot`. The newest edge per neighbour wins. |
 | `limit` | Default 100, maximum 1000. |
 
 ### 3. Recall a fact with its edges attached
@@ -207,9 +207,9 @@ and keys are new on every run.
 
 ### Why emem.dev refuses the writes
 
-By default the fact plane refuses other keys. A node accepts a fact at an address
-`(cell, band, tslot)` only from its own key, from an enrolled device, or
-from a key in `EMEM_FACT_PLANE_WRITERS`. Every other attestation gets
+By default the fact plane refuses other keys. A node accepts a fact at
+an address `(cell, band, tslot)` only from its own key, from an enrolled
+device, or from a key in `EMEM_FACT_PLANE_WRITERS`. Every other attestation gets
 403 `level_too_low` (see `GET /v1/enlist`, surface `fact_plane`, tier
 T4). A local node can open the plane:
 
@@ -266,9 +266,9 @@ After the server build, this build took more than 10 minutes on our
 host. The demo run itself took 16 s.
 
 The demo (`crates/emem-cli/src/bin/emem-connect-demo.rs`) sends real
-signed bytes. It prints a header for each of its seven steps. It stops with a
-non-zero exit on any HTTP error, so you can use it as a smoke test. The
-output of our run on 7 November 2026, shortened:
+signed bytes. It prints a header for each of its seven steps. It stops
+with a non-zero exit on any HTTP error, so you can use it as a smoke
+test. The output of our run on 7 November 2026, shortened:
 
 ```text
 === STEP 1: mint two ephemeral attesters ===
@@ -438,8 +438,8 @@ In our second run, this read returned one edge (fields shortened):
 A read with `subj` set to the larger CID returns an empty `edges` list.
 
 You can also sign a `disagrees_with` edge yourself and send it to
-`POST /v1/edges`, the same way as demo step 3. You then do not wait for the
-loop.
+`POST /v1/edges`, the same way as demo step 3. You then do not wait for
+the loop.
 
 ### Demo steps 6 and 7: recall with edges, then verify
 
@@ -454,8 +454,9 @@ calls as Part 1, steps 3 and 4.
 
 A plain store keeps facts. This loop also connects facts with typed
 edges that have a start time (`valid_from`) and an optional end time
-(`valid_to`). It records a disagreement as an edge and
-a contested marker, so the memory changes over time. Every edge carries a
-signature, and the store only appends edges. The loop deletes no fact. You can still
-audit what the memory held before. The contested marker is an unsigned
-overlay row on the node, not a signed record. For the full agent guide, see [../docs/agents.md](../docs/agents.md).
+(`valid_to`). It records a disagreement as an edge and a contested
+marker, so the memory changes over time. Every edge carries a signature,
+and the store only appends edges. The loop deletes no fact. You can
+still audit what the memory held before. The contested marker is an
+unsigned overlay row on the node, not a signed record. For the full
+agent guide, see [../docs/agents.md](../docs/agents.md).
