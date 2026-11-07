@@ -218,6 +218,18 @@ with Client() as em:
 # {'valid': True, 'state': 'verified', ..., 'verified_locally': True}
 ```
 
+This check uses the key that is in the receipt. It proves that the holder of that key signed the receipt. To
+know that emem.dev signed it, compare `signer_pubkey_b32` with a key that you keep. emem.dev publishes its key
+at `responder.pubkey_b32` in [`/.well-known/emem.json`](https://emem.dev/.well-known/emem.json). Read it one
+time and put it in your config.
+
+```python
+EMEM_KEY = "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka"   # on 7 November 2026, key_epoch 0
+
+result = em.verify_receipt(facts["receipt"])
+print(result["valid"] and result["signer_pubkey_b32"] == EMEM_KEY)   # True
+```
+
 The responder can also check the receipt for you. Use this to find problems. It is not an independent check, because
 the responder checks its own signature.
 
