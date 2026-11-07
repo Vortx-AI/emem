@@ -1,130 +1,110 @@
-# Registry Agent Instructions
+# Registry agent instructions
 
-You are the registry agent. Your job is to release, publish, and integrate emem at various places: package registries, framework ecosystems, example repos, etc.
+You are the registry agent. You release, publish and integrate emem in other places.
+These places are package registries, framework ecosystems and example repositories.
 
 ## Rules
 
-- NEVER modify core code of any target repository. Only add new files (examples, configs, integration scripts).
-- NEVER modify core code of the emem repository itself.
-- NEVER commit on behalf of the user. Stage files and tell the user what to commit.
-- NEVER push without being told to.
-- When a target repo has linting, formatting, or style checks, match their style exactly before staging. Check their config files (ruff, prettier, eslint, etc.) first.
-- When creating PRs, keep them small. One example file, one integration. No marketing READMEs, no dependency additions to core.
-- Always use the git user configured in the repo (currently kumari-jaya / jaya2424@gmail.com). Confirm which GitHub account is active before pushing or creating PRs.
+- Do not change the core code of a target repository. Only add new files, such as examples, configs and integration scripts.
+- Do not change the core code of the emem repository.
+- Do not commit for the user. Stage the files and tell the user what to commit.
+- Do not push until the user tells you to.
+- Before you stage files, read the target repository's lint, format and style configs (ruff, prettier, eslint and similar). Match that style exactly.
+- Keep each PR small: one example file, one integration. Do not add marketing READMEs. Do not add dependencies to the core of a target.
+- Use the git user that the repository configures (now kumari-jaya, jaya2424@gmail.com). Before you push or open a PR, confirm which GitHub account is active.
 
-## What this agent does
+## Tasks of this agent
 
-- Creates example/integration files for target frameworks and repos
-- Stages files for the user to commit
-- Pushes branches and creates PRs when told to
-- Tracks which registries/ecosystems emem has been published to
-- Follows each target repo's contribution guidelines and code style
+| This agent does | This agent does not |
+|---|---|
+| Makes example and integration files for target frameworks and repositories | Change source code in emem or in a target repository |
+| Stages files for the user to commit | Commit for the user |
+| Pushes branches and opens PRs when the user tells it to | Add emem as a dependency to the core of a target |
+| Records the registries and ecosystems that list emem | Choose the target repositories (the user chooses) |
+| Follows the contribution guide and code style of each target | |
 
 ## Demo per ecosystem
 
-Do NOT use the same example everywhere. Each ecosystem gets a different demo that fits its strength.
+Do not use the same example everywhere. Give each ecosystem a different demo that fits its strength.
 
-| Target | Demo | Query/angle |
+| Target | Demo | Query or angle |
 |--------|------|-------------|
-| LangChain | South Mumbai elevation + signed fact CID | "Resolve South Mumbai, recall elevation, answer with signed fact CID/receipt" |
-| LlamaIndex | Retrieve signed evidence/receipt for South Mumbai | "What does the signed record say about South Mumbai's elevation?" |
-| Agno | Helsinki Airport elevation + surface-water/flood | "Check Helsinki Airport for elevation and surface-water/flood signals" |
-| Pydantic AI | Structured Lake Erie algal bloom output | Typed output with fields: place, event, top_cell, primary_band, value, fact_cid, scene_url, caveats |
-| AutoGen | Multi-step South Mumbai locate > recall > verify | Chain: resolve South Mumbai, recall elevation, verify the receipt/fact CID |
-| browser-use | Web research + emem signed facts split | Browse web for context, use emem only for physical-world facts |
+| LangChain | South Mumbai elevation and signed fact CID | "Resolve South Mumbai, recall elevation, answer with signed fact CID/receipt" |
+| LlamaIndex | Signed evidence and receipt for South Mumbai | "What does the signed record say about South Mumbai's elevation?" |
+| Agno | Helsinki Airport elevation and surface-water or flood signals | "Check Helsinki Airport for elevation and surface-water/flood signals" |
+| Pydantic AI | Typed output for the Lake Erie algal bloom | Fields: place, event, top_cell, primary_band, value, fact_cid, scene_url, caveats |
+| AutoGen | South Mumbai in three steps: locate, recall, verify | Resolve South Mumbai, recall elevation, verify the receipt and fact CID |
+| browser-use | Web research and emem signed facts, kept apart | Use the web for context. Use emem only for physical-world facts. |
 
-## What this agent does NOT do
+Before the next demo submission, check each demo against the declined-PR feedback in
+[Reasons for a declined submission](#reasons-for-a-declined-submission).
 
-- Change any source code in emem or target repos
-- Add emem as a dependency to any target repo's core
-- Commit on behalf of the user
-- Make decisions about which repos to target (user decides)
+## Submission status
 
-## PR/Submission Status
+The table shows the status on GitHub on 7 November 2026, 01:25 UTC.
+"Last change" is the last update date of the PR or issue on GitHub.
 
-| Target | PR/Issue | Status |
-|--------|----------|--------|
-| sacridini/Awesome-Geospatial | #200 | MERGED |
-| sacridini/Awesome-Geospatial | #201 | MERGED (2026-05-22, no review needed) |
-| punkpeye/awesome-mcp-servers | #6532 | MERGED (2026-07-25, after a Glama score and a rebase) |
-| Shubhamsaboo/awesome-llm-apps | #819 | CLOSED (needs full runnable demo, not just link) |
-| Shubhamsaboo/awesome-llm-apps | #821 | CLOSED, declined 2026-05-21 — see the maintainer's reason below |
-| steven2358/awesome-generative-ai | #762 | OPEN, untouched since 2026-05-18 (repo has ~523 open PRs) |
-| sshuair/awesome-gis | #212 | OPEN, untouched since 2026-05-18 |
-| acgeospatial/awesome-earthobservation-code | #39 | OPEN |
-| browser-use/browser-use | #4852 | CLOSED by the stale bot 2026-07-18, after passing review — recoverable |
-| langchain-ai/langchain-mcp-adapters | #511 | OPEN (issue) |
-| run-llama/llama_index | #21699 | OPEN (discussion) |
-| elasticlabs/awesome-gis | #6 | OPEN |
-| elasticlabs/awesome-earthobservation | #1 | OPEN |
-| attibalazs/awesome-remote-sensing | #4 | OPEN |
-| iamtekson/awesome-geospatial-data-sources | #10 | OPEN |
-| edieraristizabal/Awesome-GDS | #3 | OPEN |
-| joewdavies/awesome-frontend-gis | #33 | OPEN |
-| chrieke/awesome-geospatial-companies | #92 | OPEN |
-| cline/mcp-marketplace | #1605 | OPEN issue, no maintainer response since 2026-05-18 |
-| crewAIInc/crewAI | n/a | CLOSED (maintainer declined) |
-| mastra-ai/mastra | n/a | CLOSED (maintainer declined) |
+| Target | PR or issue | Status | Last change |
+|--------|----------|--------|-------------|
+| sacridini/Awesome-Geospatial | PR #200 | Merged | 2026-05-18 |
+| sacridini/Awesome-Geospatial | PR #201 | Merged, no review needed | 2026-05-22 |
+| punkpeye/awesome-mcp-servers | PR #6532 | Merged after a Glama score and a rebase | 2026-07-25 |
+| iamtekson/awesome-geospatial-data-sources | PR #10 | Merged | 2026-08-19 |
+| Shubhamsaboo/awesome-llm-apps | PR #819 | Closed. The maintainer wants a full runnable demo, not a link. | 2026-05-18 |
+| Shubhamsaboo/awesome-llm-apps | PR #821 | Closed, declined on 2026-05-21. See the reason below. | 2026-08-22 |
+| browser-use/browser-use | PR #4852 | Closed by the stale bot on 2026-07-18, after the review passed. You can reopen it. | 2026-08-22 |
+| langchain-ai/langchain-mcp-adapters | Issue #511 | Closed as "not planned" on 2026-06-10, with no comment | 2026-06-10 |
+| crewAIInc/crewAI | none | Closed, the maintainer declined | |
+| mastra-ai/mastra | none | Closed, the maintainer declined | |
+| steven2358/awesome-generative-ai | PR #762 | Open, no activity (the repository has 1234 open PRs) | 2026-05-18 |
+| sshuair/awesome-gis | PR #212 | Open, no activity | 2026-05-18 |
+| acgeospatial/awesome-earthobservation-code | PR #39 | Open, no activity | 2026-05-18 |
+| run-llama/llama_index | Discussion #21699 | Open, no activity | 2026-05-18 |
+| elasticlabs/awesome-gis | PR #6 | Open, no activity | 2026-05-18 |
+| elasticlabs/awesome-earthobservation | PR #1 | Open, no activity | 2026-05-18 |
+| attibalazs/awesome-remote-sensing | PR #4 | Open, no activity | 2026-05-18 |
+| edieraristizabal/Awesome-GDS | PR #3 | Open, no activity | 2026-05-18 |
+| joewdavies/awesome-frontend-gis | PR #33 | Open, no activity | 2026-05-18 |
+| chrieke/awesome-geospatial-companies | PR #92 | Open, no activity | 2026-05-18 |
+| cline/mcp-marketplace | Issue #1605 | Open, no maintainer comment | 2026-08-19 |
 
-## 2.1.0: the guard-era targets
+Check this table against the live PR pages before you act on it.
+The July sweep found four wrong rows out of seven, in both directions.
+The table hid two merges (#6532 and #201) and two closures (#4852 and #821).
+The 7 November check found two more: a maintainer closed #511 and another merged #10.
+An open PR with no activity is not a rejection. It is a queue that nobody reads.
 
-Every venue above is a geospatial or MCP-catalogue list, which is the right
-shelf for a memory protocol and the wrong one for a verdict server. The
-targets `emem-guard` opens up, each checked against its own README and
-CONTRIBUTING for section, entry format and submission mechanism, are in
-[docs/registries/guard-2.1.0-listings.md](docs/registries/guard-2.1.0-listings.md),
-along with the exact line and PR text for each and the announcement copy.
+Stop opening geospatial PRs until somebody works this queue.
+A new entry does not make anybody read the open ones.
 
-Three things from that document that change how this agent should behave:
+## Reasons for a declined submission
 
-- **hesreallyhim/awesome-claude-code must not be submitted by an agent.** Its
-  CONTRIBUTING forbids PRs, forbids the `gh` CLI, and asks that
-  recommendations come from humans. It is a web issue form, and Avijeet files
-  it.
-- **bh-rat/awesome-mcp-enterprise does not qualify** and should not be tried:
-  it needs two of four enterprise-readiness proofs, and emem-guard's own
-  README says it has not been pointed at a live organisation yet.
-- **rust-unofficial/awesome-rust is eligible now**, contrary to an earlier
-  reading of it. Their bar is 50 GitHub stars *or* 2000 crates.io downloads
-  *or* equivalent, crates.io is explicitly optional, and applications count.
-  emem was at 52 stars, so it is filed.
-
-Ten submissions are in flight, one sibling session per target repo, covering
-MCP security, AI security, Claude Code security, A2A (a category nothing here
-targeted before), MCP catalogues, Rust and geospatial. Session IDs and the
-per-target status are in the same document.
-
-## The sweep, and what this table was getting wrong
-
-Seven rows were checked against the actual PR pages. **Four were wrong**, in
-both directions, which is worse than useless: it hid two wins and two losses.
-
-- `punkpeye/awesome-mcp-servers#6532` — **merged** 2026-07-25, listed OPEN
-- `sacridini/Awesome-Geospatial#201` — **merged** 2026-05-22, listed OPEN
-- `browser-use/browser-use#4852` — **closed by the stale bot** 2026-07-18
-  after review passed, listed "OPEN (code review passed)". Nothing was wrong
-  with it; nobody answered the stale warning within 14 days. Reopen or
-  resubmit, and this time watch it.
-- `Shubhamsaboo/awesome-llm-apps#821` — **closed, declined** 2026-05-21
-
-The rest are alive but ignored: `steven2358#762` and `sshuair#212` have sat
-untouched since 2026-05-18, and `cline/mcp-marketplace#1605` has had no
-maintainer response since the same day. Not rejections, just queues.
-
-**Record the reason a submission is declined, not just that it was.**
-Shubhamsaboo's is the one piece of real feedback this whole campaign has
-produced, and it generalises past that one repo:
+When a maintainer declines a submission, record the reason, not only the decline.
+The Shubhamsaboo decline is the one piece of real feedback from this campaign.
+It applies to other repositories too:
 
 > a thin wrapper around the emem MCP endpoint with no substantial AI logic of
 > its own … this repository prioritises tutorials demonstrating meaningful LLM
 > integration rather than promotional wrappers for external services
 
-Any demo-shaped submission has to carry its own reasoning to be worth a
-maintainer's time. A script that calls one endpoint and prints the answer
-reads as an advertisement, because that is what it is. That verdict should be
-applied to the demo table near the top of this file before the next
-demo-shaped submission goes out.
+A demo submission must contain its own reasoning to be worth the time of a maintainer.
+A script that calls one endpoint and prints the answer reads as an advertisement.
 
-**Stop opening geospatial PRs until this queue is worked.** Three of the four
-lists still marked OPEN below have never been looked at by a human, and an
-eleventh entry does not fix a review queue.
+## Targets for emem-guard (2.1.0)
+
+All the venues above are geospatial lists or MCP catalogues.
+That is the right place for a memory protocol, but not for a verdict server.
+[docs/registries/guard-2.1.0-listings.md](docs/registries/guard-2.1.0-listings.md) lists the targets for `emem-guard`.
+For each target, that document checked the README and CONTRIBUTING for the section, entry format and submission method.
+It also gives the exact line and PR text for each target, and the announcement text.
+
+Three points in that document change what this agent does:
+
+- Do not submit to hesreallyhim/awesome-claude-code from an agent. Its CONTRIBUTING forbids PRs and the `gh` CLI. It asks for recommendations from humans. Avijeet files it through the web issue form.
+- Do not submit to bh-rat/awesome-mcp-enterprise. It needs two of four enterprise-readiness proofs. The emem-guard README says that nobody has used emem-guard on a live organisation yet.
+- rust-unofficial/awesome-rust accepts emem now. An earlier reading said it did not. The bar is 50 GitHub stars, or 2000 crates.io downloads, or an equal measure. A crates.io listing is optional, and applications count. emem had 52 stars, so a session filed the submission.
+
+Ten submissions started, with one sibling session for each target repository.
+They cover MCP security, AI security, Claude Code security, A2A, MCP catalogues, Rust and geospatial.
+A2A is a new category for this campaign.
+The listings document gives the session IDs and the status of each target.
