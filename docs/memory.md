@@ -131,9 +131,11 @@ wrote signed.json for /memories/by_attester/37k3iryw/first-note.md
 ```
 
 Memory writes use the MCP endpoint `POST /mcp`. There is no REST route
-for them. So the refusal is an MCP tool result with `isError: true`, not
-an HTTP 401. Its text starts with `memory_attestation_required` and ends
-with `details:` and a JSON object.
+for them. So the refusal is an MCP tool result with `isError: true` in
+an HTTP 200 response, not an HTTP 401. Its text starts with
+`tool error (-25): invalid_argument:` and a message. Then comes
+`details:` and a JSON object. In that object, `code` is
+`memory_attestation_required` and `how_to_sign` holds the digest.
 
 ### Step 3: send the signed write
 
@@ -433,15 +435,25 @@ Who may write where:
   key, the key of the responder too (`reason: reserved_namespace`).
 
 Memory writes use `POST /mcp`. So each refusal is a tool result
-with `isError: true`, not an HTTP status. Its `details.code` names the
-case:
+with `isError: true`, not an HTTP status. The text starts with
+`tool error (<number>): <name>:`. Two causes share a name, so read
+`details.code` to know the case:
 
-| Cause | `details.code` |
-|---|---|
-| No attester, and the write needs one | `memory_attestation_required` |
-| The signature does not verify, or the key is not valid | `memory_attestation_invalid`; the message names the digest the responder expected |
-| Wrong namespace, wrong owner or reserved prefix | `memory_namespace_violation` |
-| The key sent too many writes in a short time | `write_rate_limited`, with `retry_after_s` |
+| Cause | Text starts with | `details.code` |
+|---|---|---|
+| No attester, and the write needs one | `tool error (-25): invalid_argument:` | `memory_attestation_required` |
+| The signature does not verify, or the key is not valid | `tool error (-15): bad_signature:` | `memory_attestation_invalid`; the message names the digest the responder expected |
+| Wrong namespace, wrong owner or reserved prefix | `tool error (-25): invalid_argument:` | `memory_namespace_violation` |
+| The key sent too many writes in a short time | `tool error (-23): rate_limited:` | `write_rate_limited`, with `retry_after_s` |
+
+Other tables on this page give the HTTP status that the responder sets
+for a memory error. Over MCP you do not see that status. You see the
+error name and its number. A 400, 401, 403, 409 or 422 arrives as
+`invalid_argument` (-25), except for a bad signature from the table
+above and a bad `vault_capability` on a read. Those two arrive as
+`bad_signature` (-15). A 404
+arrives as `cid_not_found` (-6). `GET /v1/errors` lists every name with
+its MCP number.
 
 The rate limit is a token bucket for each key. Unsigned writes share one
 bucket. The defaults are 240 writes a minute with a burst of 60. The
