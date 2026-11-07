@@ -2041,13 +2041,15 @@ For the edit verbs, the caller must apply the edit locally and hash the
 result. Then the signature commits to the file that the responder will
 store, not to the patch that made it.
 
-`base` is the `file_cid` now at `path`, or the literal `absent` when
-the path holds nothing, so a create of a new path signs `absent`. It makes
-each signature name the version it replaces, so nobody can replay a signature
-from the public ledger later. The v1 preimage is the same without
-`.v2` and without `|| "|" || base`. Since 2026-11-05 the responder refuses
-a write signed with it for every verb (`reason: v1_retired`); notes signed with v1
-before then still verify when read.
+`base` is the `file_cid` now at `path`. When the path holds nothing,
+`base` is the literal text `absent`, so a create of a new path signs
+`absent`. Thus each signature names the version it replaces. Nobody can
+take an old signature from the public ledger and replay it later.
+
+The v1 preimage is the same without `.v2` and without
+`|| "|" || base`. Since 5 November 2026 the responder refuses a write
+signed with v1, for every verb (`reason: v1_retired`). Notes signed with
+v1 before that date still verify when read.
 
 `memory_view` returns an `authorship` block that says which version the
 author signed. It has `preimage_version` (1 or 2), `base`, and
@@ -2091,12 +2093,15 @@ refuses a v1 result for every verb with `reason: v1_retired`. The read
 path (`memory_view`) uses the same function to report which version the attester
 used for an older note.
 
-Namespace ownership: paths under `/memories/by_attester/<pubkey_short>/`
-are write-restricted, where `pubkey_short` is the first 8 chars of
-`base32_nopad_lower(pubkey_bytes)`. A write with a valid signature
-but the wrong namespace returns 403 `memory_namespace_violation`. A
-write with an invalid signature returns 401
-`memory_attestation_invalid`.
+Only one key can write under `/memories/by_attester/<pubkey_short>/`.
+`pubkey_short` is the first 8 characters of
+`base32_nopad_lower(pubkey_bytes)` for that key. The responder returns
+these errors:
+
+| Write | Status and code |
+|---|---|
+| valid signature, namespace of a different key | 403 `memory_namespace_violation` |
+| signature does not verify | 401 `memory_attestation_invalid` |
 
 The responder's memory-write policy, not the namespace rule, controls
 bare `/memories/...` paths (no `by_attester` segment). A
