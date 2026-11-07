@@ -23,8 +23,8 @@ verifies offline. For the concepts, see
 - A recall that carries its edges in the same response.
 - A receipt for each read that you can verify.
 
-The Part 1 outputs come from https://emem.dev on 7 November 2026. Part 2
-did not run on that date (see Part 2).
+The Part 1 outputs come from https://emem.dev on 7 November 2026. The
+Part 2 outputs come from a local node on the same date.
 
 ```bash
 export EMEM=https://emem.dev
@@ -200,10 +200,10 @@ https://emem.dev/verify.
 
 ## Part 2: run the full loop on a local node
 
-Part 2 writes. It needs a node that accepts your keys. We did not run the
-commands in this part on 6 or 7 November 2026, because the host had no
-usable Rust toolchain. The behaviour below comes from the source files
-named in each step.
+Part 2 writes. It needs a node that accepts your keys. We ran it on 7
+November 2026 on a local node built from this repository (version
+2.4.4, release build). The output below comes from that run. Fact CIDs
+and keys are new on every run.
 
 ### Why emem.dev refuses the writes
 
@@ -225,13 +225,23 @@ Edges take no address, so `POST /v1/edges` stays open at tier T1.
 The refinement loop is off by default. Turn it on with
 `EMEM_REFINEMENT_ENABLED=1`.
 
+With no `EMEM_DATA`, the node keeps its data in `./var/emem`.
+Give the demo its own empty directory, so its test facts stay out of
+any other node data. `EMEM_BIND` keeps the node on the local interface.
+
 ```bash
+EMEM_DATA="$(mktemp -d)" \
+EMEM_BIND=127.0.0.1:5051 \
 EMEM_FACT_PLANE_OPEN=1 \
 EMEM_REFINEMENT_ENABLED=1 \
 EMEM_REFINEMENT_INTERVAL_SECS=3 \
 EMEM_REFINEMENT_MIN_SEVERITY=0.1 \
 cargo run --release --bin emem-server
 ```
+
+The first release build takes a long time. On our host it took more
+than 25 minutes. When the node is ready, `curl -s
+http://127.0.0.1:5051/health` returns `"ok":true`.
 
 Refinement settings, from `crates/emem-primitives/src/memory_consolidation.rs`:
 
@@ -248,14 +258,54 @@ Refinement settings, from `crates/emem-primitives/src/memory_consolidation.rs`:
 In a second shell:
 
 ```bash
-cargo run -p emem-cli --bin emem-connect-demo http://127.0.0.1:5051
-# or: EMEM_BASE_URL=http://127.0.0.1:5051 cargo run -p emem-cli --bin emem-connect-demo
+cargo run --release -p emem-cli --bin emem-connect-demo http://127.0.0.1:5051
+# or: EMEM_BASE_URL=http://127.0.0.1:5051 cargo run --release -p emem-cli --bin emem-connect-demo
 ```
+
+After the server build, this build took more than 10 minutes on our
+host. The demo run itself took 16 s.
 
 The demo (`crates/emem-cli/src/bin/emem-connect-demo.rs`) sends real
 signed bytes. It prints a header for each of its seven steps. It stops with a
 non-zero exit on any HTTP error, so you can use it as a smoke test. The
-sections below explain what each step does.
+output of our run on 7 November 2026, shortened:
+
+```text
+=== STEP 1: mint two ephemeral attesters ===
+  attester A pubkey_b32 = 7a7qzshfbno32hrpr5pepufnnzbyl32227sdtqwgg2zbefswmyba
+  attester B pubkey_b32 = 7r26yhfm25bix5iyap4w333nazrocas7ncouxiye23n5jdz4tyha
+
+=== STEP 2: attest two disagreeing facts at the same (cell, band, tslot) ===
+  cell=defi.zb3d8.wOsu.zf07c band=indices.ndvi tslot=1704067200
+  A wrote value 0.61 → fact_cid = dd2j2ezwhpcsia2krmmpskszgcpzj2nq2nzjmcgy2xpdjv37a7pq
+  B wrote value 0.19 → fact_cid = 3zxy6qtiqkh2ziebdp36pc3lbp4gosnzdvilwszq3w34xykok3hq
+
+=== STEP 3: signed edges + bi-temporal supersession ===
+  /v1/edges/recall as_of=15 → 1 edge(s), newest valid_from=Some(10) (expect 10)
+  /v1/edges/recall as_of=25 → 1 edge(s), newest valid_from=Some(20) (expect 20)
+  bi-temporal supersession CONFIRMED (15→vf10, 25→vf20)
+
+=== STEP 4: scored disagreement via /v1/memory_contradictions ===
+  contradiction: cell="defi.zb3d8.wOsu.zf07c" band="indices.ndvi" tslot=1704067200 severity=0.20999999344348907 kind="scalar"
+  scored disagreement CONFIRMED
+
+=== STEP 5: refinement-loop auto disagrees_with edge (opt-in) ===
+  no auto disagrees_with edge within ~16s — either the refinement loop is disabled or it hasn't run yet. ...
+
+=== STEP 6: recall cell with include:["edges"] ===
+  recalled 1 fact(s); attached edges array present = true
+    edge: subj="dd2j2ezw..." pred="relates_to" obj="3zxy6qti..." valid_from=20
+
+=== STEP 7: verify a returned receipt via /v1/verify_receipt ===
+  valid=true merkle_proof_valid=true reason=null
+  receipt signature CONFIRMED valid
+
+All connect-and-evolve steps green.
+```
+
+Step 5 says that no edge came, but the loop made the edge. The node log
+showed `edges_emitted=1` on the pass after step 2. The section on steps
+4 and 5 below explains why the demo can miss the edge.
 
 ### Demo steps 1 and 2: two keys sign different values at one address
 
@@ -356,8 +406,12 @@ changes upstream is not a second witness. It also skips a pair that
 already has the same edge.
 
 The demo polls `POST /v1/edges/recall` with `pred` `disagrees_with` for
-about 16 s. If the node runs without the refinement settings, the demo
-prints a note and goes on.
+about 16 s. It always sends A's fact CID as `subj`. The edge starts at
+the smaller CID, so the demo finds the edge only when A's CID is the
+smaller one. In both of our runs on 7 November 2026, B's CID was smaller
+(`3zxy...` before `dd2j...`, and `f7pq...` before `t5pu...`). The demo
+then printed its "no auto disagrees_with edge" note and went on. The
+same note appears when the node runs without the refinement settings.
 
 To read the edge yourself, start from either fact. Use `subj` for the
 smaller CID, or `obj` for the larger one:
@@ -367,6 +421,21 @@ curl -sS -X POST http://127.0.0.1:5051/v1/edges/recall \
   -H 'content-type: application/json' \
   -d '{"obj":"<larger fact_cid>","pred":"disagrees_with"}' | jq '.edges'
 ```
+
+In our second run, this read returned one edge (fields shortened):
+
+```json
+{
+  "subj": "f7pqpn7mcjkoj7v4olatu56biwwsqfmccz5etxzcokx467mycudq",
+  "obj": "t5pux53zexyio2ngcftv2kd6ysl2f3475zz2f5utokabzdj5g25q",
+  "pred": "disagrees_with",
+  "valid_from": 1704067200,
+  "confidence": 0.20999999344348907,
+  "note": "severity=0.210 kind=scalar band=indices.ndvi"
+}
+```
+
+A read with `subj` set to the larger CID returns an empty `edges` list.
 
 You can also sign a `disagrees_with` edge yourself and send it to
 `POST /v1/edges`, the same way as demo step 3. You then do not wait for the
