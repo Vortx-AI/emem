@@ -319,7 +319,7 @@ codes. The next subsection names them and says what you get instead.
 | `canonical_encoding_divergence` | -18 | 500; 400 | HTTP 400: an attestation body did not decode (`/v1/attest_cbor`, `/v1/attest_traced`). HTTP 500: the responder could not encode or decode its own stored CBOR. No route compares your bytes with a canonical encoding. | On a 400, check the body against [protocol §6](protocol.md#6-attestation-envelope). On a 500, report it. |
 | `source_fetch_failed` | -19 | 502; 504 when a fan-out passes its budget; 422 from the physics routes | An upstream fetch failed at the transport (non-2xx, DNS, timeout, bad JSON) before the upstream gave an answer. On a place lookup this means the geocoder is down, not that the place is absent. | Retry with backoff. |
 | `source_format_mismatch` | -20 | 502 | The fetched bytes do not match the declared format. | Report it; the provider may have changed format. |
-| `compute_timeout` | -21 | 504 | The request ran past the transport budget (default 40 s, `EMEM_TIMEOUT_SECS`). `details.budget_secs` gives the budget. Over MCP the same cause reads `exceeded the <N>s call budget`, with the budget in seconds. | Send a smaller input, or retry. A band read that passes the 14 s dispatch cap keeps running. A retry often finds the value ready. |
+| `compute_timeout` | -21 | 504 | The request ran past the transport budget (default 40 s, `EMEM_TIMEOUT_SECS`). `details.budget_secs` gives that budget. Some routes have a different budget: see [Codes from the router and the load layer](#codes-from-the-router-and-the-load-layer). Over MCP the same cause reads `exceeded the <N>s call budget`, with the budget in seconds. | Send a smaller input, or retry. A band read that passes the 14 s dispatch cap keeps running. A retry often finds the value ready. |
 | `compute_quota_exceeded` | -22 | 402 | You used all of a per-key, per-day compute quota. | No route sends this code in version 2.4.4 (see [Codes that no route sends](#codes-that-no-route-sends)). |
 | `rate_limited` | -23 | 429; 503 when the memory SSE subscriber cap is full | Too many requests. Per IP the default is 600 per minute with a burst of 120 (`EMEM_RATE_LIMIT_RPS`, `EMEM_RATE_LIMIT_BURST`). Memory writes also have a per-attester backstop (`details.code: write_rate_limited`). | Honour `Retry-After` (seconds) or `details.retry_after_s`. |
 | `cache_error` | -24 | 500; 503 when the node has no durable store | The responder's store returned an internal error. | Retry once. |
@@ -358,6 +358,20 @@ Their codes are not in the enum.
 | `method_not_allowed` | 405 | The path exists but not for that method. The `allow` header and body field list the methods it answers. With an `Accept` header that contains `text/html`, the body is an HTML page. With no `Accept` header, the body is JSON. |
 | `overloaded` | 503 | The responder is at its cap of requests in flight: `EMEM_MAX_INFLIGHT`, default 128, limits 8 to 4096. It refused the request at once and did not queue it. `Retry-After: 1`. |
 | `overloaded` | 503 | Only `POST /v1/eudr_dds`, `/v1/field_burn_scar` and `/v1/field_actual_et`. These routes run 3 requests at a time (`EMEM_EUDR_MAX_INFLIGHT`, limits 1 to 64). Up to 4 times that number wait for a slot. A request gets this 503 when the wait is full, or when no slot frees in 30 s (`EMEM_EUDR_QUEUE_SECS`, at most 120). `Retry-After: 1`. |
+
+Each router has its own transport budget. When a request passes it, the
+router sends 504 `compute_timeout`.
+
+| Routes | Default budget | Variable | Limits |
+|---|---|---|---|
+| All routes not named below | 40 s | `EMEM_TIMEOUT_SECS` | 1 to 600 |
+| `POST /v1/eudr_dds`, `/v1/field_burn_scar`, `/v1/field_actual_et` | 610 s | `EMEM_EUDR_TIMEOUT_SECS` | 15 to 600, then the router adds 10 s |
+| `/splats`, `/splats/`, `/splats/*path` | 180 s | `EMEM_SPLATS_TIMEOUT_S` | 40 to 600 |
+| `/v1/perception/*path` | 120 s | `EMEM_PERCEPTION_TIMEOUT_S` | 40 to 600 |
+
+The 504 body always takes `details.budget_secs` and the number in its
+message from `EMEM_TIMEOUT_SECS`. On the last three rows that number is
+not the budget that applied. Use this table instead.
 
 ## Memory and entity write refusals
 
