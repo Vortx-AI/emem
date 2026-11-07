@@ -872,7 +872,7 @@ emem.dev runs the warmer every 21600 seconds (6 hours) on
 Not built: an entry cannot declare its area as a bounding box. It must
 list cells.
 
-### Client surfaces, ranked by leverage
+### Client surfaces
 
 Status on 7 November 2026, checked against PyPI, npm and `sdks/`:
 
@@ -1030,7 +1030,7 @@ on the list may only shrink. On 7 November 2026 one file was left:
 
 Open: a check that parses every token example in the docs.
 
-### What agents building on emem actually hit
+### Gaps that agents found when they built on emem
 
 Agents that built on emem reported these gaps. One agent built the 4D
 Gaussian-splat worlds at [/splats](https://emem.dev/splats) from signed

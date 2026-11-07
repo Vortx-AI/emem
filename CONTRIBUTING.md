@@ -49,16 +49,16 @@ goes behind an opt-in connector that the operator registers.
 **Docs follow the house prose convention.** Short sentences, plain words,
 no em or en dashes (use a comma, a colon, or a full stop). State what
 ships and what is open in the same paragraph; never present roadmap as
-capability. Every number in prose must trace to a registry or a
-measurement (`python3 scripts/sync_counts.py` checks the known ones), and
-every claim must be verifiable against the code as written. A withdrawn
-claim is recorded, not silently deleted; the whitepaper's section 18 is
-the pattern. `scripts/doc_lint.py` enforces the mechanical parts in CI
+a feature. Every number in prose must trace to a registry or a
+measurement. `python3 scripts/sync_counts.py` checks the known ones.
+Every claim must agree with the code as written. Record a withdrawn
+claim; do not silently delete it. Section 18 of
+[docs/whitepaper.md](docs/whitepaper.md) shows the pattern. `scripts/doc_lint.py` enforces the mechanical parts in CI
 (dashes, buzzwords, links). `scripts/ste_lint.py` checks sentence length and
 plain words; run it on your changed lines. [docs/writing-docs.md](docs/writing-docs.md)
 gives the rules and both commands.
 
-## Adding a band
+## Add a band
 
 1. Add the entry to `crates/emem-core/data/bands-v0.json`. Each band has
    `key`, `offset`, `dims`, `tempo` and `privacy`. The `dims` of all bands
@@ -73,20 +73,20 @@ gives the rules and both commands.
 4. The new band shows in `/v1/bands` when the manifest CID changes. You
    do not change the router.
 
-## Adding an algorithm
+## Add an algorithm
 
 1. Append to `crates/emem-core/data/algorithms-v0.json` with a unique
    versioned key (`my_score@1`), `inputs` (band names), `formula` (string,
    evaluable), `output_unit`, `references`.
 2. The algorithm is now visible at `GET /v1/algorithms` and routable from
    `/v1/locate`'s `algorithms_for_topic`.
-3. If the formula needs evaluation logic the existing engine doesn't
+3. If the formula needs evaluation logic the existing engine does not
    handle, extend `crates/emem-primitives/src/<…>` rather than inlining it
    in the router.
 
-## Adding a connector
+## Add a connector
 
-1. Create `crates/emem-fetch/src/<source>.rs`. Implement `SourceConnector`
+1. Create `crates/emem-fetch/src/<source>.rs`. Write an `impl SourceConnector`
    (`kind`, `fetch`, and `fetch_range` for COG sources).
 2. Register the source in `crates/emem-core/data/sources-v0.json`
    (`scheme`, `tempo`, `native_resolution_m`, and a `providers` list
@@ -127,7 +127,7 @@ lists the CI jobs.
 - If the change touches a primitive, attach a new
   `var/demos/<UTC>/trace.json` from `emem-livedemo` that shows it green.
 
-## Reporting bugs
+## Report a bug
 
 Open a GitHub issue. Include:
 
@@ -146,9 +146,9 @@ issue. Send an email to `avijeet@vortx.ai`.
 
 ## Code of conduct
 
-By participating you agree to abide by [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+When you take part, you agree to follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## License
 
-Apache-2.0 (see [LICENSE](LICENSE)). No CLA. By contributing you agree your
-contributions are licensed under the same terms as the rest of the repo.
+Apache-2.0 (see [LICENSE](LICENSE)). No CLA. When you contribute, you agree
+to license your contribution under the same terms as the rest of the repo.

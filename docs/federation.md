@@ -352,7 +352,7 @@ peer:
    record (§8d).
 3. Prove growth from the last head it co-signed, with `/v1/log/consistency`.
    The proof check is a port of `emem_attest::translog::verify_consistency`.
-   Before its first co-signature, it was checked against four served proofs
+   Before its first co-signature, the port ran against four served proofs
    and one tampered proof.
 4. Co-sign the head.
 5. Spot-check custody (below). `EMEM_WITNESS_SAMPLES` sets the number of
@@ -377,8 +377,8 @@ In September `/v1/log/inclusion` ignored `tree_size`, so the
 first draft failed every proof against the older root. On 6 November 2026 the
 route used `tree_size` and refused an unknown argument with 400.
 
-Two bugs were caught before the job shipped. Every node operator will write
-this job once, so they are recorded here.
+Two bugs showed up before the job shipped. Every node operator will write
+this job once, so this page records them.
 
 - A verifier written from memory of RFC 6962 had the spine-advance parity
   inverted. It rejected every real proof and still rejected tampered ones.
@@ -689,7 +689,7 @@ drift as a false claim. `Cost.credits` in `crates/emem-fact/src/receipt.rs`
 is a `u64` that is always 0. The `compute_quota_exceeded` error text told a
 throttled caller that high-score attesters get larger quotas, and nothing
 read `AttesterStats::score()` to widen anything. Tiers record checks and are
-never scores, so the sentence was removed and the code stayed.
+never scores, so the docs lost the sentence and the code stayed.
 
 ### 9c. The missing layers, each with the standard it should speak
 
