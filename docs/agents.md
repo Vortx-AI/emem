@@ -697,7 +697,7 @@ Use these four URLs to discover the surface:
 | `GET /v1/agent_card` | The band taxonomy and the tool list |
 | `GET /llms.txt` | A page-scoped manifest for LLM crawlers |
 
-These counts came from emem.dev on 6 November 2026. They can change. The live
+These counts came from emem.dev on 7 November 2026. They can change. The live
 routes in the last column are the source of truth.
 
 | Item | Count | Source |
@@ -727,7 +727,8 @@ This section lists routes and tools by group. To find a tool for a job,
 use [Find the tool for your job](#find-the-tool-for-your-job) first. The
 full route list is `/openapi.json`. The full tool list is `tools/list` on
 `https://emem.dev/mcp/full`. On 6 November 2026, the route names and body
-fields below matched both lists.
+fields below matched both lists. On 7 November 2026, the route and tool
+names matched again.
 
 ### Questions about the corpus, not about a place
 
@@ -746,7 +747,7 @@ many, and how fresh. For these, call the coverage routes directly.
 | What does this responder know about? | `GET /v1/discover` | A typed start point that names every catalogue |
 
 A classifier in `/v1/ask` catches some corpus questions, but not all
-wordings. On 6 November 2026, "where do you have signed facts?" gave
+wordings. On 7 November 2026, "where do you have signed facts?" gave
 `status: "corpus_audit"` with no receipt. Its `redirect_to` list names the
 routes in the table above. "How many cells have facts?" gave
 `envelope_schema: "needs_location"`, because the geocoder read a company name
@@ -911,7 +912,7 @@ available, it returns `verdict: "inconclusive"` and no number.
 All four routes are `POST`. The second half of the deforestation alert
 compares two GeoTessera vintages (`geotessera.multi_year`). emem.dev
 retires that band (see [Algorithms](#algorithms)), so the second half
-needs vectors that emem stored before the retirement. On 6 November 2026
+needs vectors that emem stored before the retirement. On 7 November 2026
 the registry gave this algorithm `here.status: "stored_only"` and
 `use_instead: ["deforestation_alert_ndvi_drop@1"]`.
 
@@ -965,13 +966,13 @@ Look at `/v1/data_availability` before you select a window.
 ### MCP tools by shape
 
 `tools/list` on `/mcp` shows the 18 `core` tools in one page (about 75 KB of descriptors).
-`/mcp/full` advertises all 116 (about 355 KB over 9 pages on 6 November 2026). Send
+`/mcp/full` advertises all 116 (about 355 KB over 9 pages on 7 November 2026). Send
 `{"tier": "core"}`, `"extended"` or `"all"` to change the list on either
 endpoint. `tools/call` runs any tool by name on both endpoints, so a short
 list costs you no tools.
 
 Every tool declares one shape in `_meta` under `dev.emem/shape`. The shape
-is the form of the answer. The table lists all 116 tools on 6 November
+is the form of the answer. The table lists all 116 tools on 7 November
 2026, from `/mcp/full`.
 
 | Shape | Answer | Tools |
@@ -995,7 +996,7 @@ loop, a bundle menu, and a shape menu in about 13 KB.
 
 | Argument | What it selects |
 |---|---|
-| `{"shape": "raster"}` | Tools with that shape. All 13 shapes worked on 6 November 2026, but the input schema lists only the first 11 |
+| `{"shape": "raster"}` | Tools with that shape. All 13 shapes worked on 7 November 2026, but the input schema lists only the first 11 |
 | `{"bundle": "robotics"}` | Tools for one job. Bundles overlap: `tokenisation`, `verification`, `agent_to_agent`, `long_horizon`, `robotics`, `satellites`, `agriculture`, `forestry`, `climate_risk` |
 | `{"q": "ndvi"}` | A text search over the catalogue |
 | `{"name": "emem_ndvi"}` | One tool's input schema and a runnable example, about 8 KB |
@@ -1005,7 +1006,7 @@ list holds that bundle only.
 
 ### Tool hints
 
-Every tool carries the four MCP hints. On 6 November 2026, 51 tools
+Every tool carries the four MCP hints. On 7 November 2026, 51 tools
 had `readOnlyHint: false`. Some reads change the corpus: on a miss,
 `emem_recall`, `emem_ask` and the other fetching tools sign and store a new
 fact. These tools also set `openWorldHint: true`. The memory verbs and the
@@ -1057,7 +1058,7 @@ for a related question. `here.executes` tells who runs the formula. The
 values are `responder`, `responder, in part` and `agent`. With `agent`, emem
 signs the inputs and you calculate the result.
 `GET /v1/algorithms?runnable=true` lists only the recipes that run. On
-6 November 2026 it listed 128 of 172.
+7 November 2026 it listed 128 of 172.
 
 The registry still declares the triple-encoder consensus family
 (`clay_prithvi_tessera_triple_consensus@1` and six variants). Earlier
@@ -1091,7 +1092,7 @@ curl -s -X POST https://emem.dev/v1/ask \
   -d '{"q":"What is the air quality in Munich?","model":"gemma"}'
 ```
 
-On 6 November 2026, emem.dev routed two models: `google.gemma-3-12b-it`
+On 7 November 2026, emem.dev routed two models: `google.gemma-3-12b-it`
 (family `gemma`) and `nvidia/Cosmos3-Edge` (family `cosmos3_edge`). The
 Cosmos model returned a typed error that day: the host had no CUDA device.
 
@@ -1141,15 +1142,16 @@ Before you build on `model_answer`, know these rules:
 
 When a band has no data at a cell, the responder does not return `404` or
 an empty array. It returns a signed Absence fact. The fact has
-`"kind": "absence"`, `"value": null`, a `reason` and a `reason_cid`. You
-can cite its `fact_cid` like any other fact.
+`"kind": "absence"`, a `reason` and a `reason_cid`. It has no `value`
+field. Read `kind` before you read `value`. You can cite its `fact_cid`
+like any other fact.
 
 `reason` is text that starts with a short code from the connector. Examples
 from the code are `jrc_gsw_no_data`, `copdem_coverage_gap`,
 `esa_worldcover_no_tile` and `radd_no_alert`. `reason_cid` is a BLAKE3
 hash of the reason text, so the same reason always gives the same id.
 
-This call on 6 November 2026 returned an Absence for open sea in the
+This call on 7 November 2026 returned an Absence for open sea in the
 Pacific:
 
 ```bash
@@ -1162,7 +1164,6 @@ curl -s -X POST https://emem.dev/v1/recall \
 {
   "kind": "absence",
   "band": "surface_water.recurrence",
-  "value": null,
   "reason": "jrc_gsw_no_data: surface_water.recurrence at (0.500007,-140.500021) returned 255 or non-finite. ...",
   "reason_cid": "ww5mv5uvnsnlqxigmugspn5vju",
   "fact_cid": "caeais3m5g2rq3legrkz5nrwukap6dndrmxvcrhi2p5wnnmgs35a",
@@ -1185,7 +1186,7 @@ JRC GSW, Hansen GFC and Overture. The responder signs the result, stores
 it and returns it in the same response. The next recall reads the stored
 fact.
 
-On 6 November 2026, `GET /v1/materializers` listed 113 entries
+On 7 November 2026, `GET /v1/materializers` listed 113 entries
 (`pagination.total`).
 
 Each band that the responder did not sign comes back in
@@ -1204,7 +1205,7 @@ does not become an Absence, because the upstream did not answer. There is
 no observation to sign.
 
 A band key that the registry does not know gets an error before any fetch.
-On 6 November 2026, a recall with `"bands":["foo.bar"]` returned HTTP 400
+On 7 November 2026, a recall with `"bands":["foo.bar"]` returned HTTP 400
 with `code: "band_not_in_registry"`. Use `GET /v1/bands` for the valid keys.
 
 ---
@@ -1235,7 +1236,7 @@ response tells which layer answered.
 These recipes cover the next calls that an agent usually needs after the
 jobs in [Find the tool for your job](#find-the-tool-for-your-job). The
 examples use the Bengaluru cell `defi.zb493.xuqA.zcb5f`. Each call ran on
-emem.dev on 6 November 2026.
+emem.dev on 7 November 2026.
 
 ### 1. Check a claim over a time window
 
@@ -1350,7 +1351,7 @@ curl -s -X POST https://emem.dev/v1/eudr_dds \
 ```
 
 The responder runs `eudr_compliance@1` for each cell. The 2020 legal
-baseline is JRC GFC2020 (V4 on 6 November 2026). The loss year after the
+baseline is JRC GFC2020 (V4 on 7 November 2026). The loss year after the
 cut-off comes from Hansen GFC v1.13. The responder applies the 0.5 ha floor
 of Article 2(4). It returns a statement in the shape of Annex II with a
 `dds_reference_number` and a receipt signed over the per-cell fact CIDs. On
@@ -1401,7 +1402,7 @@ Each item is an `emem:fact:` token with `fn_key` (the recipe, for example
 `outlook@1`), `value`, `confidence` and `distance_m`. It also gives the key,
 tier and nick of the attester. `parents` lists the signed measurements that
 the value came from.
-On 6 November 2026 this call returned 8 items.
+On 7 November 2026 this call returned 8 items.
 
 The response states its `trust_policy`. By default it admits only keys at
 tier `T4_affiliated` or higher: an organisation vouched for the key. It
@@ -1434,7 +1435,7 @@ curl -sS -X POST https://emem.dev/v1/guard/verdict \
   -d '{"texts":["Elevation there is 915 m per emem:fact:defi.zb493.xuqA.zcb5f:tdwp3aax6gqfkcdw4mah52fp7dxarelspo7gzte4eyrhpisafcjq"]}'
 ```
 
-Shortened answer, from 6 November 2026:
+Shortened answer, from 7 November 2026:
 
 ```json
 { "action": "allow", "advisory": true, "checked": 1,
@@ -1525,7 +1526,7 @@ shows each one with real output.
 ## Verify a receipt offline
 
 The field `preimage_version` in each receipt selects the signing rule.
-emem.dev signs new receipts with v2. On 6 November 2026,
+emem.dev signs new receipts with v2. On 7 November 2026,
 `GET /v1/verifier_spec` gave `receipt.current_emitted_version: 2`. Older
 receipts use v1, and they still verify. Both rules hash a
 domain-separated, length-prefixed byte stream:
@@ -1568,7 +1569,7 @@ the byte array `responder`. Both hold the same 32-byte Ed25519 key.
 anchor.
 
 This script verifies a live receipt. It needs `requests`, `blake3`,
-`cbor2` and `cryptography`. On 6 November 2026 it printed
+`cbor2` and `cryptography`. On 7 November 2026 it printed
 `VALID, signed by 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka`.
 
 ```python
@@ -1725,7 +1726,7 @@ for f in rec["facts"]:
     print(f"{f['band']}: {f['value']} is the value {cid[:12]}... commits to")
 ```
 
-On 6 November 2026 this script checked 50 NDVI facts, and each cid
+On 7 November 2026 this script checked 50 NDVI facts, and each cid
 matched its bytes. Before you trust the check, make sure that it can
 fail. Hash the bytes of one fact, compare the hash with the cid of a
 different fact, and confirm that the assertion fails.
@@ -1738,14 +1739,14 @@ Each item in `facts[]` has a `kind`:
 |---|---|---|
 | `primary` | An observation from the source | `tslot` |
 | `derivative` | A deterministic function of parent facts | `tslot_window` (start and end) |
-| `absence` | A signed statement that the source has nothing here, with `value: null` | `tslot` |
+| `absence` | A signed statement that the source has nothing here. It has no `value` field | `tslot` |
 
 A `derivative` has a value. Anyone can compute it again from the cited
 parents, so it can earn a `deterministic_index`. Do not send every fact
 that is not `primary` to "no coverage". Only an `absence` means that
 nothing is there.
 
-An absence has its own `fact_cid`. For example, on 6 November 2026 a
+An absence has its own `fact_cid`. For example, on 7 November 2026 a
 recall of `jrc_tmf.annual_change` at the Mount Fuji cell gave one
 `absence` fact. Its reason was `jrc_tmf_coverage_gap`, because the cell
 is outside the tropical belt (plus or minus 30 degrees). Do not replace
@@ -1817,7 +1818,7 @@ These responses carry steps:
 
 The active codec is `cell64-geo-21x22`: 21 latitude bits and 22
 longitude bits in one u64. The string form is four base-65,536 bigrams
-joined by dots, for example `defi.zb493.xuqA.zcb5f`. On 6 November 2026,
+joined by dots, for example `defi.zb493.xuqA.zcb5f`. On 7 November 2026,
 `GET /v1/grid_info` gave these cell sizes:
 
 | Axis | Size |
@@ -1839,7 +1840,7 @@ They fail with `NotGeoCell`. They do not move a fact to a wrong place.
 A `tslot` is a whole number: `floor(unix_seconds / slot_seconds)`. The
 slot length comes from the tempo of the band. Before release 0.0.3, the
 count started at 2026-01-01. It now starts at the Unix epoch, so past
-years have addresses. On 6 November 2026, `GET /v1/data_availability`
+years have addresses. On 7 November 2026, `GET /v1/data_availability`
 listed these tempos:
 
 | `tempo` | Slot length | Example bands |
