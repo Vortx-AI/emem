@@ -39,7 +39,9 @@ Do not use colour as the only signal. Write the word too, for example `valid` or
   30 px, which is about 10 px on a phone. Keep it to two short lines. The page text next to the film must
   also repeat what the foot line says.
 - A still script lays out the page at 800 px and renders it at 1080 / 800 scale. Then the smallest text, 22 px in the
-  layout, is about 10 px on a phone. The heading is about 20 px.
+  layout, is about 10 px on a phone. The heading is about 20 px. If a long code name makes a table too
+  wide, let it break at its dots (`<wbr>`). Do not make it smaller.
+- `hero.py --phone` lays out at 540 px and renders at 2x, so its smallest text (18 px) is 12 px on a phone.
 - Diagrams in SVG keep the smallest text at 16 px in a 640 px view box, which is about 8.5 px on a phone.
   Body text is 18 px. Break a long line into two lines rather than make the text smaller.
 - A wide still with columns (the hero is 1800 px) is too small on a phone. Give it a one-column phone copy,

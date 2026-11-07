@@ -70,7 +70,7 @@ for f in facts:
     name, fmt = LABEL[f["band"]]
     seen = f["fact"]["sources"][0]["captured_at"]
     rows.append(
-        f'<tr><td>{name}<div class="band mono">{f["band"]}</div></td>'
+        f'<tr><td>{name}<div class="band mono">{f["band"].replace(".", ".<wbr>")}</div></td>'
         f'<td class="mono num">{fmt(f["value"])}</td>'
         f'<td>{day(seen)}<div class="band mono id">{f["fact_cid"][:8]}…</div></td>'
         f'<td class="mono ok">valid</td></tr>'
@@ -99,9 +99,9 @@ h1{{font-size:44px;line-height:1.2;margin:0 0 10px}}
   overflow-wrap:anywhere}}
 table{{width:100%;border-collapse:collapse;font-size:25px;margin-top:8px}}
 td{{padding:9px 6px;border-top:1px solid #30363d;vertical-align:top}}
-th{{color:#8b949e;font-size:21px;font-weight:normal;text-align:left;padding:0 6px 4px}}
+th{{color:#8b949e;font-size:22px;font-weight:normal;text-align:left;padding:0 6px 4px}}
 .num{{font-size:27px;white-space:nowrap}}
-.band{{color:#8b949e;font-size:19px}}
+.band{{color:#8b949e;font-size:22px}}
 .key{{color:#8b949e;font-size:23px;margin-top:10px}}
 .foot{{color:#8b949e;font-size:22px;margin-top:24px;line-height:1.4}}
 </style><div class="wrap">

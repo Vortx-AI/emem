@@ -77,7 +77,7 @@ def y(v):
     return PT + (1 - v) * (CH - PT - PB)
 
 
-svg = [f'<svg width="{CW}" height="{CH}" viewBox="0 0 {CW} {CH}" font-family="DejaVu Sans" font-size="20">']
+svg = [f'<svg width="{CW}" height="{CH}" viewBox="0 0 {CW} {CH}" font-family="DejaVu Sans" font-size="22">']
 for v in (0.0, 0.2, 0.4, 0.6, 0.8, 1.0):
     svg.append(f'<line x1="{PL}" x2="{CW - PR}" y1="{y(v):.1f}" y2="{y(v):.1f}" stroke="#30363d"/>')
     svg.append(f'<text x="{PL - 8}" y="{y(v) + 7:.1f}" fill="#8b949e" text-anchor="end">{v:.1f}</text>')

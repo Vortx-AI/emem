@@ -119,12 +119,12 @@ h1{{font-size:44px;line-height:1.2;margin:0 0 10px}}
 .stage+.stage:before{{content:"";position:absolute;left:30px;top:-11px;height:10px;border-left:3px solid #30363d}}
 .sn{{font-size:26px;color:#ffa657}}
 .ss{{font-size:24px}}
-.sm{{font-size:21px;color:#8b949e;margin-top:2px}}
+.sm{{font-size:22px;color:#8b949e;margin-top:2px}}
 .fr{{display:grid;grid-template-columns:230px 1fr 80px 150px;gap:12px;align-items:center;margin-top:10px;font-size:23px}}
 .fd{{color:#8b949e}}
 .track{{background:#0d1117;border:1px solid #30363d;border-radius:6px;height:24px}}
 .bar{{background:#30363d;height:100%;border-radius:5px}} .bar.q{{background:#7ee787}}
-.fc{{font-size:21px}}
+.fc{{font-size:22px}}
 .chk{{font-size:24px;margin-top:6px}}
 .foot{{color:#8b949e;font-size:22px;margin-top:24px;line-height:1.4}}
 </style><div class="wrap">

@@ -92,7 +92,7 @@ h1{{font-size:44px;line-height:1.2;margin:0 0 10px}}
 .cross{{position:absolute;left:50%;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;border:2px solid #ffa657;border-radius:50%}}
 .tt{{font-size:30px;margin-top:10px}}
 .ts{{color:#e6edf3;font-size:24px;font-family:"DejaVu Sans Mono",ui-monospace,monospace}}
-.td{{color:#8b949e;font-size:21px;margin-top:4px}}
+.td{{color:#8b949e;font-size:22px;margin-top:4px}}
 .tag{{color:#ffa657;font-size:24px}}
 .rk{{color:#8b949e}} .sc{{color:#79c0ff;font-family:"DejaVu Sans Mono",ui-monospace,monospace}}
 .dim{{color:#8b949e;font-family:"DejaVu Sans",system-ui,sans-serif}}

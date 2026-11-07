@@ -130,7 +130,7 @@ h1{{font-size:42px;line-height:1.2;margin:0 0 12px}}
 .lab{{color:#8b949e;font-size:22px}}
 .bar{{position:relative;height:120px;margin:6px 10px 0}}
 .axis{{position:absolute;left:0;right:0;top:58px;border-top:2px solid #30363d}}
-.tick{{position:absolute;top:66px;color:#8b949e;font-size:20px;transform:translateX(-50%)}}
+.tick{{position:absolute;top:66px;color:#8b949e;font-size:22px;transform:translateX(-50%)}}
 .dot{{position:absolute;top:44px;width:28px;height:28px;border-radius:50%;transform:translateX(-50%)}}
 .dl{{position:absolute;top:0;font-size:24px;transform:translateX(-50%);white-space:nowrap}}
 .arrow{{position:absolute;top:57px;height:4px;background:#7ee787}}
@@ -149,7 +149,7 @@ th{{color:#8b949e;font-weight:normal;font-size:22px}}
 .split{{font-size:44px;font-family:"DejaVu Sans Mono",monospace;color:#ffa657}}
 .ok{{color:#7ee787}}
 .tok{{font-size:22px;overflow-wrap:anywhere;color:#79c0ff}}
-.foot{{color:#8b949e;font-size:21px;margin-top:22px;line-height:1.4}}
+.foot{{color:#8b949e;font-size:22px;margin-top:22px;line-height:1.4}}
 </style><div class="wrap">
 <h1>NDVI went up at one cell. The signed ledger lists the evidence for each cause. It does not split the change.</h1>
 <div class="q">Cubbon Park, Bengaluru: cell <span class="m">{led['cell']}</span> at {lat:.4f} N, {lng:.4f} E.
