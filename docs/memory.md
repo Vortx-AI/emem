@@ -706,11 +706,17 @@ for 2 facts or 256 facts.
 | `fact_cids`: a list of fact cids | Exactly these facts. Use this to pin the facts you already read. |
 
 Send exactly one of the two lists. No list, or both lists, gives a 400
-`invalid_argument`. The limit is 256 entries in one call. Entry 257
+`invalid_argument`. An empty list counts as no list. The limit is 256 entries in one call. Entry 257
 gives a 400 `invalid_argument`. An optional `purpose` string goes into
 the hash. The same facts with a different purpose thus give a different
 token. An optional top-level `scope` applies to the recall of every
 triple.
+
+One bad triple stops the whole call, and the responder makes no
+bundle. A `cell` that has the shape of a cell64 but does not decode
+gives a 400 `invalid_cell`. The responder does not geocode it. A place
+name that gets no geocoder answer in 10 seconds gives a 504
+`invalid_argument`. Send a cell64 to avoid the geocoder.
 
 The response gives `bundle_token`, one citation per entry, and two
 counts. `members` is the number of entries. `resolved` is the number of
@@ -775,9 +781,12 @@ facts. To check a fact body, resolve its `emem:fact:` token.
 Two limits apply:
 
 - Only the responder that composed a bundle can resolve its token.
-  Other responders give a 404. They hold no copy of the bundle.
-- A bundle binds primary facts only. A cid of another kind becomes a
-  miss. That citation has an empty `cell` and `band` and
+  Other responders give a 404. They hold no copy of the bundle. A
+  responder without its sled store returns the bundle to the POST, but
+  it cannot resolve the token later.
+- A bundle binds primary facts only. In a `fact_cids` list, a cid of
+  another kind becomes a miss. A cid that this responder does not hold
+  also becomes a miss. That citation has an empty `cell` and `band` and
   `resolved_tslot` 0, and these values go into the hash.
 
 The read route gives these errors. Each one below ran on 7 November
