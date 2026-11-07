@@ -994,8 +994,8 @@ with `fact_cid`. No key and no responder code is necessary.
    base32 with no padding.
 6. Compare the result with `fact_cid`. They must be equal.
 
-This script does steps 2 to 6 for a primary fact or an absence. It
-needs Python 3 and the `blake3` package (`pip install blake3`).
+This script does steps 2 to 6 for a primary fact, an absence or a
+derivative. It needs Python 3 and the `blake3` package (`pip install blake3`).
 
 ```python
 import base64, json, struct, sys
@@ -1018,6 +1018,7 @@ def enc_float(x):
     return b"\xfb" + struct.pack(">d", x)
 
 def enc(v):
+    if v is None: return b"\xf6"
     if v is True: return b"\xf5"
     if v is False: return b"\xf4"
     if isinstance(v, int): return head(0, v) if v >= 0 else head(1, -1 - v)
@@ -1032,6 +1033,9 @@ ORDER = {
                 "schema_cid", "signer", "signed_at", "served_via"],
     "absence": ["cell", "band", "tslot", "reason_cid", "confidence",
                 "sources", "schema_cid", "signer", "signed_at"],
+    "derivative": ["cell", "band", "tslot_window", "op", "parents", "value",
+                   "confidence", "derivation", "schema_cid", "signer",
+                   "signed_at"],
 }
 SOURCE = ["scheme", "id", "cid", "hash", "captured_at", "url"]
 SERVED_VIA = ["tier", "model", "device", "fallback_reason", "model_blake2b_hex"]
@@ -1039,9 +1043,14 @@ SERVED_VIA = ["tier", "model", "device", "fallback_reason", "model_blake2b_hex"]
 def pick(obj, keys):
     return {k: obj[k] for k in keys if obj.get(k) is not None}
 
-fact = json.load(open(sys.argv[1]))["facts"][int(sys.argv[2])]
+doc = json.load(open(sys.argv[1]))
+if "facts" in doc:
+    fact = doc["facts"][int(sys.argv[2])]
+else:
+    fact = {**doc["fact"], "fact_cid": doc["fact_cid"]}
 body = {"kind": fact["kind"], **pick(fact, ORDER[fact["kind"]])}
-body["sources"] = [pick(s, SOURCE) for s in body["sources"]]
+if "sources" in body:
+    body["sources"] = [pick(s, SOURCE) for s in body["sources"]]
 if "derivation" in body:
     body["derivation"] = pick(body["derivation"], ["fn_key", "args"])
 if "served_via" in body:
@@ -1056,7 +1065,7 @@ print("served  ", fact["fact_cid"])
 print("MATCH" if cid == fact["fact_cid"] else "MISMATCH")
 ```
 
-Run it on the first fact:
+Run it on the first fact of a recall file:
 
 ```sh
 python3 recompute_fact_cid.py recall.json 0
@@ -1070,18 +1079,43 @@ served   qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq
 MATCH
 ```
 
-On the same day, a recall with no `bands` field at that cell gave 355
-facts: 352 primary facts and 3 absences. The script gave `MATCH` for
-all 355. That set included vector values with NaN entries and one
-fact with `served_via`.
+At 00:59 UTC on 7 November 2026, a recall with no `bands` field at
+that cell gave 358 facts: 355 primary facts and 3 absences. The script
+gave `MATCH` for all 358. That set included a vector value with NaN
+entries and one fact with `served_via`.
 
 For an absence you can also check `reason_cid`. Hash the `reason` text
 with BLAKE3, keep the first 16 bytes, and encode them as in step 5
 (§5.3). All three absences matched.
 
-The script does not handle a derivative fact. For a derivative, use the
-`DerivativeFact` field order in §5.2. A `MISMATCH` means that the
-served JSON is not the signed fact. It can also mean that your
+A recall does not return a derivative fact (§5.2). To check one, get
+its token and resolve the token. The change ledger gives a derivative
+token for a cell:
+
+```sh
+curl -s -X POST https://emem.dev/v1/change_attribution \
+  -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb592.nUkO.zEzE"}' | jq -r .ledger_fact.token
+curl -s -X POST https://emem.dev/v1/memory_token/resolve \
+  -H 'content-type: application/json' \
+  -d '{"token":"<token from the first call>"}' -o derivative.json
+python3 recompute_fact_cid.py derivative.json
+```
+
+The resolve response has the fact under `fact` and the CID under
+`fact_cid`. The script reads both. On 7 November 2026 the token was
+`emem:fact:defi.zb592.nUkO.zEzE:tu734ucbc2asymi4l6gwtcnd4r64ejxpzy45yr7r3tr7bt3nw6qa`
+and the output was `MATCH`. The ledger `value` is a JSON map. The
+responder converts it to a CBOR map with the keys in alphabetical
+order (`json_to_cbor`). The served JSON has the same order, so the
+script keeps it. A `null` in that map is the CBOR value `f6`.
+
+The first `change_attribution` call at a cell can store a new ledger
+fact that the responder signs (`persistence:
+"stored_derivative_fact"`). A repeat call returns the same CID with
+`persistence: "existing_derivative_fact"`.
+
+A `MISMATCH` means that the served JSON is not the signed fact. It can also mean that your
 encoder breaks a rule in §4.2. Do not trust the value until you find
 which one.
 
