@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>From a place name to a fact another agent checks</title>
+<style>
+:root { --bg:#0d1117; --panel:#161b22; --line:#30363d; --text:#e6edf3; --muted:#8b949e;
+        --id:#79c0ff; --ok:#7ee787; --bad:#ff7b72; --sig:#d2a8ff; --tok:#ffa657; }
+* { box-sizing:border-box; margin:0; padding:0; }
+html,body { width:1080px; height:960px; background:var(--bg); overflow:hidden; }
+body { font-family: "DejaVu Sans", system-ui, sans-serif; color:var(--text); }
+.mono { font-family: "DejaVu Sans Mono", ui-monospace, monospace; }
+#steps { position:absolute; left:60px; right:60px; top:48px; display:flex; gap:12px; }
+#steps div { flex:1; height:64px; border-radius:12px; border:2px solid var(--line); color:var(--muted);
+             font-size:26px; display:flex; align-items:center; justify-content:center; gap:10px; }
+#steps div b { font-size:22px; width:34px; height:34px; border-radius:17px; border:2px solid currentColor;
+               display:inline-flex; align-items:center; justify-content:center; }
+#steps div.on { color:var(--text); border-color:var(--id); background:var(--panel); }
+#steps div.done { color:var(--id); }
+.scene { position:absolute; left:60px; right:60px; top:150px; bottom:90px; opacity:0; }
+h1 { font-size:52px; font-weight:700; line-height:1.15; margin-bottom:34px; }
+p.say { font-size:34px; line-height:1.35; color:var(--muted); margin-top:26px; }
+.card { background:var(--panel); border:2px solid var(--line); border-radius:18px; padding:30px 34px; }
+.k { font-size:26px; color:var(--muted); margin-bottom:6px; }
+.v { font-size:38px; }
+.id { color:var(--id); } .ok { color:var(--ok); } .bad { color:var(--bad); } .sig { color:var(--sig); } .tok { color:var(--tok); }
+.row { margin-bottom:22px; }
+.req { font-size:30px; color:var(--muted); }
+.big { font-size:96px; font-weight:700; }
+#foot { position:absolute; left:60px; right:60px; bottom:30px; font-size:22px; color:var(--muted); }
+.agent { position:absolute; width:300px; height:120px; border-radius:18px; border:2px solid var(--line); background:var(--panel);
+         font-size:32px; display:flex; align-items:center; justify-content:center; }
+.pill { display:inline-block; padding:6px 18px; border-radius:30px; border:2px solid currentColor; font-size:32px; font-weight:700; }
+.strike { text-decoration: line-through; text-decoration-thickness:3px; }
+</style></head>
+<body>
+<div id="steps">
+  <div data-s="1"><b>1</b>Place</div><div data-s="2"><b>2</b>Cell</div><div data-s="3"><b>3</b>Fact</div>
+  <div data-s="4"><b>4</b>Token</div><div data-s="5"><b>5</b>Check</div>
+</div>
+
+<!-- 1 place -->
+<section class="scene" id="s1" data-t="0,4.6" data-step="1">
+  <h1>An agent asks about a place.</h1>
+  <div class="card"><div class="req mono">POST /v1/locate</div>
+    <div class="v mono" style="margin-top:16px">{"place": "<span class="id" data-type="0.6,1.8">Mount Fuji</span>"}</div></div>
+  <p class="say" data-in="2.2">emem turns the name into one address.</p>
+</section>
+
+<!-- 2 cell -->
+<section class="scene" id="s2" data-t="4.6,9.4" data-step="2">
+  <h1>The address is a cell64: one square of about 10 m.</h1>
+  <div class="card" style="display:flex; gap:34px; align-items:center">
+    <svg id="grid" width="300" height="300" viewBox="0 0 300 300"></svg>
+    <div><div class="k">cell64</div><div class="v mono id" data-type="5.2,6.4">defi.zb592.nUkO.zEzE</div>
+      <div class="k" style="margin-top:22px" data-in="6.6">centre</div><div class="v mono" data-in="6.6">35.3628, 138.7308</div></div>
+  </div>
+  <p class="say" data-in="7.4">Every agent that asks gets this same cell64.</p>
+</section>
+
+<!-- 3 fact -->
+<section class="scene" id="s3" data-t="9.4,15.2" data-step="3">
+  <h1>emem reads a public source and signs one fact.</h1>
+  <div class="card">
+    <div class="row"><div class="k">band</div><div class="v mono">copdem30m.elevation_mean</div></div>
+    <div class="row" data-in="10.4"><div class="k">value</div><div class="v"><span class="big">3539.04</span> m</div></div>
+    <div class="row" data-in="11.6"><div class="k">fact_cid: the BLAKE3 hash of the fact bytes</div>
+      <div class="v mono id" style="font-size:31px">qejpz7cgvk347ordd6vrdtmwzp<br>rqlzcnkmotsjton2x4y2jjbplq</div></div>
+    <div data-in="12.8"><div class="k">signed with Ed25519 by the responder key</div><div class="v mono sig">777er3yi…</div></div>
+  </div>
+</section>
+
+<!-- 4 token -->
+<section class="scene" id="s4" data-t="15.2,20.4" data-step="4">
+  <h1>Agent A passes one line of text.</h1>
+  <div class="card mono tok" style="font-size:33px; line-height:1.4">emem:fact:defi.zb592.nUkO.zEzE:<br>qejpz7cgvk347ordd6vrdtmwzprqlzcnkmot<br>sjton2x4y2jjbplq</div>
+  <div style="position:relative; height:250px; margin-top:40px">
+    <div class="agent" style="left:0; top:60px">Agent A</div>
+    <div class="agent" style="right:0; top:60px">Agent B</div>
+    <svg width="960" height="250" style="position:absolute; left:0; top:0">
+      <line x1="310" y1="120" x2="650" y2="120" stroke="#30363d" stroke-width="4" stroke-dasharray="10 10"/></svg>
+    <div id="chip" class="mono tok" style="position:absolute; top:96px; font-size:28px; padding:6px 14px; border:2px solid var(--tok); border-radius:10px; background:var(--bg)">emem:fact:…</div>
+  </div>
+  <p class="say" data-in="18.4">No shared database. No account.</p>
+</section>
+
+<!-- 5 check -->
+<section class="scene" id="s5" data-t="20.4,26.2" data-step="5">
+  <h1>Agent B resolves the token and checks it.</h1>
+  <div class="card">
+    <div class="row"><div class="k">POST /v1/memory_token/resolve</div><div class="v">same fact_cid, <b>3539.04 m</b></div></div>
+    <div class="row" data-in="22.0"><div class="k">POST /v1/verify_receipt</div>
+      <div class="v mono">signature_valid <span class="ok">true</span></div>
+      <div class="v mono">merkle_proof_valid <span class="ok">true</span></div></div>
+    <div data-in="23.4"><span class="pill ok">valid</span></div>
+  </div>
+  <p class="say" data-in="24.0">A signature shows who signed. It does not show that the value is true.</p>
+</section>
+
+<!-- 6 tamper -->
+<section class="scene" id="s6" data-t="26.2,33.0" data-step="5">
+  <h1>Change one character in the receipt, and the check fails.</h1>
+  <div class="card">
+    <div class="row"><div class="k">fact_cid in the receipt</div>
+      <div class="v mono" style="font-size:31px">…x4y2jjbpl<span id="lastch" class="id">q</span></div></div>
+    <div class="row" data-in="28.4"><div class="k">BLAKE3 of the signed preimage</div>
+      <div class="v mono" style="font-size:31px"><span class="strike" style="color:var(--muted)">293bc603f902…</span> → <span class="bad">7aa5a6b654d1…</span></div></div>
+    <div class="row" data-in="29.6"><div class="v mono">signature_valid <span class="bad">false</span></div></div>
+    <div data-in="30.4"><span class="pill bad">signature_invalid</span></div>
+  </div>
+  <p class="say" data-in="31.0">Agent B sees the change without asking Agent A.</p>
+</section>
+
+<div id="foot">Live calls to emem.dev on 7 November 2026. Elevation: Copernicus GLO-30 DEM.</div>
+
+<script>
+const DUR = 33.0;
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const ease = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+// grid for the cell scene: 10 x 10 squares, the middle one lights up
+const g = document.getElementById('grid');
+let cells = '';
+for (let i = 0; i < 10; i++) for (let j = 0; j < 10; j++)
+  cells += `<rect x="${i*30+1}" y="${j*30+1}" width="28" height="28" rx="3" fill="#0d1117" stroke="#30363d" stroke-width="1"/>`;
+g.innerHTML = cells + '<rect id="hit" x="121" y="121" width="28" height="28" rx="3" fill="#79c0ff" opacity="0"/>' +
+  '<text id="hitlbl" x="135" y="180" fill="#79c0ff" font-size="22" text-anchor="middle" font-family="DejaVu Sans" stroke="#161b22" stroke-width="6" paint-order="stroke" opacity="0">1 cell, about 10 m</text>';
+const typed = [...document.querySelectorAll('[data-type]')].map(e => ({ e, s: e.textContent, w: e.dataset.type.split(',').map(Number) }));
+
+function seek(t) {
+  let step = 1;
+  for (const s of document.querySelectorAll('.scene')) {
+    const [a, b] = s.dataset.t.split(',').map(Number);
+    const o = Math.min(ease((t - a) / 0.45), b >= DUR ? 1 : ease((b - t) / 0.45));
+    s.style.opacity = t >= a - 0.01 && t < b + 0.01 ? o : 0;
+    s.style.transform = `translateY(${(1 - ease((t - a) / 0.45)) * 24}px)`;
+    if (t >= a) step = +s.dataset.step;
+  }
+  for (const d of document.querySelectorAll('#steps div')) {
+    const n = +d.dataset.s;
+    d.className = n === step ? 'on' : n < step ? 'done' : '';
+  }
+  for (const e of document.querySelectorAll('[data-in]')) {
+    const k = ease((t - +e.dataset.in) / 0.4);
+    e.style.opacity = k; e.style.transform = `translateY(${(1 - k) * 16}px)`;
+  }
+  for (const { e, s, w } of typed) {
+    const k = clamp((t - w[0]) / (w[1] - w[0]), 0, 1);
+    e.textContent = s.slice(0, Math.round(k * s.length));
+  }
+  // cell zoom: the target square fills in, then grows
+  const z = ease((t - 6.0) / 0.8);
+  const hit = document.getElementById('hit');
+  hit.setAttribute('opacity', z);
+  document.getElementById('hitlbl').setAttribute('opacity', z);
+  // token chip travels from agent A to agent B
+  const m = ease((t - 16.6) / 1.6);
+  document.getElementById('chip').style.left = (330 + m * 160) + 'px';
+  document.querySelectorAll('.agent')[1].style.borderColor = m >= 1 ? '#ffa657' : '#30363d';
+  document.getElementById('chip').style.zIndex = 2;
+  document.getElementById('chip').style.opacity = t < 16.4 ? 0 : 1;
+  // the changed character
+  const c = document.getElementById('lastch');
+  const flip = t >= 27.4;
+  c.textContent = flip ? 'a' : 'q';
+  c.className = flip ? 'bad' : 'id';
+  c.style.background = flip ? 'rgba(255,123,114,0.18)' : 'none';
+  return { t, step };
+}
+window.film = { duration: DUR, fps: 30, ready: document.fonts.ready.then(() => true), seek: t => Promise.resolve(seek(t)) };
+seek(0);
+</script>
+</body></html>
