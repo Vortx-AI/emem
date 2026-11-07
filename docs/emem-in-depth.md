@@ -188,7 +188,7 @@ name." If you evaluate emem for a fleet, this property is important.
 | GitHub MCP Registry | [Vortx-AI/emem](https://github.com/mcp/Vortx-AI/emem) |
 | Dify | A verified [plugin](https://marketplace.dify.ai/plugin/vortx-ai/emem) |
 | Gemini CLI | An extension |
-| Directories | [Glama](https://glama.ai/mcp/servers/Vortx-AI/emem), [Smithery](https://smithery.ai/servers/vortxai/emem), [PulseMCP](https://www.pulsemcp.com/servers/emem), [MCP Market](https://mcpmarket.com/server/emem), [Context7](https://context7.com/vortx-ai/emem), [ClaudePluginHub](https://www.claudepluginhub.com/plugins/vortx-ai-emem-plugins-emem), [APIs.io A2A index](https://apis.io/a2a/emem-dev/) |
+| Directories | [Glama](https://glama.ai/mcp/servers/Vortx-AI/emem), [Smithery](https://registry.smithery.ai/servers/vortxai/emem) (registry record), [PulseMCP](https://www.pulsemcp.com/servers/emem), [MCP Market](https://mcpmarket.com/server/emem), [Context7](https://context7.com/vortx-ai/emem), [ClaudePluginHub](https://www.claudepluginhub.com/plugins/vortx-ai-emem-plugins-emem), [APIs.io A2A index](https://apis.io/a2a/emem-dev/) |
 
 The live list, with install steps for each host, is on
 [the reference page](https://emem.dev/reference#client-setup).
