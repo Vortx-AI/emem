@@ -294,8 +294,10 @@ $EMEM_DATA/
 └── warm_state.json         the time of the last warmer pass
 ```
 
-`EMEM_HOT_BACKEND=sled` puts fact rows back in `cache.sled/`. It is the rollback path. `emem-sled-slim` removes the
-old fact trees from `cache.sled/` after the move to `facts.redb`.
+`EMEM_HOT_BACKEND=sled` puts fact rows back in `cache.sled/`. It is the rollback path. `emem-sled-slim` copies the
+live sled trees into a new `cache.sled.slim/` and leaves out the fact trees that `facts.redb` now holds. It deletes
+nothing. You rename the directories yourself. On emem.dev, the copy was 40 GB from 41 GB, so the maintainers kept the
+original (header of `emem-sled-slim.rs`).
 
 ### Back up and move a node
 
@@ -518,6 +520,6 @@ it on a node that other people use.
 | `emem-ask-eval` | console and exit code | A check of `/v1/ask` routing. No CI job runs it. |
 | `emem-demo-device` | enrolls a device and posts a trace | Needs an operator endorser key and a root ftrace capture. The default node is `https://emem.dev`, so set `--base` to your node. `--dry-run` sends nothing. |
 | `emem-purge-fnkey` | changes the store (dry run by default) | Removes facts by `derivation.fn_key` from `cache.sled/` only, so it acts only with `EMEM_HOT_BACKEND=sled`. Stop the node first. |
-| `emem-sled-slim` | changes the store | Removes old fact trees from `cache.sled/`. Stop the node first. |
+| `emem-sled-slim` | console; with `--apply`, a new `cache.sled.slim/` | Lists each sled tree and its size (dry run by default). `--apply` copies the live trees into the new directory and deletes nothing. Stop the node first. |
 
 The node serves saved runs at `GET /v1/demos`, `GET /v1/demos/:run` and `GET /v1/demos/:run/:file`.

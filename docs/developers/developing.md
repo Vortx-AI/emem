@@ -102,7 +102,7 @@ Outside the workspace:
 | `emem-demo-device` | Enrols this host as a labelled demo device and publishes a trace |
 | `emem-ask-eval` | Checks how `/v1/ask` routes a fixed set of questions |
 | `emem-purge-fnkey` | Admin: removes cached facts by `derivation.fn_key` from `cache.sled/` only. It has no effect on the default redb store; use it with `EMEM_HOT_BACKEND=sled`. Stop the server first, because sled holds an exclusive lock. |
-| `emem-sled-slim` | Admin: copies the live sled trees into a new store. Stop the server first. |
+| `emem-sled-slim` | Admin: lists the sled trees (dry run by default). `--apply` copies the live trees into a new `cache.sled.slim/` and deletes nothing. Stop the server first. |
 
 Other crates build `emem-guard`, `emem-airgap`, `emem-encode`,
 `emem-scorecard` and `emem-sleep-agentd`.
