@@ -73,23 +73,27 @@ agent = FunctionAgent(
 print(asyncio.run(agent.run("How high is Bengaluru? Cite the fact you used.")))
 ```
 
+## Use your own node
+
 To use your own node, give `EmemToolSpec(base_url="http://localhost:5051")` or
 set `EMEM_URL`. The default is `https://emem.dev`. A receipt from emem.dev
 also checks on your own node, because the check uses the key in the receipt.
-To be sure of the signer, compare that key with `federation.node.responder_pubkey_b32` in
+To be sure of the signer, compare that key with
+`federation.node.responder_pubkey_b32` in
 [`/.well-known/emem.json`](https://emem.dev/.well-known/emem.json).
 
 ## Why the results are short
 
 The tools remove text that an agent does not need. They keep the value, the
 unit, the time slot and the citation token. On 7 November 2026 these were the
-sizes, in characters of JSON:
+sizes, in characters of JSON. They change by a few characters on each call,
+because the receipt is new each time.
 
 | Call | Raw response | Tool result |
 |---|---|---|
-| `recall("Mount Fuji", bands=["copdem30m.elevation_mean"])` | 6,394 | 2,282 |
-| `locate("Bengaluru")` | 153,396 | 3,798 |
-| `recall("Bengaluru")`, bands omitted (574 facts) | 1,861,194 | 159,471 |
+| `recall("Mount Fuji", bands=["copdem30m.elevation_mean"])` | about 6,500 | about 2,300 |
+| `locate("Bengaluru")` | about 153,400 | about 3,800 |
+| `recall("Bengaluru")`, bands omitted (574 facts) | about 1,861,000 | about 159,500 |
 
 The tools make these cuts:
 
@@ -105,15 +109,15 @@ The tools make these cuts:
   (`emem:fact:<cell>:<fact_cid>`) already contains them. A descriptor token
   does not contain the cell, so that fact keeps the `cell` field.
 
-The tools do not cut the receipt. At Bengaluru it had 33,983 characters. From receipt
-preimage version 2, the signature covers the inclusion proof. A receipt with a
+The tools do not cut the receipt. At Bengaluru it had about 34,000
+characters. From receipt preimage version 2, the signature covers the inclusion proof. A receipt with a
 field removed thus gives `signature_valid: false`, and honest data looks forged.
 
 ## Name the bands you need
 
 If you omit `bands`, `recall` returns every fact the responder holds at the
 cell. At Bengaluru on 7 November 2026 that was 574 facts, and the tool result
-was 159,471 characters. Call `locate` first, then select bands from
+was about 159,500 characters. Call `locate` first, then select bands from
 `bands_available_here`.
 
 ## What a valid signature proves
@@ -145,5 +149,5 @@ EMEM_URL=http://localhost:5051 pytest tests/test_live_contract.py
 On 7 November 2026, against emem.dev, 40 tests passed and 3 live-contract
 tests failed. Two `locate` fixtures name the topics `foundation_embedding`
 and `nightlights`, which emem.dev no longer sends. The third test expects a
-bands-omitted recall at Bengaluru to stay under 40,000 characters; it was
-159,454.
+bands-omitted recall at Bengaluru to stay under 40,000 characters. It was
+about 159,500.
