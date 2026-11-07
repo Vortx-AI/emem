@@ -31,8 +31,8 @@ cargo run -p emem-primitives --example satellite_downlink
 ```
 
 We ran this command on 7 November 2026 with rustc 1.99.1 and libprotoc 30.2.
-The first build took about 25 minutes on the docs host. Later runs took about 5 s.
-Three runs gave byte-identical output. The last run was at 09:25 UTC.
+The first build took about 25 minutes on the docs host. Later runs took 5 to 8 s.
+Four runs gave byte-identical output. The last run was at 13:04 UTC.
 CI compiles the example (`cargo clippy --workspace --all-targets`), but no CI job runs it.
 
 ## What you get
