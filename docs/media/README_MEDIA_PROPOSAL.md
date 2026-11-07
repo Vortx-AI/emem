@@ -60,6 +60,7 @@ These add an image where README.md has none today. They remove nothing.
 | 90, after step 3 of the quick start ("Read a signed measurement") | `docs/media/stills/recall-one-cell.webp` (255,266 bytes) | Step 3 reads one band at one place. The still shows what one `recall` holds at one cell: 8 facts from 6 sources, each with its own date and class, under one receipt. |
 | 266, after the paragraph about two Claude sessions, the signed channel and A2A | `docs/media/stills/a2a-exchange.webp` (242,500 bytes) | The paragraph says that A2A reaches every tool as a skill. The still shows one live A2A exchange with no key: the signed agent card, one `message/send` answered by `emem_ask`, and the receipt in the task checked offline. |
 | 291, after the first paragraph of "Earth is the first corpus, not the limit" | `docs/media/stills/ndvi-two-seasons.webp` (236,182 bytes) | The paragraph says that public archives fill the memory. The still shows one signed `field_series` answer: 17 clear Sentinel-2 scenes over two seasons, and the 8 cloudy scenes it left out. |
+| 331, after the list in "What the checks do not prove", before "Version 2.4.4" | `docs/media/stills/one-place-many-names.webp` (290,194 bytes) | The list says that a place name resolves to one 10 m cell. The still shows what that means for five names of one mountain: four cells, one 13.3 km away with `disambiguation_required` true. It ends with the advice to hand on the cell64 or the token, not the name. |
 
 The numbers in these stills are from 7 November 2026. Item 6 in README.md gives a log size from 10 October 2026.
 The still and the text show different sizes, and each is true for its date.
@@ -107,6 +108,12 @@ Markup for line 266:
 ```html
 <img src="docs/media/stills/a2a-exchange.webp" alt="Three live A2A steps against emem.dev on 7 November 2026. The agent card (emem 2.4.4, A2A 1.0, 18 skills listed of 119) has a valid EdDSA signature. One message/send, 'what is the elevation of Table Mountain?', returns a completed task answered by emem_ask: 1069.01 m from the Copernicus DEM. The receipt in the task checks valid offline; with one character of the fact id changed, it fails." width="540">
 <br><sub>Contains modified Copernicus Sentinel data 2024.</sub>
+```
+
+Markup for line 331. The still is tall (1080 by 3781 pixels), so show it narrow:
+
+```html
+<img src="docs/media/stills/one-place-many-names.webp" alt="Five phrasings of Mount Fuji sent to locate on 7 November 2026 gave four cells. &quot;Mount Fuji&quot; and &quot;mount fuji&quot; gave defi.zb592.nUkO.zEzE, elevation 3539.04 m. &quot;Fujisan&quot; gave the Wikidata point 390 m away, 3766.73 m. The coordinates 35.3606, 138.7274 gave the next cell, 10 m from that point, 3768.41 m. &quot;Fuji-san, Japan&quot; gave a shrine 13.3 km away, 871.37 m, with disambiguation_required true. The emem:fact: token for the first cell resolves to the same signed bytes for any agent. All four receipts check valid offline." width="360">
 ```
 
 ## Diagrams for a phone screen
