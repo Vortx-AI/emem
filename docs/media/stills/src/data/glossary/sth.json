@@ -1,0 +1,19 @@
+{
+ "note": "Pin this STH. Later call /v1/log/consistency?first=<this tree_size>&second=<later tree_size> to prove the log only grew (append-only). Verify the signature offline against responder_pubkey_b32.",
+ "spec": "https://emem.dev/spec.md#transparency-log",
+ "sth": {
+  "algorithm": {
+   "hash": "blake3-256",
+   "leaf": "blake3(0x00 || entry_hash)",
+   "node": "blake3(0x01 || left || right)",
+   "sth_preimage": "PreimageV1(\"emem.translog.sth.v1\"){1:u64_be tree_size, 2:root, 3:signed_at, 4:responder_pubkey}",
+   "tree": "RFC 6962 Merkle tree (lone nodes promoted, not duplicated)"
+  },
+  "log_id": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+  "responder_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+  "root_b32": "vixatnzotrew5jx275podbsocolgoaktcsa34ip57mhsuoeynkfa",
+  "signature_b32": "cvs75jgfp73s34xlbtvv77x5qardutp2uig2dtnk7yjg6hqgcpw43tkikvuz22zmgo5qlnuwfkdt2gmwkue52hqzqxqwp4js4ydgica",
+  "signed_at": "2026-11-07T16:03:29Z",
+  "tree_size": 3253178
+ }
+}

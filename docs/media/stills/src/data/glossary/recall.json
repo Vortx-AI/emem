@@ -1,0 +1,2293 @@
+{
+ "algorithms_cid": "bbkqfsrh4klcvd5ke5oeuv57luvzz3ztscnd67nfmcccpanb7wfa",
+ "applicable_algorithms": [
+  {
+   "algorithm_key": "vegetation_class_from_ndvi@1",
+   "formula": "let n = indices.ndvi; if n < 0 -> 'water_or_snow'; else if n < 0.1 -> 'bare'; else if n < 0.3 -> 'sparse'; else if n < 0.5 -> 'moderate'; else -> 'dense'",
+   "value": 1.0
+  },
+  {
+   "algorithm_key": "green_space_access@1",
+   "formula": "fraction_green = (1/N_ring) * count_{c in K3_ring} { indices.ndvi(c) >= 0.4 }; access_score = clamp01(fraction_green / 0.20)",
+   "value": 0.0
+  },
+  {
+   "algorithm_key": "lai_modified_simple_ratio_s2@1",
+   "formula": "let n = clamp(indices.ndvi, 0.05, 0.85); let SR = (1 + n) / (1 - n); let MSR = (SR - 1) / (sqrt(SR) + 1); LAI_m2_per_m2 = clamp(0.69 * MSR, 0, 8)",
+   "value": 0.03540732659222864
+  },
+  {
+   "algorithm_key": "fapar_ndvi_myneni@1",
+   "formula": "fAPAR = clamp(1.24 * indices.ndvi - 0.168, 0, 1)",
+   "value": 0.0
+  }
+ ],
+ "bands_already_attested_at_cell": [
+  "cams.aod_550",
+  "cams.co",
+  "cams.no2",
+  "cams.o3",
+  "cams.pm10",
+  "cams.pm25",
+  "cams.so2",
+  "copdem30m.elevation_mean",
+  "era5.t2m",
+  "esa_worldcover.lc_2021",
+  "firms.active_fires",
+  "geotessera",
+  "geotessera.multi_year",
+  "gmrt.topobathy_mean",
+  "hansen.loss_year",
+  "hansen.tree_cover_2000",
+  "indices.bsi",
+  "indices.evi",
+  "indices.mndwi",
+  "indices.nbr",
+  "indices.ndbi",
+  "indices.ndmi",
+  "indices.ndre",
+  "indices.ndsi",
+  "indices.ndti",
+  "indices.ndvi",
+  "indices.ndwi",
+  "indices.savi",
+  "indices.urban_canopy_index",
+  "jrc_tmf.annual_change",
+  "modis.burned_area_monthly",
+  "modis.gpp_8day",
+  "modis.lai_8day",
+  "modis.lst_day_8day",
+  "modis.lst_night_8day",
+  "modis.ndvi_mean",
+  "overture.buildings.count",
+  "overture.places.count",
+  "overture.transportation.road_length_m",
+  "population",
+  "power.precip",
+  "power.t2m",
+  "prithvi_eo2",
+  "s2.B02",
+  "s2.B03",
+  "s2.B04",
+  "s2.B08",
+  "s2.B11",
+  "s2.B12",
+  "s2.scl",
+  "sentinel1_raw",
+  "soilgrids.bdod_0_30cm",
+  "soilgrids.clay_0_30cm",
+  "soilgrids.nitrogen_0_30cm",
+  "soilgrids.phh2o_0_30cm",
+  "soilgrids.sand_0_30cm",
+  "soilgrids.soc_0_30cm",
+  "surface_water.recurrence",
+  "weather.cloud_cover",
+  "weather.precipitation_mm",
+  "weather.relative_humidity_2m",
+  "weather.temperature_2m",
+  "weather.wind_speed_10m"
+ ],
+ "bands_cid": "mesoyti3qcs22pftcq27ljwcf3ifktnkqid4euqxyskhea5rpgra",
+ "current_by_band": {
+  "indices.ndvi": "gxg3wspuquah72ubvwr3fmkg62eeaghbyzgpgwben5rl5uv2yb3a"
+ },
+ "fact_order": "tslot_ascending",
+ "facts": [
+  {
+   "band": "indices.ndvi",
+   "band_metadata": {
+    "description": "Three optical-index scalars derived from Sentinel-2 L2A: NDVI, NDRE, NDMI. The most-pulled vegetation surface \u2014 these are what algorithms like `flood_risk@2`, `crop_stress@1`, and `irrigation_demand@1` compose.",
+    "dimension_description": "Normalised Difference Vegetation Index",
+    "dimension_index": 0,
+    "formula": "NDVI = (B08 \u2212 B04) / (B08 + B04), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits.",
+    "inherited_from_cube_band": "indices",
+    "interpretation": "NDVI < 0 = water / snow; 0 \u2013 0.2 = bare soil / urban; 0.2 \u2013 0.5 = sparse / stressed vegetation; 0.5 \u2013 0.8 = healthy crops / shrub; > 0.8 = dense closed canopy. NDMI tracks canopy water content (negative = dry, positive = moist). NDRE is more sensitive to chlorophyll than NDVI and saturates later \u2014 preferred for in-season nitrogen monitoring.",
+    "pitfalls": "Read `surface_class` on the fact before the value. It carries the per-pixel Sentinel-2 SCL class the responder actually probed at this cell (`scl`, `label`, `vegetation_valid`) and answers a question `confidence` does not: confidence scores radiometric cleanliness, so a snow-covered field in January is a clean pixel and scores 0.95 while the NDVI on it measures snow, not vegetation. `vegetation_valid: false` (snow, water, shadow) means the number is real but is not a vegetation reading. Prefer this over the scene-level `weather.cloud_cover` / `cloud_pct` proxies: those describe the whole scene, `surface_class` describes this pixel. Absent when the SCL band could not be read, in which case confidence falls back to scene-level cloud cover and the scene-level proxies are all there is. NDVI saturates above ~0.85 (use NDRE / `geotessera` for dense canopies).",
+    "provenance": {
+     "class": "deterministic_index",
+     "deterministic": true,
+     "tamper_evidence": "recomputable_from_source",
+     "trust_rank": 4
+    },
+    "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI); Xu 2006 (MNDWI = (B03-B11)/(B03+B11)); Key & Benson 2006 (NBR = (B08-B12)/(B08+B12)); Hall et al. 1995 (NDSI = (B03-B11)/(B03+B11)); Zha et al. 2003 (NDBI = (B11-B08)/(B11+B08)); Rikimaru et al. 2002 (BSI = ((B11+B04)-(B08+B02))/((B11+B04)+(B08+B02))); Hardisky et al. 1983 (NDWI_Gao = (B03-B08)/(B03+B08), the leaf-water-content form used by the algal-bloom water gate)",
+    "units": "unitless [-1, +1]",
+    "value_range": [
+     -1.0,
+     1.0
+    ]
+   },
+   "cell": "defi.zb592.nUkO.zEzE",
+   "cid_v1": "bafkr4iaidnoahzzrdndvsjrsrrvbgnk454zbl7sjsb3qvsrqqiy6fmfpqm",
+   "confidence": 0.949999988079071,
+   "derivation": {
+    "args": [
+     35.362818414124675,
+     138.730792696665,
+     "S2B_54STE_20251028_0_L2A",
+     32654,
+     "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+     [
+      4213.0,
+      4120.0
+     ],
+     4.725517,
+     40.0,
+     30,
+     11,
+     1
+    ],
+    "fn_key": "sentinel2_l2a_indices_ndvi@1"
+   },
+   "fact_cid": "banvya7hgenuowjggkgguezvltxtefp6jgihocwkgcbddyvqv6bq",
+   "kind": "primary",
+   "memory_token": "emem:fact:defi.zb592.nUkO.zEzE:banvya7hgenuowjggkgguezvltxtefp6jgihocwkgcbddyvqv6bq",
+   "observed_at": "2025-10-28T01:37:25.099000Z",
+   "privacy_class": "public",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "signed_at": "2026-09-11T05:16:14Z",
+   "signer": [
+    255,
+    254,
+    72,
+    239,
+    8,
+    57,
+    144,
+    88,
+    50,
+    189,
+    59,
+    5,
+    171,
+    89,
+    152,
+    150,
+    76,
+    49,
+    228,
+    100,
+    142,
+    79,
+    43,
+    250,
+    36,
+    191,
+    48,
+    224,
+    42,
+    206,
+    101,
+    84
+   ],
+   "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+   "sources": [
+    {
+     "captured_at": "2025-10-28T01:37:25.099000Z",
+     "id": "https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/54/S/TE/2025/10/S2B_54STE_20251028_0_L2A/B08.tif ; https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/54/S/TE/2025/10/S2B_54STE_20251028_0_L2A/B04.tif",
+     "scheme": "sentinel_s2_l2a"
+    }
+   ],
+   "surface_class": {
+    "label": "Snow / ice",
+    "scl": 11,
+    "vegetation_valid": false
+   },
+   "tslot": 20389,
+   "value": 0.011160446417856684,
+   "value_verbatim": "0.011160446417856684"
+  },
+  {
+   "band": "indices.ndvi",
+   "band_metadata": {
+    "description": "Three optical-index scalars derived from Sentinel-2 L2A: NDVI, NDRE, NDMI. The most-pulled vegetation surface \u2014 these are what algorithms like `flood_risk@2`, `crop_stress@1`, and `irrigation_demand@1` compose.",
+    "dimension_description": "Normalised Difference Vegetation Index",
+    "dimension_index": 0,
+    "formula": "NDVI = (B08 \u2212 B04) / (B08 + B04), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits.",
+    "inherited_from_cube_band": "indices",
+    "interpretation": "NDVI < 0 = water / snow; 0 \u2013 0.2 = bare soil / urban; 0.2 \u2013 0.5 = sparse / stressed vegetation; 0.5 \u2013 0.8 = healthy crops / shrub; > 0.8 = dense closed canopy. NDMI tracks canopy water content (negative = dry, positive = moist). NDRE is more sensitive to chlorophyll than NDVI and saturates later \u2014 preferred for in-season nitrogen monitoring.",
+    "pitfalls": "Read `surface_class` on the fact before the value. It carries the per-pixel Sentinel-2 SCL class the responder actually probed at this cell (`scl`, `label`, `vegetation_valid`) and answers a question `confidence` does not: confidence scores radiometric cleanliness, so a snow-covered field in January is a clean pixel and scores 0.95 while the NDVI on it measures snow, not vegetation. `vegetation_valid: false` (snow, water, shadow) means the number is real but is not a vegetation reading. Prefer this over the scene-level `weather.cloud_cover` / `cloud_pct` proxies: those describe the whole scene, `surface_class` describes this pixel. Absent when the SCL band could not be read, in which case confidence falls back to scene-level cloud cover and the scene-level proxies are all there is. NDVI saturates above ~0.85 (use NDRE / `geotessera` for dense canopies).",
+    "provenance": {
+     "class": "deterministic_index",
+     "deterministic": true,
+     "tamper_evidence": "recomputable_from_source",
+     "trust_rank": 4
+    },
+    "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI); Xu 2006 (MNDWI = (B03-B11)/(B03+B11)); Key & Benson 2006 (NBR = (B08-B12)/(B08+B12)); Hall et al. 1995 (NDSI = (B03-B11)/(B03+B11)); Zha et al. 2003 (NDBI = (B11-B08)/(B11+B08)); Rikimaru et al. 2002 (BSI = ((B11+B04)-(B08+B02))/((B11+B04)+(B08+B02))); Hardisky et al. 1983 (NDWI_Gao = (B03-B08)/(B03+B08), the leaf-water-content form used by the algal-bloom water gate)",
+    "units": "unitless [-1, +1]",
+    "value_range": [
+     -1.0,
+     1.0
+    ]
+   },
+   "cell": "defi.zb592.nUkO.zEzE",
+   "cid_v1": "bafkr4icbhei4tvptobbozqeozb3qiqj2xo552ihzntnub5eiyekn45ghcu",
+   "confidence": 0.6499999761581421,
+   "derivation": {
+    "args": [
+     35.362818414124675,
+     138.730792696665,
+     "S2B_54STE_20251217_0_L2A",
+     32654,
+     "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+     [
+      7496.0,
+      9080.0
+     ],
+     20.086889,
+     40.0,
+     30,
+     2,
+     1
+    ],
+    "fn_key": "sentinel2_l2a_indices_ndvi@1"
+   },
+   "fact_cid": "ie4rdsov6nyef3gar3ehobcbhk53xxja7fwnwqhurdarjxtuy4kq",
+   "kind": "primary",
+   "memory_token": "emem:fact:defi.zb592.nUkO.zEzE:ie4rdsov6nyef3gar3ehobcbhk53xxja7fwnwqhurdarjxtuy4kq",
+   "observed_at": "2025-12-17T01:37:23.898000Z",
+   "privacy_class": "public",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "signed_at": "2026-09-11T05:16:14Z",
+   "signer": [
+    255,
+    254,
+    72,
+    239,
+    8,
+    57,
+    144,
+    88,
+    50,
+    189,
+    59,
+    5,
+    171,
+    89,
+    152,
+    150,
+    76,
+    49,
+    228,
+    100,
+    142,
+    79,
+    43,
+    250,
+    36,
+    191,
+    48,
+    224,
+    42,
+    206,
+    101,
+    84
+   ],
+   "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+   "sources": [
+    {
+     "captured_at": "2025-12-17T01:37:23.898000Z",
+     "id": "https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/54/S/TE/2025/12/S2B_54STE_20251217_0_L2A/B08.tif ; https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/54/S/TE/2025/12/S2B_54STE_20251217_0_L2A/B04.tif",
+     "scheme": "sentinel_s2_l2a"
+    }
+   ],
+   "surface_class": {
+    "label": "Cast shadows",
+    "scl": 2,
+    "vegetation_valid": false
+   },
+   "tslot": 20439,
+   "value": -0.09555984555984555,
+   "value_verbatim": "-0.09555984555984555"
+  },
+  {
+   "band": "indices.ndvi",
+   "band_metadata": {
+    "description": "Three optical-index scalars derived from Sentinel-2 L2A: NDVI, NDRE, NDMI. The most-pulled vegetation surface \u2014 these are what algorithms like `flood_risk@2`, `crop_stress@1`, and `irrigation_demand@1` compose.",
+    "dimension_description": "Normalised Difference Vegetation Index",
+    "dimension_index": 0,
+    "formula": "NDVI = (B08 \u2212 B04) / (B08 + B04), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits.",
+    "inherited_from_cube_band": "indices",
+    "interpretation": "NDVI < 0 = water / snow; 0 \u2013 0.2 = bare soil / urban; 0.2 \u2013 0.5 = sparse / stressed vegetation; 0.5 \u2013 0.8 = healthy crops / shrub; > 0.8 = dense closed canopy. NDMI tracks canopy water content (negative = dry, positive = moist). NDRE is more sensitive to chlorophyll than NDVI and saturates later \u2014 preferred for in-season nitrogen monitoring.",
+    "pitfalls": "Read `surface_class` on the fact before the value. It carries the per-pixel Sentinel-2 SCL class the responder actually probed at this cell (`scl`, `label`, `vegetation_valid`) and answers a question `confidence` does not: confidence scores radiometric cleanliness, so a snow-covered field in January is a clean pixel and scores 0.95 while the NDVI on it measures snow, not vegetation. `vegetation_valid: false` (snow, water, shadow) means the number is real but is not a vegetation reading. Prefer this over the scene-level `weather.cloud_cover` / `cloud_pct` proxies: those describe the whole scene, `surface_class` describes this pixel. Absent when the SCL band could not be read, in which case confidence falls back to scene-level cloud cover and the scene-level proxies are all there is. NDVI saturates above ~0.85 (use NDRE / `geotessera` for dense canopies).",
+    "provenance": {
+     "class": "deterministic_index",
+     "deterministic": true,
+     "tamper_evidence": "recomputable_from_source",
+     "trust_rank": 4
+    },
+    "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI); Xu 2006 (MNDWI = (B03-B11)/(B03+B11)); Key & Benson 2006 (NBR = (B08-B12)/(B08+B12)); Hall et al. 1995 (NDSI = (B03-B11)/(B03+B11)); Zha et al. 2003 (NDBI = (B11-B08)/(B11+B08)); Rikimaru et al. 2002 (BSI = ((B11+B04)-(B08+B02))/((B11+B04)+(B08+B02))); Hardisky et al. 1983 (NDWI_Gao = (B03-B08)/(B03+B08), the leaf-water-content form used by the algal-bloom water gate)",
+    "units": "unitless [-1, +1]",
+    "value_range": [
+     -1.0,
+     1.0
+    ]
+   },
+   "cell": "defi.zb592.nUkO.zEzE",
+   "cid_v1": "bafkr4iaa4ygs32p4x4lxmsyaje5uuugbfhwoixmgidvdh4boopaxxcnclq",
+   "confidence": 0.949999988079071,
+   "derivation": {
+    "args": [
+     35.362818414124675,
+     138.730792696665,
+     "S2B_MSIL2A_20251227T012959_R074_T54STE_20251227T031927",
+     32654,
+     "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+     [
+      11527.0,
+      12904.0
+     ],
+     20.608498,
+     40.0,
+     30,
+     11,
+     1,
+     "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+     -1000.0,
+     "reader=cog-pixel-floor@2"
+    ],
+    "fn_key": "sentinel2_l2a_indices_ndvi@1"
+   },
+   "fact_cid": "adta2lpj7s7ro5slabetwssqyeu6zzc5qzaoum7qfzz4c64jujoa",
+   "kind": "primary",
+   "memory_token": "emem:fact:defi.zb592.nUkO.zEzE:adta2lpj7s7ro5slabetwssqyeu6zzc5qzaoum7qfzz4c64jujoa",
+   "observed_at": "2025-12-27T01:29:59.024000Z",
+   "privacy_class": "public",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "signed_at": "2026-11-07T00:32:39Z",
+   "signer": [
+    255,
+    254,
+    72,
+    239,
+    8,
+    57,
+    144,
+    88,
+    50,
+    189,
+    59,
+    5,
+    171,
+    89,
+    152,
+    150,
+    76,
+    49,
+    228,
+    100,
+    142,
+    79,
+    43,
+    250,
+    36,
+    191,
+    48,
+    224,
+    42,
+    206,
+    101,
+    84
+   ],
+   "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+   "sources": [
+    {
+     "captured_at": "2025-12-27T01:29:59.024000Z",
+     "id": "https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2025/12/27/S2B_MSIL2A_20251227T012959_N0511_R074_T54STE_20251227T031927.SAFE/GRANULE/L2A_T54STE_A046003_20251227T013530/IMG_DATA/R10m/T54STE_20251227T012959_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2025/12/27/S2B_MSIL2A_20251227T012959_N0511_R074_T54STE_20251227T031927.SAFE/GRANULE/L2A_T54STE_A046003_20251227T013530/IMG_DATA/R10m/T54STE_20251227T012959_B04_10m.tif",
+     "scheme": "sentinel_s2_l2a"
+    }
+   ],
+   "surface_class": {
+    "label": "Snow / ice",
+    "scl": 11,
+    "vegetation_valid": false
+   },
+   "tslot": 20449,
+   "value": -0.0613882573224556,
+   "value_verbatim": "-0.0613882573224556"
+  },
+  {
+   "band": "indices.ndvi",
+   "band_metadata": {
+    "description": "Three optical-index scalars derived from Sentinel-2 L2A: NDVI, NDRE, NDMI. The most-pulled vegetation surface \u2014 these are what algorithms like `flood_risk@2`, `crop_stress@1`, and `irrigation_demand@1` compose.",
+    "dimension_description": "Normalised Difference Vegetation Index",
+    "dimension_index": 0,
+    "formula": "NDVI = (B08 \u2212 B04) / (B08 + B04), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits.",
+    "inherited_from_cube_band": "indices",
+    "interpretation": "NDVI < 0 = water / snow; 0 \u2013 0.2 = bare soil / urban; 0.2 \u2013 0.5 = sparse / stressed vegetation; 0.5 \u2013 0.8 = healthy crops / shrub; > 0.8 = dense closed canopy. NDMI tracks canopy water content (negative = dry, positive = moist). NDRE is more sensitive to chlorophyll than NDVI and saturates later \u2014 preferred for in-season nitrogen monitoring.",
+    "pitfalls": "Read `surface_class` on the fact before the value. It carries the per-pixel Sentinel-2 SCL class the responder actually probed at this cell (`scl`, `label`, `vegetation_valid`) and answers a question `confidence` does not: confidence scores radiometric cleanliness, so a snow-covered field in January is a clean pixel and scores 0.95 while the NDVI on it measures snow, not vegetation. `vegetation_valid: false` (snow, water, shadow) means the number is real but is not a vegetation reading. Prefer this over the scene-level `weather.cloud_cover` / `cloud_pct` proxies: those describe the whole scene, `surface_class` describes this pixel. Absent when the SCL band could not be read, in which case confidence falls back to scene-level cloud cover and the scene-level proxies are all there is. NDVI saturates above ~0.85 (use NDRE / `geotessera` for dense canopies).",
+    "provenance": {
+     "class": "deterministic_index",
+     "deterministic": true,
+     "tamper_evidence": "recomputable_from_source",
+     "trust_rank": 4
+    },
+    "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI); Xu 2006 (MNDWI = (B03-B11)/(B03+B11)); Key & Benson 2006 (NBR = (B08-B12)/(B08+B12)); Hall et al. 1995 (NDSI = (B03-B11)/(B03+B11)); Zha et al. 2003 (NDBI = (B11-B08)/(B11+B08)); Rikimaru et al. 2002 (BSI = ((B11+B04)-(B08+B02))/((B11+B04)+(B08+B02))); Hardisky et al. 1983 (NDWI_Gao = (B03-B08)/(B03+B08), the leaf-water-content form used by the algal-bloom water gate)",
+    "units": "unitless [-1, +1]",
+    "value_range": [
+     -1.0,
+     1.0
+    ]
+   },
+   "cell": "defi.zb592.nUkO.zEzE",
+   "cid_v1": "bafkr4icypvt3jf7q6mtblmaiuhuznl4mns2sfba2eznfyr5ok2ddpa23fq",
+   "confidence": 0.949999988079071,
+   "derivation": {
+    "args": [
+     35.362818414124675,
+     138.730792696665,
+     "S2C_54STE_20260131_0_L2A",
+     32654,
+     "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+     [
+      10183.0,
+      11200.0
+     ],
+     4.677486,
+     40.0,
+     30,
+     11,
+     1
+    ],
+    "fn_key": "sentinel2_l2a_indices_ndvi@1"
+   },
+   "fact_cid": "lb6wpnex6dzsmfnqbcq6tfvprrwlkiueditfuxchvzlimn4dlmwa",
+   "kind": "primary",
+   "memory_token": "emem:fact:defi.zb592.nUkO.zEzE:lb6wpnex6dzsmfnqbcq6tfvprrwlkiueditfuxchvzlimn4dlmwa",
+   "observed_at": "2026-01-31T01:37:24.055000Z",
+   "privacy_class": "public",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "signed_at": "2026-09-11T05:16:14Z",
+   "signer": [
+    255,
+    254,
+    72,
+    239,
+    8,
+    57,
+    144,
+    88,
+    50,
+    189,
+    59,
+    5,
+    171,
+    89,
+    152,
+    150,
+    76,
+    49,
+    228,
+    100,
+    142,
+    79,
+    43,
+    250,
+    36,
+    191,
+    48,
+    224,
+    42,
+    206,
+    101,
+    84
+   ],
+   "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+   "sources": [
+    {
+     "captured_at": "2026-01-31T01:37:24.055000Z",
+     "id": "https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/54/S/TE/2026/1/S2C_54STE_20260131_0_L2A/B08.tif ; https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/54/S/TE/2026/1/S2C_54STE_20260131_0_L2A/B04.tif",
+     "scheme": "sentinel_s2_l2a"
+    }
+   ],
+   "surface_class": {
+    "label": "Snow / ice",
+    "scl": 11,
+    "vegetation_valid": false
+   },
+   "tslot": 20484,
+   "value": -0.04756114670532672,
+   "value_verbatim": "-0.04756114670532672"
+  },
+  {
+   "band": "indices.ndvi",
+   "band_metadata": {
+    "description": "Three optical-index scalars derived from Sentinel-2 L2A: NDVI, NDRE, NDMI. The most-pulled vegetation surface \u2014 these are what algorithms like `flood_risk@2`, `crop_stress@1`, and `irrigation_demand@1` compose.",
+    "dimension_description": "Normalised Difference Vegetation Index",
+    "dimension_index": 0,
+    "formula": "NDVI = (B08 \u2212 B04) / (B08 + B04), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits.",
+    "inherited_from_cube_band": "indices",
+    "interpretation": "NDVI < 0 = water / snow; 0 \u2013 0.2 = bare soil / urban; 0.2 \u2013 0.5 = sparse / stressed vegetation; 0.5 \u2013 0.8 = healthy crops / shrub; > 0.8 = dense closed canopy. NDMI tracks canopy water content (negative = dry, positive = moist). NDRE is more sensitive to chlorophyll than NDVI and saturates later \u2014 preferred for in-season nitrogen monitoring.",
+    "pitfalls": "Read `surface_class` on the fact before the value. It carries the per-pixel Sentinel-2 SCL class the responder actually probed at this cell (`scl`, `label`, `vegetation_valid`) and answers a question `confidence` does not: confidence scores radiometric cleanliness, so a snow-covered field in January is a clean pixel and scores 0.95 while the NDVI on it measures snow, not vegetation. `vegetation_valid: false` (snow, water, shadow) means the number is real but is not a vegetation reading. Prefer this over the scene-level `weather.cloud_cover` / `cloud_pct` proxies: those describe the whole scene, `surface_class` describes this pixel. Absent when the SCL band could not be read, in which case confidence falls back to scene-level cloud cover and the scene-level proxies are all there is. NDVI saturates above ~0.85 (use NDRE / `geotessera` for dense canopies).",
+    "provenance": {
+     "class": "deterministic_index",
+     "deterministic": true,
+     "tamper_evidence": "recomputable_from_source",
+     "trust_rank": 4
+    },
+    "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI); Xu 2006 (MNDWI = (B03-B11)/(B03+B11)); Key & Benson 2006 (NBR = (B08-B12)/(B08+B12)); Hall et al. 1995 (NDSI = (B03-B11)/(B03+B11)); Zha et al. 2003 (NDBI = (B11-B08)/(B11+B08)); Rikimaru et al. 2002 (BSI = ((B11+B04)-(B08+B02))/((B11+B04)+(B08+B02))); Hardisky et al. 1983 (NDWI_Gao = (B03-B08)/(B03+B08), the leaf-water-content form used by the algal-bloom water gate)",
+    "units": "unitless [-1, +1]",
+    "value_range": [
+     -1.0,
+     1.0
+    ]
+   },
+   "cell": "defi.zb592.nUkO.zEzE",
+   "cid_v1": "bafkr4ihm7di5zmdyxrpgp2rv37aepoub473rw5dk75m5lsavu5gtzlwaoe",
+   "confidence": 0.949999988079071,
+   "derivation": {
+    "args": [
+     35.362818414124675,
+     138.730792696665,
+     "S2C_MSIL2A_20260210T012811_R074_T54STE_20260210T044108",
+     32654,
+     "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+     [
+      9586.0,
+      10419.0
+     ],
+     12.618348,
+     40.0,
+     30,
+     11,
+     1,
+     "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+     -1000.0,
+     "reader=cog-pixel-floor@2"
+    ],
+    "fn_key": "sentinel2_l2a_indices_ndvi@1"
+   },
+   "fact_cid": "5t4ndxfqpc6f4z7kgxp4ar52qht7og3unl7vtvoicwtu2pfoybyq",
+   "kind": "primary",
+   "memory_token": "emem:fact:defi.zb592.nUkO.zEzE:5t4ndxfqpc6f4z7kgxp4ar52qht7og3unl7vtvoicwtu2pfoybyq",
+   "observed_at": "2026-02-10T01:28:11.025000Z",
+   "privacy_class": "public",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "signed_at": "2026-11-07T00:32:39Z",
+   "signer": [
+    255,
+    254,
+    72,
+    239,
+    8,
+    57,
+    144,
+    88,
+    50,
+    189,
+    59,
+    5,
+    171,
+    89,
+    152,
+    150,
+    76,
+    49,
+    228,
+    100,
+    142,
+    79,
+    43,
+    250,
+    36,
+    191,
+    48,
+    224,
+    42,
+    206,
+    101,
+    84
+   ],
+   "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+   "sources": [
+    {
+     "captured_at": "2026-02-10T01:28:11.025000Z",
+     "id": "https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/02/10/S2C_MSIL2A_20260210T012811_N0512_R074_T54STE_20260210T044108.SAFE/GRANULE/L2A_T54STE_A007480_20260210T013106/IMG_DATA/R10m/T54STE_20260210T012811_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/02/10/S2C_MSIL2A_20260210T012811_N0512_R074_T54STE_20260210T044108.SAFE/GRANULE/L2A_T54STE_A007480_20260210T013106/IMG_DATA/R10m/T54STE_20260210T012811_B04_10m.tif",
+     "scheme": "sentinel_s2_l2a"
+    }
+   ],
+   "surface_class": {
+    "label": "Snow / ice",
+    "scl": 11,
+    "vegetation_valid": false
+   },
+   "tslot": 20494,
+   "value": -0.04626492640933076,
+   "value_verbatim": "-0.04626492640933076"
+  },
+  {
+   "band": "indices.ndvi",
+   "band_metadata": {
+    "description": "Three optical-index scalars derived from Sentinel-2 L2A: NDVI, NDRE, NDMI. The most-pulled vegetation surface \u2014 these are what algorithms like `flood_risk@2`, `crop_stress@1`, and `irrigation_demand@1` compose.",
+    "dimension_description": "Normalised Difference Vegetation Index",
+    "dimension_index": 0,
+    "formula": "NDVI = (B08 \u2212 B04) / (B08 + B04), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits.",
+    "inherited_from_cube_band": "indices",
+    "interpretation": "NDVI < 0 = water / snow; 0 \u2013 0.2 = bare soil / urban; 0.2 \u2013 0.5 = sparse / stressed vegetation; 0.5 \u2013 0.8 = healthy crops / shrub; > 0.8 = dense closed canopy. NDMI tracks canopy water content (negative = dry, positive = moist). NDRE is more sensitive to chlorophyll than NDVI and saturates later \u2014 preferred for in-season nitrogen monitoring.",
+    "pitfalls": "Read `surface_class` on the fact before the value. It carries the per-pixel Sentinel-2 SCL class the responder actually probed at this cell (`scl`, `label`, `vegetation_valid`) and answers a question `confidence` does not: confidence scores radiometric cleanliness, so a snow-covered field in January is a clean pixel and scores 0.95 while the NDVI on it measures snow, not vegetation. `vegetation_valid: false` (snow, water, shadow) means the number is real but is not a vegetation reading. Prefer this over the scene-level `weather.cloud_cover` / `cloud_pct` proxies: those describe the whole scene, `surface_class` describes this pixel. Absent when the SCL band could not be read, in which case confidence falls back to scene-level cloud cover and the scene-level proxies are all there is. NDVI saturates above ~0.85 (use NDRE / `geotessera` for dense canopies).",
+    "provenance": {
+     "class": "deterministic_index",
+     "deterministic": true,
+     "tamper_evidence": "recomputable_from_source",
+     "trust_rank": 4
+    },
+    "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI); Xu 2006 (MNDWI = (B03-B11)/(B03+B11)); Key & Benson 2006 (NBR = (B08-B12)/(B08+B12)); Hall et al. 1995 (NDSI = (B03-B11)/(B03+B11)); Zha et al. 2003 (NDBI = (B11-B08)/(B11+B08)); Rikimaru et al. 2002 (BSI = ((B11+B04)-(B08+B02))/((B11+B04)+(B08+B02))); Hardisky et al. 1983 (NDWI_Gao = (B03-B08)/(B03+B08), the leaf-water-content form used by the algal-bloom water gate)",
+    "units": "unitless [-1, +1]",
+    "value_range": [
+     -1.0,
+     1.0
+    ]
+   },
+   "cell": "defi.zb592.nUkO.zEzE",
+   "cid_v1": "bafkr4idvfnbn7hm4wlnvdm35mgdodts2lzvtootgekyxgndfztm2lmki7m",
+   "confidence": 0.949999988079071,
+   "derivation": {
+    "args": [
+     35.362818414124675,
+     138.730792696665,
+     "S2B_54STE_20260317_0_L2A",
+     32654,
+     "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+     [
+      10282.0,
+      10918.0
+     ],
+     21.250369,
+     40.0,
+     30,
+     11,
+     1
+    ],
+    "fn_key": "sentinel2_l2a_indices_ndvi@1"
+   },
+   "fact_cid": "ouvufx45tsznwuntpvqynyooljpgwnz2myrlc4zumxgntjnrjd5q",
+   "kind": "primary",
+   "memory_token": "emem:fact:defi.zb592.nUkO.zEzE:ouvufx45tsznwuntpvqynyooljpgwnz2myrlc4zumxgntjnrjd5q",
+   "observed_at": "2026-03-17T01:37:22.301000Z",
+   "privacy_class": "public",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "signed_at": "2026-09-11T05:16:14Z",
+   "signer": [
+    255,
+    254,
+    72,
+    239,
+    8,
+    57,
+    144,
+    88,
+    50,
+    189,
+    59,
+    5,
+    171,
+    89,
+    152,
+    150,
+    76,
+    49,
+    228,
+    100,
+    142,
+    79,
+    43,
+    250,
+    36,
+    191,
+    48,
+    224,
+    42,
+    206,
+    101,
+    84
+   ],
+   "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+   "sources": [
+    {
+     "captured_at": "2026-03-17T01:37:22.301000Z",
+     "id": "https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/54/S/TE/2026/3/S2B_54STE_20260317_0_L2A/B08.tif ; https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/54/S/TE/2026/3/S2B_54STE_20260317_0_L2A/B04.tif",
+     "scheme": "sentinel_s2_l2a"
+    }
+   ],
+   "surface_class": {
+    "label": "Snow / ice",
+    "scl": 11,
+    "vegetation_valid": false
+   },
+   "tslot": 20529,
+   "value": -0.030000000000000047,
+   "value_verbatim": "-0.030000000000000047"
+  },
+  {
+   "band": "indices.ndvi",
+   "band_metadata": {
+    "description": "Three optical-index scalars derived from Sentinel-2 L2A: NDVI, NDRE, NDMI. The most-pulled vegetation surface \u2014 these are what algorithms like `flood_risk@2`, `crop_stress@1`, and `irrigation_demand@1` compose.",
+    "dimension_description": "Normalised Difference Vegetation Index",
+    "dimension_index": 0,
+    "formula": "NDVI = (B08 \u2212 B04) / (B08 + B04), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits.",
+    "inherited_from_cube_band": "indices",
+    "interpretation": "NDVI < 0 = water / snow; 0 \u2013 0.2 = bare soil / urban; 0.2 \u2013 0.5 = sparse / stressed vegetation; 0.5 \u2013 0.8 = healthy crops / shrub; > 0.8 = dense closed canopy. NDMI tracks canopy water content (negative = dry, positive = moist). NDRE is more sensitive to chlorophyll than NDVI and saturates later \u2014 preferred for in-season nitrogen monitoring.",
+    "pitfalls": "Read `surface_class` on the fact before the value. It carries the per-pixel Sentinel-2 SCL class the responder actually probed at this cell (`scl`, `label`, `vegetation_valid`) and answers a question `confidence` does not: confidence scores radiometric cleanliness, so a snow-covered field in January is a clean pixel and scores 0.95 while the NDVI on it measures snow, not vegetation. `vegetation_valid: false` (snow, water, shadow) means the number is real but is not a vegetation reading. Prefer this over the scene-level `weather.cloud_cover` / `cloud_pct` proxies: those describe the whole scene, `surface_class` describes this pixel. Absent when the SCL band could not be read, in which case confidence falls back to scene-level cloud cover and the scene-level proxies are all there is. NDVI saturates above ~0.85 (use NDRE / `geotessera` for dense canopies).",
+    "provenance": {
+     "class": "deterministic_index",
+     "deterministic": true,
+     "tamper_evidence": "recomputable_from_source",
+     "trust_rank": 4
+    },
+    "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI); Xu 2006 (MNDWI = (B03-B11)/(B03+B11)); Key & Benson 2006 (NBR = (B08-B12)/(B08+B12)); Hall et al. 1995 (NDSI = (B03-B11)/(B03+B11)); Zha et al. 2003 (NDBI = (B11-B08)/(B11+B08)); Rikimaru et al. 2002 (BSI = ((B11+B04)-(B08+B02))/((B11+B04)+(B08+B02))); Hardisky et al. 1983 (NDWI_Gao = (B03-B08)/(B03+B08), the leaf-water-content form used by the algal-bloom water gate)",
+    "units": "unitless [-1, +1]",
+    "value_range": [
+     -1.0,
+     1.0
+    ]
+   },
+   "cell": "defi.zb592.nUkO.zEzE",
+   "cid_v1": "bafkr4icbemb74eozehum5iwsuo4jfbrqnizm2kbrisp2esuodopea6gzc4",
+   "confidence": 0.949999988079071,
+   "derivation": {
+    "args": [
+     35.362818414124675,
+     138.730792696665,
+     "S2B_MSIL2A_20260327T012659_R074_T54STE_20260327T050839",
+     32654,
+     "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+     [
+      11616.0,
+      12230.0
+     ],
+     29.810464,
+     40.0,
+     30,
+     11,
+     1,
+     "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+     -1000.0,
+     "reader=cog-pixel-floor@2"
+    ],
+    "fn_key": "sentinel2_l2a_indices_ndvi@1"
+   },
+   "fact_cid": "ierqh7qr3eq6rtvc2kr3reuggbvdftjigfcj7iskrynz4qdy3elq",
+   "kind": "primary",
+   "memory_token": "emem:fact:defi.zb592.nUkO.zEzE:ierqh7qr3eq6rtvc2kr3reuggbvdftjigfcj7iskrynz4qdy3elq",
+   "observed_at": "2026-03-27T01:26:59.024000Z",
+   "privacy_class": "public",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "signed_at": "2026-11-07T00:32:39Z",
+   "signer": [
+    255,
+    254,
+    72,
+    239,
+    8,
+    57,
+    144,
+    88,
+    50,
+    189,
+    59,
+    5,
+    171,
+    89,
+    152,
+    150,
+    76,
+    49,
+    228,
+    100,
+    142,
+    79,
+    43,
+    250,
+    36,
+    191,
+    48,
+    224,
+    42,
+    206,
+    101,
+    84
+   ],
+   "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+   "sources": [
+    {
+     "captured_at": "2026-03-27T01:26:59.024000Z",
+     "id": "https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/03/27/S2B_MSIL2A_20260327T012659_N0512_R074_T54STE_20260327T050839.SAFE/GRANULE/L2A_T54STE_A047290_20260327T013659/IMG_DATA/R10m/T54STE_20260327T012659_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/03/27/S2B_MSIL2A_20260327T012659_N0512_R074_T54STE_20260327T050839.SAFE/GRANULE/L2A_T54STE_A047290_20260327T013659/IMG_DATA/R10m/T54STE_20260327T012659_B04_10m.tif",
+     "scheme": "sentinel_s2_l2a"
+    }
+   ],
+   "surface_class": {
+    "label": "Snow / ice",
+    "scl": 11,
+    "vegetation_valid": false
+   },
+   "tslot": 20539,
+   "value": -0.028105831731209327,
+   "value_verbatim": "-0.028105831731209327"
+  },
+  {
+   "band": "indices.ndvi",
+   "band_metadata": {
+    "description": "Three optical-index scalars derived from Sentinel-2 L2A: NDVI, NDRE, NDMI. The most-pulled vegetation surface \u2014 these are what algorithms like `flood_risk@2`, `crop_stress@1`, and `irrigation_demand@1` compose.",
+    "dimension_description": "Normalised Difference Vegetation Index",
+    "dimension_index": 0,
+    "formula": "NDVI = (B08 \u2212 B04) / (B08 + B04), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits.",
+    "inherited_from_cube_band": "indices",
+    "interpretation": "NDVI < 0 = water / snow; 0 \u2013 0.2 = bare soil / urban; 0.2 \u2013 0.5 = sparse / stressed vegetation; 0.5 \u2013 0.8 = healthy crops / shrub; > 0.8 = dense closed canopy. NDMI tracks canopy water content (negative = dry, positive = moist). NDRE is more sensitive to chlorophyll than NDVI and saturates later \u2014 preferred for in-season nitrogen monitoring.",
+    "pitfalls": "Read `surface_class` on the fact before the value. It carries the per-pixel Sentinel-2 SCL class the responder actually probed at this cell (`scl`, `label`, `vegetation_valid`) and answers a question `confidence` does not: confidence scores radiometric cleanliness, so a snow-covered field in January is a clean pixel and scores 0.95 while the NDVI on it measures snow, not vegetation. `vegetation_valid: false` (snow, water, shadow) means the number is real but is not a vegetation reading. Prefer this over the scene-level `weather.cloud_cover` / `cloud_pct` proxies: those describe the whole scene, `surface_class` describes this pixel. Absent when the SCL band could not be read, in which case confidence falls back to scene-level cloud cover and the scene-level proxies are all there is. NDVI saturates above ~0.85 (use NDRE / `geotessera` for dense canopies).",
+    "provenance": {
+     "class": "deterministic_index",
+     "deterministic": true,
+     "tamper_evidence": "recomputable_from_source",
+     "trust_rank": 4
+    },
+    "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI); Xu 2006 (MNDWI = (B03-B11)/(B03+B11)); Key & Benson 2006 (NBR = (B08-B12)/(B08+B12)); Hall et al. 1995 (NDSI = (B03-B11)/(B03+B11)); Zha et al. 2003 (NDBI = (B11-B08)/(B11+B08)); Rikimaru et al. 2002 (BSI = ((B11+B04)-(B08+B02))/((B11+B04)+(B08+B02))); Hardisky et al. 1983 (NDWI_Gao = (B03-B08)/(B03+B08), the leaf-water-content form used by the algal-bloom water gate)",
+    "units": "unitless [-1, +1]",
+    "value_range": [
+     -1.0,
+     1.0
+    ]
+   },
+   "cell": "defi.zb592.nUkO.zEzE",
+   "cid_v1": "bafkr4iedrk7whreypacngmam6hmrvxuwwdsaabqbbbndnmz6fckc24nteu",
+   "confidence": 0.949999988079071,
+   "derivation": {
+    "args": [
+     35.362818414124675,
+     138.730792696665,
+     "S2B_54STE_20260426_0_L2A",
+     32654,
+     "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+     [
+      7837.0,
+      9092.0
+     ],
+     27.538979,
+     40.0,
+     30,
+     11,
+     1
+    ],
+    "fn_key": "sentinel2_l2a_indices_ndvi@1"
+   },
+   "fact_cid": "qofl6y6etb4ajuzqbty5sgw6s2yoiaagaeefunvthyujillrwmsq",
+   "kind": "primary",
+   "memory_token": "emem:fact:defi.zb592.nUkO.zEzE:qofl6y6etb4ajuzqbty5sgw6s2yoiaagaeefunvthyujillrwmsq",
+   "observed_at": "2026-04-26T01:37:21.919000Z",
+   "privacy_class": "public",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "signed_at": "2026-09-11T05:16:14Z",
+   "signer": [
+    255,
+    254,
+    72,
+    239,
+    8,
+    57,
+    144,
+    88,
+    50,
+    189,
+    59,
+    5,
+    171,
+    89,
+    152,
+    150,
+    76,
+    49,
+    228,
+    100,
+    142,
+    79,
+    43,
+    250,
+    36,
+    191,
+    48,
+    224,
+    42,
+    206,
+    101,
+    84
+   ],
+   "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+   "sources": [
+    {
+     "captured_at": "2026-04-26T01:37:21.919000Z",
+     "id": "https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/54/S/TE/2026/4/S2B_54STE_20260426_0_L2A/B08.tif ; https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/54/S/TE/2026/4/S2B_54STE_20260426_0_L2A/B04.tif",
+     "scheme": "sentinel_s2_l2a"
+    }
+   ],
+   "surface_class": {
+    "label": "Snow / ice",
+    "scl": 11,
+    "vegetation_valid": false
+   },
+   "tslot": 20569,
+   "value": -0.07413314430858287,
+   "value_verbatim": "-0.07413314430858287"
+  },
+  {
+   "band": "indices.ndvi",
+   "band_metadata": {
+    "description": "Three optical-index scalars derived from Sentinel-2 L2A: NDVI, NDRE, NDMI. The most-pulled vegetation surface \u2014 these are what algorithms like `flood_risk@2`, `crop_stress@1`, and `irrigation_demand@1` compose.",
+    "dimension_description": "Normalised Difference Vegetation Index",
+    "dimension_index": 0,
+    "formula": "NDVI = (B08 \u2212 B04) / (B08 + B04), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits.",
+    "inherited_from_cube_band": "indices",
+    "interpretation": "NDVI < 0 = water / snow; 0 \u2013 0.2 = bare soil / urban; 0.2 \u2013 0.5 = sparse / stressed vegetation; 0.5 \u2013 0.8 = healthy crops / shrub; > 0.8 = dense closed canopy. NDMI tracks canopy water content (negative = dry, positive = moist). NDRE is more sensitive to chlorophyll than NDVI and saturates later \u2014 preferred for in-season nitrogen monitoring.",
+    "pitfalls": "Read `surface_class` on the fact before the value. It carries the per-pixel Sentinel-2 SCL class the responder actually probed at this cell (`scl`, `label`, `vegetation_valid`) and answers a question `confidence` does not: confidence scores radiometric cleanliness, so a snow-covered field in January is a clean pixel and scores 0.95 while the NDVI on it measures snow, not vegetation. `vegetation_valid: false` (snow, water, shadow) means the number is real but is not a vegetation reading. Prefer this over the scene-level `weather.cloud_cover` / `cloud_pct` proxies: those describe the whole scene, `surface_class` describes this pixel. Absent when the SCL band could not be read, in which case confidence falls back to scene-level cloud cover and the scene-level proxies are all there is. NDVI saturates above ~0.85 (use NDRE / `geotessera` for dense canopies).",
+    "provenance": {
+     "class": "deterministic_index",
+     "deterministic": true,
+     "tamper_evidence": "recomputable_from_source",
+     "trust_rank": 4
+    },
+    "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI); Xu 2006 (MNDWI = (B03-B11)/(B03+B11)); Key & Benson 2006 (NBR = (B08-B12)/(B08+B12)); Hall et al. 1995 (NDSI = (B03-B11)/(B03+B11)); Zha et al. 2003 (NDBI = (B11-B08)/(B11+B08)); Rikimaru et al. 2002 (BSI = ((B11+B04)-(B08+B02))/((B11+B04)+(B08+B02))); Hardisky et al. 1983 (NDWI_Gao = (B03-B08)/(B03+B08), the leaf-water-content form used by the algal-bloom water gate)",
+    "units": "unitless [-1, +1]",
+    "value_range": [
+     -1.0,
+     1.0
+    ]
+   },
+   "cell": "defi.zb592.nUkO.zEzE",
+   "cid_v1": "bafkr4ifvc5samd7palm6fr6tpduzfx6bk6cq2vjg6yllnf45yi7mswtylq",
+   "confidence": 0.949999988079071,
+   "derivation": {
+    "args": [
+     35.362818414124675,
+     138.730792696665,
+     "S2C_MSIL2A_20260511T012701_R074_T54STE_20260511T055109",
+     32654,
+     "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+     [
+      8183.0,
+      9467.0
+     ],
+     25.097248,
+     40.0,
+     30,
+     11,
+     1,
+     "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+     -1000.0,
+     "reader=cog-pixel-floor@2"
+    ],
+    "fn_key": "sentinel2_l2a_indices_ndvi@1"
+   },
+   "fact_cid": "wulwibqp54bntywh2n4otew7yflykdkve33bnnuxtxbd5sk2pboa",
+   "kind": "primary",
+   "memory_token": "emem:fact:defi.zb592.nUkO.zEzE:wulwibqp54bntywh2n4otew7yflykdkve33bnnuxtxbd5sk2pboa",
+   "observed_at": "2026-05-11T01:27:01.025000Z",
+   "privacy_class": "public",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "signed_at": "2026-11-07T00:32:39Z",
+   "signer": [
+    255,
+    254,
+    72,
+    239,
+    8,
+    57,
+    144,
+    88,
+    50,
+    189,
+    59,
+    5,
+    171,
+    89,
+    152,
+    150,
+    76,
+    49,
+    228,
+    100,
+    142,
+    79,
+    43,
+    250,
+    36,
+    191,
+    48,
+    224,
+    42,
+    206,
+    101,
+    84
+   ],
+   "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+   "sources": [
+    {
+     "captured_at": "2026-05-11T01:27:01.025000Z",
+     "id": "https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/05/11/S2C_MSIL2A_20260511T012701_N0512_R074_T54STE_20260511T055109.SAFE/GRANULE/L2A_T54STE_A008767_20260511T013629/IMG_DATA/R10m/T54STE_20260511T012701_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/05/11/S2C_MSIL2A_20260511T012701_N0512_R074_T54STE_20260511T055109.SAFE/GRANULE/L2A_T54STE_A008767_20260511T013629/IMG_DATA/R10m/T54STE_20260511T012701_B04_10m.tif",
+     "scheme": "sentinel_s2_l2a"
+    }
+   ],
+   "surface_class": {
+    "label": "Snow / ice",
+    "scl": 11,
+    "vegetation_valid": false
+   },
+   "tslot": 20584,
+   "value": -0.08204472843450476,
+   "value_verbatim": "-0.08204472843450476"
+  },
+  {
+   "band": "indices.ndvi",
+   "band_metadata": {
+    "description": "Three optical-index scalars derived from Sentinel-2 L2A: NDVI, NDRE, NDMI. The most-pulled vegetation surface \u2014 these are what algorithms like `flood_risk@2`, `crop_stress@1`, and `irrigation_demand@1` compose.",
+    "dimension_description": "Normalised Difference Vegetation Index",
+    "dimension_index": 0,
+    "formula": "NDVI = (B08 \u2212 B04) / (B08 + B04), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits.",
+    "inherited_from_cube_band": "indices",
+    "interpretation": "NDVI < 0 = water / snow; 0 \u2013 0.2 = bare soil / urban; 0.2 \u2013 0.5 = sparse / stressed vegetation; 0.5 \u2013 0.8 = healthy crops / shrub; > 0.8 = dense closed canopy. NDMI tracks canopy water content (negative = dry, positive = moist). NDRE is more sensitive to chlorophyll than NDVI and saturates later \u2014 preferred for in-season nitrogen monitoring.",
+    "pitfalls": "Read `surface_class` on the fact before the value. It carries the per-pixel Sentinel-2 SCL class the responder actually probed at this cell (`scl`, `label`, `vegetation_valid`) and answers a question `confidence` does not: confidence scores radiometric cleanliness, so a snow-covered field in January is a clean pixel and scores 0.95 while the NDVI on it measures snow, not vegetation. `vegetation_valid: false` (snow, water, shadow) means the number is real but is not a vegetation reading. Prefer this over the scene-level `weather.cloud_cover` / `cloud_pct` proxies: those describe the whole scene, `surface_class` describes this pixel. Absent when the SCL band could not be read, in which case confidence falls back to scene-level cloud cover and the scene-level proxies are all there is. NDVI saturates above ~0.85 (use NDRE / `geotessera` for dense canopies).",
+    "provenance": {
+     "class": "deterministic_index",
+     "deterministic": true,
+     "tamper_evidence": "recomputable_from_source",
+     "trust_rank": 4
+    },
+    "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI); Xu 2006 (MNDWI = (B03-B11)/(B03+B11)); Key & Benson 2006 (NBR = (B08-B12)/(B08+B12)); Hall et al. 1995 (NDSI = (B03-B11)/(B03+B11)); Zha et al. 2003 (NDBI = (B11-B08)/(B11+B08)); Rikimaru et al. 2002 (BSI = ((B11+B04)-(B08+B02))/((B11+B04)+(B08+B02))); Hardisky et al. 1983 (NDWI_Gao = (B03-B08)/(B03+B08), the leaf-water-content form used by the algal-bloom water gate)",
+    "units": "unitless [-1, +1]",
+    "value_range": [
+     -1.0,
+     1.0
+    ]
+   },
+   "cell": "defi.zb592.nUkO.zEzE",
+   "cid_v1": "bafkr4icw6rgmpufkkoddwaoz6unumcazuvt64jqyj7em3jppga6r7iawhu",
+   "confidence": 0.949999988079071,
+   "derivation": {
+    "args": [
+     35.362818414124675,
+     138.730792696665,
+     "S2B_MSIL2A_20260516T012649_R074_T54STE_20260516T043815",
+     32654,
+     "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+     [
+      9976.0,
+      11078.0
+     ],
+     4.160678,
+     40.0,
+     30,
+     11,
+     1,
+     "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+     -1000.0,
+     "reader=cog-pixel-floor@2"
+    ],
+    "fn_key": "sentinel2_l2a_indices_ndvi@1"
+   },
+   "fact_cid": "k32ezr6qvjjymoyb3h2rwrqidgswp3rgdbh4rtnf54yd2h5acy6q",
+   "kind": "primary",
+   "memory_token": "emem:fact:defi.zb592.nUkO.zEzE:k32ezr6qvjjymoyb3h2rwrqidgswp3rgdbh4rtnf54yd2h5acy6q",
+   "observed_at": "2026-05-16T01:26:49.024000Z",
+   "privacy_class": "public",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "signed_at": "2026-11-07T00:32:39Z",
+   "signer": [
+    255,
+    254,
+    72,
+    239,
+    8,
+    57,
+    144,
+    88,
+    50,
+    189,
+    59,
+    5,
+    171,
+    89,
+    152,
+    150,
+    76,
+    49,
+    228,
+    100,
+    142,
+    79,
+    43,
+    250,
+    36,
+    191,
+    48,
+    224,
+    42,
+    206,
+    101,
+    84
+   ],
+   "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+   "sources": [
+    {
+     "captured_at": "2026-05-16T01:26:49.024000Z",
+     "id": "https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/05/16/S2B_MSIL2A_20260516T012649_N0512_R074_T54STE_20260516T043815.SAFE/GRANULE/L2A_T54STE_A048005_20260516T013534/IMG_DATA/R10m/T54STE_20260516T012649_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/05/16/S2B_MSIL2A_20260516T012649_N0512_R074_T54STE_20260516T043815.SAFE/GRANULE/L2A_T54STE_A048005_20260516T013534/IMG_DATA/R10m/T54STE_20260516T012649_B04_10m.tif",
+     "scheme": "sentinel_s2_l2a"
+    }
+   ],
+   "surface_class": {
+    "label": "Snow / ice",
+    "scl": 11,
+    "vegetation_valid": false
+   },
+   "tslot": 20589,
+   "value": -0.057835625065603,
+   "value_verbatim": "-0.057835625065603"
+  },
+  {
+   "band": "indices.ndvi",
+   "band_metadata": {
+    "description": "Three optical-index scalars derived from Sentinel-2 L2A: NDVI, NDRE, NDMI. The most-pulled vegetation surface \u2014 these are what algorithms like `flood_risk@2`, `crop_stress@1`, and `irrigation_demand@1` compose.",
+    "dimension_description": "Normalised Difference Vegetation Index",
+    "dimension_index": 0,
+    "formula": "NDVI = (B08 \u2212 B04) / (B08 + B04), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits.",
+    "inherited_from_cube_band": "indices",
+    "interpretation": "NDVI < 0 = water / snow; 0 \u2013 0.2 = bare soil / urban; 0.2 \u2013 0.5 = sparse / stressed vegetation; 0.5 \u2013 0.8 = healthy crops / shrub; > 0.8 = dense closed canopy. NDMI tracks canopy water content (negative = dry, positive = moist). NDRE is more sensitive to chlorophyll than NDVI and saturates later \u2014 preferred for in-season nitrogen monitoring.",
+    "pitfalls": "Read `surface_class` on the fact before the value. It carries the per-pixel Sentinel-2 SCL class the responder actually probed at this cell (`scl`, `label`, `vegetation_valid`) and answers a question `confidence` does not: confidence scores radiometric cleanliness, so a snow-covered field in January is a clean pixel and scores 0.95 while the NDVI on it measures snow, not vegetation. `vegetation_valid: false` (snow, water, shadow) means the number is real but is not a vegetation reading. Prefer this over the scene-level `weather.cloud_cover` / `cloud_pct` proxies: those describe the whole scene, `surface_class` describes this pixel. Absent when the SCL band could not be read, in which case confidence falls back to scene-level cloud cover and the scene-level proxies are all there is. NDVI saturates above ~0.85 (use NDRE / `geotessera` for dense canopies).",
+    "provenance": {
+     "class": "deterministic_index",
+     "deterministic": true,
+     "tamper_evidence": "recomputable_from_source",
+     "trust_rank": 4
+    },
+    "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI); Xu 2006 (MNDWI = (B03-B11)/(B03+B11)); Key & Benson 2006 (NBR = (B08-B12)/(B08+B12)); Hall et al. 1995 (NDSI = (B03-B11)/(B03+B11)); Zha et al. 2003 (NDBI = (B11-B08)/(B11+B08)); Rikimaru et al. 2002 (BSI = ((B11+B04)-(B08+B02))/((B11+B04)+(B08+B02))); Hardisky et al. 1983 (NDWI_Gao = (B03-B08)/(B03+B08), the leaf-water-content form used by the algal-bloom water gate)",
+    "units": "unitless [-1, +1]",
+    "value_range": [
+     -1.0,
+     1.0
+    ]
+   },
+   "cell": "defi.zb592.nUkO.zEzE",
+   "cid_v1": "bafkr4iadcib4codq6dm36mom5p743obdochdu2m4qqyih4zfiyk327ft4m",
+   "confidence": 0.6499999761581421,
+   "derivation": {
+    "args": [
+     35.362818414124675,
+     138.730792696665,
+     "S2B_54STE_20260715_0_L2A",
+     32654,
+     "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+     [
+      1017.0,
+      947.0
+     ],
+     17.467472,
+     40.0,
+     30,
+     2,
+     1
+    ],
+    "fn_key": "sentinel2_l2a_indices_ndvi@1"
+   },
+   "fact_cid": "amjahqjyodyntpzrztv77tnyenyi4otjtscdba7tevdblpl4wprq",
+   "kind": "primary",
+   "memory_token": "emem:fact:defi.zb592.nUkO.zEzE:amjahqjyodyntpzrztv77tnyenyi4otjtscdba7tevdblpl4wprq",
+   "observed_at": "2026-07-15T01:37:25.716000Z",
+   "privacy_class": "public",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "signed_at": "2026-07-16T12:02:21Z",
+   "signer": [
+    255,
+    254,
+    72,
+    239,
+    8,
+    57,
+    144,
+    88,
+    50,
+    189,
+    59,
+    5,
+    171,
+    89,
+    152,
+    150,
+    76,
+    49,
+    228,
+    100,
+    142,
+    79,
+    43,
+    250,
+    36,
+    191,
+    48,
+    224,
+    42,
+    206,
+    101,
+    84
+   ],
+   "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+   "sources": [
+    {
+     "captured_at": "2026-07-15T01:37:25.716000Z",
+     "id": "https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/54/S/TE/2026/7/S2B_54STE_20260715_0_L2A/B08.tif ; https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/54/S/TE/2026/7/S2B_54STE_20260715_0_L2A/B04.tif",
+     "scheme": "sentinel_s2_l2a"
+    }
+   ],
+   "surface_class": {
+    "label": "Cast shadows",
+    "scl": 2,
+    "vegetation_valid": false
+   },
+   "tslot": 20649,
+   "value": 0.035641547861507084,
+   "value_verbatim": "0.035641547861507084"
+  },
+  {
+   "band": "indices.ndvi",
+   "band_metadata": {
+    "description": "Three optical-index scalars derived from Sentinel-2 L2A: NDVI, NDRE, NDMI. The most-pulled vegetation surface \u2014 these are what algorithms like `flood_risk@2`, `crop_stress@1`, and `irrigation_demand@1` compose.",
+    "dimension_description": "Normalised Difference Vegetation Index",
+    "dimension_index": 0,
+    "formula": "NDVI = (B08 \u2212 B04) / (B08 + B04), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits.",
+    "inherited_from_cube_band": "indices",
+    "interpretation": "NDVI < 0 = water / snow; 0 \u2013 0.2 = bare soil / urban; 0.2 \u2013 0.5 = sparse / stressed vegetation; 0.5 \u2013 0.8 = healthy crops / shrub; > 0.8 = dense closed canopy. NDMI tracks canopy water content (negative = dry, positive = moist). NDRE is more sensitive to chlorophyll than NDVI and saturates later \u2014 preferred for in-season nitrogen monitoring.",
+    "pitfalls": "Read `surface_class` on the fact before the value. It carries the per-pixel Sentinel-2 SCL class the responder actually probed at this cell (`scl`, `label`, `vegetation_valid`) and answers a question `confidence` does not: confidence scores radiometric cleanliness, so a snow-covered field in January is a clean pixel and scores 0.95 while the NDVI on it measures snow, not vegetation. `vegetation_valid: false` (snow, water, shadow) means the number is real but is not a vegetation reading. Prefer this over the scene-level `weather.cloud_cover` / `cloud_pct` proxies: those describe the whole scene, `surface_class` describes this pixel. Absent when the SCL band could not be read, in which case confidence falls back to scene-level cloud cover and the scene-level proxies are all there is. NDVI saturates above ~0.85 (use NDRE / `geotessera` for dense canopies).",
+    "provenance": {
+     "class": "deterministic_index",
+     "deterministic": true,
+     "tamper_evidence": "recomputable_from_source",
+     "trust_rank": 4
+    },
+    "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI); Xu 2006 (MNDWI = (B03-B11)/(B03+B11)); Key & Benson 2006 (NBR = (B08-B12)/(B08+B12)); Hall et al. 1995 (NDSI = (B03-B11)/(B03+B11)); Zha et al. 2003 (NDBI = (B11-B08)/(B11+B08)); Rikimaru et al. 2002 (BSI = ((B11+B04)-(B08+B02))/((B11+B04)+(B08+B02))); Hardisky et al. 1983 (NDWI_Gao = (B03-B08)/(B03+B08), the leaf-water-content form used by the algal-bloom water gate)",
+    "units": "unitless [-1, +1]",
+    "value_range": [
+     -1.0,
+     1.0
+    ]
+   },
+   "cell": "defi.zb592.nUkO.zEzE",
+   "cid_v1": "bafkr4iba54iyfwou7bwaqxo67omkwdww3jcqevi4qxy3xrkehbfyqxpmuu",
+   "confidence": 0.949999988079071,
+   "derivation": {
+    "args": [
+     35.362818414124675,
+     138.730792696665,
+     "S2B_MSIL2A_20260725T012659_R074_T54STE_20260725T043101",
+     32654,
+     "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+     [
+      2417.0,
+      2444.0
+     ],
+     12.53303,
+     40.0,
+     30,
+     5,
+     1,
+     "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+     -1000.0,
+     "reader=cog-pixel-floor@2"
+    ],
+    "fn_key": "sentinel2_l2a_indices_ndvi@1"
+   },
+   "fact_cid": "edxrdawz2t4gycc5335zrkyo23nekasvdsc7do6fiq4excc55ssq",
+   "kind": "primary",
+   "memory_token": "emem:fact:defi.zb592.nUkO.zEzE:edxrdawz2t4gycc5335zrkyo23nekasvdsc7do6fiq4excc55ssq",
+   "observed_at": "2026-07-25T01:26:59.024000Z",
+   "privacy_class": "public",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "signed_at": "2026-11-07T00:32:38Z",
+   "signer": [
+    255,
+    254,
+    72,
+    239,
+    8,
+    57,
+    144,
+    88,
+    50,
+    189,
+    59,
+    5,
+    171,
+    89,
+    152,
+    150,
+    76,
+    49,
+    228,
+    100,
+    142,
+    79,
+    43,
+    250,
+    36,
+    191,
+    48,
+    224,
+    42,
+    206,
+    101,
+    84
+   ],
+   "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+   "sources": [
+    {
+     "captured_at": "2026-07-25T01:26:59.024000Z",
+     "id": "https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/07/25/S2B_MSIL2A_20260725T012659_N0512_R074_T54STE_20260725T043101.SAFE/GRANULE/L2A_T54STE_A049006_20260725T013545/IMG_DATA/R10m/T54STE_20260725T012659_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/07/25/S2B_MSIL2A_20260725T012659_N0512_R074_T54STE_20260725T043101.SAFE/GRANULE/L2A_T54STE_A049006_20260725T013545/IMG_DATA/R10m/T54STE_20260725T012659_B04_10m.tif",
+     "scheme": "sentinel_s2_l2a"
+    }
+   ],
+   "surface_class": {
+    "label": "Bare soil",
+    "scl": 5,
+    "vegetation_valid": true
+   },
+   "tslot": 20659,
+   "value": -0.009437259699405733,
+   "value_verbatim": "-0.009437259699405733"
+  },
+  {
+   "band": "indices.ndvi",
+   "band_metadata": {
+    "description": "Three optical-index scalars derived from Sentinel-2 L2A: NDVI, NDRE, NDMI. The most-pulled vegetation surface \u2014 these are what algorithms like `flood_risk@2`, `crop_stress@1`, and `irrigation_demand@1` compose.",
+    "dimension_description": "Normalised Difference Vegetation Index",
+    "dimension_index": 0,
+    "formula": "NDVI = (B08 \u2212 B04) / (B08 + B04), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits.",
+    "inherited_from_cube_band": "indices",
+    "interpretation": "NDVI < 0 = water / snow; 0 \u2013 0.2 = bare soil / urban; 0.2 \u2013 0.5 = sparse / stressed vegetation; 0.5 \u2013 0.8 = healthy crops / shrub; > 0.8 = dense closed canopy. NDMI tracks canopy water content (negative = dry, positive = moist). NDRE is more sensitive to chlorophyll than NDVI and saturates later \u2014 preferred for in-season nitrogen monitoring.",
+    "pitfalls": "Read `surface_class` on the fact before the value. It carries the per-pixel Sentinel-2 SCL class the responder actually probed at this cell (`scl`, `label`, `vegetation_valid`) and answers a question `confidence` does not: confidence scores radiometric cleanliness, so a snow-covered field in January is a clean pixel and scores 0.95 while the NDVI on it measures snow, not vegetation. `vegetation_valid: false` (snow, water, shadow) means the number is real but is not a vegetation reading. Prefer this over the scene-level `weather.cloud_cover` / `cloud_pct` proxies: those describe the whole scene, `surface_class` describes this pixel. Absent when the SCL band could not be read, in which case confidence falls back to scene-level cloud cover and the scene-level proxies are all there is. NDVI saturates above ~0.85 (use NDRE / `geotessera` for dense canopies).",
+    "provenance": {
+     "class": "deterministic_index",
+     "deterministic": true,
+     "tamper_evidence": "recomputable_from_source",
+     "trust_rank": 4
+    },
+    "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI); Xu 2006 (MNDWI = (B03-B11)/(B03+B11)); Key & Benson 2006 (NBR = (B08-B12)/(B08+B12)); Hall et al. 1995 (NDSI = (B03-B11)/(B03+B11)); Zha et al. 2003 (NDBI = (B11-B08)/(B11+B08)); Rikimaru et al. 2002 (BSI = ((B11+B04)-(B08+B02))/((B11+B04)+(B08+B02))); Hardisky et al. 1983 (NDWI_Gao = (B03-B08)/(B03+B08), the leaf-water-content form used by the algal-bloom water gate)",
+    "units": "unitless [-1, +1]",
+    "value_range": [
+     -1.0,
+     1.0
+    ]
+   },
+   "cell": "defi.zb592.nUkO.zEzE",
+   "cid_v1": "bafkr4icdv2l22gl3rkqvec3vvpx2ntajyxyxd5lrhyeqkcblkbo5yb6ycq",
+   "confidence": 0.75,
+   "derivation": {
+    "args": [
+     35.362818414124675,
+     138.730792696665,
+     "S2C_MSIL2A_20260918T012651_R074_T54STE_20260918T043812",
+     32654,
+     "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+     [
+      2362.0,
+      2488.0
+     ],
+     21.93941,
+     40.0,
+     30,
+     7,
+     1,
+     "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+     -1000.0,
+     "reader=cog-pixel-floor@2"
+    ],
+    "fn_key": "sentinel2_l2a_indices_ndvi@1"
+   },
+   "fact_cid": "ioxjplizpofkcuqlowv67jwmbhc7c4pvoe7asbiifnif3xah3aka",
+   "kind": "primary",
+   "memory_token": "emem:fact:defi.zb592.nUkO.zEzE:ioxjplizpofkcuqlowv67jwmbhc7c4pvoe7asbiifnif3xah3aka",
+   "observed_at": "2026-09-18T01:26:51.025000Z",
+   "privacy_class": "public",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "signed_at": "2026-09-28T13:11:44Z",
+   "signer": [
+    255,
+    254,
+    72,
+    239,
+    8,
+    57,
+    144,
+    88,
+    50,
+    189,
+    59,
+    5,
+    171,
+    89,
+    152,
+    150,
+    76,
+    49,
+    228,
+    100,
+    142,
+    79,
+    43,
+    250,
+    36,
+    191,
+    48,
+    224,
+    42,
+    206,
+    101,
+    84
+   ],
+   "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+   "sources": [
+    {
+     "captured_at": "2026-09-18T01:26:51.025000Z",
+     "id": "https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/09/18/S2C_MSIL2A_20260918T012651_N0512_R074_T54STE_20260918T043812.SAFE/GRANULE/L2A_T54STE_A010626_20260918T013316/IMG_DATA/R10m/T54STE_20260918T012651_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/09/18/S2C_MSIL2A_20260918T012651_N0512_R074_T54STE_20260918T043812.SAFE/GRANULE/L2A_T54STE_A010626_20260918T013316/IMG_DATA/R10m/T54STE_20260918T012651_B04_10m.tif",
+     "scheme": "sentinel_s2_l2a"
+    }
+   ],
+   "surface_class": {
+    "label": "Cloud (low probability)",
+    "scl": 7,
+    "vegetation_valid": false
+   },
+   "tslot": 20714,
+   "value": -0.04421052631578947,
+   "value_verbatim": "-0.04421052631578947"
+  },
+  {
+   "band": "indices.ndvi",
+   "band_metadata": {
+    "description": "Three optical-index scalars derived from Sentinel-2 L2A: NDVI, NDRE, NDMI. The most-pulled vegetation surface \u2014 these are what algorithms like `flood_risk@2`, `crop_stress@1`, and `irrigation_demand@1` compose.",
+    "dimension_description": "Normalised Difference Vegetation Index",
+    "dimension_index": 0,
+    "formula": "NDVI = (B08 \u2212 B04) / (B08 + B04), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits.",
+    "inherited_from_cube_band": "indices",
+    "interpretation": "NDVI < 0 = water / snow; 0 \u2013 0.2 = bare soil / urban; 0.2 \u2013 0.5 = sparse / stressed vegetation; 0.5 \u2013 0.8 = healthy crops / shrub; > 0.8 = dense closed canopy. NDMI tracks canopy water content (negative = dry, positive = moist). NDRE is more sensitive to chlorophyll than NDVI and saturates later \u2014 preferred for in-season nitrogen monitoring.",
+    "pitfalls": "Read `surface_class` on the fact before the value. It carries the per-pixel Sentinel-2 SCL class the responder actually probed at this cell (`scl`, `label`, `vegetation_valid`) and answers a question `confidence` does not: confidence scores radiometric cleanliness, so a snow-covered field in January is a clean pixel and scores 0.95 while the NDVI on it measures snow, not vegetation. `vegetation_valid: false` (snow, water, shadow) means the number is real but is not a vegetation reading. Prefer this over the scene-level `weather.cloud_cover` / `cloud_pct` proxies: those describe the whole scene, `surface_class` describes this pixel. Absent when the SCL band could not be read, in which case confidence falls back to scene-level cloud cover and the scene-level proxies are all there is. NDVI saturates above ~0.85 (use NDRE / `geotessera` for dense canopies).",
+    "provenance": {
+     "class": "deterministic_index",
+     "deterministic": true,
+     "tamper_evidence": "recomputable_from_source",
+     "trust_rank": 4
+    },
+    "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI); Xu 2006 (MNDWI = (B03-B11)/(B03+B11)); Key & Benson 2006 (NBR = (B08-B12)/(B08+B12)); Hall et al. 1995 (NDSI = (B03-B11)/(B03+B11)); Zha et al. 2003 (NDBI = (B11-B08)/(B11+B08)); Rikimaru et al. 2002 (BSI = ((B11+B04)-(B08+B02))/((B11+B04)+(B08+B02))); Hardisky et al. 1983 (NDWI_Gao = (B03-B08)/(B03+B08), the leaf-water-content form used by the algal-bloom water gate)",
+    "units": "unitless [-1, +1]",
+    "value_range": [
+     -1.0,
+     1.0
+    ]
+   },
+   "cell": "defi.zb592.nUkO.zEzE",
+   "cid_v1": "bafkr4iathfqb22jxu5wi7no4qcqxnjfn374dhhaxwleclfsjwb54cojot4",
+   "confidence": 0.949999988079071,
+   "derivation": {
+    "args": [
+     35.362818414124675,
+     138.730792696665,
+     "S2B_MSIL2A_20261003T012659_R074_T54STE_20261003T051434",
+     32654,
+     "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+     [
+      2161.0,
+      2215.0
+     ],
+     30.711159,
+     40.0,
+     30,
+     5,
+     1,
+     "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+     -1000.0,
+     "reader=cog-pixel-floor@2"
+    ],
+    "fn_key": "sentinel2_l2a_indices_ndvi@1"
+   },
+   "fact_cid": "cm4wahljg6twzd5v3sakc5vevxp7qm44c6zmqjmwjgyhxqjzf2pq",
+   "kind": "primary",
+   "memory_token": "emem:fact:defi.zb592.nUkO.zEzE:cm4wahljg6twzd5v3sakc5vevxp7qm44c6zmqjmwjgyhxqjzf2pq",
+   "observed_at": "2026-10-03T01:26:59.024000Z",
+   "privacy_class": "public",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "signed_at": "2026-10-04T06:55:57Z",
+   "signer": [
+    255,
+    254,
+    72,
+    239,
+    8,
+    57,
+    144,
+    88,
+    50,
+    189,
+    59,
+    5,
+    171,
+    89,
+    152,
+    150,
+    76,
+    49,
+    228,
+    100,
+    142,
+    79,
+    43,
+    250,
+    36,
+    191,
+    48,
+    224,
+    42,
+    206,
+    101,
+    84
+   ],
+   "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+   "sources": [
+    {
+     "captured_at": "2026-10-03T01:26:59.024000Z",
+     "id": "https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/10/03/S2B_MSIL2A_20261003T012659_N0513_R074_T54STE_20261003T051434.SAFE/GRANULE/L2A_T54STE_A050007_20261003T012904/IMG_DATA/R10m/T54STE_20261003T012659_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/10/03/S2B_MSIL2A_20261003T012659_N0513_R074_T54STE_20261003T051434.SAFE/GRANULE/L2A_T54STE_A050007_20261003T012904/IMG_DATA/R10m/T54STE_20261003T012659_B04_10m.tif",
+     "scheme": "sentinel_s2_l2a"
+    }
+   ],
+   "surface_class": {
+    "label": "Bare soil",
+    "scl": 5,
+    "vegetation_valid": true
+   },
+   "tslot": 20729,
+   "value": -0.02272727272727273,
+   "value_verbatim": "-0.02272727272727273"
+  },
+  {
+   "band": "indices.ndvi",
+   "band_metadata": {
+    "description": "Three optical-index scalars derived from Sentinel-2 L2A: NDVI, NDRE, NDMI. The most-pulled vegetation surface \u2014 these are what algorithms like `flood_risk@2`, `crop_stress@1`, and `irrigation_demand@1` compose.",
+    "dimension_description": "Normalised Difference Vegetation Index",
+    "dimension_index": 0,
+    "formula": "NDVI = (B08 \u2212 B04) / (B08 + B04), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits.",
+    "inherited_from_cube_band": "indices",
+    "interpretation": "NDVI < 0 = water / snow; 0 \u2013 0.2 = bare soil / urban; 0.2 \u2013 0.5 = sparse / stressed vegetation; 0.5 \u2013 0.8 = healthy crops / shrub; > 0.8 = dense closed canopy. NDMI tracks canopy water content (negative = dry, positive = moist). NDRE is more sensitive to chlorophyll than NDVI and saturates later \u2014 preferred for in-season nitrogen monitoring.",
+    "pitfalls": "Read `surface_class` on the fact before the value. It carries the per-pixel Sentinel-2 SCL class the responder actually probed at this cell (`scl`, `label`, `vegetation_valid`) and answers a question `confidence` does not: confidence scores radiometric cleanliness, so a snow-covered field in January is a clean pixel and scores 0.95 while the NDVI on it measures snow, not vegetation. `vegetation_valid: false` (snow, water, shadow) means the number is real but is not a vegetation reading. Prefer this over the scene-level `weather.cloud_cover` / `cloud_pct` proxies: those describe the whole scene, `surface_class` describes this pixel. Absent when the SCL band could not be read, in which case confidence falls back to scene-level cloud cover and the scene-level proxies are all there is. NDVI saturates above ~0.85 (use NDRE / `geotessera` for dense canopies).",
+    "provenance": {
+     "class": "deterministic_index",
+     "deterministic": true,
+     "tamper_evidence": "recomputable_from_source",
+     "trust_rank": 4
+    },
+    "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI); Xu 2006 (MNDWI = (B03-B11)/(B03+B11)); Key & Benson 2006 (NBR = (B08-B12)/(B08+B12)); Hall et al. 1995 (NDSI = (B03-B11)/(B03+B11)); Zha et al. 2003 (NDBI = (B11-B08)/(B11+B08)); Rikimaru et al. 2002 (BSI = ((B11+B04)-(B08+B02))/((B11+B04)+(B08+B02))); Hardisky et al. 1983 (NDWI_Gao = (B03-B08)/(B03+B08), the leaf-water-content form used by the algal-bloom water gate)",
+    "units": "unitless [-1, +1]",
+    "value_range": [
+     -1.0,
+     1.0
+    ]
+   },
+   "cell": "defi.zb592.nUkO.zEzE",
+   "cid_v1": "bafkr4ifuajdcwaaqh5cisz6rsbwdeyhvvhf7nnu3gulzdytrknrubxys3e",
+   "confidence": 0.75,
+   "derivation": {
+    "args": [
+     35.362818414124675,
+     138.730792696665,
+     "S2C_MSIL2A_20261008T012701_R074_T54STE_20261008T042806",
+     32654,
+     "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+     [
+      2176.0,
+      2140.0
+     ],
+     3.151191,
+     40.0,
+     30,
+     7,
+     1,
+     "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+     -1000.0,
+     "reader=cog-pixel-floor@2"
+    ],
+    "fn_key": "sentinel2_l2a_indices_ndvi@1"
+   },
+   "fact_cid": "wqbemkyaca7ujclh2gigymta6wu4x5vwtm2rpepcofjwgqg7clmq",
+   "kind": "primary",
+   "memory_token": "emem:fact:defi.zb592.nUkO.zEzE:wqbemkyaca7ujclh2gigymta6wu4x5vwtm2rpepcofjwgqg7clmq",
+   "observed_at": "2026-10-08T01:27:01.025000Z",
+   "privacy_class": "public",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "signed_at": "2026-10-08T22:06:05Z",
+   "signer": [
+    255,
+    254,
+    72,
+    239,
+    8,
+    57,
+    144,
+    88,
+    50,
+    189,
+    59,
+    5,
+    171,
+    89,
+    152,
+    150,
+    76,
+    49,
+    228,
+    100,
+    142,
+    79,
+    43,
+    250,
+    36,
+    191,
+    48,
+    224,
+    42,
+    206,
+    101,
+    84
+   ],
+   "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+   "sources": [
+    {
+     "captured_at": "2026-10-08T01:27:01.025000Z",
+     "id": "https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/10/08/S2C_MSIL2A_20261008T012701_N0513_R074_T54STE_20261008T042806.SAFE/GRANULE/L2A_T54STE_A010912_20261008T013239/IMG_DATA/R10m/T54STE_20261008T012701_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/10/08/S2C_MSIL2A_20261008T012701_N0513_R074_T54STE_20261008T042806.SAFE/GRANULE/L2A_T54STE_A010912_20261008T013239/IMG_DATA/R10m/T54STE_20261008T012701_B04_10m.tif",
+     "scheme": "sentinel_s2_l2a"
+    }
+   ],
+   "surface_class": {
+    "label": "Cloud (low probability)",
+    "scl": 7,
+    "vegetation_valid": false
+   },
+   "tslot": 20734,
+   "value": 0.015544041450777226,
+   "value_verbatim": "0.015544041450777226"
+  },
+  {
+   "band": "indices.ndvi",
+   "band_metadata": {
+    "description": "Three optical-index scalars derived from Sentinel-2 L2A: NDVI, NDRE, NDMI. The most-pulled vegetation surface \u2014 these are what algorithms like `flood_risk@2`, `crop_stress@1`, and `irrigation_demand@1` compose.",
+    "dimension_description": "Normalised Difference Vegetation Index",
+    "dimension_index": 0,
+    "formula": "NDVI = (B08 \u2212 B04) / (B08 + B04), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits.",
+    "inherited_from_cube_band": "indices",
+    "interpretation": "NDVI < 0 = water / snow; 0 \u2013 0.2 = bare soil / urban; 0.2 \u2013 0.5 = sparse / stressed vegetation; 0.5 \u2013 0.8 = healthy crops / shrub; > 0.8 = dense closed canopy. NDMI tracks canopy water content (negative = dry, positive = moist). NDRE is more sensitive to chlorophyll than NDVI and saturates later \u2014 preferred for in-season nitrogen monitoring.",
+    "pitfalls": "Read `surface_class` on the fact before the value. It carries the per-pixel Sentinel-2 SCL class the responder actually probed at this cell (`scl`, `label`, `vegetation_valid`) and answers a question `confidence` does not: confidence scores radiometric cleanliness, so a snow-covered field in January is a clean pixel and scores 0.95 while the NDVI on it measures snow, not vegetation. `vegetation_valid: false` (snow, water, shadow) means the number is real but is not a vegetation reading. Prefer this over the scene-level `weather.cloud_cover` / `cloud_pct` proxies: those describe the whole scene, `surface_class` describes this pixel. Absent when the SCL band could not be read, in which case confidence falls back to scene-level cloud cover and the scene-level proxies are all there is. NDVI saturates above ~0.85 (use NDRE / `geotessera` for dense canopies).",
+    "provenance": {
+     "class": "deterministic_index",
+     "deterministic": true,
+     "tamper_evidence": "recomputable_from_source",
+     "trust_rank": 4
+    },
+    "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI); Xu 2006 (MNDWI = (B03-B11)/(B03+B11)); Key & Benson 2006 (NBR = (B08-B12)/(B08+B12)); Hall et al. 1995 (NDSI = (B03-B11)/(B03+B11)); Zha et al. 2003 (NDBI = (B11-B08)/(B11+B08)); Rikimaru et al. 2002 (BSI = ((B11+B04)-(B08+B02))/((B11+B04)+(B08+B02))); Hardisky et al. 1983 (NDWI_Gao = (B03-B08)/(B03+B08), the leaf-water-content form used by the algal-bloom water gate)",
+    "units": "unitless [-1, +1]",
+    "value_range": [
+     -1.0,
+     1.0
+    ]
+   },
+   "cell": "defi.zb592.nUkO.zEzE",
+   "cid_v1": "bafkr4iglhzjyjmxwayeephyzejg4ehhhdwa4566qkvlvkzslfqjh2rht2a",
+   "confidence": 0.75,
+   "derivation": {
+    "args": [
+     35.362818414124675,
+     138.730792696665,
+     "S2A_MSIL2A_20261010T013111_R074_T54STE_20261010T044551",
+     32654,
+     "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+     [
+      2146.0,
+      2161.0
+     ],
+     1.238102,
+     40.0,
+     30,
+     7,
+     1,
+     "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+     -1000.0,
+     "reader=cog-pixel-floor@2"
+    ],
+    "fn_key": "sentinel2_l2a_indices_ndvi@1"
+   },
+   "fact_cid": "zm7fhbfs6ydaqr47dere3qq444oydtx32bkvovlgjmwbe7ke6pia",
+   "kind": "primary",
+   "memory_token": "emem:fact:defi.zb592.nUkO.zEzE:zm7fhbfs6ydaqr47dere3qq444oydtx32bkvovlgjmwbe7ke6pia",
+   "observed_at": "2026-10-10T01:31:11.024000Z",
+   "privacy_class": "public",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "signed_at": "2026-10-10T19:39:12Z",
+   "signer": [
+    255,
+    254,
+    72,
+    239,
+    8,
+    57,
+    144,
+    88,
+    50,
+    189,
+    59,
+    5,
+    171,
+    89,
+    152,
+    150,
+    76,
+    49,
+    228,
+    100,
+    142,
+    79,
+    43,
+    250,
+    36,
+    191,
+    48,
+    224,
+    42,
+    206,
+    101,
+    84
+   ],
+   "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+   "sources": [
+    {
+     "captured_at": "2026-10-10T01:31:11.024000Z",
+     "id": "https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/10/10/S2A_MSIL2A_20261010T013111_N0513_R074_T54STE_20261010T044551.SAFE/GRANULE/L2A_T54STE_A059016_20261010T013107/IMG_DATA/R10m/T54STE_20261010T013111_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/10/10/S2A_MSIL2A_20261010T013111_N0513_R074_T54STE_20261010T044551.SAFE/GRANULE/L2A_T54STE_A059016_20261010T013107/IMG_DATA/R10m/T54STE_20261010T013111_B04_10m.tif",
+     "scheme": "sentinel_s2_l2a"
+    }
+   ],
+   "surface_class": {
+    "label": "Cloud (low probability)",
+    "scl": 7,
+    "vegetation_valid": false
+   },
+   "tslot": 20736,
+   "value": -0.006501950585175558,
+   "value_verbatim": "-0.006501950585175558"
+  },
+  {
+   "band": "indices.ndvi",
+   "band_metadata": {
+    "description": "Three optical-index scalars derived from Sentinel-2 L2A: NDVI, NDRE, NDMI. The most-pulled vegetation surface \u2014 these are what algorithms like `flood_risk@2`, `crop_stress@1`, and `irrigation_demand@1` compose.",
+    "dimension_description": "Normalised Difference Vegetation Index",
+    "dimension_index": 0,
+    "formula": "NDVI = (B08 \u2212 B04) / (B08 + B04), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits.",
+    "inherited_from_cube_band": "indices",
+    "interpretation": "NDVI < 0 = water / snow; 0 \u2013 0.2 = bare soil / urban; 0.2 \u2013 0.5 = sparse / stressed vegetation; 0.5 \u2013 0.8 = healthy crops / shrub; > 0.8 = dense closed canopy. NDMI tracks canopy water content (negative = dry, positive = moist). NDRE is more sensitive to chlorophyll than NDVI and saturates later \u2014 preferred for in-season nitrogen monitoring.",
+    "pitfalls": "Read `surface_class` on the fact before the value. It carries the per-pixel Sentinel-2 SCL class the responder actually probed at this cell (`scl`, `label`, `vegetation_valid`) and answers a question `confidence` does not: confidence scores radiometric cleanliness, so a snow-covered field in January is a clean pixel and scores 0.95 while the NDVI on it measures snow, not vegetation. `vegetation_valid: false` (snow, water, shadow) means the number is real but is not a vegetation reading. Prefer this over the scene-level `weather.cloud_cover` / `cloud_pct` proxies: those describe the whole scene, `surface_class` describes this pixel. Absent when the SCL band could not be read, in which case confidence falls back to scene-level cloud cover and the scene-level proxies are all there is. NDVI saturates above ~0.85 (use NDRE / `geotessera` for dense canopies).",
+    "provenance": {
+     "class": "deterministic_index",
+     "deterministic": true,
+     "tamper_evidence": "recomputable_from_source",
+     "trust_rank": 4
+    },
+    "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI); Xu 2006 (MNDWI = (B03-B11)/(B03+B11)); Key & Benson 2006 (NBR = (B08-B12)/(B08+B12)); Hall et al. 1995 (NDSI = (B03-B11)/(B03+B11)); Zha et al. 2003 (NDBI = (B11-B08)/(B11+B08)); Rikimaru et al. 2002 (BSI = ((B11+B04)-(B08+B02))/((B11+B04)+(B08+B02))); Hardisky et al. 1983 (NDWI_Gao = (B03-B08)/(B03+B08), the leaf-water-content form used by the algal-bloom water gate)",
+    "units": "unitless [-1, +1]",
+    "value_range": [
+     -1.0,
+     1.0
+    ]
+   },
+   "cell": "defi.zb592.nUkO.zEzE",
+   "cid_v1": "bafkr4iccu33b3qb7ckgdjbmj2e53b6leujpf2dhfdug3pyblne7i6idq5a",
+   "confidence": 0.949999988079071,
+   "derivation": {
+    "args": [
+     35.362818414124675,
+     138.730792696665,
+     "S2B_MSIL2A_20261013T012659_R074_T54STE_20261013T051521",
+     32654,
+     "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+     [
+      2163.0,
+      2130.0
+     ],
+     3.780462,
+     40.0,
+     30,
+     5,
+     1,
+     "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+     -1000.0,
+     "reader=cog-pixel-floor@2"
+    ],
+    "fn_key": "sentinel2_l2a_indices_ndvi@1"
+   },
+   "fact_cid": "iktpmhoah4jiynefrhitxmhzmsrf4xim4uoq3n7afnut5dzaodua",
+   "kind": "primary",
+   "memory_token": "emem:fact:defi.zb592.nUkO.zEzE:iktpmhoah4jiynefrhitxmhzmsrf4xim4uoq3n7afnut5dzaodua",
+   "observed_at": "2026-10-13T01:26:59.024000Z",
+   "privacy_class": "public",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "signed_at": "2026-10-14T01:14:39Z",
+   "signer": [
+    255,
+    254,
+    72,
+    239,
+    8,
+    57,
+    144,
+    88,
+    50,
+    189,
+    59,
+    5,
+    171,
+    89,
+    152,
+    150,
+    76,
+    49,
+    228,
+    100,
+    142,
+    79,
+    43,
+    250,
+    36,
+    191,
+    48,
+    224,
+    42,
+    206,
+    101,
+    84
+   ],
+   "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+   "sources": [
+    {
+     "captured_at": "2026-10-13T01:26:59.024000Z",
+     "id": "https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/10/13/S2B_MSIL2A_20261013T012659_N0513_R074_T54STE_20261013T051521.SAFE/GRANULE/L2A_T54STE_A050150_20261013T013228/IMG_DATA/R10m/T54STE_20261013T012659_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/10/13/S2B_MSIL2A_20261013T012659_N0513_R074_T54STE_20261013T051521.SAFE/GRANULE/L2A_T54STE_A050150_20261013T013228/IMG_DATA/R10m/T54STE_20261013T012659_B04_10m.tif",
+     "scheme": "sentinel_s2_l2a"
+    }
+   ],
+   "surface_class": {
+    "label": "Bare soil",
+    "scl": 5,
+    "vegetation_valid": true
+   },
+   "tslot": 20739,
+   "value": 0.01439162668992585,
+   "value_verbatim": "0.01439162668992585"
+  },
+  {
+   "band": "indices.ndvi",
+   "band_metadata": {
+    "description": "Three optical-index scalars derived from Sentinel-2 L2A: NDVI, NDRE, NDMI. The most-pulled vegetation surface \u2014 these are what algorithms like `flood_risk@2`, `crop_stress@1`, and `irrigation_demand@1` compose.",
+    "dimension_description": "Normalised Difference Vegetation Index",
+    "dimension_index": 0,
+    "formula": "NDVI = (B08 \u2212 B04) / (B08 + B04), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits.",
+    "inherited_from_cube_band": "indices",
+    "interpretation": "NDVI < 0 = water / snow; 0 \u2013 0.2 = bare soil / urban; 0.2 \u2013 0.5 = sparse / stressed vegetation; 0.5 \u2013 0.8 = healthy crops / shrub; > 0.8 = dense closed canopy. NDMI tracks canopy water content (negative = dry, positive = moist). NDRE is more sensitive to chlorophyll than NDVI and saturates later \u2014 preferred for in-season nitrogen monitoring.",
+    "pitfalls": "Read `surface_class` on the fact before the value. It carries the per-pixel Sentinel-2 SCL class the responder actually probed at this cell (`scl`, `label`, `vegetation_valid`) and answers a question `confidence` does not: confidence scores radiometric cleanliness, so a snow-covered field in January is a clean pixel and scores 0.95 while the NDVI on it measures snow, not vegetation. `vegetation_valid: false` (snow, water, shadow) means the number is real but is not a vegetation reading. Prefer this over the scene-level `weather.cloud_cover` / `cloud_pct` proxies: those describe the whole scene, `surface_class` describes this pixel. Absent when the SCL band could not be read, in which case confidence falls back to scene-level cloud cover and the scene-level proxies are all there is. NDVI saturates above ~0.85 (use NDRE / `geotessera` for dense canopies).",
+    "provenance": {
+     "class": "deterministic_index",
+     "deterministic": true,
+     "tamper_evidence": "recomputable_from_source",
+     "trust_rank": 4
+    },
+    "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI); Xu 2006 (MNDWI = (B03-B11)/(B03+B11)); Key & Benson 2006 (NBR = (B08-B12)/(B08+B12)); Hall et al. 1995 (NDSI = (B03-B11)/(B03+B11)); Zha et al. 2003 (NDBI = (B11-B08)/(B11+B08)); Rikimaru et al. 2002 (BSI = ((B11+B04)-(B08+B02))/((B11+B04)+(B08+B02))); Hardisky et al. 1983 (NDWI_Gao = (B03-B08)/(B03+B08), the leaf-water-content form used by the algal-bloom water gate)",
+    "units": "unitless [-1, +1]",
+    "value_range": [
+     -1.0,
+     1.0
+    ]
+   },
+   "cell": "defi.zb592.nUkO.zEzE",
+   "cid_v1": "bafkr4ienevwwtjzzckryu6hugaafupxz7sigaz4fovfnqbtifnlflidq4q",
+   "confidence": 0.949999988079071,
+   "derivation": {
+    "args": [
+     35.362818414124675,
+     138.730792696665,
+     "S2C_MSIL2A_20261018T012701_R074_T54STE_20261018T043206",
+     32654,
+     "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+     [
+      2167.0,
+      2109.0
+     ],
+     2.440119,
+     40.0,
+     30,
+     5,
+     1,
+     "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+     -1000.0,
+     "reader=cog-pixel-floor@2"
+    ],
+    "fn_key": "sentinel2_l2a_indices_ndvi@1"
+   },
+   "fact_cid": "rusw22nhhejkhcty6qyaawr67h6jaydhqv2uvwagnavvmvnaodsa",
+   "kind": "primary",
+   "memory_token": "emem:fact:defi.zb592.nUkO.zEzE:rusw22nhhejkhcty6qyaawr67h6jaydhqv2uvwagnavvmvnaodsa",
+   "observed_at": "2026-10-18T01:27:01.025000Z",
+   "privacy_class": "public",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "signed_at": "2026-10-19T15:38:39Z",
+   "signer": [
+    255,
+    254,
+    72,
+    239,
+    8,
+    57,
+    144,
+    88,
+    50,
+    189,
+    59,
+    5,
+    171,
+    89,
+    152,
+    150,
+    76,
+    49,
+    228,
+    100,
+    142,
+    79,
+    43,
+    250,
+    36,
+    191,
+    48,
+    224,
+    42,
+    206,
+    101,
+    84
+   ],
+   "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+   "sources": [
+    {
+     "captured_at": "2026-10-18T01:27:01.025000Z",
+     "id": "https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/10/18/S2C_MSIL2A_20261018T012701_N0513_R074_T54STE_20261018T043206.SAFE/GRANULE/L2A_T54STE_A011055_20261018T013234/IMG_DATA/R10m/T54STE_20261018T012701_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/10/18/S2C_MSIL2A_20261018T012701_N0513_R074_T54STE_20261018T043206.SAFE/GRANULE/L2A_T54STE_A011055_20261018T013234/IMG_DATA/R10m/T54STE_20261018T012701_B04_10m.tif",
+     "scheme": "sentinel_s2_l2a"
+    }
+   ],
+   "surface_class": {
+    "label": "Bare soil",
+    "scl": 5,
+    "vegetation_valid": true
+   },
+   "tslot": 20744,
+   "value": 0.025483304042179317,
+   "value_verbatim": "0.025483304042179317"
+  },
+  {
+   "band": "indices.ndvi",
+   "band_metadata": {
+    "description": "Three optical-index scalars derived from Sentinel-2 L2A: NDVI, NDRE, NDMI. The most-pulled vegetation surface \u2014 these are what algorithms like `flood_risk@2`, `crop_stress@1`, and `irrigation_demand@1` compose.",
+    "dimension_description": "Normalised Difference Vegetation Index",
+    "dimension_index": 0,
+    "formula": "NDVI = (B08 \u2212 B04) / (B08 + B04), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits.",
+    "inherited_from_cube_band": "indices",
+    "interpretation": "NDVI < 0 = water / snow; 0 \u2013 0.2 = bare soil / urban; 0.2 \u2013 0.5 = sparse / stressed vegetation; 0.5 \u2013 0.8 = healthy crops / shrub; > 0.8 = dense closed canopy. NDMI tracks canopy water content (negative = dry, positive = moist). NDRE is more sensitive to chlorophyll than NDVI and saturates later \u2014 preferred for in-season nitrogen monitoring.",
+    "pitfalls": "Read `surface_class` on the fact before the value. It carries the per-pixel Sentinel-2 SCL class the responder actually probed at this cell (`scl`, `label`, `vegetation_valid`) and answers a question `confidence` does not: confidence scores radiometric cleanliness, so a snow-covered field in January is a clean pixel and scores 0.95 while the NDVI on it measures snow, not vegetation. `vegetation_valid: false` (snow, water, shadow) means the number is real but is not a vegetation reading. Prefer this over the scene-level `weather.cloud_cover` / `cloud_pct` proxies: those describe the whole scene, `surface_class` describes this pixel. Absent when the SCL band could not be read, in which case confidence falls back to scene-level cloud cover and the scene-level proxies are all there is. NDVI saturates above ~0.85 (use NDRE / `geotessera` for dense canopies).",
+    "provenance": {
+     "class": "deterministic_index",
+     "deterministic": true,
+     "tamper_evidence": "recomputable_from_source",
+     "trust_rank": 4
+    },
+    "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI); Xu 2006 (MNDWI = (B03-B11)/(B03+B11)); Key & Benson 2006 (NBR = (B08-B12)/(B08+B12)); Hall et al. 1995 (NDSI = (B03-B11)/(B03+B11)); Zha et al. 2003 (NDBI = (B11-B08)/(B11+B08)); Rikimaru et al. 2002 (BSI = ((B11+B04)-(B08+B02))/((B11+B04)+(B08+B02))); Hardisky et al. 1983 (NDWI_Gao = (B03-B08)/(B03+B08), the leaf-water-content form used by the algal-bloom water gate)",
+    "units": "unitless [-1, +1]",
+    "value_range": [
+     -1.0,
+     1.0
+    ]
+   },
+   "cell": "defi.zb592.nUkO.zEzE",
+   "cid_v1": "bafkr4ibvzw5ut5efab76vannuozlcrxwrbabryogjtzvqjdpmk7nfowaoy",
+   "confidence": 0.949999988079071,
+   "derivation": {
+    "args": [
+     35.362818414124675,
+     138.730792696665,
+     "S2C_MSIL2A_20261028T012741_R074_T54STE_20261028T043307",
+     32654,
+     "NDVI = (B08 \u2212 B04) / (B08 + B04). Vegetation greenness.",
+     [
+      2172.0,
+      2105.0
+     ],
+     9.9043,
+     40.0,
+     30,
+     5,
+     1,
+     "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+     -1000.0,
+     "reader=cog-pixel-floor@2"
+    ],
+    "fn_key": "sentinel2_l2a_indices_ndvi@1"
+   },
+   "fact_cid": "gxg3wspuquah72ubvwr3fmkg62eeaghbyzgpgwben5rl5uv2yb3a",
+   "kind": "primary",
+   "memory_token": "emem:fact:defi.zb592.nUkO.zEzE:gxg3wspuquah72ubvwr3fmkg62eeaghbyzgpgwben5rl5uv2yb3a",
+   "observed_at": "2026-10-28T01:27:41.025000Z",
+   "privacy_class": "public",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "signed_at": "2026-11-04T05:07:18Z",
+   "signer": [
+    255,
+    254,
+    72,
+    239,
+    8,
+    57,
+    144,
+    88,
+    50,
+    189,
+    59,
+    5,
+    171,
+    89,
+    152,
+    150,
+    76,
+    49,
+    228,
+    100,
+    142,
+    79,
+    43,
+    250,
+    36,
+    191,
+    48,
+    224,
+    42,
+    206,
+    101,
+    84
+   ],
+   "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+   "sources": [
+    {
+     "captured_at": "2026-10-28T01:27:41.025000Z",
+     "id": "https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/10/28/S2C_MSIL2A_20261028T012741_N0513_R074_T54STE_20261028T043307.SAFE/GRANULE/L2A_T54STE_A011198_20261028T013137/IMG_DATA/R10m/T54STE_20261028T012741_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/54/S/TE/2026/10/28/S2C_MSIL2A_20261028T012741_N0513_R074_T54STE_20261028T043307.SAFE/GRANULE/L2A_T54STE_A011198_20261028T013137/IMG_DATA/R10m/T54STE_20261028T012741_B04_10m.tif",
+     "scheme": "sentinel_s2_l2a"
+    }
+   ],
+   "surface_class": {
+    "label": "Bare soil",
+    "scl": 5,
+    "vegetation_valid": true
+   },
+   "tslot": 20754,
+   "value": 0.029424681598594692,
+   "value_verbatim": "0.029424681598594692"
+  }
+ ],
+ "receipt": {
+  "cells": [
+   "defi.zb592.nUkO.zEzE"
+  ],
+  "cost": {
+   "credits": 0,
+   "latency_p50_ms": 1,
+   "latency_p99_ms": 50,
+   "latency_samples": 141087,
+   "source_freshness_s": 32451964,
+   "was_cached": true
+  },
+  "fact_cids": [
+   "banvya7hgenuowjggkgguezvltxtefp6jgihocwkgcbddyvqv6bq",
+   "ie4rdsov6nyef3gar3ehobcbhk53xxja7fwnwqhurdarjxtuy4kq",
+   "adta2lpj7s7ro5slabetwssqyeu6zzc5qzaoum7qfzz4c64jujoa",
+   "lb6wpnex6dzsmfnqbcq6tfvprrwlkiueditfuxchvzlimn4dlmwa",
+   "5t4ndxfqpc6f4z7kgxp4ar52qht7og3unl7vtvoicwtu2pfoybyq",
+   "ouvufx45tsznwuntpvqynyooljpgwnz2myrlc4zumxgntjnrjd5q",
+   "ierqh7qr3eq6rtvc2kr3reuggbvdftjigfcj7iskrynz4qdy3elq",
+   "qofl6y6etb4ajuzqbty5sgw6s2yoiaagaeefunvthyujillrwmsq",
+   "wulwibqp54bntywh2n4otew7yflykdkve33bnnuxtxbd5sk2pboa",
+   "k32ezr6qvjjymoyb3h2rwrqidgswp3rgdbh4rtnf54yd2h5acy6q",
+   "amjahqjyodyntpzrztv77tnyenyi4otjtscdba7tevdblpl4wprq",
+   "edxrdawz2t4gycc5335zrkyo23nekasvdsc7do6fiq4excc55ssq",
+   "ioxjplizpofkcuqlowv67jwmbhc7c4pvoe7asbiifnif3xah3aka",
+   "cm4wahljg6twzd5v3sakc5vevxp7qm44c6zmqjmwjgyhxqjzf2pq",
+   "wqbemkyaca7ujclh2gigymta6wu4x5vwtm2rpepcofjwgqg7clmq",
+   "zm7fhbfs6ydaqr47dere3qq444oydtx32bkvovlgjmwbe7ke6pia",
+   "iktpmhoah4jiynefrhitxmhzmsrf4xim4uoq3n7afnut5dzaodua",
+   "rusw22nhhejkhcty6qyaawr67h6jaydhqv2uvwagnavvmvnaodsa",
+   "gxg3wspuquah72ubvwr3fmkg62eeaghbyzgpgwben5rl5uv2yb3a"
+  ],
+  "merkle_proof": {
+   "fact_cid": "banvya7hgenuowjggkgguezvltxtefp6jgihocwkgcbddyvqv6bq",
+   "leaf_count": 1,
+   "leaf_index": 0,
+   "log_entry_hash": "nncsikfdliiyip4j3e553d5vdh2cy4gjqiogl5qwtlxxbgo5fn2q",
+   "path": [],
+   "root": [
+    85,
+    250,
+    154,
+    71,
+    112,
+    153,
+    73,
+    6,
+    245,
+    216,
+    21,
+    197,
+    241,
+    180,
+    195,
+    45,
+    39,
+    234,
+    28,
+    130,
+    21,
+    12,
+    163,
+    163,
+    184,
+    29,
+    56,
+    88,
+    183,
+    64,
+    205,
+    142
+   ],
+   "version": 1
+  },
+  "preimage_version": 2,
+  "primitive": "emem.recall",
+  "registry_cid": "3pbqnyninz6xqll2ynjlh4djlppcp2mdcdmzeq4otebnli5ndzaa",
+  "request_id": "01M6VC0AYWKZYVF4SD50TPXMEE",
+  "responder": [
+   255,
+   254,
+   72,
+   239,
+   8,
+   57,
+   144,
+   88,
+   50,
+   189,
+   59,
+   5,
+   171,
+   89,
+   152,
+   150,
+   76,
+   49,
+   228,
+   100,
+   142,
+   79,
+   43,
+   250,
+   36,
+   191,
+   48,
+   224,
+   42,
+   206,
+   101,
+   84
+  ],
+  "responder_key_epoch": 0,
+  "responder_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+  "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+  "served_at": "2026-11-07T16:03:29Z",
+  "signature": [
+   157,
+   239,
+   42,
+   195,
+   220,
+   122,
+   194,
+   196,
+   125,
+   117,
+   4,
+   101,
+   67,
+   150,
+   151,
+   135,
+   226,
+   218,
+   176,
+   213,
+   232,
+   238,
+   67,
+   77,
+   152,
+   85,
+   231,
+   61,
+   252,
+   99,
+   212,
+   118,
+   242,
+   247,
+   38,
+   231,
+   179,
+   207,
+   93,
+   226,
+   4,
+   172,
+   102,
+   189,
+   97,
+   60,
+   21,
+   33,
+   208,
+   31,
+   166,
+   23,
+   221,
+   15,
+   168,
+   205,
+   88,
+   217,
+   196,
+   163,
+   238,
+   86,
+   251,
+   0
+  ],
+  "signature_b32": "txxsvq64plbmi7lvarsuhfuxq7rnvmgv5dxegtmykxtt37dd2r3pf5zg46z46xpcaswgnplbhqksdua7uyl52d5izvmntrfd5zlpwaa",
+  "source_versions": {
+   "bands_cid": "mesoyti3qcs22pftcq27ljwcf3ifktnkqid4euqxyskhea5rpgra",
+   "registry_cid": "3pbqnyninz6xqll2ynjlh4djlppcp2mdcdmzeq4otebnli5ndzaa",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "sources_cid": "xu646y24wvuegd33m2mrpasxefqgdq3ow5ploezijer6trzuwe3a"
+  }
+ },
+ "spatial_basis": {
+  "cell_edge_lat_m": 9.55,
+  "cell_edge_lng_m": 7.79,
+  "computed_from": "the cell's own latitude, not a stored constant",
+  "must_not_do": "difference two adjacent cells and read the result as a gradient. Source pixels are metres across and so are cells, so neighbouring cells can be samples of the same pixel, and the difference would be a pixel with itself.",
+  "per_band_resolution": "not stated: this responder has no band-to-source mapping, and an invented resolution that looked measured would be worse than its absence. See `sources` on each fact for the scheme that produced it.",
+  "schema": "emem.spatial_basis.v1",
+  "what_a_value_is": "a sample of the source pixel overlapping this cell, not an average over the cell. The cell is an ADDRESS; the pixel is the measurement."
+ }
+}
