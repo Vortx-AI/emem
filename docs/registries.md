@@ -682,7 +682,7 @@ that are in force now. Save a recall response and the manifests:
 
 ```sh
 curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb592.nUkO.zEzE","bands":["dem"]}' -o recall.json
+  -d '{"cell":"defi.zb592.nUkO.zEzE","bands":["copdem30m.elevation_mean"]}' -o recall.json
 curl -s https://emem.dev/v1/manifests -o manifests.json
 ```
 

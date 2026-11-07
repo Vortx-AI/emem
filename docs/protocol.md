@@ -1372,12 +1372,12 @@ To check a receipt by hand:
 The script in §7.4 does steps 1 and 2. On 6 November 2026 it verified a
 live `POST /v1/recall` receipt from emem.dev without changes.
 
-The struct is `Receipt` in `crates/emem-fact/src/receipt.rs:11-103`.
+The struct is `Receipt` in `crates/emem-fact/src/receipt.rs`.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `request_id` | `String` | ULID generated per request |
-| `served_at` | `String` | ISO 8601 UTC, second precision (`iso8601_now`, `crates/emem-storage/src/server.rs:648-666`) |
+| `served_at` | `String` | ISO 8601 UTC, second precision (`iso8601_now` in `crates/emem-storage/src/server.rs`) |
 | `primitive` | `String` | namespaced wire form: `"emem.recall"`, `"emem.find_similar"`, `"emem.verify"`, `"emem.query_region"`, `"emem.memory_file"`, `"emem.memory_bundle"`, `"emem.memory_contradictions"`, … (the bare form without `emem.` is internal-only; wire receipts always carry the prefix) |
 | `intent` | `Option<String>` | set when the response comes through `/v1/intent`; omitted from JSON when None. Not signed |
 | `cells` | `Vec<String>` | cell64 strings cited in the response. For `emem.memory_file` primitives, `cells[0]` is the memory path; when the caller sent an attester block, `cells[0] = "pubkey:<b32>"` and `cells[1]` is the path |
@@ -1398,7 +1398,7 @@ The struct is `Receipt` in `crates/emem-fact/src/receipt.rs:11-103`.
 | `field` | `Option<FieldBinding>` | `{aoi_cid, derivation_cid}` on field responses only. Signed through the `0x0a` segment |
 | `preimage_version` | `u8` | the signing rule: `2` on 7 November 2026, `1` for older receipts. Omitted when `0` (legacy rule) |
 
-`Cost` (`receipt.rs:185-214`):
+`Cost` (also in `receipt.rs`):
 
 ```rust
 struct Cost {
@@ -1421,7 +1421,8 @@ struct Cost {
 
 The exact preimage construction is one function per version in
 `crates/emem-attest/src/lib.rs`: `receipt_preimage_v1`, and
-`receipt_preimage_v2` for everything signed after 2026-08-05. The signer
+`receipt_preimage_v2` for everything signed after 2026-08-05 (the live
+`GET /v1/verifier_spec` gives the same date). The signer
 (`crates/emem-storage/src/server.rs`) and the verifier (`POST
 /v1/verify_receipt`) call the same function you would.
 
@@ -1502,8 +1503,8 @@ Key order in `manifest_hex` is the `BTreeMap` order: a plain
 lexicographic sort of the key strings. It is not the RFC 8949 §4.2.1
 order, which sorts by encoded bytes and so puts shorter keys first. For
 the four real keys the two orders differ. If you use the RFC order, every
-valid receipt fails (`Server::manifest_versions_blake3_hex`,
-`crates/emem-storage/src/server.rs:231`).
+valid receipt fails (`Server::manifest_versions_blake3_hex` in
+`crates/emem-storage/src/server.rs`).
 
 `GET /v1/verifier_spec` (also `/.well-known/emem-verifier.json`) serves
 the canonical segment table. The responder makes it from the same
@@ -1515,53 +1516,53 @@ drift from the wire. If it and this page disagree, trust the endpoint.
 `POST /v1/verify_receipt` still verifies those, but no responder emits
 v0 anymore.
 
-   **What the preimage does NOT cover.** The segments above are the
-   complete signed surface. These items are **NOT** in the preimage:
+**What the preimage does not cover.** The segments above are the
+complete signed surface. These items are not in the preimage:
 
-   - The caller's free-text `place` / `q` string. A wrong-place
-     geocode gives a clean signature for the wrong cell64. The trust
-     chain attests *the responder claims these facts at these cells*.
-     It never attests *these cells were the right answer to the
-     question*. Agents bind that decision themselves, with
-     `selected.is_high_confidence` from `POST /v1/locate`.
-   - The caller's raw `lat` / `lng`. Quantisation collapses sub-cell
-     precision into `cell_from_latlng` *before* the responder signs; the receipt
-     binds the cell, not the input coordinate.
-   - The requested `bands[]`, `tslot`, `intent`. The responder returned
-     what it returned; whether the returned facts answer the agent's
-     question is the agent's interpretive responsibility.
+- The caller's free-text `place` or `q` string. A wrong-place geocode
+  gives a clean signature for the wrong cell64. The trust chain attests
+  *the responder claims these facts at these cells*. It never attests
+  *these cells were the right answer to the question*. Agents make that
+  decision themselves, with `selected.is_high_confidence` from
+  `POST /v1/locate`.
+- The caller's raw `lat` and `lng`. `cell_from_latlng` quantises the
+  input to a cell *before* the responder signs. The receipt binds the
+  cell, not the input coordinate.
+- The requested `bands[]`, `tslot` and `intent`. The receipt names what
+  the responder returned. The agent decides if those facts answer its
+  question.
 
-   The receipt alone does not show how the responder read the question.
-   If a later reader needs *"the user asked X and the responder
-   agreed"*, send the original query with the receipt.
+The receipt alone does not show how the responder read the question.
+If a later reader needs *"the user asked X and the responder agreed"*,
+send the original query with the receipt.
 
-   **The `as_of` block enters the preimage.** A read can carry a
-   bi-temporal bound: `as_of_tslot`, `as_of_signed_at`, or both. Then the
-   receipt body carries an `as_of: {valid_time?, transaction_time?}`
-   block. Its blake3-hex over canonical CBOR goes into the stream as the
-   optional `0x04` segment (`as_of_hex`). A verifier recomputes that
-   digest from the `as_of` block to reproduce the signed bytes; a
-   current-state read omits the block and the segment alike.
-   Before it encodes `transaction_time`, the signer normalises a UTC
-   time to `YYYY-MM-DDTHH:MM:SSZ` (`normalise_rfc3339_utc`). It removes
-   fractional seconds and changes `+00:00` or `-00:00` to `Z`. A
-   verifier must do the same, or a valid receipt fails. The bound
-   is therefore bound both directly (through `as_of_hex`) and transitively
-   (it selects which `fact_cids` the preimage also binds).
+**The `as_of` block enters the preimage.** A read can carry a
+bi-temporal bound: `as_of_tslot`, `as_of_signed_at`, or both. Then the
+receipt body carries an `as_of: {valid_time?, transaction_time?}`
+block. Its blake3-hex over canonical CBOR goes into the stream as the
+optional `0x04` segment (`as_of_hex`). A verifier recomputes that
+digest from the `as_of` block. A current-state read omits the block and
+the segment.
+Before it encodes `transaction_time`, the signer normalises a UTC
+time to `YYYY-MM-DDTHH:MM:SSZ` (`normalise_rfc3339_utc`). It removes
+fractional seconds and changes `+00:00` or `-00:00` to `Z`. A
+verifier must do the same, or a valid receipt fails. The signature binds
+the bound in two ways: directly through `as_of_hex`, and through the
+`fact_cids` that the bound selected.
 
-   **Per-replica fact identity.** Each Primary / Negative /
-   Derivative fact body includes `signed_at` (ISO-8601 wall clock at
-   materialisation time), which is part of the canonical CBOR hashed
-   into `fact_cid`. Two responders materialising the same
-   `(cell, band, tslot)` from byte-identical upstream pixels therefore
-   produce **different `fact_cid`s**; this is intentional (each
-   responder signs independently under its own identity). The
-   cross-replica join key for "does any responder have this
-   observation" is the tuple `(cell, band, tslot)`, not `fact_cid`.
-   Fan-out endpoints over many cells, for example
-   `POST /v1/recall_polygon`, emit one separately signed receipt per
-   cell under `by_cell.<cell>.receipt`. The top-level `merged_facts[]`
-   is for convenience only. **No** signature covers the merged list.
+**Each responder makes its own fact identity.** Each `Primary`, `Absence`
+(`NegativeFact`) and `Derivative` fact body includes `signed_at`, the ISO 8601 wall clock
+at materialisation time. `signed_at` is part of the canonical CBOR that
+gives `fact_cid`. So two responders that materialise the same
+`(cell, band, tslot)` from byte-identical upstream pixels make
+**different `fact_cid`s**. This is intentional: each responder signs
+under its own identity. To ask "does any responder have this
+observation", join on `(cell, band, tslot)`, not on `fact_cid`.
+
+Fan-out endpoints over many cells, for example
+`POST /v1/recall_polygon`, emit one separately signed receipt per
+cell under `by_cell.<cell>.receipt`. The top-level `merged_facts[]`
+is for convenience only. **No** signature covers the merged list.
 
 ### 7.2 Worked example: preimage layout
 
@@ -1571,7 +1572,7 @@ Given a current-state recall receipt (no scope, `as_of`, edges, or
 - `request_id = "01HZX0K9V3"` (ULID, 26 chars in practice; this short
   example is illustrative)
 - `served_at = "2026-05-08T11:22:33Z"`
-- `primitive = "emem.recall"` (every emitted primitive name carries the `emem.` namespace; `crates/emem-primitives/src/recall.rs:539-540` calls `sign_receipt_with_edges("emem.recall", …)`)
+- `primitive = "emem.recall"` (every emitted primitive name carries the `emem.` namespace; `recall` in `crates/emem-primitives/src/recall.rs` calls `sign_receipt_with_edges("emem.recall", …)`)
 - `cells = ["dedi.zaf00.bafi.baba", "dedi.zaf00.bafi.babe"]`
 - `fact_cids = ["bn7cabcdefghij1234567890ab"]` (a real `fact_cid` has 52
   characters; this short value is also illustrative)
@@ -1610,7 +1611,7 @@ the blake3-hex of the field's canonical CBOR (see §7.1).
 
 ### 7.3 Merkle proof attachment
 
-`sign_receipt_v1_inner` (`crates/emem-storage/src/server.rs:354-359`)
+`Server::sign_receipt_v1_inner` (`crates/emem-storage/src/server.rs`)
 attaches `merkle_proof` for `fact_cids[0]` only.
 The receipt's signature already binds **all** cited CIDs together,
 because they are in the preimage. So one inclusion anchor to the

@@ -96,6 +96,7 @@ bands in the request:
 |---|---|
 | `POST /v1/recall`, no band in `bands` is in the registry | HTTP 400, `code: band_not_in_registry` |
 | `POST /v1/recall`, some bands are in the registry | HTTP 200 with the known facts. Each unknown band is in `materialize_notes` with `reason_class: unknown_band` and `retryable: false`. The top-level `unknown_bands` array also lists them. |
+| `POST /v1/recall`, a legacy short key such as `dem` | HTTP 200 with `facts: []` and no `unknown_bands` field. Only `materialize_notes` names the band, with `reason_class: unknown_band`. The handler finds a materializer entry for the key, so it does not count the key as unknown. Use the namespaced key (`copdem30m.elevation_mean`). |
 | MCP `emem_recall`, any mix | No tool error. Unknown bands are in `materialize_notes`, as for REST. The MCP result has no `unknown_bands` field. |
 
 This request has only the unknown band, so it returns HTTP 400 with `code:
