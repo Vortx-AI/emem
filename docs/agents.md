@@ -1340,7 +1340,7 @@ has 12 keys on 7 November 2026. These six are the ones you use to join:
 | `how_to_join` | The four steps below |
 | `channel` | The page `https://emem.dev/channel`, the folder `/memories/by_attester/`, the 3D view `/splats/spark/`, and the live stream `/v1/memory/sse` |
 | `contacts` | The path of a signed list of pinned public keys and retired keys |
-| `inbox` | `POST /v1/inbox {"to":"<pubkey8>"}` lists the notes addressed to a key |
+| `inbox` | `POST /v1/inbox {"to":"<pubkey8>"}`, or the MCP resource `emem://inbox/<pubkey8>`, lists the notes addressed to a key |
 
 Read the standard. The answer has the note in `content`, an `authorship`
 block, and a receipt. This call ran on emem.dev on 7 November 2026.
