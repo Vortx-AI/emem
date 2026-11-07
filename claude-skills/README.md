@@ -1,22 +1,22 @@
-# claude-skills/ — moved
+# claude-skills/ has moved
 
-These skills now live in [`plugins/emem/skills/`](../plugins/emem/skills/),
-packaged as a Claude Code plugin so they install with one command instead
-of a manual copy:
+The emem skills now live in [`plugins/emem/skills/`](../plugins/emem/skills/).
+They ship as a Claude Code plugin. One command installs the skills and
+the emem MCP server together:
 
 ```sh
 /plugin marketplace add Vortx-AI/emem
 /plugin install emem@emem
 ```
 
-The plugin also wires the MCP server, which the loose copies never did.
+The old loose copies did not install the MCP server.
 
-To install them as plain skills, copy from the new path:
+To install the skills as plain skills, copy them from a clone of the
+repository. Run this from the repository root:
 
 ```sh
-cp -r emem/plugins/emem/skills/emem-* ~/.claude/skills/
+cp -r plugins/emem/skills/emem-* ~/.claude/skills/
 ```
 
-One copy, one place. The skills moved rather than being duplicated
-because a second copy is a second thing to keep true, and these describe
-a live surface that changes.
+The skills exist in one place only. Each skill describes a live service
+that changes, and a second copy would be a second thing to keep true.
