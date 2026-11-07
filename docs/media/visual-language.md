@@ -108,6 +108,7 @@ pages, so the PRs can merge without a conflict. The description of PR #34 gives 
 | `stills/a2a-exchange.webp` | Can a reader check an A2A answer offline? | `emem-in-depth.md` | `stills/src/a2a_exchange.py` |
 | `stills/signed-thread.webp` | Who wrote each note in a signed thread? | `emem-in-depth.md` | `stills/src/signed_thread.py` |
 | `stills/field-outlines.webp` | Which fields in one farm box turned green first, and can I check it? | `agents.md` | `stills/src/field_outlines.py`, live reads from `fetch_fields.py` |
+| `stills/contradictions.webp` | Two signed facts at one address disagree: which one does a read return, and why? | `intro.md` | `stills/src/contradictions.py`, live reads from `fetch_contradictions.py` |
 
 Each film also has a WebM copy and a `-poster.webp` file with the same name. The `fetch_*.py` scripts in
 `stills/src/` make the live reads. The drawing scripts read only the saved responses in `stills/src/data/`.
