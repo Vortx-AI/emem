@@ -220,6 +220,15 @@ the answer has one `receipt`. If a band has no fact yet, recall fetches it from
 the source and signs it. Add `"deterministic": true` to keep only facts that
 anyone can compute again from the cited source.
 
+You can skip the locate step. `cell` also takes a place name. You can send
+`place` with a name, or `lat` and `lng` in decimal degrees. If you send more
+than one, `cell` wins, then `place`, then `lat` and `lng`. On 7 November 2026,
+`{"place":"Mount Fuji"}` gave the same 3539.04 m fact and a `resolved_from`
+block. `{"lat":35.36,"lng":138.73}` gave cell `defi.zb592.mUjE.zEyI` and
+3709.0 m, because that point is in a different cell. Coordinates out of range
+give HTTP 400. `/openapi.json` lists only `cell`, and the MCP schema marks
+`cell` as required. Both routes accept all three forms.
+
 ### Job: read facts over an area
 
 ```json
