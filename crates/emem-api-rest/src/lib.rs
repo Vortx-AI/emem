@@ -8562,8 +8562,9 @@ async fn serve_agents_txt() -> Response {
 /// 404) tells a crawler the surface exists.
 /// MCP tool names that still dispatch (see the `"emem_memory_*" |
 /// "memory_*"` arms of the tools/call match) but are no longer advertised.
-/// CHANGELOG 2.3.0 says they are removed in 3.0. The list was empty, so a
-/// caller polling this route was told nothing it used would go away.
+/// CHANGELOG 2.1.0 names seven of them and says 3.0 removes them; the
+/// dispatch also keeps a bare `memory_supersede`. The list was
+/// empty, so a caller polling this route was told nothing would go away.
 const DEPRECATED_MCP_TOOL_NAMES: [(&str, &str); 8] = [
     ("memory_view", "emem_memory_view"),
     ("memory_create", "emem_memory_create"),
@@ -107083,16 +107084,6 @@ mod cbor_scalar_tests {
         }
     }
 
-    /// The safety check on the change above: refusing unknown fields is only
-    /// safe if the advertised surface and the accepted surface are the same
-    /// set. This sends every property `SCHEMA_RECALL` advertises.
-    ///
-    /// Thirteen keys for fourteen advertised properties: `cell` and `cell64`
-    /// are serde aliases of ONE field, so sending both is a duplicate-field
-    /// error rather than extra coverage. `cell64` alone exercises the pair.
-    /// `scope` is included deliberately — it is the only advertised field
-    /// with a nested type, and therefore the one most likely to break under
-    /// `deny_unknown_fields` if its shape ever drifts.
     /// /openapi.json said RecallReq requires `cell` and listed no `place`,
     /// `lat`, `lng`, `cell64`, `band` or `include`, which the handler takes;
     /// AskReq lacked the `question`/`query` aliases. A client generated from
@@ -107149,6 +107140,16 @@ mod cbor_scalar_tests {
         }
     }
 
+    /// The safety check on the change above: refusing unknown fields is only
+    /// safe if the advertised surface and the accepted surface are the same
+    /// set. This sends every property `SCHEMA_RECALL` advertises.
+    ///
+    /// Thirteen keys for fourteen advertised properties: `cell` and `cell64`
+    /// are serde aliases of ONE field, so sending both is a duplicate-field
+    /// error rather than extra coverage. `cell64` alone exercises the pair.
+    /// `scope` is included deliberately — it is the only advertised field
+    /// with a nested type, and therefore the one most likely to break under
+    /// `deny_unknown_fields` if its shape ever drifts.
     #[test]
     fn every_advertised_recall_field_still_parses() {
         let body = serde_json::json!({
