@@ -335,7 +335,7 @@ The owner decided these roles on 2026-09-02. The last column is what
 November 2026 `/v1/log/witnesses` listed it as the only independent operator
 domain.
 
-### 8a. Phase 0 is not new code. It is turning on what is already built.
+### 8a. The witness routes ship today
 
 These routes ship today:
 
@@ -370,8 +370,9 @@ peer:
 `deploy/systemd/emem-witness.timer` runs the job every 15 minutes. The job
 keeps its pin in `~/.config/emem/witness_state.json`. A peer's next
 consistency proof must extend that pin. The job needs a witness key in
-`~/.config/emem/agent_identity.json` and the `pynacl` package, so you cannot
-run it without a key.
+`~/.config/emem/agent_identity.json` and the `pynacl` and `blake3` packages.
+It reads the key file even with `--dry-run`. §8e shows how to make a key and
+do a dry run.
 
 The custody check matters because a co-signature says nothing about custody.
 The job samples 4 leaves per run from the co-signed root and the witness key,
@@ -446,9 +447,25 @@ Of these, read `head_is_witnessed_by_independent_operator` and
 evidence. `head_is_independently_witnessed` and `independent_witness_count`
 count any key that is not the node's own. Keys cost nothing to make, so
 those two fields do not count parties (`crates/emem-api-rest/src/lib.rs`).
-`scripts/external_witness_lag.py` alarms on them. `emem-witness-lag.timer`
-runs it every 30 minutes. It exits 2 on a stale peer and 3 when no peer
-witnesses at all. The repairs differ, so the exit codes differ.
+
+`scripts/external_witness_lag.py` alarms when no other key witnesses the log.
+It reads the co-signature list, not the operator fields. It drops each key
+that you give with `--self-key` and checks the freshest of the rest. Give it
+every key your host signs with, or it counts them as independent.
+`emem-witness-lag.timer` runs it every 30 minutes. The exit codes differ
+because the repairs differ:
+
+| Exit | Meaning |
+|---|---|
+| 0 | an independent witness is within `--max-behind` entries (default 5000) |
+| 2 | independent witnesses exist, but all are older than `--max-behind` |
+| 3 | no independent witness at all |
+| 4 | the script could not read `/v1/log/witnesses` |
+
+On 7 November 2026, `--origin https://emem.dev` with no `--self-key` printed
+`ok` and named `k572x7go72uo` as 0 entries behind. That key belongs to
+emem.dev itself, so that `ok` is false. The unit at
+`deploy/systemd/emem-witness-lag.service` passes it with `--self-key`.
 
 ### 8b. What emem takes from web3, and what it refuses
 
@@ -609,11 +626,9 @@ facts from that node.
 #### Start a witness node
 
 `docker-compose.yml` at the repository root starts a node that meets the
-witness bar. Its header comment lists three steps to join. Serve the node on
-a public name over TLS. Publish the `_emem-node` TXT record. Run the witness
-job. [Self-host](self-host.md#use-docker-compose) covers the container. A
-node that joins gets mutual witnessing only. Nobody resolves facts across
-nodes yet.
+witness bar. [Self-host](self-host.md#use-docker-compose) covers the
+container. A node that joins gets mutual witnessing only. Nobody resolves
+facts across nodes yet.
 
 Set these before `docker compose up -d`. The compose file reads them from
 the shell or from a `.env` file.
@@ -628,6 +643,82 @@ The compose file publishes port 5051 on `127.0.0.1` only. Put your TLS proxy
 on the same host. The compose health check calls `curl`, and the image has no
 `curl`. Docker can show the container as unhealthy while the node serves.
 Check it with `/live` from the host.
+
+#### Join as a witness, step by step
+
+Do these steps after the node answers on its public name. Steps 1 to 3 ran
+on 7 November 2026 against emem.dev and geo.qa. Step 4 is a write to each
+peer, so this page did not run it.
+
+1. Get the node key and publish it in DNS. Replace `<your-domain>`:
+
+   ```sh
+   curl -s https://<your-domain>/live | grep -o '"responder_pubkey_b32":"[a-z0-9]*"'
+   ```
+
+   Then add the record `_emem-node.<your-domain> TXT "v=emem1; k=<that 52-character key>"`.
+   A peer refuses to co-sign you when this record names a different key.
+
+2. Make a witness key. Install the two packages first
+   (`pip install pynacl blake3`). The script does not overwrite a key
+   that exists, and it writes the file with mode `0600`:
+
+   ```sh
+   python3 - <<'EOF'
+   import base64, json, os, pathlib
+   import nacl.signing
+   p = pathlib.Path.home() / ".config/emem/agent_identity.json"
+   p.parent.mkdir(parents=True, exist_ok=True)
+   seed = os.urandom(32)
+   pk = bytes(nacl.signing.SigningKey(seed).verify_key)
+   fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+   os.write(fd, json.dumps({"seed_hex": seed.hex(),
+       "pubkey_b32": base64.b32encode(pk).decode().rstrip("=").lower()}).encode())
+   os.close(fd)
+   print(json.loads(p.read_text())["pubkey_b32"])
+   EOF
+   ```
+
+   It prints the 52-character public key. Back up the file. A new key
+   restarts every peer's view of you at first contact.
+
+3. Do a dry run from the repository root. It verifies each peer and samples
+   4 leaves, but it does not co-sign and it does not write a pin:
+
+   ```sh
+   python3 scripts/witness_peers.py --dry-run --peers https://emem.dev,https://geo.qa/emem
+   ```
+
+   On 7 November 2026 it printed, in part:
+
+   ```text
+     https://emem.dev: verified, first contact at 3246243; nothing to prove growth from yet; signer identified as did:web:emem.dev; DNS confirms via _emem-node.emem.dev; dry run, not submitted
+       audited 4 sampled leaves under root qprlxpsl (entries re-hashed): all verify
+     https://geo.qa/emem: verified, first contact at 142; nothing to prove growth from yet; signer identified as did:web:geo.qa:emem; DNS confirms via _emem-node.geo.qa; dry run, not submitted
+       audited 4 sampled leaves under root eilb6ozb (inclusion only, the entries are private): all verify
+
+     0 head(s) co-signed, 0 peer(s) failed, 2 attempted, as xkbcrpjj
+   ```
+
+   It exits 0 when every peer passes and 1 when one fails.
+
+4. Run the job for real, without `--dry-run`. This posts a co-signature to
+   each peer's `/v1/log/witness` and writes the pin to
+   `~/.config/emem/witness_state.json`. To run it every 15 minutes, copy
+   `deploy/systemd/emem-witness.service` and `emem-witness.timer`. Change
+   `User`, `Group`, `WorkingDirectory`, `ExecStart` and `EMEM_PEERS` to
+   match your host. They hold emem.dev values.
+
+5. Publish the witness key. Set `EMEM_WITNESS_PUBKEY_B32` to the key from
+   step 2 in the node's environment. The compose file does not pass this
+   variable, so add it under `environment:`. The node then lists the key in
+   `/.well-known/did.json`. A peer counts your co-signatures under an
+   operator domain only when the key has fresh enlistment evidence there
+   (§5a, `GET /v1/enlist`).
+
+6. Ask each peer to add your origin to its own witness job. Then check your
+   node with `python3 scripts/verify_node.py https://<your-domain>`. It
+   prints "all 5 met: joined as witness" when the node meets the bar.
 
 ---
 
