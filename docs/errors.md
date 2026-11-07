@@ -178,7 +178,7 @@ discriminant, negated.
 | `no_geocoder_match` | -7 | Every geocoder answered and none knows the place (HTTP 404). Or the name was too ambiguous to pick one: HTTP 400 with `details.code: ambiguous_place`. | Add a region or country, or pass `lat` and `lng`. |
 | `registry_cid_unknown` | -8 | The responder does not know the bound `registry_cid`. | `GET /v1/manifests`. |
 | `schema_cid_unknown` | -9 | The responder has not loaded the fact's `schema_cid`. | `GET /v1/manifests`. |
-| `privacy_refused` | -10 | The band's `privacy_class` blocks this query at this resolution. | Query a coarser cell; see `privacy_class` in `/v1/bands`. |
+| `privacy_refused` | -10 | The band's privacy class blocks this query at this resolution. On 7 November 2026 no route returns it: the responder does not enforce privacy classes ([protocol §10](protocol.md#10-privacy-classes)). | Query a coarser cell; see `privacy.class` for the band in `/v1/bands`. |
 | `level_too_low` | -11 | The operation needs a higher tier. The fact plane refuses any attestation from a key that is not the responder's materialiser, an enrolled device, or an operator-listed writer. | `GET /v1/enlist` for what each tier can write. |
 | `attester_revoked` | -12 | The operator revoked the attester key. | Sign with a current key. |
 | `unauthorized` | -13 | A write has no attester signature, or the signature is not valid. | Sign again. The refusal says what the responder expected. |
@@ -334,7 +334,8 @@ sometimes `error` in place of `message`.
 ## Routes that only a self-hosted node answers
 
 emem.dev answers these paths with HTTP 501 and an `emem.error.v1` body. They
-work on a node that you run yourself.
+work on a node that you run yourself. All six paths gave these codes on
+emem.dev on 7 November 2026.
 
 | Route | `code` |
 |---|---|
@@ -346,6 +347,10 @@ work on a node that you run yourself.
 
 - `GET /v1/errors`: the protocol-code catalogue, live
 - `GET /v1/manifests`: current registry, schema, band and source cids
-- `GET /v1/bands`: the band catalogue with tempo and `privacy_class`
-- `GET /v1/limits`: batch sizes, rate limits and timeouts
-- `POST /v1/verify_receipt`: debug a `bad_signature` with `preimage_blake3_hex`
+- `GET /v1/bands`: the band catalogue, with `tempo` and `privacy.class` for
+  each band
+- `GET /v1/limits`: the caps in `enforced` (batch sizes, the per-attester
+  write rate, the MCP result size) and the slowest calls seen in `measured`.
+  It does not list the read rate limit.
+- `POST /v1/verify_receipt`: debug a `bad_signature`. Compare its
+  `preimage_blake3_hex` with the digest that you computed.
