@@ -318,8 +318,23 @@ Each memory file has a `kind` from the CoALA and LangMem agent-memory
 ontology. The default is `resource`. A caller that does not send `kind`
 gets the shape of the Anthropic memory tool. `emem_memory_create` also
 stores an unknown `kind` as `resource` and returns no error.
-`emem_memory_list_by_kind` refuses an unknown `kind` with 400
-`invalid_argument`.
+`emem_memory_view` ignores an unknown `kind` and applies no kind filter.
+`emem_memory_list_by_kind` refuses an unknown `kind`. The tool result
+has `isError` true and the error `invalid_argument` (-25).
+The match is case-sensitive. Send the kind in lower case.
+The list tool refuses `Episodic`, and `emem_memory_create` stores it
+as `resource`.
+The refusal message names only four kinds. The list tool also takes
+`core` and `vault`. A `vault` list is always empty, because a `vault`
+entry is not in the kind index.
+On 7 November 2026, the `core` and `vault` lists on emem.dev were
+empty, and `bogus` and `Episodic` gave the refusal above.
+
+A directory listing from `emem_memory_view` puts the kinds in this
+order: `core`, `procedural`, `semantic`, `episodic`, `resource`.
+Inside one kind, a name that ends in a `YYYY-MM-DD` date (before
+`.md`) comes first, newest date first. The other names follow in path
+order.
 
 | `kind` | Purpose | TTL default |
 |---|---|---|
@@ -354,6 +369,8 @@ The TTL pass (`EMEM_MEMORY_TTL_ENABLED=1`) runs every hour
 `memory_file_blobs`, which is content-addressed and never deletes.
 The pass also adds `expired` to the path history and sends an `expired`
 event. It skips a file with no recorded `signed_at`.
+An expired file also leaves the kind index, so
+`emem_memory_list_by_kind` no longer lists it.
 To change the TTL for one kind, set
 `EMEM_MEMORY_TTL_{CORE,RESOURCE,EPISODIC,SEMANTIC,PROCEDURAL}_DAYS`
 (0 means infinite). The pass reads only `memory_files`, and a `vault`
