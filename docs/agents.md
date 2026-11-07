@@ -366,7 +366,10 @@ a 409. It does not resolve the members. Resolve each `raster_token` with
 For one cloud-free grid over a date window, use `emem_band_composite` (`POST
 /v1/band_composite`). Give `start_date` and `end_date` in place of
 `observed_on`. The server masks each scene per pixel by its SCL class and
-takes the median for each pixel.
+takes the median for each pixel. The band must be one of the six Sentinel-2
+bands that `band_cube` takes. On 7 November 2026, `"band":"ndvi"` gave HTTP
+400 `invalid_argument` with that list. A `start_date` after `end_date` also
+gave HTTP 400.
 
 ```bash
 curl -s -X POST https://emem.dev/v1/band_composite \
