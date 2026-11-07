@@ -76,8 +76,8 @@ curl -s https://emem.dev/v1/heat_solve \
 
 That call gave `initial_condition_k` 305.04, `forecast_k` 305.025 and
 `delta_k` -0.015. The 8 neighbours all read 289.58 K. The `neighborhood_signed_at`
-field shows why. The centre fact was signed on 28 May 2026, and the
-neighbour facts on 7 November 2026. Thus the 15.46 K range in the stencil
+field shows why. The responder signed the centre fact on 28 May 2026,
+and the neighbour facts on 7 November 2026. Thus the 15.46 K range in the stencil
 is a difference in time, not in space.
 
 The solver reads the newest cached fact at each of the 9 cells
