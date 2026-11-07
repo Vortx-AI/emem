@@ -148,8 +148,8 @@ signature covers. The answer gives `edge_cids` and `edge_count`.
 
 An edge has no `(cell, band, tslot)` address. Thus a caller can sign an
 edge with its own key. For example, a second agent can record that it
-disagrees with a fact from the first agent. The note job signs a
-different digest, so it does not apply here. The envelope and its preimage
+disagrees with a fact from the first agent. Do not use the steps for a
+signed note here, because a note signs a different digest. The envelope and its preimage
 are in [protocol section 6](protocol.md#6-attestation-envelope). The worked example in
 [examples/connect-and-evolve.md](../examples/connect-and-evolve.md) reads
 edges back and describes this write.
@@ -185,6 +185,8 @@ When the loop runs, it does these steps:
    confidence and the fact with the highest confidence.
 4. It writes a signed `disagrees_with` edge between the two facts. `subj`
    is the smaller CID. `valid_from` is the tslot of the contradiction.
+   The edge `confidence` is the severity of the contradiction, and the
+   responder key signs the edge.
 5. It marks the fact with the lower confidence as contested. A recall
    shows this mark in `contested`.
 
@@ -194,7 +196,7 @@ run writes no new edges.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `EMEM_REFINEMENT_ENABLED` | off | `1` turns the loop on. |
+| `EMEM_REFINEMENT_ENABLED` | off | `1` turns the loop on. Any value other than empty, `0`, `false` or `no` also turns it on. |
 | `EMEM_REFINEMENT_INTERVAL_SECS` | 86400 (one day) | Time between runs. Minimum 1. |
 | `EMEM_REFINEMENT_MIN_SEVERITY` | 0.5 | Lower severities make no edge. Range 0 to 1. |
 | `EMEM_REFINEMENT_CELL_PREFIX` | none | Limits the scan to cells with this cell64 prefix. |
