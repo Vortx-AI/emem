@@ -52,16 +52,20 @@ This endpoint does not read them (see below).
 The endpoint reads each baseline band with one `cog::sample_window` call over the polygon
 bounding box.
 It then finds each cell in that in-memory buffer.
-Thus the upstream reads stay constant and the lookups grow with the cell count (O(1) and
-O(N)).
-With warm caches, a fully sampled polygon gets its base verdict in a few seconds.
+Thus each band costs one upstream read, whatever the cell count.
+Only the in-memory lookups grow with the cell count.
+A comment in `eudr_batch_path_enabled` records the gain for a 4 ha plot.
+It needs 4 HTTP reads instead of about 1,760, and took about 3 s instead of 180 s.
 This batched read is on by default. An operator can set `EMEM_EUDR_BATCH_PATH=0` to read each cell on its own.
 
 The endpoint also reads the JRC TMF v1.2025 deforestation year on every cell.
 It reads a COG copy of the JRC tiles with HTTP Range requests.
 The plot result reports it as `tmf_cross_check`, which shows where TMF and Hansen agree on
 loss after the cut-off.
-TMF does not change the verdict. A loss that only TMF sees sets `review_required`.
+TMF does not change the verdict.
+A cell can show loss after the cut-off in TMF but not in Hansen.
+One such cell sets `tmf_cross_check.review_required` to `true` and lists the cell in `review_cells`.
+The responder then holds the statement until a person reviews the plot.
 This endpoint does not use WRI-Sims driver attribution or RADD SAR alerts.
 
 ### From cells to a plot verdict
