@@ -1,7 +1,7 @@
 # Method selection: when the method an agent trusted is wrong for this place
 
-*Design, 30 October 2026. On 7 November 2026 two experiments under this design are registered and scored
-(sections 9 and 10). Companion to [the research program](program.md).*
+*Design, 30 October 2026. On 7 November 2026 the lab has registered and scored two experiments under this
+design (sections 9 and 10). Companion to [the research program](program.md).*
 
 ## 1. The question
 
@@ -47,7 +47,7 @@ So the program should learn where each method is competent, not only which metho
 
 Selection and promotion read only the third kind. A hypothesis is never a reference, even when another agent
 agreed with it. Agreement among descendants of one prediction is not evidence about the ground. A reference can
-share an input with a candidate: Hansen is made from Landsat, and version 4 reads Landsat. The lab uses such a
+share an input with a candidate: Hansen derives from Landsat, and version 4 reads Landsat. The lab uses such a
 reference, but the plan states the dependence. The lab enforces the first part in code. The bands it reads as truth
 are on a list of independent products. A test fails if that list ever holds a band the fleet derives.
 
@@ -60,9 +60,9 @@ retrospective map, but a retrospective score is not the score of an alert issued
 - **As-of replay.** A detector is re-run on each cell's series truncated at a sequence of decision dates, so every
   output uses only the passes that existed then. Each cell reports the first date it raised an alert and the date
   the alert held for good. It also reports every reversal and the reference's eventual label. Beside them is the
-  retrospective score on the same cells, so the gap is measured rather than assumed.
+  retrospective score on the same cells, so the report measures the gap and does not assume it.
 - **Selection as of a date.** The competence evidence that a choice reads must have a date before the period the
-  choice acts on. It must also come from places or periods that the choice is not scored on.
+  choice acts on. It must also come from places or periods that the lab does not score the choice on.
 
 ## 5. The decision record
 
@@ -80,16 +80,16 @@ A choice is signed as one record (`decision@1`) with these parts, each named by 
 
 A verifier is an agent with a different key. It resolves every token, and checks every signature and every evidence
 kind. It re-runs the rule on the cited evidence, and the chosen method on the cited inputs from their pinned sources.
-Then it signs a `verification@1` record: agree, or dispute with the first part that differs. A dispute is published
-beside the decision, not hidden. The experiment reports how many decisions verified, and how long and how many bytes a
-verification took.
+Then it signs a `verification@1` record: agree, or dispute with the first part that differs. The lab publishes a
+dispute beside the decision and does not hide it. The experiment reports how many decisions verified, and how
+long and how many bytes a verification took.
 
 ## 6. The first experiment, as registered
 
 **A first design was dropped before anything was signed.** It would have used the ten forests of the two-reference
 experiment, scored for 2022 and 2023, as the earlier period. A dry run showed why that was too thin. Those forests
 held 42 loss cells, 26 of them in one forest. At a forest with one loss cell, the plan flagged the champion as wrong
-and replaced it on the strength of that single cell. Resampling cells cannot show how little one cell says. Two
+and replaced it on the strength of that single cell. A resample of cells cannot show how little one cell says. Two
 changes followed. A forest is local evidence only with five or more loss cells. The experiment moved to new forests
 with real loss in the earlier period.
 
@@ -103,12 +103,12 @@ dry-winter subtropical (Cw).
 **Why a second earlier experiment.** The paper's section 5.18 found, post hoc, that competence follows the climate.
 In seasonally dry forest the registry rule keeps its score, and the desk's rule is worse than it. In evergreen forest
 the memory detectors win by a wide margin. That suggests a policy an agent can apply at a forest it has never scored:
-choose by the record of forests of the same climate. The table in section 5.18 cannot be that record. Most of its
-forests are scored for 2024 and 2025, the years on which this experiment scores its decisions. A choice may read only
-evidence dated before the period it acts on (rule 14). Without that rule, a shared year-level cause, such as a drought
-year, could reach the choice through its peers. So the context comes from a pool of forests of the same climates,
-scored for 2022 and 2023. The nine forests alone could not give this context: the Aw and Cw forests have no other
-forest of their class.
+choose by the record of forests of the same climate. The table in section 5.18 cannot be that record. The lab scored
+most of its forests for 2024 and 2025, the years on which this experiment scores its decisions. A choice may read
+only evidence dated before the period it acts on (rule 14). Without that rule, a shared year-level cause, such as a
+drought year, could reach the choice through its peers. So the context comes from a pool of forests of the same
+climates, scored for 2022 and 2023. The nine forests alone could not give this context: the Aw and Cw forests have no
+other forest of their class.
 
 **Four experiments, run by the lab desk in order.** Once one is done, the next due starts within the hour.
 
@@ -117,13 +117,13 @@ forest of their class.
 2. `canopy-loss-context-forests-2022-2023`: the context pool, on the same design for the same years. It holds ten
    forests that the lab scored for 2024 and 2025 before. They are in the classes of the selection forests, except Am.
    Am has five selection forests of its own. The pool looks for forests with eight or more loss cells in 2021 to
-   2023. A class with at least three such forests gives up to five, the largest loss first.
-   Aw gives Chiquitania, Bokeo, Lobaye, Prey Lang and Sinop. Af gives Jambi, Ketapang, Madre de Dios, Ituri and
-   Caqueta. Cw had two and is left out, so Sagaing gets the global choice. These forests are already in other
-   experiments' evidence, so the pool enters no method's status evidence.
+   2023. A class with at least three such forests gives up to five, the largest loss first. Aw gives Chiquitania,
+   Bokeo, Lobaye, Prey Lang and Sinop. Af gives Jambi, Ketapang, Madre de Dios, Ituri and Caqueta. Cw had two, so the
+   pool leaves it out. Sagaing therefore gets the global choice. These forests are already in other experiments'
+   evidence, so the pool enters no method's status evidence.
 3. `canopy-loss-method-selection-2022-2025`: runs once (1) and (2) are scored. Its plan prints every forest's
-   decision. It also prints the climate class of every forest it read, and the fact each class comes from. Each
-   decision is signed as `decision@1` before the later period is read.
+   decision. It also prints the climate class of every forest it read, and the fact each class comes from. The lab
+   signs each decision as `decision@1` before it reads the later period.
 4. `canopy-loss-selection-forests-2024-2025`: the later period, held until (3)'s decisions are signed. It covers
    the same forests, so it enters no method's status evidence.
 
@@ -147,7 +147,7 @@ The plan also says when the champion is flagged as wrong at a forest.
 
 **Scores on the later period**, with forests as the resampled unit:
 
-- P1 against P0, and P2 against P0. These are two registered comparisons, and neither is adjusted for the other.
+- P1 against P0, and P2 against P0. These are two registered comparisons, and the lab adjusts neither for the other.
   The report gives the number of forests where P2 chose other than P0.
 - P3's coverage, and its MCC beside P0's on the same forests;
 - how often the "champion wrong here" flag held.
@@ -179,10 +179,10 @@ It found that the selection plan did not print the parameters block its verifier
    in every result, for the leading detectors and the registry rule.
 3. `verification@1` and a verifier desk. Done: the integrity desk re-derives each new experiment from its signed
    records. It checks every input's receipt and canonical bytes offline, and signs the outcome under its own key.
-   From the second selection on, `decision@1` is signed for every forest, with each policy's choice and the evidence
+   From the second selection on, the lab signs `decision@1` for every forest, with each policy's choice and the evidence
    it read. The first selection signed none (companion paper, section 5.19).
-4. The experiment is registered (section 6) and the lab desk runs it without help. Its decisions are signed before
-   the later period is read.
+4. The lab registered the experiment (section 6), and the lab desk runs it without help. The lab signs its
+   decisions before it reads the later period.
 5. The context policy (P2), from a pool scored for the years before the later period (section 6).
 
 ## 9. What the first experiment found
@@ -226,7 +226,7 @@ Results are in the companion paper, section 5.20. In short:
   global champion, and the context policy 0.308. Neither interval with forests resampled excludes zero (-0.162 to +0.041
   and -0.035 to +0.028), so neither decides. The first experiment's gain, carried by one forest, did not repeat.
 - **The registered independent test is still to come.** CL1 is a panel of model readers over these forests. For this
-  same selection, it tests the local policy against the global one. CL1 is drawn but not scored.
+  same selection, it tests the local policy against the global one. The lab has drawn CL1 but has not scored it.
 - **The flag.** The champion was flagged wrong at three forests, and at all three it scored below its own mean. That
   count decides nothing, and without the unflagged forests' rate it is not evidence that the flag works.
 - **Version 5 was not tested.** It scored exactly as version 4 in both periods, so its rule never changed a decision.
@@ -239,4 +239,4 @@ What the next selection changes:
 1. Candidates that score identically on the earlier record count as one, so a choice is a real change of method.
 2. The verifier re-derives the selection's result too, not only its decisions and inputs (done since, on 6 November).
 3. The flag is reported beside the unflagged forests' rate, so it can be judged.
-4. It is scored against CL1's kind of reference and also against Hansen.
+4. The lab scores it against CL1's kind of reference and also against Hansen.
