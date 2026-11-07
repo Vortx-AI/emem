@@ -5,8 +5,8 @@ one place. emem scores the disagreement and keeps both facts. An opt-in
 refinement loop then records the disagreement as a signed
 `disagrees_with` edge and marks one fact as contested. A recall can
 return that edge with the fact. emem deletes nothing. You can verify
-every fact and edge offline, because each one carries a signature. The
-contested marker has no signature. For the concepts, see
+every fact and edge offline, because a signed attestation covers each
+one. The contested marker has no signature. For the concepts, see
 [../docs/connect-and-evolve.md](../docs/connect-and-evolve.md).
 
 ## What you need
@@ -519,8 +519,8 @@ calls as Part 1, steps 3 and 4.
 A plain store keeps facts. This loop also connects facts with typed
 edges that have a start time (`valid_from`) and an optional end time
 (`valid_to`). It records a disagreement as an edge and a contested
-marker, so the memory changes over time. Every edge carries a signature,
-and the store only appends edges. The loop deletes no fact. You can
+marker, so the memory changes over time. A signed attestation covers
+every edge, and the store only appends edges. The loop deletes no fact. You can
 still audit what the memory held before. The contested marker is an
 unsigned overlay row on the node, not a signed record. For the full
 agent guide, see [../docs/agents.md](../docs/agents.md).
