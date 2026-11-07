@@ -1915,8 +1915,9 @@ fn eudr_router(state: AppState) -> Router {
 /// "what scale is this cell" UX hint, not for survey-grade calculations.
 const METERS_PER_DEGREE_LAT: f64 = 111_320.0;
 
-/// Builds the embedded gazetteer indexes that `locate_inner` reads, in
-/// cascade order, and logs the size and time of each.
+/// Builds the embedded gazetteer indexes that `locate_inner` reads, and logs
+/// the size and time of each. GeoNames comes first because the countries and
+/// admin1 indexes build from its records.
 fn warm_gazetteer_indexes() {
     type Warm = fn() -> usize;
     let indexes: [(&str, Warm); 6] = [
@@ -35220,7 +35221,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/compare_bands":     {"post":{"summary":"per-band diff at one cell: scalar delta or vector cosine between band A and band B (optionally pinned to specific tslots), with optional consistency predicate","operationId":"emem_compare_bands","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/CompareBandsReq"}}}},"responses":{"200":json_ok}}},
             "/v1/coverage_matrix":   {"get":{"summary":"per-band facts_count + has_materializer + last_attested_at","operationId":"emem_coverage_matrix","responses":{"200":json_ok}}},
             "/v1/coverage":          {"get":{"summary":"JSON snapshot of where data lives (cells + lat/lng + counts)","operationId":"emem_coverage","parameters":[
-                    {"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":0,"default":1000,"description":"cells per page. Values above EMEM_COVERAGE_MAX_CELLS (default 200000) are lowered to it."}}
+                    {"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":0,"default":1000,"description":"the most cells to return, highest fact_count first. Values above EMEM_COVERAGE_MAX_CELLS (default 200000) are lowered to it."}}
                 ],"responses":{"200":json_ok,"503":{"description":"the storage index scan failed; retry later","content":{"application/json":{"schema":{"type":"object","properties":{"schema":{"type":"string","const":"emem.error.v1"},"code":{"type":"string","const":"cache_error"},"message":{"type":"string"}}}}}}}}},
             "/v1/coverage_map.svg":  {"get":{"summary":"SVG render of corpus density","operationId":"emem_coverage_map","responses":{"200":svg_ok}}},
             "/v1/fleet":             {"get":{"summary":"satellite/sensor lineage feeding each band","operationId":"emem_fleet","responses":{"200":json_ok}}},
