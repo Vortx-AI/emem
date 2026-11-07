@@ -65,8 +65,10 @@ An MCP tool result has a default limit of 24,000 bytes
 (`mcp_response_budget_bytes` in `crates/emem-api-rest/src/lib.rs`). On 7
 November 2026 the 26 facts at this cell were larger than that limit. So emem
 kept the first fact and added an `_emem_truncation` note. The note gives the
-index where the omitted facts start. The model gets the values it needs when it
-sends `bands`. The REST route has no limit.
+index where the omitted facts start. The note shows `budget_bytes` 12000. That
+is the room for one copy of the result, because the 24,000-byte limit covers
+both copies (the `content` text and `structuredContent`). The model gets the
+values it needs when it sends `bands`. The REST route has no limit.
 
 ## Notes
 
