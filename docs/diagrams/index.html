@@ -118,11 +118,10 @@
 <div class="statusbar"><div class="statusbar-inner"><a href="/" class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</a><span class="spacer"></span><a href="/">home</a><a href="/how-it-works">how it works</a><a href="/solutions">solutions</a><a href="/reference">reference</a><a href="/docs" class="on">docs</a><a href="/verify">verify</a><a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a></div></div>
 <header>
   <h1>the visual suite</h1>
-  <p>Forty-two diagrams. The first ten describe the protocol, twenty are
-     one-page pitches, one chart, one line, for the businesses, governments, and
-     industries deploying real AI agents in 2026, and the rest cover the encoder
-     split, shared memory, the orbit-to-ground device-trust substrate and the guard. Each is an SVG, and all but one have calm motion; open any tile to see it
-     full size. For live, signed renders of real cells, see
+  <p>Forty-two diagrams. The first ten describe the protocol. Twenty show one
+     industry use each, with one chart and one line. The rest cover sensor
+     decoding, shared memory, device trust and the guard. Each is an SVG, and
+     all but one have slow motion. Open any tile to see it full size. For live, signed renders of real cells, see
      <a href="/docs/gallery">/docs/gallery</a>.</p>
 </header>
 <nav>
@@ -208,7 +207,7 @@
       <figcaption>
         <div class="num">05 / 10 · REASONING</div>
         <h2>fact → reasoning</h2>
-        <p>The shape of a signed fact in the LLM's context window. The agent reasons over the value but cites the CID, grounded and reproducible.</p>
+        <p>The shape of a signed fact in the LLM's context window. The agent reasons over the value and cites the CID, so another agent can fetch the same fact.</p>
       </figcaption>
     </a></figure>
 
@@ -363,58 +362,58 @@
     </a></figure>
     <figure id="31"><a href="/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg">
       <object class="frame" type="image/svg+xml" data="/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg" aria-label="Sentinel-2, Sentinel-1, HLS, MODIS and DEM data go to the responder. It decodes them into spectral indices, SAR backscatter, terrain and phenology. It signs each value."><img src="/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg" alt="Sentinel-2, Sentinel-1, HLS, MODIS and DEM data go to the responder. It decodes them into spectral indices, SAR backscatter, terrain and phenology. It signs each value." loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">31 · SUBSTRATE</div><h2>Encoders in orbit, decoders on the ground</h2><p>the sensors fly; the responder decodes their stacks into signed values</p></figcaption>
+      <figcaption><div class="num">31 · SUBSTRATE</div><h2>Encoders in orbit, decoders on the ground</h2><p>The sensors are in orbit. The responder decodes their data into values and signs each value.</p></figcaption>
     </a></figure>
     <figure id="33"><a href="/docs/diagrams/33-fusion-orbit-and-ground.svg">
       <object class="frame" type="image/svg+xml" data="/docs/diagrams/33-fusion-orbit-and-ground.svg" aria-label="Sentinel-1, Sentinel-2, DEM and climate data meet at one cell. The responder fuses them into one signed record with a content id."><img src="/docs/diagrams/33-fusion-orbit-and-ground.svg" alt="Sentinel-1, Sentinel-2, DEM and climate data meet at one cell. The responder fuses them into one signed record with a content id." loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">33 · SUBSTRATE</div><h2>Fusion: orbit and ground</h2><p>many modalities, one cell, one signed record the next agent can cite</p></figcaption>
+      <figcaption><div class="num">33 · SUBSTRATE</div><h2>Fusion: orbit and ground</h2><p>Data from many sensors meets at one cell. The result is one signed record that the next agent can cite.</p></figcaption>
     </a></figure>
     <figure id="34"><a href="/docs/diagrams/34-shared-memory.svg">
       <object class="frame" type="image/svg+xml" data="/docs/diagrams/34-shared-memory.svg" aria-label="Three organisations and an auditor use one shared memory. Agents write signed notes and recall signed facts. The auditor verifies offline a year later."><img src="/docs/diagrams/34-shared-memory.svg" alt="Three organisations and an auditor use one shared memory. Agents write signed notes and recall signed facts. The auditor verifies offline a year later." loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">34 · MEMORY</div><h2>One memory, many agents</h2><p>emem signs the facts; any agent recalls them and signs notes; each agent checks for itself</p></figcaption>
+      <figcaption><div class="num">34 · MEMORY</div><h2>One memory, many agents</h2><p>emem signs the facts. Any agent recalls them and signs its own notes. Each agent checks the signatures itself.</p></figcaption>
     </a></figure>
     <figure id="35"><a href="/docs/diagrams/35-two-agents-one-memory.svg">
       <object class="frame" type="image/svg+xml" data="/docs/diagrams/35-two-agents-one-memory.svg" aria-label="Agent A in company A recalls a signed fact and receipt, then pastes an emem:fact: token of about 84 characters into a message. Agent B in company B resolves the token to the same bytes from any node and checks the signature offline with the responder public key. Agent B does not trust agent A."><img src="/docs/diagrams/35-two-agents-one-memory.svg" alt="Agent A in company A recalls a signed fact and receipt, then pastes an emem:fact: token of about 84 characters into a message. Agent B in company B resolves the token to the same bytes from any node and checks the signature offline with the responder public key. Agent B does not trust agent A." loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">35 · MEMORY</div><h2>Two agents, one memory</h2><p>agent A hands agent B one line of text; agent B verifies it without trusting agent A</p></figcaption>
+      <figcaption><div class="num">35 · MEMORY</div><h2>Two agents, one memory</h2><p>Agent A gives agent B one line of text. Agent B verifies it and does not need to trust agent A.</p></figcaption>
     </a></figure>
     <figure id="36"><a href="/docs/diagrams/36-memory-outlives-the-context-window.svg">
       <object class="frame" type="image/svg+xml" data="/docs/diagrams/36-memory-outlives-the-context-window.svg" aria-label="A conversation at turn 12 holds full recall payloads and an emem:fact: token. At turns 60 and 300 the context is compacted and the payloads are gone, but the token line stays. Resolving the token brings back the same signed fact, byte for byte, and the signature still verifies."><img src="/docs/diagrams/36-memory-outlives-the-context-window.svg" alt="A conversation at turn 12 holds full recall payloads and an emem:fact: token. At turns 60 and 300 the context is compacted and the payloads are gone, but the token line stays. Resolving the token brings back the same signed fact, byte for byte, and the signature still verifies." loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">36 · MEMORY</div><h2>Memory outlives the context window</h2><p>compaction keeps the one-line address and drops the payload; the payload re-hydrates on demand</p></figcaption>
+      <figcaption><div class="num">36 · MEMORY</div><h2>Memory outlives the context window</h2><p>Compaction drops the payload and keeps the one-line token. Resolve the token to get the payload back.</p></figcaption>
     </a></figure>
 
     <figure id="37"><a href="/docs/diagrams/37-change-decomposition.svg">
       <object class="frame" type="image/svg+xml" data="/docs/diagrams/37-change-decomposition.svg" aria-label="A change at one place is a sum of five terms. Only the first is the world. change_attribution@1 ships a signed ledger of evidence per term; the numeric split is not shipped."><img src="/docs/diagrams/37-change-decomposition.svg" alt="A change at one place is a sum of five terms. Only the first is the world. change_attribution@1 ships a signed ledger of evidence per term; the numeric split is not shipped." loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">37 · MEMORY</div><h2>Change decomposition</h2><p>a readout change is five terms; the shipped ledger lists evidence per term with fact ids, and the numeric split is roadmap</p></figcaption>
+      <figcaption><div class="num">37 · MEMORY</div><h2>Change decomposition</h2><p>A change in a reading has five terms. The shipped ledger lists evidence for each term with fact ids. The numeric split is roadmap.</p></figcaption>
     </a></figure>
 
     <figure id="38"><a href="/docs/diagrams/38-agent-to-token.svg">
       <object class="frame" type="image/svg+xml" data="/docs/diagrams/38-agent-to-token.svg" aria-label="Left to right: an agent on any model calls recall over MCP or REST. On a miss the responder fetches once from open sources and signs the fact with BLAKE3 and Ed25519. The agent keeps a memory token of about 84 characters that any agent resolves to the same bytes and anyone checks at /verify."><img src="/docs/diagrams/38-agent-to-token.svg" alt="Left to right: an agent on any model calls recall over MCP or REST. On a miss the responder fetches once from open sources and signs the fact with BLAKE3 and Ed25519. The agent keeps a memory token of about 84 characters that any agent resolves to the same bytes and anyone checks at /verify." loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">38 · MEMORY</div><h2>Agent to token</h2><p>an agent hands another a single token that resolves to the byte-identical signed record and verifies offline</p></figcaption>
+      <figcaption><div class="num">38 · MEMORY</div><h2>Agent to token</h2><p>One agent gives another a single token. It resolves to the same signed bytes, and anyone verifies them offline.</p></figcaption>
     </a></figure>
 
     <figure id="39"><a href="/docs/diagrams/39-orbit-to-ground-trust.svg">
       <object class="frame" type="image/svg+xml" data="/docs/diagrams/39-orbit-to-ground-trust.svg" aria-label="Three columns. Orbit: the open archive, admitted because anyone can recompute it, and operator satellites, admitted only with a signed execution trace. emem: a trust gate with eighteen substrate profiles and seventeen named refusal codes, and the shared memory of cells, signed facts and tokens. Ground: robot fleets, agent swarms and a later auditor. A panel lists the gaps that do not ship yet."><img src="/docs/diagrams/39-orbit-to-ground-trust.svg" alt="Three columns. Orbit: the open archive, admitted because anyone can recompute it, and operator satellites, admitted only with a signed execution trace. emem: a trust gate with eighteen substrate profiles and seventeen named refusal codes, and the shared memory of cells, signed facts and tokens. Ground: robot fleets, agent swarms and a later auditor. A panel lists the gaps that do not ship yet." loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">39 · SUBSTRATE</div><h2>Orbit-to-ground trust</h2><p>the open archive admitted by recomputability vs an operator device admitted by its OS execution trace, one gate, one memory</p></figcaption>
+      <figcaption><div class="num">39 · SUBSTRATE</div><h2>Orbit-to-ground trust</h2><p>The open archive gets in because anyone can recompute it. An operator device gets in only with its signed OS execution trace. Both pass one gate into one memory.</p></figcaption>
     </a></figure>
 
     <figure id="40"><a href="/docs/diagrams/40-guard-checkpoints.svg">
       <object class="frame" type="image/svg+xml" data="/docs/diagrams/40-guard-checkpoints.svg" aria-label="Nine emem-guard routes feed one policy engine that returns allow or deny. Eight are drawn, because /verdict/native is an alias of /verdict. Seven need no vendor: /verdict, /verdict/native, mcp, openai, cloudevent, policy and batch. anthropic-hook needs an enterprise secret and claude-code runs inside the agent. A test asserts that every route reaches the same verdict. Seven routes also answer on emem.dev."><img src="/docs/diagrams/40-guard-checkpoints.svg" alt="Nine emem-guard routes feed one policy engine that returns allow or deny. Eight are drawn, because /verdict/native is an alias of /verdict. Seven need no vendor: /verdict, /verdict/native, mcp, openai, cloudevent, policy and batch. anthropic-hook needs an enterprise secret and claude-code runs inside the agent. A test asserts that every route reaches the same verdict. Seven routes also answer on emem.dev." loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">40 &middot; GUARD</div><h2>Nine doors, one decision</h2><p>seven of the nine belong to no vendor; the same evidence reaches the same verdict through every one, and a test asserts it</p></figcaption>
+      <figcaption><div class="num">40 &middot; GUARD</div><h2>Nine doors, one decision</h2><p>Nine routes lead to one policy engine. Seven need no vendor. A test checks that the same evidence gets the same verdict on every route.</p></figcaption>
     </a></figure>
 
     <figure id="41"><a href="/docs/diagrams/41-guard-verdict-path.svg">
       <object class="frame" type="image/svg+xml" data="/docs/diagrams/41-guard-verdict-path.svg" aria-label="The verdict path in order: scan tokens, resolve (up to 400 ms), run modules (up to 50 ms each), evaluate, sign with Ed25519, append to the log, then answer. The whole path has an 800 ms budget. Side panels show what happens when the log fails, shadow mode, and what a denial names."><img src="/docs/diagrams/41-guard-verdict-path.svg" alt="The verdict path in order: scan tokens, resolve (up to 400 ms), run modules (up to 50 ms each), evaluate, sign with Ed25519, append to the log, then answer. The whole path has an 800 ms budget. Side panels show what happens when the log fails, shadow mode, and what a denial names." loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">41 &middot; GUARD</div><h2>One verdict, in order</h2><p>assemble, sign, append, then answer, inside an 800 ms budget; returning first would produce a verdict that was acted on and never recorded</p></figcaption>
+      <figcaption><div class="num">41 &middot; GUARD</div><h2>One verdict, in order</h2><p>The guard builds the verdict, signs it, appends it to the log and then answers, within 800 ms. If it answered first, a caller could act on a verdict that the log never recorded.</p></figcaption>
     </a></figure>
 
     <figure id="42"><a href="/docs/diagrams/42-guard-dlp-chassis.svg">
       <object class="frame" type="image/svg+xml" data="/docs/diagrams/42-guard-dlp-chassis.svg" aria-label="A detection engine plugs into emem-guard in process, through a webhook, or through a socket sidecar. Its rules join the native provenance rules, and the first match wins. Each verdict is signed with Ed25519 and appended to a hash chain. The log holds a module id and an evidence digest, never the matched content."><img src="/docs/diagrams/42-guard-dlp-chassis.svg" alt="A detection engine plugs into emem-guard in process, through a webhook, or through a socket sidecar. Its rules join the native provenance rules, and the first match wins. Each verdict is signed with Ed25519 and appended to a hash chain. The log holds a module id and an evidence digest, never the matched content." loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">42 &middot; GUARD</div><h2>The chassis your DLP runs on</h2><p>bring the detection in-process, over a webhook, or as a closed engine on a socket; what it gets back is a denial that is evidence rather than a database row</p></figcaption>
+      <figcaption><div class="num">42 &middot; GUARD</div><h2>The chassis your DLP runs on</h2><p>A detection engine connects in process, through a webhook, or as a closed engine on a socket. Each denial is signed and appended to a hash-chained log, so it is evidence and not only a database row.</p></figcaption>
     </a></figure>
 
     <figure id="43"><a href="/docs/diagrams/43-guard-deployments.svg">
       <object class="frame" type="image/svg+xml" data="/docs/diagrams/43-guard-deployments.svg" aria-label="Three deployments of one guard engine. Hosted on emem.dev it is advisory and blocks nothing. Self-hosted, it sits in your request path, a deny blocks, and your log proves each verdict. As a split relay, transcript text stays home and only digests cross. In all three, an unknown citation is an allow."><img src="/docs/diagrams/43-guard-deployments.svg" alt="Three deployments of one guard engine. Hosted on emem.dev it is advisory and blocks nothing. Self-hosted, it sits in your request path, a deny blocks, and your log proves each verdict. As a split relay, transcript text stays home and only digests cross. In all three, an unknown citation is an allow." loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">43 &middot; GUARD</div><h2>Three deployments, one engine</h2><p>hosted and advisory, self-hosted and enforcing, or a relay where transcript text never crosses the boundary; who is in the request path decides what a verdict may do</p></figcaption>
+      <figcaption><div class="num">43 &middot; GUARD</div><h2>Three deployments, one engine</h2><p>Hosted, the guard only advises. Self-hosted, it is in your request path and a deny blocks. As a relay, transcript text stays on your side. The position in the request path sets what a verdict can do.</p></figcaption>
     </a></figure>
 
   </div>
