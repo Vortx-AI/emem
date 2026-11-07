@@ -21,7 +21,7 @@
 
 A hunt does not run the full algorithm. It ranks cells by the algorithm's primary input band only. When the event has a gate, the hunt first drops cells that fail the gate. The response says this in `caveats`. To get the real score, read the formula at `/v1/algorithms/<key>` and apply it to the recalled bands.
 
-The number of sampled cells grows with the region area. A hunt asks for at least 12 cells, and the default maximum is 64. The sampler puts the same number of cells on each side of a square grid, so a small region can give fewer, for example 9. The operator can change the maximum with `EMEM_HUNT_MAX_CELLS` (12 to 128). Events whose primary band is MODIS land surface temperature sample 8 cells (`slow_band_cap`).
+The number of sampled cells grows with the region area. A hunt asks for at least 12 cells, and the default maximum is 64. The sampler puts the same number of cells on each side of a square grid, so a small region can give fewer, for example 9. The operator can change the maximum with `EMEM_HUNT_MAX_CELLS` (12 to 128). Events whose primary band is MODIS land surface temperature use a target of 8 cells (`slow_band_cap`). On a square grid, this gives 4 cells. A region with a boundary polygon can give as many as 8. On 7 November 2026, an `urban_heat_island` hunt over a bbox near Ludhiana sampled 4 cells.
 
 Each hotspot value is the first fact that recall returns for the primary band at that cell. Recall returns facts in ascending time order (`fact_order: tslot_ascending`), so this can be an older scene. Before you quote the value as current, recall the primary band at the hotspot cell and read `observed_at` on each fact:
 
