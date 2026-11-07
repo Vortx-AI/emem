@@ -643,8 +643,9 @@ peer (`https://geo.qa/emem`), and no node resolves facts from another node.*
 Read §8b first: no token, no chain, no consensus. This section covers what
 physical-infrastructure (DePIN) networks and federated protocols learned
 that needs none of those, and where emem is behind them. The "emem today"
-claims match the code on 2026-09-02. The status notes match it on
-6 November 2026. Each peer claim comes from a document in the
+claims match the code on 2026-09-02. The status notes (shipped, half
+built, not built) and the live values match the code and emem.dev on
+7 November 2026. Each peer claim comes from a document in the
 references at the end.
 
 ### 9a. DePIN with the token removed
