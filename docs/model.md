@@ -465,8 +465,10 @@ recipes that apply, in the `algorithms_for_question` list of its answer.
 One goal already has competing derivations in the algorithms registry.
 For deforestation, `deforestation_alert_ndvi_drop@1` reads an NDVI drop,
 `sar_forest_disturbance@1` reads SAR, and `/v1/eudr_dds` reads the
-Hansen and JRC TMF loss layers. The rule is: learn the graph, never learn
-the rule.
+Hansen loss year against the JRC GFC2020 forest baseline. Its batched
+path also reads the JRC TMF loss year as a cross-check that does not
+change the verdict ([EUDR](./eudr.md)). The rule is: learn the graph,
+never learn the rule.
 
 The verb of this direction is `prove(goal)`. The answer to a goal is an
 artifact plus a chain that a machine can check. The chain shows that
@@ -477,7 +479,10 @@ For one step, this ships today. A `POST /v1/recall` with a band list
 and each fact also carries its `provenance_class` and a `freshness` block
 with the Q(dt) score. Both are outside the signed preimage. On 7 November
 2026, a recall of `cams.pm25` at the Mount Fuji cell `defi.zb592.nUkO.zEzE`
-gave class `model_output`, `q` 0.0 and `stale: true`.
+returned nine facts, all of class `model_output`. The recall fetched the
+newest one, signed at 08:16:59Z, because the cell had no current value.
+That fact had `q` 0.953. The eight older facts had `q` 0.0 and
+`stale: true`.
 
 Over a discovered chain of several steps, `prove` is planner work, in the
 gap list. At each step it must ask a trust question ("can I trust this
