@@ -38,7 +38,7 @@ Remove the `jq` line to see the full response. These fields in the response are 
 
 | Field | What it is | Value on 7 November 2026 |
 |---|---|---|
-| `facts[0].value` | The elevation in metres at the centre of the cell. It is the Copernicus GLO-30 pixel (30 m) that contains that point. | `187.33578491210938` |
+| `facts[0].value` | The elevation in metres at the centre of the cell. It is the value of the Copernicus GLO-30 pixel (30 m) that contains that point. | `187.33578491210938` |
 | `facts[0].cell` | The cell64 address of that cell. `receipt.cells[0]` holds the same value. | `defi.zb555.ze8e5.xawO` |
 | `facts[0].fact_cid` | The BLAKE3 hash of the fact's canonical bytes. If one byte changes, the id changes. | `ivtsljcm...hnlq` |
 | `facts[0].memory_token` | The ready-made token for this fact. Step 3 makes it by hand. | `emem:fact:defi.zb555...` |
@@ -71,7 +71,8 @@ curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
 This call asks the server to do the check. It is not an independent check, because the responder checks its own
 signature. Use it to find problems. For an independent check, do the BLAKE3 and Ed25519 arithmetic yourself against
 the responder's published key. Any BLAKE3 and Ed25519 library can do it offline. The
-[`/verify`](https://emem.dev/verify) page does it in your browser: paste the receipt, or the token from step 3. The [Quickstart](../quickstart.md) shows the offline check in Python.
+[`/verify`](https://emem.dev/verify) page does it in your browser: paste the receipt, or the token from step 3. The
+[Quickstart](../quickstart.md) shows the offline check in Python.
 
 ## 3. Write the token by hand
 
@@ -131,8 +132,9 @@ curl -s -X POST https://emem.dev/v1/memory_token/resolve \
 # {"signature_valid": true, "merkle_proof_valid": true}
 ```
 
-The receiver does not trust you, your copy of the value, or the channel that carried the token. Both parties now hold
-one fact, not two descriptions of it.
+The receiver does not trust you, your copy of the value, or the channel that carried the token. This check still
+trusts the responder, as step 2 says. To remove that trust too, check the receipt offline. Both parties now hold one
+fact, not two descriptions of it.
 
 If both checks return `true`, the full loop works.
 
