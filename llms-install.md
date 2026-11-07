@@ -56,10 +56,13 @@ curl -sX POST https://emem.dev/mcp \
 
 ## Cline setup
 
-1. Open MCP Servers.
-2. Select Add Server, then Remote Server.
-3. Set Server name to `emem` and Server URL to `https://emem.dev/mcp`.
-4. Set Transport to Streamable HTTP.
+1. In the Cline panel, click the **MCP Servers** icon in the top toolbar.
+2. Open the **Remote Servers** tab.
+3. Set **Server Name** to `emem` and **Server URL** to `https://emem.dev/mcp`.
+4. Set **Transport Type** to Streamable HTTP.
+5. Click **Add Server**.
+
+These steps come from the Cline documentation (docs.cline.bot, 7 November 2026). We did not run them in Cline.
 
 ## Manual configuration
 
