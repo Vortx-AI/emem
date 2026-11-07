@@ -273,13 +273,17 @@ Two results follow:
   will verify. That looks like a guarantee but behaves like chance. That is
   worse than a stated bound.
 
-So the tolerance is back, with a limit, and the response always shows it:
+So the tolerance is back, with a limit. `POST /v1/derive` is a signed write.
+When its caller pins a `code_cid`, the responder runs the operation again. The
+`recomputation` object in the response then shows the comparison:
 
 | field | what it tells you |
 |---|---|
 | `rule` | which comparison ran |
-| `ulp_tolerance` | the bound |
+| `ulp_tolerance` | the bound: 4 for `mean` or `sum` over more than 2 parents, else 0 |
 | `ulp_gap` | the measured gap, on success and on failure |
+
+A derivation without a `code_cid` gets no `recomputation` object.
 
 A caller who needs bit-identity can require gap 0, because the gap is visible.
 "Equal within 4 ULP, measured gap 2" is a result that a caller can check.
