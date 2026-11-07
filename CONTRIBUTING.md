@@ -89,14 +89,19 @@ you set `EMEM_NO_NETWORK=1`.
 1. Append an entry to `crates/emem-core/data/algorithms-v0.json`. Each entry
    needs `key` (unique and versioned, for example `my_score@1`), `kind`,
    `inputs`, `formula`, `output`, `when_to_use`, `primitive` and `citation`.
-   The `formula` is plain math for people. The registry does not load if two
-   keys are the same or if `inputs` is empty.
+   `kind` is `solo`, `combined` or `embedding`. `output.kind` is `scalar`,
+   `classification` or `vector`. The `formula` is plain math for people.
+   The registry does not load if two keys are the same or if `inputs` is
+   empty.
 2. To let the node compute the value, add an `evaluation` expression tree.
    Without it, the node only lists the recipe and the agent applies the
    formula. If the tree needs a new operation, add it to `Expr` in
    `crates/emem-core/src/algorithms.rs`.
-3. Give each entry in `parameters` a `basis`: `literature`,
-   `operational_default` or `fitted`. A `fitted` basis needs more fields.
+3. If the entry has `parameters`, give each parameter an object with the
+   same key in `learned_from`. That object needs a `basis`: `literature`,
+   `operational_default` or `fitted`. A `fitted` basis also needs
+   `estimator`, `corpus_cid` and `held_out`. The `flood_risk@2` entry is an
+   example.
 4. The algorithm shows at `GET /v1/algorithms`. To route `/v1/ask` and
    `/v1/locate` to it, add its key to the `algorithms` list of a topic in
    `crates/emem-core/data/topics-v0.json`.
