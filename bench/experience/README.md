@@ -1,66 +1,161 @@
-# Experience-transfer benchmark (step 1: baselines only)
+# Experience-transfer benchmark
 
-## The claim under test
+This directory holds a benchmark for one question. Can an agent that reuses
+verified experience from emem solve new programming tasks for less money?
+It is for people who want to measure that claim, not for people who call emem.
+To call emem, read [docs/agents.md](../../docs/agents.md).
 
-> Across a stream of new and changing programming tasks, an agent that reuses
-> verified experience reaches the same independently checked success rate at
-> half the total cost of the strongest practical baseline.
-
-Success is checked by hidden pytest suites the agent never sees. Cost is
-dollars from recorded token usage and tool calls, not a proxy.
-
-## Five tests the harness will eventually cover
-
-1. Transfer to unseen tasks (`transfer` phase: variants needing knowledge from a `discovery` task).
-2. A different receiving model than the one that gathered the experience.
-3. A library change mid-stream (`post_change` phase, pydantic 1.10 to 2.x).
-4. Incorrect but validly signed contributions (a signature says who, not that it is true).
-5. Growing experience volume (does reuse still pay when the store is large and noisy?).
-
-## What step 1 covers
-
-Tests 1 and 3 are exercised by the task suite and the baselines. Nothing here
-uses emem yet: there is no emem arm, and tests 2, 4 and 5 need one. The
-baselines are `baseline_fresh` (task spec plus a docs-lookup tool) and
-`baseline_notes` (the same plus free-text notes the arm wrote itself earlier
-in the stream, unverified). No model or API is called anywhere.
-
-## Layout
-
-- `tasks/<id>/`: `task.md`, `tests_hidden/`, `reference.py`, `meta.json`; post_change tasks also have `reference_v1.py`, the v1-style solution.
-- 40 tasks: 8 families (validators, serialization, config, parsing, optional, customtypes, coercion, jsonschema), each 2 discovery + 2 transfer (pydantic 1.10.x) + 1 post_change (pydantic 2.x).
-- `runner.py`: one cached venv per version spec, pinned install, `pip freeze` recorded, results with `env_fingerprint` (sha256 of the freeze). Offline once venvs exist.
-- `validate_suite.py`, `arms.py`, `cost.py` + `prices.json`, `run_stream.py`.
-
-## Run
-
-Needs Python 3.10+ and network once, to build the venvs (cached in `.venv_cache/`, override with `EMEM_BENCH_CACHE`).
+Try the offline part first. It needs no model, no key and no emem write:
 
 ```sh
 cd bench/experience
-python validate_suite.py
-python run_stream.py --arm baseline_fresh --dry-run
+python3 validate_suite.py
 ```
 
-Validation checks that every reference passes its tests, that each
-post_change task's v1-style solution fails under pydantic 2 (and passes under
-1.10, so the failure is the library change), and that transfer tests are not
-near-copies of discovery tests. It exits non-zero on any violation.
+## What ships and what does not
 
-The dry run feeds each `reference.py` as the solution with zero usage. It
-proves the pipeline, not a model: its 100% success rate means nothing. It
-writes `runs/<stamp>-<arm>-dry.jsonl` (one line per task) and a
-`.summary.json` (success rate and cost, per arm and per phase).
+| Part | State on 7 November 2026 |
+|---|---|
+| 40 tasks with hidden pytest suites | Ships. `validate_suite.py` passes all 40. |
+| Dry run of the pipeline (`run_stream.py --dry-run`) | Ships. It uses each reference solution, so its 100% success rate measures nothing. |
+| Baseline arms `baseline_fresh` and `baseline_notes` | Code ships. `run_stream.py` has no model adapter, so a real run stops at the first model call. |
+| emem arm, pilot, repair and technique scripts | Code ships. They need operator files that are not in this repository (see [The pilot](#the-pilot-operator-only)). |
+| Results | None in the repository. `runs/` is in `.gitignore`. |
+| Tests 2, 4 and 5 of the claim | Not built. |
 
-## Fill in before a real run
+## The claim under test
 
-- A model adapter: implement `ModelAdapter.complete(system, messages, tools)` and pass it to the arm (`run_stream.py` currently builds arms with the unwired adapter, which raises `NotImplementedError`).
-- `prices.json`: every price is `null` and marked TO BE FILLED. `cost.py` refuses to price non-zero usage without one.
-- Decide the retry and turn budget per task, and hold it equal across arms.
+> The claim is about a stream of new and changing programming tasks. In it,
+> an agent that reuses verified experience reaches the same success rate as
+> the strongest practical baseline, checked independently, at half the total cost.
+
+Hidden pytest suites check success. The agent never sees them. Cost is dollars
+from recorded token usage and tool calls, not a proxy.
+
+The benchmark is to cover five tests. Only 1 and 3 have tasks now.
+
+1. Transfer to unseen tasks. The `transfer` tasks need knowledge from a `discovery` task.
+2. A receiving model that is different from the model that collected the experience.
+3. A library change in the stream. The `post_change` tasks move from pydantic 1.10 to pydantic 2.
+4. Incorrect contributions with valid signatures. A signature says who wrote a note, not that it is true.
+5. A large and noisy store. Reuse must still pay when the experience volume grows.
+
+## The task suite
+
+Each task is a directory `tasks/<id>/` with `task.md`, `tests_hidden/`,
+`reference.py` and `meta.json`. Each `post_change` task also has
+`reference_v1.py`, a solution in pydantic 1.10 style.
+
+There are 40 tasks in 8 families: coercion, config, customtypes, jsonschema,
+optional, parsing, serialization and validators. Each family has these tasks:
+
+| Phase | Tasks per family | Total | Library |
+|---|---|---|---|
+| `discovery` | 2 | 16 | `pydantic==1.10.*` |
+| `transfer` | 2 | 16 | `pydantic==1.10.*` |
+| `post_change` | 1 | 8 | `pydantic==2.*` |
+
+## Files
+
+| File | What it does |
+|---|---|
+| `taskset.py` | Loads the tasks and puts them in stream order. |
+| `runner.py` | Makes one cached venv per version spec and runs the hidden tests. It records `pip freeze` and its sha256 as `env_fingerprint`. |
+| `validate_suite.py` | Checks the task suite (see below). |
+| `arms.py` | The two baseline arms, the docs tool and an adapter that has no model. |
+| `cost.py`, `prices.json` | Prices token usage. Every price in `prices.json` is `null`. |
+| `run_stream.py` | Runs one arm over the stream and writes `runs/`. |
+| `adapters.py` | `ShimAdapter`: a chat client for the LLM shim on `127.0.0.1:5015` (Gemma 3 12B). See [python/llm_shim](../../python/llm_shim/README.md). |
+| `emem_arm.py` | Publishes procedures as signed emem notes and retrieves them with `/v1/memory/search`. |
+| `pilot.py` | Compares `baseline_fresh` with the emem arm on the transfer and post-change tasks. |
+| `repair.py` | Ports procedures that fail under pydantic 2 and publishes each port that passes its own tests. |
+| `techniques.py` | Writes short technique cards for each procedure (`publish`) and measures retrieval with them (`measure`). |
+| `repeats.sh`, `repeats2.sh` | Run `pilot.py` three times per configuration to measure noise. They use fixed operator paths. |
+
+## Run the offline checks
+
+You need Python 3.10 or later and the `venv` module with `ensurepip`. On
+Debian and Ubuntu, that is the `python3-venv` package. You need the network
+once, to build two venvs. They go in `.venv_cache/`. Set `EMEM_BENCH_CACHE`
+to put them somewhere else.
+
+```sh
+cd bench/experience
+python3 validate_suite.py
+python3 run_stream.py --arm baseline_fresh --dry-run
+```
+
+`validate_suite.py` does three checks, and it exits non-zero if one fails:
+
+- Every reference solution passes its own tests.
+- Each `post_change` task's `reference_v1.py` fails under pydantic 2 and
+  passes under 1.10. Thus the library change causes the failure.
+- No `transfer` test is a near copy of a `discovery` test.
+
+On 7 November 2026 it printed
+`OK: 40 tasks valid; every post_change v1-era reference fails under pydantic 2.`
+in 31 seconds. The venvs held pydantic 1.10.27 and 2.14.3.
+
+The dry run gives each `reference.py` to the pipeline as the answer, with
+zero usage. It tests the pipeline, not a model. It writes
+`runs/<stamp>-<arm>-dry.jsonl` with one line per task. It also writes
+`runs/<stamp>-<arm>-dry.summary.json` with the success rate and cost per arm
+and per phase. On 7 November 2026 it wrote 40 lines in 18 seconds.
+
+If your Python has no `ensurepip`, `runner.py` cannot make the venvs. We
+made them with `uv venv --seed`. Then we installed `pytest>=8,<10` and the
+pydantic spec in each venv and wrote its `pip freeze` to `freeze.txt`.
+`runner.py` uses a venv again when it has `bin/python` and `freeze.txt`.
+
+## Before a real baseline run
+
+- Write a model adapter with a `complete(system, messages, tools)` method.
+  `run_stream.py` now builds arms with the adapter from `arms.py`, which
+  raises `NotImplementedError`. `adapters.ShimAdapter` is one adapter that
+  works, but `run_stream.py` does not use it.
+- Put the prices in `prices.json` and record the date in `_as_of`.
+  `cost.py` refuses to price non-zero usage without a price.
+- Choose the retry and turn budget per task. Use the same budget in each arm.
+
+## The pilot (operator only)
+
+`pilot.py` compares two arms on the 16 transfer tasks and the 8 post-change
+tasks. Each arm gets 3 tries per task by default (`--attempts`).
+
+| Arm | What the model gets |
+|---|---|
+| `baseline_fresh` | The task and a docs tool. |
+| `emem_procedures` | The same, plus the top procedures that emem returns for the task text. Each procedure says if it passed its tests under the task's pydantic release. With `--cards`, the arm is `emem_cards`. |
+
+You cannot run the pilot from this repository alone. It needs these items:
+
+- The `librarian` agent from `/home/ubuntu/emem-world/agents` (`ememagentd`
+  and `roster.json`). That directory is not in this repository. The agent's
+  key signs the notes.
+- The LLM shim on `127.0.0.1:5015`.
+- Signed writes to emem.dev. Without `--skip-publish`, the pilot writes one
+  note per discovery task. `repair.py` and `techniques.py publish` also write.
+
+`pilot.py` prices Gemma 3 12B at USD 0.09 per million input tokens and
+USD 0.29 per million output tokens. These rates are in the code. It does not
+read `prices.json`.
+
+The published procedures are public, so anyone can read them. On
+7 November 2026, emem.dev held 18 procedure notes under
+`/memories/by_attester/3qsr47pc/procedures/`: 16 discovery procedures and 2
+repaired ports (`optional-01-v2.md` and `parsing-02-v2.md`). This read lists
+them:
+
+```sh
+curl -s -X POST https://emem.dev/v1/memory/search \
+  -H 'content-type: application/json' \
+  -d '{"q":"pydantic procedure","k":100,"path_prefix":"/memories/by_attester/3qsr47pc/procedures/"}' \
+  | jq -r '[.hits[].path] | unique | .[]'
+```
 
 ## Known limits
 
-A model that already knows both pydantic versions may pass the discovery
-tasks without help; measure the fresh baseline first and prune tasks it
-always solves. Tasks are small, so cost differences are driven by
-documentation lookups and turns.
+A model that knows both pydantic versions can solve discovery tasks without
+help. Run the fresh baseline first. Then remove the tasks that it always
+solves. The tasks are small, so documentation lookups and turns cause most
+of the cost difference.
