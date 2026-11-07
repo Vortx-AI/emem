@@ -2092,10 +2092,12 @@ Branch on the `fix` field:
 | `cite_observation` | Get the observation through emem and cite the token it returns. |
 | `correct_value` | The text gives a number that the cited fact does not hold. Use the signed value. |
 
-Two values occur only on a self-hosted guard. The code `GEO_ZONE` marks a
-cited cell in a zone that the operator restricted. The fix
-`redact_and_retry` comes from a policy module that the operator loaded.
-The hosted route has no zones and no modules, so it never gives them.
+Two deny codes occur only on a self-hosted guard. `GEO_ZONE` marks a
+cited cell in a zone that the operator restricted. Its fix is
+`contact_admin`. `POLICY_MODULE` means that a policy module that the
+operator loaded gave a deny. Its fix is `redact_and_retry`. The hosted
+route has no zones and no modules, so it never gives these two codes or
+these two fixes.
 
 ### Send the body that your framework makes
 
