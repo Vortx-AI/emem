@@ -46,7 +46,7 @@ The common operations and their endpoints:
 | name a set of facts with one token | `POST /v1/memory_bundle` |
 | find where sources disagree | `POST /v1/memory_contradictions` |
 | check a receipt | `POST /v1/verify_receipt`, or offline |
-| know which facts are still fresh | `POST /v1/temporal_route` |
+| score how current each band is at a place, at a query time | `POST /v1/temporal_route` |
 
 These parts of the model do not ship today:
 

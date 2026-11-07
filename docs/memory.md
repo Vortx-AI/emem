@@ -1051,10 +1051,10 @@ sig = ed25519(blake3("emem.memory_write|derive|/v1/derive|" || body_hash))
 
 A derived fact has no canonical `(cell, band, tslot)` key, so the
 responder never writes it to the canonical index. `recall`,
-`recall_polygon`, `state`, `query_region`, `memory_search` and
-`find_similar` all read through that index. If you register a
-derivation at a cell and then recall that cell, the derivation is not
-there.
+`recall_polygon`, `state`, `query_region` and `find_similar` all read
+through that index. `memory_search` searches notes only. If you
+register a derivation at a cell and then recall that cell, the
+derivation is not there.
 
 This is by design. If a claim from a stranger came back in the default
 read of another agent, it would poison memory at the fact layer. That
