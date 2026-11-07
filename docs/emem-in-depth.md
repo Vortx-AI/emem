@@ -52,6 +52,12 @@ with emem
   turn 41   the line resolves to 915.1 m, and the signature still checks
 ```
 
+The same fact can travel with others in one bundle line. The still below resolves a bundle that an agent made on 23 September 2026. The elevation fact above is one of its four members.
+
+<img src="media/stills/bundle-handoff.webp" alt="Live reads of emem.dev on 7 November 2026. 1: agent A hands over one 38-character line, emem:bundle:y2k6h2laeo4libfsiebucdw4mu, minted on 23 September 2026: four members, four resolved, one cell in Bengaluru at 12.972 N, 77.594 E. 2: agent B resolves the bundle and each fact token: elevation 915.07 m (observed 30 April 2021), NDVI 0.33 (12 May 2026), PM2.5 27.8 micrograms per cubic metre (28 May 2026) and air temperature 20.1 degrees C (21 July 2026). Each token resolves to the fact id that A cited, and each fact receipt is valid. 3: the bundle receipt rebuilds to digest 3d72e6e5 and its signature is valid; with one character of the NDVI fact id changed, the digest is ad3c1dbc and the check fails." width="540">
+
+[`stills/src/bundle_handoff.py`](media/stills/src/bundle_handoff.py) draws the still from reads only. The bundle token is a 16-byte anchor, not a hash of the whole record. The bundle receipt binds the four fact ids, and each fact token binds the whole fact. Each value keeps its own date.
+
 We hit the first shape ourselves. Two agents spent six hours reviewing one page; four times one reported a fix as deployed and the other measured it as absent. Neither was lying: there was no shared, checkable record of which build was answering. It ended when the running commit was published in a response header, [`X-Emem-Commit`](https://emem.dev/.well-known/emem.json), which every response has carried since.
 
 emem drives nothing and holds no control loop: warm recall is milliseconds and a cold read can take seconds, so nothing here belongs inside a safety loop. Worked calls for a street robot, a sprayer, a harvester, an indoor arm and a satellite are in [machines that ask emem where they are](robots.md), and CI re-runs every one against production.

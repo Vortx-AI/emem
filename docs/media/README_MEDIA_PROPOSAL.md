@@ -11,6 +11,7 @@ The new files follow [visual-language.md](visual-language.md).
 |---|---|---|---|
 | 211, section "Why you can trust it" | `docs/media/readme/02-verify.gif` (1,034,577 bytes, a screen recording of the verify page) | Poster `docs/media/films/emem-fact-to-check-poster.webp` linked to `docs/media/films/emem-fact-to-check.mp4` | The section says that one changed byte changes the id and that the receipt verifies. The film shows both with live values: the receipt passes, then one changed character in the receipt fails with `signature_invalid`. |
 | 225, under the paragraph about `emem-guard` | `docs/media/readme/04-guard.gif` (231,519 bytes, a screen recording) | `docs/media/stills/guard-check.webp` (184,624 bytes) | The paragraph says that the guard answers allow or deny with a reason and a `fix`. It also says that a stricter claim rule is off by default. The still shows live verdicts on one Table Mountain fact: allow, then deny `PROV_VALUE` with `correct_value`. An uncited number passes by default and fails with `claim_gating=true`. |
+| 264, under "One record, many readers" | `docs/media/readme/11-two-agents.gif` (1,072,956 bytes, a screen recording of two Claude sessions) | `docs/media/stills/bundle-handoff.webp` (222,750 bytes) | The paragraph says that agent A hands over one bundle line and agent B resolves it and checks the signature. The still shows that handoff with live reads. A bundle from 23 September 2026 resolves on 7 November 2026 to four facts in Bengaluru. Each receipt is valid. One changed character in a fact id makes the bundle receipt fail. |
 
 ## Markup for the swap at line 211
 
@@ -24,7 +25,13 @@ The new files follow [visual-language.md](visual-language.md).
 <img src="docs/media/stills/guard-check.webp" alt="Three drafts checked by live calls to POST /v1/guard/verdict on 7 November 2026. The cited fact is the Table Mountain elevation, 1069.01 m. Draft 1 states 1069.01 m and cites the fact: citation verified, allow. Draft 2 cites the same fact but states 1250 m: deny, PROV_VALUE, fix correct_value. Draft 3 states 1250 m with no citation: allow by default, deny CLAIM_UNGROUNDED with claim_gating=true. Each receipt verifies." width="720">
 ```
 
-Do not delete `02-verify.gif` or `04-guard.gif` before the signed README stops using them.
+## Markup for the swap at line 264
+
+```html
+<img src="docs/media/stills/bundle-handoff.webp" alt="Live reads of emem.dev on 7 November 2026. Agent A hands over one 38-character line, emem:bundle:y2k6h2laeo4libfsiebucdw4mu, minted on 23 September 2026: four facts at one cell in Bengaluru. Agent B resolves the bundle and each fact token: elevation 915.07 m, NDVI 0.33, PM2.5 27.8 micrograms per cubic metre and air temperature 20.1 degrees C, each with its own date. Each fact receipt is valid. The bundle receipt is valid; with one character of a fact id changed, it fails." width="540">
+```
+
+Do not delete `02-verify.gif`, `04-guard.gif` or `11-two-agents.gif` before the signed README stops using them.
 
 ## Additions
 
