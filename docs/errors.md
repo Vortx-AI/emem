@@ -467,6 +467,9 @@ These routes also put a route code in `details.code`. The top-level code is
 | `/v1/lab_report_parse`, `/v1/land_record_parse` | `ocr_receipt_invalid`, `text_hash_mismatch` | 422 | The `ocr` object is not a receipt that this responder signed, or `ocr.text` does not hash to `ocr.text_blake3_b32`. |
 | `/v1/decide` | `invalid_argument` | 400 | The body is over 32 KiB, has no `state`, has 0 or more than 8 questions, or `state` is over 8000 characters. A question can also be bad. Its `kind` must be `choice`, `bool` or `score`. A `choice` needs 2 to 8 `options`, and a `score` scale needs 2 to 8 steps. The message starts with `question <i>:`. |
 | `/v1/decide` | `busy`, `model_unavailable` | 503 | The responder closed its decision pool, or the model did not answer. |
+| `POST /v1/reviews` | none | 400 | Top-level `invalid_argument`, no `details`. `subject_kind` is not `fact`, `cell`, `request_id`, `session`, `band`, `endpoint` or `other`. Or `outcome` is not `success`, `partial`, `failed` or `noisy`, `task` is empty, or `rating` is over 5. |
+| `POST /v1/reviews` | none | 413 | Top-level `invalid_argument`, no `details`. `task` is over 512 bytes of UTF-8, or `comment` is over 4096 bytes. The message says "chars", but the check counts bytes. |
+| `POST /v1/reviews` | none | 503 | Top-level `cache_error`. The responder has no durable store, so it cannot keep reviews. |
 
 The fetch codes of `/v1/range_hash` (`url_refused`, `unresolvable`,
 `too_many_redirects`, `redirect_refused`, `fetch_failed`) also come from
@@ -589,6 +592,12 @@ shape routes, `/v1/tree/path`, `/v1/trace_verify`, `/v1/enroll_verify`,
 that take `Json<..>` in place of `EmemJson<..>` in `crates/emem-api-rest/src/`.
 On 7 November 2026, `/v1/locate` gave all three statuses. `/v1/tree/path`,
 `/v1/trace_verify` and `/verdict/mcp` gave the 400.
+
+Every route also has a body size cap. A body over the cap gets `413` with
+the plain-text body `length limit exceeded`. The cap is `EMEM_BODY_LIMIT_MB`
+mebibytes: default 16, at least 1, at most 256 (`body_limit_bytes` in
+`crates/emem-api-rest/src/lib.rs`). On 7 November 2026, emem.dev sent 413
+for a `Content-Length` of 16777217 bytes. It did not refuse 16777216.
 
 ### Errors from the perception proxy
 
