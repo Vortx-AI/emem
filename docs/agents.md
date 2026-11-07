@@ -2022,6 +2022,9 @@ error with the list of models that you can use. The responder never
 replaces one model with another. Thus `base_model` in the reply is always
 the model that ran.
 
+On 7 November 2026, a `model_answer` with prose had 13 fields. The table
+names the six that you use most:
+
 | Field in `model_answer` | What it tells you |
 |---|---|
 | `answer_prose` | The text of the model. It is never evidence |
@@ -2371,13 +2374,14 @@ plot. `statement_of_compliance_held_because` lists each cause:
 
 | Cause | Meaning |
 |---|---|
-| `verdict_<label>` | The overall outcome is not `pass`. |
+| `verdict_<label>` | The overall outcome (`due_diligence_statement.verdict`) is not `pass`. |
 | `tmf_cross_check_review_required` | JRC TMF shows a loss that Hansen does not show. |
 | `verdict_support_weak` | `verdict_support.level` of a plot is `weak`. |
 | `jrc_baseline_unavailable_hansen_only` | The verdict ran without the JRC baseline. |
 
-On 7 November 2026 the example plot gave the outcome `pass`, but the
-responder held the statement for `verdict_support_weak`. The point is 0.01 ha, and
+On 7 November 2026 the example plot gave the outcome `pass` in
+`due_diligence_statement.verdict`, but the responder held the statement
+for `verdict_support_weak`. The point is 0.01 ha, and
 all its cells are within 2 points of the 10 % canopy threshold. Its cell
 had the label `not_in_scope`: JRC showed no forest there in 2020.
 
