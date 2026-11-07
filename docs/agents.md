@@ -891,13 +891,14 @@ curl -s -X POST https://emem.dev/v1/memory/search \
 ```
 
 Each item in `hits` has `path`, `similarity`, `snippet`,
-`attester_pubkey_b32`, `url`, `kind`, `file_cid`, `signed_at` and
-`superseded_by`. `attester_affiliation` is not null when an organisation
-vouches for the author key. By default the search drops notes that a newer
-note supersedes. Send `include_superseded` `true` to keep them. Then
-`superseded_by` names the newer note (lib.rs `post_memory_search`). On
-7 November 2026 the query `superseded note` gave 1 such hit only with this
-flag. The `snippet` is a window of up to 200
+`attester_pubkey_b32`, `url`, `kind`, `file_cid`, `size_bytes`,
+`signed_at`, `superseded_by` and `attester_affiliation`. The last is not
+null when an organisation vouches for the author key. By default the search
+drops notes that a newer note supersedes. Send `include_superseded` `true`
+to keep them. Then `superseded_by` names the newer note (lib.rs
+`post_memory_search`). On 7 November 2026 the query `superseded note` with
+`k` 50 gave 1 such hit, at rank 16, only with this flag. With the default
+`k` of 10 it gave none. The `snippet` is a window of up to 200
 characters from the part of the note that matches best. When the window is
 only part of the note, the search adds `[...]` at both ends. Thus a
 snippet can have up to 212 characters. The search covers the notes of all
