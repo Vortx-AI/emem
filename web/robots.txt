@@ -19,7 +19,7 @@ Allow: /
 #   /v1/discover                     ~3.7 KB typed bootstrap
 #   /llms.txt                        ~23 KB  the agent contract in prose
 #   /openapi.json                    ~341 KB OpenAPI 3.1, every routed path
-#   /agents.md                       ~67 KB  full integration guide
+#   /agents.md                       ~162 KB full integration guide
 #   /.well-known/agent-card.json     ~15 KB  A2A card, the core loop as skills
 #   /extendedAgentCard               ~55 KB  the same card with every skill
 #   /.well-known/mcp.json            ~16 KB  MCP server descriptor

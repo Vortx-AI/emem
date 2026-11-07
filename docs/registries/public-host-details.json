@@ -7,12 +7,13 @@
     ],
     "/v1/guard/selfhost": [
       "/run/your-engine.sock",
-      "localhost"
+      "localhost",
+      "127.0.0.1"
     ]
   },
   "reasons": {
     "/v1/sources": "The sources manifest says where a fact came from, and for the three retired model.* schemes the manifest still records the local GPU sidecar they ran on, because the manifest is content-addressed and old receipts cite it. `uds:` says so in the scheme, the path is the default that EMEM_SIDECAR_SOCK overrides, and a self-hoster reading this manifest to reproduce our provenance needs it. Kept as provenance, not as an address anyone is invited to call. Reconsider if the socket path ever becomes per-deployment secret rather than a documented default.",
-    "/v1/guard/selfhost": "This route IS the self-hosting instructions. `/run/your-engine.sock` and `localhost` are the reader's own machine, in a placeholder they are meant to substitute; they describe nothing about this host. Removing them would leave the instructions unable to say where the reader's engine listens."
+    "/v1/guard/selfhost": "This route IS the self-hosting instructions. `/run/your-engine.sock`, `localhost` and `127.0.0.1` (the guard's default listen address, `127.0.0.1:8080`) are the reader's own machine, in a placeholder they are meant to substitute; they describe nothing about this host. Removing them would leave the instructions unable to say where the reader's engine listens."
   },
   "not_exceptions": {
     "/v1/temporal_route": "math_note.reference carried `/home/ubuntu/agri/training/tdm.py` on the deployed build. That is a leak, not an exception. It is already corrected in the tree and goes away with the next deploy; if this check still reports it after one, the deploy did not happen."
