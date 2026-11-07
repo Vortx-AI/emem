@@ -39,7 +39,7 @@ GitHub Discussions, or email **avijeet@vortx.ai**.
 
 ## Self-hosting
 
-See [docs/DEPLOY.md](docs/DEPLOY.md). The server runs as a single Rust
+See [docs/operators/operating.md](docs/operators/operating.md#quick-deploy). The server runs as a single Rust
 binary (`emem-server`) or via the published OCI image
 (`ghcr.io/vortx-ai/emem:latest`). No external dependencies beyond the
 upstream open-data providers listed in [PRIVACY.md](PRIVACY.md).
