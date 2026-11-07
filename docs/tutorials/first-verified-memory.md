@@ -94,7 +94,7 @@ curl -s -X POST https://emem.dev/v1/recall \
 # true
 ```
 
-This tutorial uses one Cairo elevation fact that emem signed on 16 July 2026:
+Steps 4 and 5 use one Cairo elevation fact that emem signed on 16 July 2026. This is its token:
 
 ```text
 emem:fact:defi.zb555.ze8e5.xawO:zxxbyowj2vlhyvgcj55brc47aoubvnibo7ydck4q2vn32uqcp3oa
@@ -145,7 +145,7 @@ The receiver does not trust you, your copy of the value, or the channel that car
 trusts the responder, as step 2 says. To remove that trust too, check the receipt offline. Both parties now hold one
 fact, not two descriptions of it.
 
-If both checks return `true`, the full loop works.
+If the receipt checks in step 2 and in this step both return `true`, the full loop works.
 
 ## 5. Next steps
 
