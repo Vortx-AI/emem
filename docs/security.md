@@ -503,14 +503,16 @@ python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py inclusio
 ```
 
 The head inside `inclusion.json` can be newer than `sth.json`. To
-connect them, save its `sth` object as `inclusion_sth.json`. Then run
-the `consistency` command below with `sth.json` and `inclusion_sth.json`.
+connect them, run the `consistency` command below with `sth.json` and
+`inclusion.json` as the two heads. The script reads the `sth` object in
+each file.
 
 Keep `sth.json`. Later, get a new head and prove that the log only grew
-between the two heads:
+between the two heads. Each file keeps its size at `.sth.tree_size`:
 
 ```sh
 curl -s https://emem.dev/v1/log/sth -o new_sth.json
+jq .sth.tree_size sth.json new_sth.json
 curl -s 'https://emem.dev/v1/log/consistency?first=<old tree_size>&second=<new tree_size>' -o consistency.json
 python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py consistency sth.json new_sth.json consistency.json
 ```
@@ -519,7 +521,8 @@ On 7 November 2026 at 02:47 UTC all three checks gave `VALID` against
 emem.dev. The receipt was from a recall at Mount Fuji. Its inclusion
 proof was for leaf 2,788,378 at `tree_size` 3,245,983, with 22 hashes.
 The consistency proof went from size 3,245,983 to 3,245,984, with 14
-hashes.
+hashes. At 03:02 UTC we ran the walk again with `inclusion.json` as the
+first head. All checks gave `VALID`.
 
 The scripts do not check the link from the log entry to the receipt's
 Merkle root. That is step 7 of
