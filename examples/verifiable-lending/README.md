@@ -24,10 +24,12 @@ both memos.
 
 ## Run it
 
+Run these commands from the root of the repository.
+
 ```sh
-python3 run.py            # the full walkthrough
-python3 run.py --probe    # four checks on what the guard catches and what it misses
-python3 run.py --lat 19.0760 --lng 72.8777    # any coordinate
+python3 examples/verifiable-lending/run.py            # the full walkthrough
+python3 examples/verifiable-lending/run.py --probe    # four checks on what the guard catches and what it misses
+python3 examples/verifiable-lending/run.py --lat 19.0760 --lng 72.8777    # any coordinate
 ```
 
 On 7 November 2026 the first full walkthrough took about 9 seconds, because the

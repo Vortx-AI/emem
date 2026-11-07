@@ -23,9 +23,11 @@ share no backend and no credentials, and B does not have to trust A.
 
 ## Run it
 
+Run these commands from the root of the repository.
+
 ```bash
 pip install requests blake3 cbor2 cryptography
-python3 fleet_memory.py
+python3 examples/fleet-memory/fleet_memory.py
 ```
 
 Output from a run against emem.dev on 7 November 2026:
