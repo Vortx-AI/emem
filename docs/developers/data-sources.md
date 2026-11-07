@@ -100,12 +100,13 @@ The others hold shared tools and embedded gazetteers.
 | `wdpa.rs` | OSM Overpass, `boundary=protected_area` | Overpass QL `is_in` | `protected`, `protected.is_protected_area` |
 | `wikidata.rs` | Wikidata | HTTPS JSON | Prominence evidence for the geocoder |
 | `worldpop.rs` | WorldPop | Per-country COG, then the stats API as a fallback | `population` |
-| `wri_gdm_drivers.rs` | WRI and Google DeepMind drivers of forest loss, on Zenodo | GeoTIFF range read | `wri_gdm` |
+| `wri_gdm_drivers.rs` | WRI and Google DeepMind drivers of forest loss, on Zenodo | Pixel read from a local copy at `EMEM_WRI_GDM_CACHE` | `wri_gdm.driver_class` |
 
 ### Modules with no open read path
 
-Two modules exist, but the node cannot read their data without a credential. The materializer
-signs an Absence instead of a guess.
+Two modules exist, but the node cannot read their data without a credential. For a cell inside
+the coverage, the recall gets an error and the node signs nothing. It signs an Absence only for a
+cell outside the coverage, or for a real "no alert" result.
 
 | Module | Upstream | Why there is no read |
 |---|---|---|
@@ -281,6 +282,17 @@ maps to the IUCN category.
 A cell outside every mapped protected area gets a signed negative fact. Each cell costs at most
 one Overpass call, because the node stores the answer.
 
+### wri_gdm_drivers.rs: a local copy, not a range read
+
+Zenodo sends the whole 295 MB GeoTIFF for any `Range` request, so a per-cell read is not
+practical. The connector reads band 1 of a local copy. Set `EMEM_WRI_GDM_CACHE` to the absolute
+path of that file. Without it, the node signs nothing and the recall gets an error that names
+the variable. The node does not sign an Absence, because the cell itself is not empty.
+
+Pixel value 0 means no Hansen loss event. The node signs an Absence with reason
+`wri_gdm_no_hansen_loss`. On 7 November 2026, emem.dev gave a Primary fact with class 6 at
+Novo Progresso, Brazil.
+
 ### ftw.rs: field boundaries
 
 Fields of The World is one global PMTiles archive on Source Cooperative, under CC-BY-4.0. The
@@ -310,6 +322,7 @@ place with the most people wins. The `via` field of the response names the layer
 | `EMEM_S2_CATALOGUES` | `mpc,element84` | The Sentinel-2 catalogues, in order. |
 | `EMEM_OVERTURE_RELEASE` | newest | Pins one Overture release. |
 | `EMEM_RETIRED_BANDS` | empty | More bands that this node does not serve. |
+| `EMEM_WRI_GDM_CACHE` | unset | The path of the local WRI drivers COG. Without it, a `wri_gdm.driver_class` recall gets an error. |
 
 ## Add a connector
 

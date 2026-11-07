@@ -208,7 +208,8 @@ upstreams and background work. Each default comes from the code.
 | `EMEM_OVERTURE_RELEASE` | newest | Pins one Overture release. |
 | `EMEM_OVERTURE_PARALLEL` | `32` | Parallel range reads to the Overture bucket, from 1 to 256. |
 | `EMEM_OVERTURE_SKIP_WARMUP` | unset | `1` skips the Overture warmup at start. Use it on a node with no internet access. |
-| `EMEM_EARTHDATA_TOKEN` or `EMEM_EARTHDATA_TOKEN_FILE` | unset | A NASA Earthdata token. Without it, the `opera_dist.*` bands sign an absence. |
+| `EMEM_EARTHDATA_TOKEN` or `EMEM_EARTHDATA_TOKEN_FILE` | unset | A NASA Earthdata token. Without it, an `opera_dist.*` recall gets an error and the node signs nothing. |
+| `EMEM_WRI_GDM_CACHE` | unset | The absolute path of a local copy of the WRI drivers of forest loss COG (295 MB, from Zenodo). Without it, a `wri_gdm.driver_class` recall gets an error and the node signs nothing. |
 | `EMEM_PHOTON_BASE` | `https://photon.komoot.io` | The first network geocoder for `/v1/locate`. |
 | `EMEM_NOMINATIM_BASE` | `https://nominatim.openstreetmap.org` | The second network geocoder. |
 | `EMEM_GEOCODER_TTL_SECS` | `2592000` (30 days) | How long the node keeps a geocoder answer in `geocoder.sled/`. |
