@@ -646,8 +646,8 @@ address.
 
 An earlier version of this section said that entity keys need a major
 version. Its reason was a change to the canonical index, the preimage and
-the storage key. That was wrong on all three points. Entity keys need only a minor
-version.
+the storage key. That was wrong on all three points. Entity keys need
+only a minor version.
 
 #### Address spaces in the substrate registry
 
@@ -695,8 +695,8 @@ These three guards ship:
 | Typed refusal on area reads | Area recall refuses an entity subject with `invalid_cell` and names its address space | `geo_only_refusal`, `crates/emem-api-rest/src/lib.rs` |
 
 The profile admission check applies only where storage knows the
-profile. Today that means enrolled devices. Archive writers carry no enrollment,
-so the check does not apply to them.
+profile. Today that means enrolled devices. Archive writers carry no
+enrollment, so the check does not apply to them.
 
 #### What a new substrate uses unchanged
 
@@ -943,8 +943,9 @@ is `~/.emem/agent_ed25519.pem`, or `$EMEM_HOME/agent_ed25519.pem`
 
 Why the publish workflows check the artefact: the PyPI wheels of
 `ememdev` 0.0.9, 0.1.0 and 1.0.0 are about 2.4 KB each and contain no
-Python module. The 1.1.0 wheel is 25 KB. A root-anchored `/src/` line in `.gitignore` was re-anchored by
-the build backend to the SDK directory. Each wheel built clean and empty.
+Python module. The 1.1.0 wheel is 25 KB. A root-anchored `/src/` line
+in `.gitignore` was re-anchored by the build backend to the SDK
+directory. Each wheel built clean and empty.
 CI tested the source tree, not the wheel, so it stayed green. PyPI
 versions are immutable, so later versions supersede the empty ones.
 
@@ -1044,8 +1045,9 @@ n8n node on an `n8n-*` tag, and no such tag exists yet.
 
 The SDKs are on their registries. On 7 November 2026, `ememdev` on PyPI
 and `@vortxai/emem` on npm were both at 2.4.4. The launch waits for the
-registry listings. It leads with the claim that anyone can check: the same token resolves to the
-same bytes for anyone, and the receipt verifies offline. Planned assets:
+registry listings. It leads with the claim that anyone can check: the
+same token resolves to the same bytes for anyone, and the receipt
+verifies offline. Planned assets:
 
 - the one-call example at the top of the README
 - a 60-second recording of cite-then-verify across two processes
