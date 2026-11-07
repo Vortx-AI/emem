@@ -166,6 +166,26 @@ curl -s -X POST https://emem.dev/mcp \
 These are all the variants of `ErrorCode`. The MCP number is the enum
 discriminant, negated.
 
+`/v1/errors` lists all 27 codes, but routes do not send all of them. On
+7 November 2026, no route constructs 12 of the codes. The code maps each
+of them to an HTTP status, but no handler or store error produces it:
+
+| Code | What you get instead |
+|---|---|
+| `invalid_resolution`, `tslot_mismatch` | Address errors come back as `invalid_cell` or `invalid_argument`. |
+| `function_not_in_registry` | The store has a `StorageError::UnknownFunction` variant, but no code path creates it. `/v1/derive` does not check `fn_key` against a registry. |
+| `source_scheme_unknown`, `source_format_mismatch` | Upstream problems come back as `source_fetch_failed`, or as a `materialize_notes` entry on a 200. |
+| `registry_cid_unknown`, `schema_cid_unknown` | No route reads a caller's registry or schema CID. |
+| `privacy_refused` | The responder does not enforce privacy classes ([protocol §10](protocol.md#10-privacy-classes)). |
+| `attester_revoked` | The responder has no revocation check on writes. |
+| `unauthorized` | An unsigned write gets HTTP 401 with top-level `invalid_argument` and `details.code` such as `memory_attestation_required` or `derive_attestation_required`. A signature that does not verify gets HTTP 401 with `bad_signature`. |
+| `claim_undecidable` | `/v1/verify` answers HTTP 200 with a verdict ([protocol §11](protocol.md#11-claim-algebra)). |
+| `bad_merkle_proof` | No route accepts a caller's proof. Check proofs yourself ([protocol §9.6.1](protocol.md#961-check-an-inclusion-proof-by-hand)). |
+| `compute_quota_exceeded` | The quotas that exist answer with their own bodies (see [Responses that are not `emem.error.v1`](#responses-that-are-not-ememerrorv1)). |
+
+Write your client to handle these codes anyway. A later release or
+another node can send them.
+
 | Code | MCP | Meaning | First thing to try |
 |---|---|---|---|
 | `invalid_cell` | -27 | The cell64 string did not parse. The responder does not geocode a string with a `.` in it as a place. So it refuses a mistyped cell and does not send it somewhere random. | Re-derive it with `POST /v1/locate`. |
@@ -189,7 +209,7 @@ discriminant, negated.
 | `canonical_encoding_divergence` | -18 | The CBOR sent is not deterministic per RFC 8949 section 4.2.1. | Encode with sorted map keys and shortest-form integers. |
 | `source_fetch_failed` | -19 | An upstream fetch failed at the transport (non-2xx, DNS, timeout, bad JSON) before the upstream gave an answer. On a place lookup this means the geocoder is down, not that the place is absent. | Retry with backoff. |
 | `source_format_mismatch` | -20 | The fetched bytes do not match the declared format. | Report it; the provider may have changed format. |
-| `compute_timeout` | -21 | A derivation ran past its deadline. | Send a smaller input, or retry. A band read that passes the 14 s dispatch cap keeps running. A retry often finds the value ready. |
+| `compute_timeout` | -21 | The request ran past the transport budget (default 40 s, `EMEM_TIMEOUT_SECS`). HTTP 504; `details.budget_secs` gives the budget. Over MCP the same cause reads `exceeded the call budget`. | Send a smaller input, or retry. A band read that passes the 14 s dispatch cap keeps running. A retry often finds the value ready. |
 | `compute_quota_exceeded` | -22 | You used all of a per-key, per-day compute quota. | Slow down. `/v1/limits` publishes the windows. |
 | `rate_limited` | -23 | Too many requests. Per IP the default is 600 per minute with a burst of 120. Memory writes also have a per-attester backstop (`details.code: write_rate_limited`). | Honour `Retry-After` (seconds) or `details.retry_after_s`. |
 | `cache_error` | -24 | The responder's store returned an internal error. | Retry once. |
