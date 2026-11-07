@@ -43,6 +43,10 @@ curl -s -X POST https://emem.dev/v1/recall \
 Cite the `memory_token`, not only the number. Any reader can resolve the token
 to the same signed bytes and check the receipt offline.
 
+`recall` also accepts `lat` and `lng` directly. On 7 November 2026,
+`{"lat":35.3606,"lng":138.7274}` gave the same cell and value as the two
+calls above. Each fact carries its `cell`, so you can skip `locate`.
+
 ## 2. Read a value at a named place
 
 ```bash
@@ -238,7 +242,7 @@ independent check. For an independent check, use the Python SDK or
 
 | The question | First call | Then |
 |---|---|---|
-| A latitude and longitude | `/v1/locate` | `/v1/recall` |
+| A latitude and longitude | `/v1/recall` with `lat` and `lng` | `/v1/locate` if you need the `cell64` |
 | A place name | `/v1/recall` with `place` | `/v1/locate` if HTTP 400 |
 | "Is X true here?" | `/v1/recall` for the band | `/v1/verify` |
 | "How does X differ from Y?" | `/v1/recall` at both cells | `/v1/compare` |
