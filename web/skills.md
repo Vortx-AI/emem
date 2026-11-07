@@ -2,26 +2,27 @@
 
 *For agents. Machine-first: runnable procedures, not an explanation of why. A person should read https://emem.dev/how-it-works first.*
 
-Composed recipes for AI agents building on emem, a shared, verifiable
-memory for AI agents: a citeable identity layer that stops referential
-drift, so different models reason from the same world object instead of
-divergent descriptions, grounded in signed Earth observation. Each
-recipe combines two or three `/v1/*` calls into one useful step.
+These recipes are for AI agents that build on emem. emem is a shared,
+verifiable memory for AI agents. It gives each place and object one
+citable identity, so different models reason from the same object and
+not from different descriptions. Signed Earth observation is the base.
+Each recipe combines two or three `/v1/*` calls into one useful step.
 
-This page is the cookbook view. The same procedures, in more depth and
-with bundled verifier scripts, ship as an installable plugin at
-[plugins/emem/](https://github.com/Vortx-AI/emem/tree/main/plugins/emem)
-for Claude Code; see § Installing as Claude Skills below.
+This page is the short cookbook. The same procedures also ship as a
+Claude Code plugin at
+[plugins/emem/](https://github.com/Vortx-AI/emem/tree/main/plugins/emem).
+The plugin has more detail and bundled verifier scripts. See
+§ Installing as Claude Skills below.
 
-The endpoint is `https://emem.dev` (or your self-host URL). Reads need
-no key; writes are Ed25519-signed by the caller and tiered by reach
-(`GET /v1/enlist`). Every response that serves facts carries an Ed25519
-receipt over a deterministic preimage; verify it offline with the
-responder's key from `/.well-known/emem.json`.
+The endpoint is `https://emem.dev`, or the URL of your own node. Reads
+need no key. The caller signs each write with Ed25519, and the write tier
+depends on its reach (`GET /v1/enlist`). Each response that serves facts
+carries an Ed25519 receipt over a deterministic preimage. Verify it
+offline with the responder key from `/.well-known/emem.json`.
 
-Every fact is content-addressed and signed, so any conformant responder
-returns byte-identical bytes for the same content id and any client
-verifies the receipt offline. emem is a protocol, not a single endpoint.
+Each fact has a content address and a signature. Thus any conformant
+responder returns the same bytes for the same content id, and any client
+can verify the receipt offline. emem is a protocol, not a single endpoint.
 
 ## Quick reference
 
@@ -47,14 +48,18 @@ verifies the receipt offline. emem is a protocol, not a single endpoint.
 ## 1. `locate-and-recall`: name a place, get signed facts
 
 Resolve a place name to a `cell64`, then recall one or more bands there.
-`facts[]` holds every stored reading, oldest first; `current_by_band`
-names the latest reading's `fact_cid` per band, and every fact carries
-its own `memory_token` (`emem:fact:<cell64>:<fact_cid>`), the handle
-that re-fetches the same bytes in any year. A fact_cid digests the
-signer and the signing moment along with the value, so it names one
-attestation rather than the observation behind it: a second responder
-measuring the same thing mints a different cid. Use `emem:entity:` for
-identity that crosses responders.
+
+| Field in the recall response | What it holds |
+|---|---|
+| `facts[]` | Every stored reading, oldest first. |
+| `current_by_band` | The `fact_cid` of the latest reading, for each band. |
+| `facts[].memory_token` | `emem:fact:<cell64>:<fact_cid>`. This handle gets the same bytes again in any year. |
+| `receipt` | The Ed25519 receipt over the call. Section 2 verifies it. |
+
+A `fact_cid` is a digest of the value, the signer and the signing time.
+Thus it names one attestation, not the observation behind it. A second
+responder that measures the same thing makes a different cid. Use
+`emem:entity:` for an identity that is the same across responders.
 
 ### curl
 
@@ -93,6 +98,11 @@ print("cite:", fact["memory_token"])
 
 ### MCP (JSON-RPC over `POST /mcp`)
 
+The MCP reply puts the result JSON as text in `result.content[0].text`.
+It keeps that text below 12,000 bytes. If `facts[]` is longer, the text
+has an `_emem_truncation` block. That block gives the first omitted
+index and the call that returns the rest.
+
 ```json
 { "jsonrpc": "2.0", "id": 1, "method": "tools/call",
   "params": { "name": "emem_locate", "arguments": {"q": "Bengaluru, India"} } }
@@ -107,23 +117,26 @@ print("cite:", fact["memory_token"])
 
 ### Common pitfalls
 
-- `facts[0]` is the oldest reading, not the current one.
-- When `/v1/locate` returns `disambiguation_required: true`, read
-  `alternatives` and ask which place was meant rather than citing rank 0.
-- A cold cell triggers a fetch from the upstream connector. A
-  `materialize_notes[]` entry with `reason_class: "timeout"` and
-  `retryable: true` means the fetch continues in the background; the
-  same call a few seconds later usually answers warm.
+- `facts[0]` is the oldest reading, not the current one. Use
+  `current_by_band` to find the latest.
+- If `/v1/locate` returns `disambiguation_required: true`, read
+  `alternatives`. Ask the user which place they mean. Do not cite rank 0.
+- On a cold cell, recall fetches from the upstream connector. Then the
+  response can have a `materialize_notes[]` entry with
+  `reason_class: "timeout"` and `retryable: true`. This means that the
+  fetch continues in the background. The same call a few seconds later
+  usually gets the stored facts.
 
 ---
 
 ## 2. `verify-receipt-offline`: BLAKE3 + Ed25519, no callback
 
-Every receipt verifies without re-contacting the responder. Rebuild the
-canonical preimage, BLAKE3 it, then `ed25519.verify(signature, digest,
-pubkey)`. The byte layout lives in `crates/emem-attest`
-(`receipt_preimage_v1`, `receipt_preimage_v2`); `GET /v1/verifier_spec`
-publishes it from the compiled constants.
+You can verify each receipt without a new call to the responder. Rebuild
+the canonical preimage and hash it with BLAKE3. Then run
+`ed25519.verify(signature, digest, pubkey)`. The byte layout is in
+`crates/emem-attest` (`receipt_preimage_v1`, `receipt_preimage_v2`).
+`GET /v1/verifier_spec` publishes the same layout from the compiled
+constants.
 
 ### Preimage (v2, current receipts)
 
@@ -140,19 +153,30 @@ blake3(
 )
 ```
 
-`seg(tag, bytes)` = `tag || u32le(len) || bytes`; `seg_list` writes a
-u32le count, then `u32le(len) || bytes` per item. Bracketed segments
-appear only when present (`manifest_hex` = lowercase hex of blake3 over
-the CBOR map of a non-empty `source_versions`, keys in plain string
-order). `merkle_hex` is always written under v2: the hex digest of
-`PreimageV1("merkle")` over the receipt's `merkle_proof` (root,
-u32le leaf_index, concatenated path, rule version) or, when there is no
-proof, over an explicit absence marker, so a stripped proof breaks the
-signature. Receipts with `preimage_version: 1` omit segment `0x0b`;
-receipts with no `preimage_version` use the legacy pipe rule, which
-`POST /v1/verify_receipt` still checks.
+| Term | Meaning |
+|---|---|
+| `seg(tag, bytes)` | `tag \|\| u32le(len) \|\| bytes` |
+| `seg_list(tag, items)` | `tag`, a u32le count, then `u32le(len) \|\| bytes` for each item |
+| `[ ... ]` | The segment is in the preimage only when the receipt has that field. |
+| `manifest_hex` | Lowercase hex of BLAKE3 over the CBOR map of a non-empty `source_versions`. Keys are in plain string order. |
+| `merkle_hex` | Hex digest of `PreimageV1("merkle")` over the receipt's `merkle_proof`: root, u32le leaf_index, the path joined, rule version. |
+
+Under v2 the preimage always has segment `0x0b`. If the receipt has no
+Merkle proof, `merkle_hex` covers an explicit absence marker. Thus a
+receipt with its proof removed fails the signature check.
+
+| `preimage_version` | Rule |
+|---|---|
+| 2 | The layout above. Current receipts use it. |
+| 1 | The same layout without segment `0x0b`. |
+| absent | The legacy pipe rule. `POST /v1/verify_receipt` still checks it. |
 
 ### python (fully offline)
+
+The script needs `httpx`, `cbor2`, `blake3` and `cryptography`. It
+refuses receipts that have a `scope` or `edge_cids` segment. Send those
+to `POST /v1/verify_receipt`. On 7 November 2026 it printed `True` for a
+live recall receipt.
 
 ```py
 import httpx, cbor2
@@ -212,20 +236,22 @@ print(verify(rec["receipt"], pubkey_b32))
 ```
 
 The plugin's `emem-verify-receipt` skill ships the same check as a
-script (`verify.py`) with exit codes and clearer errors.
+script (`verify.py`). The script has exit codes and clearer errors, and
+it needs only Python and the files next to it.
 
 ### Browser (what `/verify` does)
 
-`https://emem.dev/verify` imports `@noble/curves` and `@noble/hashes`
-and verifies, locally in your browser, a receipt's signature and a
-signed message's authorship. Paste a fact CID, an `emem:` token, or a
+`https://emem.dev/verify` checks a receipt signature and the author of a
+signed message in your browser. It does not send them to a server. It
+uses a bundled copy of `@noble/hashes` 1.5.0 and `@noble/curves` 1.6.0
+(`/emem-verify-core.js`). Paste a fact CID, an `emem:` token or a
 `/memories/` path.
 
 ### When to use
 
-- You don't trust the responder you fetched from.
-- You're caching receipts and want to prove they're authentic later.
-- Your user wants a non-repudiable answer.
+- You do not trust the responder that served the receipt.
+- You keep receipts in a cache and must prove later that they are true.
+- Your user needs an answer that the responder cannot deny later.
 
 ---
 
