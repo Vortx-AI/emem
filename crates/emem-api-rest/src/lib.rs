@@ -8557,14 +8557,40 @@ async fn serve_agents_txt() -> Response {
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
-/// `GET /v1/deprecations`, empty list with the deprecation policy.
+/// `GET /v1/deprecations`, the deprecated surfaces with the policy.
 /// ClaudeBot polls this; returning a typed stable list (instead of
-/// 404) tells a crawler the surface exists and is intentionally empty.
+/// 404) tells a crawler the surface exists.
+/// MCP tool names that still dispatch (see the `"emem_memory_*" |
+/// "memory_*"` arms of the tools/call match) but are no longer advertised.
+/// CHANGELOG 2.3.0 says they are removed in 3.0. The list was empty, so a
+/// caller polling this route was told nothing it used would go away.
+const DEPRECATED_MCP_TOOL_NAMES: [(&str, &str); 8] = [
+    ("memory_view", "emem_memory_view"),
+    ("memory_create", "emem_memory_create"),
+    ("memory_str_replace", "emem_memory_str_replace"),
+    ("memory_insert", "emem_memory_insert"),
+    ("memory_delete", "emem_memory_delete"),
+    ("memory_supersede", "emem_memory_supersede"),
+    ("memory_rename", "emem_memory_rename"),
+    ("memory_list_by_kind", "emem_memory_list_by_kind"),
+];
+
 async fn serve_deprecations() -> Json<JsonValue> {
+    let deprecated: Vec<JsonValue> = DEPRECATED_MCP_TOOL_NAMES
+        .iter()
+        .map(|(old, new)| {
+            json!({
+                "surface": "mcp_tool",
+                "path": format!("tools/call name={old}"),
+                "replacement": format!("tools/call name={new}"),
+                "removed_in": "3.0",
+            })
+        })
+        .collect();
     Json(json!({
         "schema":     "emem.deprecations.v1",
-        "deprecated": [],
-        "policy":     "Pre-1.0. A breaking change carries a deprecation entry here one minor release before removal. Entries name the path, the replacement, and the earliest version that removes the old surface.",
+        "deprecated": deprecated,
+        "policy":     "A breaking change carries a deprecation entry here one minor release before removal. Entries name the path, the replacement, and the earliest version that removes the old surface.",
         "spec":       "https://emem.dev/spec.md",
         "served_at":  iso8601_utc(now_unix_s() as u64),
     }))
@@ -12638,7 +12664,27 @@ async fn errors() -> Json<JsonValue> {
 
 async fn tools(Query(params): Query<std::collections::HashMap<String, String>>) -> Json<JsonValue> {
     let tier = params.get("tier").map(|s| s.as_str()).unwrap_or("all");
-    let filtered = emem_mcp::tools_at_tier(tier);
+    // `name` and `q` were accepted and ignored, so a caller asking for one
+    // tool received all of them with no sign the filter was dropped.
+    let name = params
+        .get("name")
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
+    let q = params
+        .get("q")
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty());
+    let filtered: Vec<_> = emem_mcp::tools_at_tier(tier)
+        .into_iter()
+        .filter(|t| name.is_none_or(|n| t.name == n))
+        .filter(|t| {
+            q.as_deref().is_none_or(|q| {
+                t.name.to_lowercase().contains(q)
+                    || t.title.to_lowercase().contains(q)
+                    || t.description.to_lowercase().contains(q)
+            })
+        })
+        .collect();
     let descriptors: Vec<JsonValue> = filtered.iter().map(|t| json!({
         "name": t.name,
         "title": t.title,
@@ -12658,7 +12704,13 @@ async fn tools(Query(params): Query<std::collections::HashMap<String, String>>) 
             "openWorldHint":   t.open_world_hint,
         },
     })).collect();
-    Json(json!({ "tools": descriptors, "total": emem_mcp::TOOLS.len(), "showing_tier": tier }))
+    Json(json!({
+        "tools": descriptors,
+        "total": emem_mcp::TOOLS.len(),
+        "matched": filtered.len(),
+        "showing_tier": tier,
+        "filter": {"name": name, "q": q},
+    }))
 }
 
 async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
@@ -35016,7 +35068,11 @@ fn openapi_spec() -> JsonValue {
             "/v1/log/witness":       {"post":{"summary":"transparency log: submit a witness ed25519 co-signature over a (tree_size, root) tree-head claim. The responder verifies the signature AND that the root matches its own history at that size before recording it. Preimage: PreimageV1(\"emem.translog.witness.v1\"){1:u64_be tree_size, 2:root, 3:witness_pubkey}.","operationId":"emem_log_witness","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tree_size","root_b32","witness_pubkey_b32","signature_b32"],"properties":{"tree_size":{"type":"integer","minimum":1},"root_b32":{"type":"string"},"witness_pubkey_b32":{"type":"string"},"signature_b32":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
             "/v1/topics":            {"get":{"summary":"topic-grouped band + algorithm registry (single source of truth shared with `/v1/locate`'s `data_at_this_cell` block)","operationId":"emem_topics","parameters":[{"name":"q","in":"query","required":false,"schema":{"type":"string","maxLength":500},"description":"a question: returns how POST /v1/ask would route it (topics, scores, keyword or embedding), without running the ask"}],"responses":{"200":json_ok}}},
             "/v1/algorithms/{key}":  {"get":{"summary":"per-key drill-down on a single algorithm (formula, inputs, citation), pair with /v1/algorithms's catalog","operationId":"emem_explain_algorithm","parameters":[{"name":"key","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
-            "/v1/tools":             {"get":{"summary":"MCP tool descriptors with schemas","operationId":"emem_tools","responses":{"200":json_ok}}},
+            "/v1/tools":             {"get":{"summary":"MCP tool descriptors with schemas","operationId":"emem_tools","parameters":[
+                {"name":"tier","in":"query","required":false,"schema":{"type":"string","default":"all"},"description":"Tool tier, for example `core`. Default `all`."},
+                {"name":"name","in":"query","required":false,"schema":{"type":"string"},"description":"Exact tool name, for example `emem_recall`. Returns that tool only."},
+                {"name":"q","in":"query","required":false,"schema":{"type":"string"},"description":"Case-insensitive text that the tool name, title or description must contain."}
+            ],"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}":    {"get":{"summary":"recall facts at a cell","operationId":"emem_recall_cell_get","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/recall":            {"post":{"summary":"recall facts (algebra: ensure; reuses what exists, materializes what is missing)","operationId":"emem_recall","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/RecallReq"}}}},"responses":{"200":json_ok}}},
             "/v1/query_region":      {"post":{"summary":"query region","operationId":"emem_query_region","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/QueryRegionReq"}}}},"responses":{"200":json_ok}}},
@@ -35271,7 +35327,7 @@ fn openapi_spec() -> JsonValue {
         },
         "components": {
             "schemas": {
-                "RecallReq":       {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 string"},"bands":{"type":"array","items":{"type":"string"}},"tslot":{"type":"integer"},"as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound."},"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."},"scope":{"type":"object","description":"Optional multi-tenant scope {user_id, agent_id, run_id, org_id}. When at least one field is set the recall is filtered to facts written under the same four-tuple and the receipt binds the scope. Omit for the global recall.","properties":{"user_id":{"type":"string"},"agent_id":{"type":"string"},"run_id":{"type":"string"},"org_id":{"type":"string"}}},"provenance":{"type":"array","items":{"type":"string","enum":["direct_sensor","deterministic_index","estimator","attested_execution","model_output","human_curated","unclassified"]},"description":"Tamper-provenance filter: return only facts whose band's provenance class is in this list. Applied before the receipt is signed, so the receipt covers exactly the returned facts."},"deterministic":{"type":"boolean","description":"Sugar over `provenance`: true keeps only classes any third party can recompute from the cited raw source (direct_sensor, deterministic_index); false keeps the rest. Composable with `provenance` (intersection)."}}},
+                "RecallReq":       {"type":"object","additionalProperties":false,"description":"Give the location ONE way: `cell` (or its alias `cell64`), `place`, or `lat`+`lng`. When more than one is sent, `cell` wins, then `place`, then `lat`+`lng`. Unknown fields are refused with a 400.","anyOf":[{"required":["cell"]},{"required":["cell64"]},{"required":["place"]},{"required":["lat","lng"]}],"properties":{"cell":{"type":"string","description":"cell64 string, or a place name (geocoded)."},"cell64":{"type":"string","description":"Alias for `cell`. Do not send both."},"place":{"type":"string","description":"Free-text place name, an alternative to `cell`."},"lat":{"type":"number","minimum":-90,"maximum":90,"description":"WGS-84 latitude, an alternative to `cell`; paired with `lng`."},"lng":{"type":"number","minimum":-180,"maximum":180,"description":"WGS-84 longitude, paired with `lat`. `lon` is not accepted here."},"band":{"type":"string","description":"One band key, the same as bands:[band]. Merged with `bands` when both are sent."},"bands":{"type":"array","items":{"type":"string"}},"include":{"type":"array","items":{"type":"string","enum":["freshness","edges","provenance"]},"description":"Opt-in response expansion. `provenance` attaches each fact's provenance class; `freshness` attaches an advisory staleness block (not in the receipt); `edges` attaches typed temporal edges and binds their CIDs into the receipt."},"tslot":{"type":"integer"},"as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound."},"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."},"scope":{"type":"object","description":"Optional multi-tenant scope {user_id, agent_id, run_id, org_id}. When at least one field is set the recall is filtered to facts written under the same four-tuple and the receipt binds the scope. Omit for the global recall.","properties":{"user_id":{"type":"string"},"agent_id":{"type":"string"},"run_id":{"type":"string"},"org_id":{"type":"string"}}},"provenance":{"type":"array","items":{"type":"string","enum":["direct_sensor","deterministic_index","estimator","attested_execution","model_output","human_curated","unclassified"]},"description":"Tamper-provenance filter: return only facts whose band's provenance class is in this list. Applied before the receipt is signed, so the receipt covers exactly the returned facts."},"deterministic":{"type":"boolean","description":"Sugar over `provenance`: true keeps only classes any third party can recompute from the cited raw source (direct_sensor, deterministic_index); false keeps the rest. Composable with `provenance` (intersection)."}}},
                 "QueryRegionReq":  {"type":"object","description":"Either `geometry` (cell64 or 'cells:c1,c2,...') or `bbox` ([west, south, east, north] WGS-84 degrees) is required. When `bbox` is given the responder samples it to up to `max_cells` cells (default 256, max 1024) and runs the canonical primitive over the cell list.","properties":{"geometry":{"type":"string","description":"cell64 or `cells:c1,c2,...`"},"bbox":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"[west, south, east, north] in WGS-84 degrees (longitude first)"},"max_cells":{"type":"integer","minimum":1,"maximum":1024,"default":256,"description":"Cap on cells sampled from `bbox`. Ignored when `geometry` is supplied."},"bands":{"type":"array","items":{"type":"string"}},"agg":{"type":"string","enum":["mean","median","p90","vector_centroid"]}}},
                 "CompareReq":      {"type":"object","required":["a","b"],"properties":{"a":{"type":"string"},"b":{"type":"string"},"family":{"type":"string"}}},
                 "FindSimilarReq":  {"type":"object","required":["key"],"properties":{"key":{"type":"string","description":"cell64 (look up that cell's vector) or 'inline:[x,y,...]' literal vector"},"k":{"type":"integer","minimum":1,"maximum":1000,"default":10},"band":{"type":"string","default":"geotessera","description":"Vector band to scan. Default geotessera (128-D, int8+scale upstream → decoded f32 over the wire). Pass `geotessera.bin128` (or any band's `.bin128` sibling, plus `mode:\"hamming\"`) for the binary fast path."},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"],"default":"cosine","description":"Scoring mode. `cosine` (default) is fp32 over the full vector. `hamming` is sign-bit popcount over the binary sibling band, ~1000× faster scan, ~65% recall@10 alone. `hamming_then_rerank` triages with Hamming then re-ranks the top 4·k by cosine, matches cosine precision at ~16× less work."}}},
@@ -35279,7 +35335,7 @@ fn openapi_spec() -> JsonValue {
                 "TrajectoryReq":   {"type":"object","required":["band"],"properties":{"cell":{"type":"string","description":"cell64 or place name; or give place, or lat+lng"},"cell64":{"type":"string"},"place":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"[start_tslot, end_tslot]; or give from_date+to_date"},"from_date":{"type":"string","description":"YYYY-MM-DD"},"to_date":{"type":"string","description":"YYYY-MM-DD"},"as_of_tslot":{"type":"integer","minimum":0},"as_of_signed_at":{"type":"string","format":"date-time"},"scope":{"type":"object"}}},
                 "VerifyReq":       {"type":"object","required":["claim","cell"],"properties":{"cell":{"type":"string"},"mode":{"type":"string","enum":["fast","resolve"]},"claim":{"$ref":"#/components/schemas/Claim"}}},
                 "Claim":           {"type":"object","required":["band","op","value"],"properties":{"band":{"type":"string","description":"Band key (e.g. `indices.ndvi`, `copdem30m.elevation_mean`)"},"op":{"type":"string","enum":["eq","ne","lt","le","gt","ge","in","ni","exists","absent"],"description":"Comparison or membership operator"},"value":{"description":"Right-hand value, band-typed (number for scalar bands, array for vector bands, set for in/ni). Required even for exists/absent where it is ignored."},"tslot":{"type":"integer","description":"Specific tslot; one of `tslot` or `window` MUST be set"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Inclusive [start, end] u64 Unix-epoch range"},"agg":{"type":"string","enum":["any","all","mean","min","max"],"description":"Aggregation over `window`"}}},
-                "AskReq":          {"type":"object","required":["q"],"properties":{"q":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"model":{"type":"string","description":"Optional. Compose an extra prose answer with a named model, returned as `model_answer` BESIDE the deterministic `answer` rather than instead of it. `answer` never calls a model, so every number in it traces to a fact_cid; `model_answer` carries provenance.class = model_output. Name by base_model (nvidia/Cosmos3-Edge), by family (cosmos3_edge, gemma), or by any fragment that picks out exactly one of them (cosmos). A fragment matching several is refused and names them; an unroutable name is refused with the routable list; a routable model whose service is not answering is refused as busy or down, never substituted."},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false},"verbose":{"type":"boolean","default":false,"description":"When false (default), trim per-algorithm formulas + per-fact band_metadata + long _explanation prose. The signed receipt stays intact in either mode. The MCP projection of an answer is small (about 7 KB); this REST envelope is larger."}}},
+                "AskReq":          {"type":"object","description":"Send the question as `q`, or as its alias `question` or `query`. Send only one of the three.","anyOf":[{"required":["q"]},{"required":["question"]},{"required":["query"]}],"properties":{"q":{"type":"string","description":"The natural-language question."},"question":{"type":"string","description":"Alias for `q`."},"query":{"type":"string","description":"Alias for `q`."},"place":{"type":"string","description":"Free-text place name. Optional: the place can also be inside `q`."},"cell":{"type":"string","description":"cell64 string, an alternative to `place`."},"include":{"type":"array","items":{"type":"string","enum":["band_observations","algorithm_outcomes","facts_full","temporal_composition","scene","inventory","reasoning","algorithms"]},"description":"Opt-in sections of the REST envelope. Ignored when `verbose` is true."},"model":{"type":"string","description":"Optional. Compose an extra prose answer with a named model, returned as `model_answer` BESIDE the deterministic `answer` rather than instead of it. `answer` never calls a model, so every number in it traces to a fact_cid; `model_answer` carries provenance.class = model_output. Name by base_model (nvidia/Cosmos3-Edge), by family (cosmos3_edge, gemma), or by any fragment that picks out exactly one of them (cosmos). A fragment matching several is refused and names them; an unroutable name is refused with the routable list; a routable model whose service is not answering is refused as busy or down, never substituted."},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false},"verbose":{"type":"boolean","default":false,"description":"When false (default), trim per-algorithm formulas + per-fact band_metadata + long _explanation prose. The signed receipt stays intact in either mode. The MCP projection of an answer is small (about 7 KB); this REST envelope is larger."}}},
                 "HuntReq":         {"type":"object","required":["event"],"properties":{
                     "event":{"type":"string","enum":["algal_bloom","deforestation","flood_extent","wildfire","urban_heat_island","methane_plume","landslide","drought","soil_salinity","crop_stress","water_turbidity","oil_slick"],"description":"Event keyword. Maps to one registered detection algorithm. Aliases accepted (case-insensitive): bloom/algae_bloom/chlorophyll_bloom → algal_bloom; forest_loss/tree_loss → deforestation; flood/inundation/flooded_fields → flood_extent; fire/bushfire/burn_severity → wildfire; uhi/heat_island/heat → urban_heat_island; methane/ghg_leak/super_emitter → methane_plume; mudslide/debris_flow/slope_failure → landslide; dry_spell/rainfall_deficit → drought; salinity → soil_salinity; crop_damage/stressed_crops → crop_stress; turbidity/sediment_plume → water_turbidity; oil_spill → oil_slick. The classifier in /v1/ask accepts the same set on free-text input."},
                     "region":{"type":"string","description":"Free-text region. Resolved through the same geocoder as /v1/locate. REQUIRED unless `polygon_bbox` is provided."},
@@ -37252,12 +37308,42 @@ struct LocateBody {
     req: LocateReq,
     #[serde(default)]
     strict: bool,
+    /// Not a locate field. Read only so that a caller who sends a question
+    /// here is told where questions go; it was dropped with a 200 before.
+    #[serde(default)]
+    question: Option<String>,
+}
+
+/// A whole question is not a place name: geocoding "what is the NDVI near
+/// Mount Fuji?" matches whatever the geocoder can name in it. So `question`
+/// is refused with the fields locate does take, instead of being ignored.
+fn locate_refuse_question(req: &LocateReq, question: Option<&str>) -> Result<(), ApiError> {
+    let has_location = req.place.is_some() || (req.lat.is_some() && req.lng.is_some());
+    if has_location || question.is_none() {
+        return Ok(());
+    }
+    Err(ApiError(
+        StatusCode::BAD_REQUEST,
+        ErrorBody {
+            code: ErrorCode::InvalidArgument,
+            message: "locate takes a place, not a question: pass `place` (aliases `q`, \
+                      `query`, `name`) or `lat`+`lng`. To ask a question, POST /v1/ask \
+                      {\"q\": \"...\"}."
+                .into(),
+            details: Some(json!({
+                "unsupported_field": "question",
+                "accepted_fields": ["place", "q", "query", "name", "lat", "lng", "lon", "strict"],
+                "ask": "/v1/ask",
+            })),
+        },
+    ))
 }
 
 async fn post_locate(
     State(s): State<AppState>,
     Json(body): Json<LocateBody>,
 ) -> Result<Json<JsonValue>, ApiError> {
+    locate_refuse_question(&body.req, body.question.as_deref())?;
     let Json(mut v) = locate_inner(body.req).await?;
     if body.strict {
         strict_locate_check(&v)?;
@@ -51121,7 +51207,9 @@ async fn get_locate(
     let strict = q
         .get("strict")
         .is_some_and(|s| matches!(s.as_str(), "1" | "true" | "yes"));
-    let Json(mut v) = locate_inner(LocateReq { lat, lng, place }).await?;
+    let req = LocateReq { lat, lng, place };
+    locate_refuse_question(&req, q.get("question").map(String::as_str))?;
+    let Json(mut v) = locate_inner(req).await?;
     if strict {
         strict_locate_check(&v)?;
     }
@@ -98673,6 +98761,70 @@ mod tests {
         assert_eq!(alts[1]["rank"], 1);
     }
 
+    #[test]
+    fn deprecated_tool_names_are_hidden_and_their_replacements_listed() {
+        for (old, new) in DEPRECATED_MCP_TOOL_NAMES {
+            assert!(emem_mcp::TOOLS.iter().all(|t| t.name != old), "{old}");
+            assert!(emem_mcp::TOOLS.iter().any(|t| t.name == new), "{new}");
+        }
+    }
+
+    #[tokio::test]
+    async fn get_tools_applies_name_and_q() {
+        let call = |pairs: &[(&str, &str)]| {
+            let map: std::collections::HashMap<String, String> = pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            tools(Query(map))
+        };
+        let all = call(&[]).await.0;
+        assert_eq!(all["matched"], json!(emem_mcp::TOOLS.len()));
+
+        let one = call(&[("name", "emem_recall")]).await.0;
+        assert_eq!(one["matched"], 1);
+        assert_eq!(one["tools"][0]["name"], "emem_recall");
+
+        let some = call(&[("q", "RECALL")]).await.0;
+        let n = some["matched"].as_u64().unwrap() as usize;
+        assert!(n >= 1 && n < emem_mcp::TOOLS.len(), "{n}");
+        assert_eq!(some["tools"].as_array().unwrap().len(), n);
+
+        let none = call(&[("name", "no_such_tool")]).await.0;
+        assert_eq!(none["matched"], 0);
+    }
+
+    #[test]
+    fn a_question_sent_to_locate_is_refused_with_the_accepted_fields() {
+        let body: LocateBody =
+            serde_json::from_value(json!({"question": "what is the NDVI near Mount Fuji?"}))
+                .unwrap();
+        let err = locate_refuse_question(&body.req, body.question.as_deref())
+            .expect_err("a question is not a place");
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert!(err.1.message.contains("/v1/ask"), "{}", err.1.message);
+        let details = err.1.details.expect("details");
+        assert_eq!(details["unsupported_field"], "question");
+        assert!(details["accepted_fields"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("place")));
+
+        // A real location alongside it wins, and no question is no refusal:
+        // the empty body keeps its documented needs_location envelope.
+        for ok in [
+            json!({"question": "x", "place": "Mount Fuji"}),
+            json!({"question": "x", "lat": 35.36, "lng": 138.73}),
+            json!({}),
+        ] {
+            let body: LocateBody = serde_json::from_value(ok.clone()).unwrap();
+            assert!(
+                locate_refuse_question(&body.req, body.question.as_deref()).is_ok(),
+                "{ok}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn an_overlong_place_is_refused_at_once_without_echoing_it() {
         let junk = "x".repeat(4000);
@@ -106941,6 +107093,62 @@ mod cbor_scalar_tests {
     /// `scope` is included deliberately — it is the only advertised field
     /// with a nested type, and therefore the one most likely to break under
     /// `deny_unknown_fields` if its shape ever drifts.
+    /// /openapi.json said RecallReq requires `cell` and listed no `place`,
+    /// `lat`, `lng`, `cell64`, `band` or `include`, which the handler takes;
+    /// AskReq lacked the `question`/`query` aliases. A client generated from
+    /// the spec could not send what the server reads. Pin the two together.
+    #[test]
+    fn openapi_recall_and_ask_bodies_match_their_deserialisers() {
+        let spec = openapi_spec();
+        let recall = &spec["components"]["schemas"]["RecallReq"];
+        let props = recall["properties"]
+            .as_object()
+            .expect("RecallReq properties");
+        let mcp: JsonValue = serde_json::from_str(emem_mcp::SCHEMA_RECALL).unwrap();
+        for field in mcp["properties"].as_object().unwrap().keys() {
+            assert!(
+                props.contains_key(field),
+                "RecallReq lacks `{field}`, which the handler reads"
+            );
+        }
+        for field in props.keys() {
+            let one = serde_json::json!({ field.as_str(): sample_for(field) });
+            assert!(
+                serde_json::from_value::<RecallApiReq>(one).is_ok(),
+                "openapi RecallReq advertises `{field}` but RecallApiReq refuses it"
+            );
+        }
+        assert!(
+            recall.get("required").is_none(),
+            "no single field is required"
+        );
+        for alt in recall["anyOf"].as_array().expect("anyOf") {
+            let body: serde_json::Map<String, JsonValue> = alt["required"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|k| {
+                    let k = k.as_str().unwrap();
+                    (k.to_string(), sample_for(k))
+                })
+                .collect();
+            let req: RecallReq = serde_json::from_value::<RecallApiReq>(JsonValue::Object(body))
+                .unwrap()
+                .into();
+            assert!(!req.cell.is_empty(), "{alt} must name a location");
+        }
+
+        let ask = &spec["components"]["schemas"]["AskReq"];
+        for alt in ask["anyOf"].as_array().expect("AskReq anyOf") {
+            let field = alt["required"][0].as_str().unwrap();
+            assert!(ask["properties"].get(field).is_some(), "{field}");
+            let parsed: AskReq =
+                serde_json::from_value(serde_json::json!({ field: "ndvi in Pune?" }))
+                    .unwrap_or_else(|e| panic!("AskReq refuses `{field}`: {e}"));
+            assert_eq!(parsed.q, "ndvi in Pune?");
+        }
+    }
+
     #[test]
     fn every_advertised_recall_field_still_parses() {
         let body = serde_json::json!({
