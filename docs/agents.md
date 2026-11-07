@@ -763,8 +763,8 @@ emem has two layers. Both use the same signature and receipt.
   `episodic`, `semantic`, `procedural`, `resource` or `vault`. The default
   is `resource`. A `core` note shows first in a `memory_view` folder list.
   `episodic`, `semantic`, `procedural` and `resource` come from the CoALA
-  taxonomy. A `vault` note is stored encrypted and search does not index it;
-  see [The kinds](memory.md#the-kinds). A path under
+  taxonomy. The responder keeps a `vault` note encrypted and search does
+  not index it; see [The kinds](memory.md#the-kinds). A path under
   `/memories/by_attester/<pubkey8>/` needs an Ed25519 signature from that key.
   `<pubkey8>` is the first eight characters of the base32 public key.
   `emem_memory_search` searches note text with BGE-768 vectors in a LanceDB
