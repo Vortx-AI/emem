@@ -966,12 +966,12 @@ the hits. The response has no receipt and signs nothing.
 
 | Field | Default | What it does |
 |---|---|---|
-| `q` | required | the query text. The responder also accepts `query` and `question`. Empty text gives 400 `invalid_argument`. |
+| `q` | required | the query text. The responder also accepts `query` and `question`. Empty text, or text of only spaces, gives 400 `invalid_argument`. |
 | `k` | 10 | the number of hits. The responder clamps it to 1..100. |
-| `mode` | `dense` | `lexical` selects BM25. Any other value runs `dense`. |
+| `mode` | `dense` | `lexical` selects BM25. The match is case-sensitive, so `LEXICAL` runs `dense`. Any other value runs `dense`. |
 | `kind` | none | keep only notes of this kind |
 | `path_prefix` | none | keep only paths that start with this text |
-| `attester_pubkey_b32` | none | keep only notes that this key wrote |
+| `attester_pubkey_b32` | none | keep only notes that this key wrote. The responder compares the key in the store, not the key in the index row. |
 | `include_superseded` | `false` | also return superseded notes |
 
 The responder removes superseded notes after ranking. To keep `k` current notes,
@@ -985,13 +985,14 @@ The top level has `schema` (`emem.memory_search.v1`), `hits`, `via`,
 `query_embedding_dim` and `responder_pubkey_b32`. `corpus_size` counts
 the files that the answering path counted. For `lance_*` it is the
 index. For `bm25_lexical` and `brute_force_fallback` it is the store.
+For `lance_chunks` it is the number of files, not the number of chunk rows.
 Each hit has these fields:
 
 | Field | Meaning |
 |---|---|
 | `path`, `url` | the note path, and the URL that serves the whole note |
 | `file_cid` | the content id of the note when the responder indexed it |
-| `kind`, `signed_at`, `attester_pubkey_b32` | read from the store at query time, not from the index row |
+| `kind`, `signed_at`, `attester_pubkey_b32` | read from the store at query time, not from the index row. A note with no author key has no `attester_pubkey_b32` field. |
 | `similarity` | `dense`: cosine in 0..1. `lexical`: the BM25 score divided by the top score, so the first hit is 1.0. |
 | `snippet` | an extract of the note (see below) |
 | `superseded_by` | the `file_cid` that replaced this note, or `null` |
@@ -1005,7 +1006,9 @@ and `query_embedding_dim` is 0.
 On 7 November 2026, the query `NDVI drop after harvest` with `k` 2 on
 emem.dev gave `via` `lance_chunks`, `corpus_size` 5,437 and
 similarities 0.719 and 0.713. The same query in `lexical` mode gave
-`via` `bm25_lexical` and similarities 1.0 and 0.987.
+`via` `bm25_lexical` and similarities 1.0 and 0.987. The second
+lexical hit had no `attester_pubkey_b32` field. With `mode` `LEXICAL`,
+the query gave `via` `lance_chunks`, the same as `dense`.
 
 ### Indexes
 
