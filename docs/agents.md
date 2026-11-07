@@ -1127,8 +1127,9 @@ bytes. `edges/recall` takes `as_of_tslot` only. `diff`, `compare` and
 showed the bounds only for recall, `recall_polygon` and `trajectory`. The MCP
 schemas showed them for the first seven primitives. A GET of `/mcp/full`
 lists names and descriptions only. A `tools/list` call to `/mcp/full`
-returns each schema, 12 tools to a page (follow `nextCursor`). To get one
-schema, call `emem_tools` with `{"name": "emem_state"}`.
+returns each schema. On 7 November 2026 it took 9 pages; follow
+`nextCursor`. To get one schema, call `emem_tools` with
+`{"name": "emem_state"}`.
 No published schema shows the bounds in a `memory_bundle` triple
 (`BundleTriple` in `crates/emem-primitives/src/memory_bundle.rs`).
 
