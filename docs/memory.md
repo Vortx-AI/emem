@@ -237,10 +237,19 @@ Claude Code. Then the agent does these steps:
 3. Call `signer_sign_write` with `verb` (`create`), `path`, `text`,
    `base` (`absent`) and, from step 2, `expected_digest_hex`. The signer
    builds the digest itself. If it is not equal to `expected_digest_hex`,
-   the signer signs nothing.
+   the signer signs nothing. The reply holds `pubkey_b32`, `sig_b32`
+   and `digest_hex`.
 4. Call `emem_memory_create` again with the same `path` and `file_text`,
    and with `attester` set to the `pubkey_b32` and `sig_b32` from step 3.
    This is the write.
+
+On 7 November 2026 steps 1 to 3 ran with the key from Step 1. The
+signer gave digest `911abc82...`, the same as `sign_note.py`. Step 4
+did not run.
+
+If the optional `signing_role` setting contains the word `witness`, the
+signer refuses a path without `/witness` in it. To sign that path with
+this key, add `confirm_role: true` to the call.
 
 `signer_sign_write` signs `create`, `str_replace` and `insert`. For
 `str_replace` and `insert`, `text` is the whole note after the edit,
