@@ -143,11 +143,13 @@ looks low against all hours, but the street is not unusually empty.
 
 The verdict can be `null`. This occurs when `percentile_ci` crosses a band
 boundary, so the reading fits in no one band. Then `why_no_verdict` gives the
-interval and `n`. On 7 November 2026, the call above returned `verdict: null`
-and `comparison_to_prefer: null`. The interval was [0.666, 0.799] over 166 past
-readings for this hour. `bounded_claim` still said "above this camera's
-median". In the same response, `people` had its own verdict, "much more crowded
-than usual", because its interval fit inside one band.
+interval and `n`. On 7 November 2026 at 01:34 UTC, the call above returned
+`verdict: null` and `comparison_to_prefer: null`. The interval was
+[0.666, 0.799] over 166 past readings for this hour. `bounded_claim` still said
+"above this camera's median". In the same response, `people` had its own
+verdict, "much more crowded than usual", because its interval fit inside one
+band. At 08:19 UTC, the same call returned `verdict: "about usual"`. Each call
+counts a new frame, so expect a different verdict on each call.
 
 Use these fields to judge how strong the verdict is:
 
@@ -287,8 +289,9 @@ curl -s -X POST https://emem.dev/v1/trajectory \
 
 This is the cell that `POST /v1/locate` returns for "Bengaluru", at 12.97 N,
 77.59 E. The satellite example uses the same cell. The window is a pair of
-Unix epoch-day slots. On 7 November 2026, the `series`
-had 25 points. Each point has its own `fact_cid` and `token`. Every point links
+Unix epoch-day slots: 20325 is 25 August 2025 and 20690 is 25 August 2026. On
+7 November 2026, the `series` had 25 points, from slot 20362 (1 October 2025)
+to slot 20675 (10 August 2026). Each point has its own `fact_cid` and `token`. Every point links
 back to the signed observation that it came from. The response also has one
 `receipt`, and its `fact_cids` list holds the ids of all 25 points. A second
 machine can check any point again.
