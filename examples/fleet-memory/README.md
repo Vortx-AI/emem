@@ -100,8 +100,9 @@ entry (`osm: relation/1411107`), so that is one way to choose.
   `os_trace_required` (`GET /v1/substrates`, 7 November 2026). The responder
   has a device write path, `POST /v1/attest_traced`, for enrolled device keys.
   The enrolment route, `POST /v1/enroll_attested`, ships. On 7 November 2026,
-  `GET /v1/device_platforms` lists one admitted anchor, `operator.vortx.v1`,
-  on the `generic.linux-host` platform. That platform serves the execution,
+  `GET /v1/device_platforms` lists 17 platforms, all with status `candidate`.
+  Only one trust anchor is not provisional: `operator.vortx.v1`, on the
+  `generic.linux-host` platform. That platform serves the execution,
   database, codebase and model classes. It does not serve the robot class.
   So no robot can enrol on emem.dev today, and this example does not use
   this path. Step 6 in
