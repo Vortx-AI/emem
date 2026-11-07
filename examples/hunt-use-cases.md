@@ -183,7 +183,7 @@ How to cite it: quote each hotspot `fact_cid` with its algorithm key. Keep the t
 ## Limits
 
 - The ranking uses one input band, not the full formula. Hotspots are candidates.
-- The hunt samples a uniform grid. Small features can fall between samples. For denser sampling, use `POST /v1/recall_polygon` (the `recipe.fan_out` field gives the call).
+- The hunt samples a uniform grid. Small features can fall between samples. For denser sampling, use `POST /v1/recall_polygon` (the `recipe.fan_out` field gives the call). In that call, `cells_per_sqkm` sets the density, for example `4.0` for about 500 m between cells. `drill_on_water: true` does a coarse scan, then samples more cells near cells with surface water.
 - A hunt over a large region still samples 64 cells or fewer by default. For more detail, split the region and pass each part as a `polygon_bbox`. On 7 November 2026 this bbox around Ludhiana sampled 9 cells and returned 8 hotspots:
 
   ```bash
