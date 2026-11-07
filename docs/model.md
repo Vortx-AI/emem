@@ -224,7 +224,7 @@ applications compute over the memory, and they also read from it.
 | `merge(O1..On)` | `POST /v1/memory_bundle`: one signed envelope, one name to cite for the set |
 | `verify(O)` | `POST /v1/verify_receipt`, or offline from the receipt bytes |
 | `trace(O)` | in the object: `derivation.fn_key` resolves in the algorithm registry to a published formula and citation. `sources[]` carry upstream ids, content hashes and capture times. Edges continue the chain across observations |
-| `competing(M, a)` | `POST /v1/memory_contradictions`: a disagreement score for each band kind (normalised spread, 1 - cosine, mode share); emem keeps the disagreement as evidence and never averages it away |
+| `competing(M, a)` | `POST /v1/memory_contradictions` gives a disagreement score for each value kind. A scalar scores its spread divided by the band range. A vector scores 1 minus the mean pairwise cosine. A class scores 1 minus the share of the most common value. emem keeps the disagreement as evidence and never averages it away |
 | `explain(O)` | the receipt and the registry formula are the signed explanation. `/v1/ask` returns prose over signed reads. Its receipt signs the fact cids that it read, not the prose |
 | `evolve(M)` | attest; a later observation `supersedes` an older one and does not erase it; the refinement loop records `disagrees_with` edges from contradictions |
 | `resolve(name)` | token dereference: `emem:fact:` gives byte-identical bytes, `emem:bundle:` gives its signed envelope, `emem:entity:` gives the object record |
