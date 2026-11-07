@@ -4753,15 +4753,23 @@ async fn serve_405(req: axum::http::Request<axum::body::Body>) -> Response {
             })
             .unwrap_or_default()
     };
+    // A GET-only path must not be told to use POST: DELETE /v1/errors was
+    // answered "call it with POST" with a POST curl on a route that only
+    // answers GET.
     let primary = allowed
         .iter()
         .find(|m| *m != "GET" && *m != "HEAD" && *m != "OPTIONS")
+        .or_else(|| allowed.iter().find(|m| *m == "GET"))
         .cloned()
         .unwrap_or_else(|| "POST".to_string());
     let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
-    let example = format!(
-        "curl -s -X {primary} {origin}{path} -H 'content-type: application/json' -d '{{...}}'"
-    );
+    let example = if primary == "GET" {
+        format!("curl -s {origin}{path}")
+    } else {
+        format!(
+            "curl -s -X {primary} {origin}{path} -H 'content-type: application/json' -d '{{...}}'"
+        )
+    };
 
     let accept = req
         .headers()
@@ -35422,7 +35430,7 @@ fn openapi_spec() -> JsonValue {
                 "MaterializeNote": {"type":"object","description":"One entry in the response's `materialize_notes[]`, recording what the lazy materializer did during this call. status:\"materialized\" means a signed fact was minted and persisted (a Primary observation OR a confirmed, evidence-backed Absence - both are signed and citeable by fact_cid). status:\"skipped\" means nothing was signed: `reason_class` says why (transient `timeout`/`upstream_error`, retryable; or structural `unknown_band`/`no_materializer`, not retryable here) and `absence` is always false, because a skip is 'unknown', never a confirmed absence.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"ok":{"type":"boolean"},"status":{"type":"string","enum":["materialized","skipped"]},"fact_cid":{"type":"string"},"reason":{"type":"string"},"reason_class":{"type":"string","enum":["timeout","upstream_error","upstream_gone","unknown_band","no_materializer","deferred","retired","not_geographic","no_data"]},"retryable":{"type":"boolean"},"absence":{"type":"boolean","description":"Always false on a skip; a confirmed absence is a signed fact with status:materialized, not a skip."},"latency_ms":{"type":"number"}}},
                 "SignedResponse":  {"type":"object","description":"Standard recall envelope. `facts` is the array of signed facts touched by this call (subset of `bands_already_attested_at_cell` after auto-materialization). `receipt` is the responder's signature over the call. `materialize_notes` lists any lazy-materializer activity that happened to satisfy the request, empty for purely warm reads.","required":["facts","receipt"],"properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"receipt":{"$ref":"#/components/schemas/Receipt"},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"},"description":"Bands the cell already has facts for, regardless of whether they were requested. Useful for follow-up calls without a second /v1/coverage_matrix hit."},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"caveats":{"type":"array","items":{"type":"string"},"description":"Plain-language constraints the caller should fold into their answer (grid resolution, revisit cadence, sample-size warnings)."}}},
                 "TrajectoryResp":  {"type":"object","description":"Response of /v1/trajectory. `series` has one point per tempo slot in the window that holds a signed fact, oldest first. Each point carries its `fact_cid`, its `emem:fact:` token, the civil date its slot starts on, and the value. `receipt` signs the call. An empty `series` means emem holds no signed fact there yet, not that nothing was observed. For a band with history, an empty read without as_of or scope also carries `fill.call`: the exact /v1/backfill body for the window read.","required":["series","receipt"],"properties":{"series":{"type":"array","items":{"type":"object","required":["tslot","value","fact_cid"],"properties":{"tslot":{"type":"integer"},"value":{"description":"a number for a scalar band, an array for a vector band"},"fact_cid":{"type":"string"},"token":{"type":"string"},"slot_start":{"type":"string","description":"YYYY-MM-DD the slot starts on; the fact carries the capture time"}}}},"receipt":{"$ref":"#/components/schemas/Receipt"},"fill":{"type":"object","description":"Only on an empty, unpinned, unscoped read of a band with history.","properties":{"why":{"type":"string"},"call":{"type":"object","properties":{"method":{"type":"string"},"path":{"type":"string"},"mcp_tool":{"type":"string"},"body":{"type":"object"}}},"then":{"type":"string"}}},"unknown_band":{"type":"string"},"warning":{"type":"string"}}},
-                "LocateResp":      {"type":"object","description":"Response of /v1/locate. `cell64` is the canonical handle for the resolved place; `polygon_bbox` is present when the geocoder found an extent (city / park / lake / country / region), absent for point features. `via` declares which layer of the seven-tier embedded cascade answered, falling back to network (Photon → Nominatim) only when no embedded layer matched.","required":["cell64","via"],"properties":{"cell64":{"$ref":"#/components/schemas/Cell64"},"label":{"type":"string","description":"Reader-friendly place label."},"lat":{"type":"number"},"lng":{"type":"number"},"polygon_bbox":{"type":"object","description":"Present when the place has spatial extent.","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"},"source":{"type":"string","enum":["wide_bbox_table","country_table","admin1_table","admin2_table","admin3_table","nominatim_boundingbox","overture_division_area","centre_cell_bbox"],"description":"`overture_division_area` is authoritative (conflated OSM+Esri+Meta+TomTom polygon), preferred whenever Overture has a row for the entity. `country_table` / `admin1_table` / `admin2_table` / `admin3_table` are cities1000-aggregated approximations used when Overture is unreachable. `wide_bbox_table` is the curated wide-feature override for Sahara/Amazon/Himalayas etc."}}},"polygon_geojson":{"type":"object","description":"True OSM/Overture boundary as GeoJSON `Polygon` or `MultiPolygon` when an admin tier resolved. Pass back to /v1/recall_polygon to mask the cell grid against the boundary."},"polygon_sample_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Up to 64 representative cells covering the polygon, pass to /v1/recall_many or /v1/recall_polygon."},"neighborhood_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Eight neighbouring cell64s of the resolved centre cell."},"via":{"type":"string","enum":["direct_latlng","wide_bbox_table","country","admin1","admin2","admin3","embedded","pois","cache","photon","nominatim"],"description":"Layer of the seven-tier locate cascade that answered. `country`/`admin1`/`admin2`/`admin3` = GeoNames hierarchical-admin tables (in-process); `embedded` = cities1000 populated places (in-process); `pois` = curated GeoNames well-known landmarks (peaks/lakes/parks/airports/monuments, in-process); `wide_bbox_table` = curated wide regions (in-process); `cache` = sled hot cache; `photon`/`nominatim` = network fallback."},"overture_division":{"type":"object","description":"Overture-divisions provenance, present when the cascade pulled an authoritative admin polygon. `division_id` is the GERS ID (globally stable, citable in receipts). `subtype` declares the admin level (country/region/county/locality/etc). `country` is the ISO 3166-1 alpha-2 owner.","properties":{"division_id":{"type":"string"},"subtype":{"type":"string","enum":["country","region","county","localadmin","locality","borough","macrohood","neighborhood","microhood","dependency"]},"country":{"type":"string","description":"ISO 3166-1 alpha-2 (e.g. `BD`, `US`)."},"schema_url":{"type":"string"}}},"localized_names":{"type":"object","additionalProperties":{"type":"string"},"description":"Map of ISO 639 language tag (`en`, `bn`, `zh-Hans`, `ar`, …) to localized name, when the resolved entity is in Overture and carries `names.common`. Lets an agent surface the user's-language label without a second geocoder call."},"data_at_this_cell":{"type":"object","description":"Topic-grouped inventory of recallable bands and applicable algorithms at this cell. Lets the caller chain into /v1/recall without a second introspection round-trip."}}},
+                "LocateResp":      {"type":"object","description":"Response of /v1/locate. `cell64` is the canonical handle for the resolved place; `polygon_bbox` is present when the geocoder found an extent (city / park / lake / country / region), absent for point features. `via` declares which layer of the seven-tier embedded cascade answered, falling back to network (Photon → Nominatim) only when no embedded layer matched.","required":["cell64","via"],"properties":{"cell64":{"$ref":"#/components/schemas/Cell64"},"label":{"type":"string","description":"Reader-friendly place label."},"lat":{"type":"number"},"lng":{"type":"number"},"polygon_bbox":{"type":"object","description":"Present when the place has spatial extent.","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"},"source":{"type":"string","enum":["wide_bbox_table","country_table","admin1_table","admin2_table","admin3_table","nominatim_boundingbox","overture_division_area","centre_cell_bbox"],"description":"`overture_division_area` is authoritative (conflated OSM+Esri+Meta+TomTom polygon), preferred whenever Overture has a row for the entity. `country_table` / `admin1_table` / `admin2_table` / `admin3_table` are cities1000-aggregated approximations used when Overture is unreachable. `wide_bbox_table` is the curated wide-feature override for Sahara/Amazon/Himalayas etc."}}},"polygon_geojson":{"type":"object","description":"True OSM/Overture boundary as GeoJSON `Polygon` or `MultiPolygon` when an admin tier resolved. Pass back to /v1/recall_polygon to mask the cell grid against the boundary."},"polygon_sample_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Up to 64 representative cells covering the polygon, pass to /v1/recall_many or /v1/recall_polygon."},"neighborhood_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Eight neighbouring cell64s of the resolved centre cell."},"via":{"type":"string","enum":["direct","wide_bbox_table","country","admin1","geonames","admin2","admin3","embedded","pois","cache","overture_admin_fallback","photon","nominatim","wikidata"],"description":"Layer of the locate cascade that answered. `direct` = the caller sent lat/lng; `country`/`admin1`/`admin2`/`admin3` = GeoNames hierarchical-admin tables (in-process); `embedded`/`geonames` = cities1000 populated places (in-process); `pois` = curated GeoNames well-known landmarks (peaks/lakes/parks/airports/monuments, in-process); `wide_bbox_table` = curated wide regions (in-process); `cache` = sled hot cache; `overture_admin_fallback` = an Overture division polygon matched when the tables did not; `photon`/`nominatim` = network fallback; `wikidata` = a Wikidata prominence decision replaced the cascade's centre with a more prominent namesake."},"overture_division":{"type":"object","description":"Overture-divisions provenance, present when the cascade pulled an authoritative admin polygon. `division_id` is the GERS ID (globally stable, citable in receipts). `subtype` declares the admin level (country/region/county/locality/etc). `country` is the ISO 3166-1 alpha-2 owner.","properties":{"division_id":{"type":"string"},"subtype":{"type":"string","enum":["country","region","county","localadmin","locality","borough","macrohood","neighborhood","microhood","dependency"]},"country":{"type":"string","description":"ISO 3166-1 alpha-2 (e.g. `BD`, `US`)."},"schema_url":{"type":"string"}}},"localized_names":{"type":"object","additionalProperties":{"type":"string"},"description":"Map of ISO 639 language tag (`en`, `bn`, `zh-Hans`, `ar`, …) to localized name, when the resolved entity is in Overture and carries `names.common`. Lets an agent surface the user's-language label without a second geocoder call."},"data_at_this_cell":{"type":"object","description":"Topic-grouped inventory of recallable bands and applicable algorithms at this cell. Lets the caller chain into /v1/recall without a second introspection round-trip."}}},
                 "FindSimilarResp": {"type":"object","description":"Response of /v1/find_similar. `neighbors` is the top-k list ordered by similarity (descending). `mode` echoes the scoring choice (`cosine` / `hamming` / `hamming_then_rerank`).","required":["neighbors","receipt"],"properties":{"neighbors":{"type":"array","items":{"type":"object","required":["cell","score","lat","lng"],"description":"Stable neighbor schema: cell/score/lat/lng/place_label_cached are always present. lat/lng are explicit null for inline-vector queries or undecodable cells (no honest centroid), never absent, never fabricated.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"score":{"type":"number","description":"Cosine similarity in [-1, 1] for `cosine` / `hamming_then_rerank`; normalised Hamming agreement in [0, 1] for `hamming`."},"lat":{"type":["number","null"],"description":"Centroid latitude decoded from `cell`; null when the cell has no honest centroid (inline vector / undecodable)."},"lng":{"type":["number","null"],"description":"Centroid longitude decoded from `cell`; null when unknown (see `lat`)."},"place_label_cached":{"type":["string","null"],"description":"Best-effort gazetteer label (~25 km gate); null when the cell isn't near a known anchor."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"label":{"type":"string","description":"Reader-friendly place label, if the cell is named in the gazetteer."}}}},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"]},"band":{"type":"string"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "CompareResp":     {"type":"object","description":"Response of /v1/compare. Single cosine similarity score (vector bands) or scalar delta (scalar bands) plus per-band breakdown.","required":["score","receipt"],"properties":{"score":{"type":"number"},"deltas":{"type":"object","additionalProperties":{"type":"number"},"description":"Per-band scalar delta for scalar comparisons; absent for vector cosine."},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "CompareBandsResp":{"type":"object","description":"Response of /v1/compare_bands. Numeric delta + percent change for scalar pairs; cosine + L2 for vector pairs. `predicate_verdict` is present when a consistency predicate was passed.","required":["delta","receipt"],"properties":{"delta":{"type":"number"},"percent_change":{"type":"number"},"cosine":{"type":"number"},"l2":{"type":"number"},"predicate_verdict":{"type":"object","properties":{"kind":{"type":"string"},"threshold":{"type":"number"},"holds":{"type":"boolean"}}},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
@@ -49622,6 +49630,16 @@ async fn memory_rename_inner(s: &AppState, req: MemoryRenameReq) -> Result<JsonV
     }))
 }
 
+/// Every kind `MemoryKind::from_wire` accepts, in the order a refusal lists them.
+const MEMORY_KINDS_ON_THE_WIRE: [&str; 6] = [
+    "core",
+    "episodic",
+    "semantic",
+    "procedural",
+    "resource",
+    "vault",
+];
+
 async fn memory_list_by_kind_inner(
     s: &AppState,
     req: MemoryListByKindReq,
@@ -49632,8 +49650,9 @@ async fn memory_list_by_kind_inner(
             ErrorBody {
                 code: ErrorCode::InvalidArgument,
                 message: format!(
-                    "memory_list_by_kind: unknown kind `{}`; expected one of episodic | semantic | procedural | resource",
-                    req.kind
+                    "memory_list_by_kind: unknown kind `{}`; expected one of {}",
+                    req.kind,
+                    MEMORY_KINDS_ON_THE_WIRE.join(" | ")
                 ),
                 details: None,
             },
@@ -65558,6 +65577,87 @@ fn coverage_page<'a>(
             "POST /v1/recall           , read facts at any cell64 listed here"
         ]
     })
+}
+
+#[cfg(test)]
+mod reported_bug_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_get_only_path_is_not_told_to_use_post() {
+        let req = axum::http::Request::builder()
+            .method(Method::DELETE)
+            .uri("/v1/errors")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = serve_405(req).await;
+        assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+        assert_eq!(resp.headers()[axum::http::header::ALLOW], "GET");
+        let body: JsonValue = serde_json::from_slice(
+            &axum::body::to_bytes(resp.into_body(), 1 << 16)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let example = body["example"].as_str().unwrap();
+        assert!(!example.contains("-X POST"), "{example}");
+        assert!(example.starts_with("curl -s "), "{example}");
+        let legacy = body["_legacy_message"].as_str().unwrap();
+        assert!(legacy.contains("call it with GET"), "{legacy}");
+    }
+
+    #[tokio::test]
+    async fn a_post_path_still_gets_a_post_example() {
+        let req = axum::http::Request::builder()
+            .method(Method::GET)
+            .uri("/v1/verify_receipt")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let body: JsonValue = serde_json::from_slice(
+            &axum::body::to_bytes(serve_405(req).await.into_body(), 1 << 16)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(body["example"].as_str().unwrap().contains("-X POST"));
+    }
+
+    /// The spec listed `direct_latlng`, which /v1/locate never sends (it
+    /// sends `direct`), and lacked four values the cascade does send.
+    #[test]
+    fn locate_via_enum_names_what_locate_sends() {
+        let spec = openapi_spec();
+        let via: Vec<&str> = spec["components"]["schemas"]["LocateResp"]["properties"]["via"]
+            ["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert!(via.contains(&"direct"));
+        assert!(!via.contains(&"direct_latlng"));
+        for v in ["geonames", "overture_admin_fallback", "wikidata"] {
+            assert!(via.contains(&v), "{v} missing");
+        }
+        // Every value except `geonames` has its own confidence reason;
+        // a value outside the cascade would fall to the "default" arm.
+        for v in via.iter().filter(|v| **v != "geonames") {
+            assert_ne!(
+                locate_confidence(v, 1.0, false, false, 1).1,
+                "default",
+                "{v}"
+            );
+        }
+    }
+
+    /// The refusal named four kinds while `from_wire` takes six.
+    #[test]
+    fn list_by_kind_error_names_every_accepted_kind() {
+        for k in MEMORY_KINDS_ON_THE_WIRE {
+            assert_eq!(MemoryKind::from_wire(k).map(|m| m.as_str()), Some(k));
+        }
+        assert_eq!(MEMORY_KINDS_ON_THE_WIRE.len(), 6);
+    }
 }
 
 #[cfg(test)]

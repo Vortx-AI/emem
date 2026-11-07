@@ -509,7 +509,24 @@ pub async fn memory_contradictions(
 ///   `1 - 4/5 = 0.2`.
 /// - Mixed shapes: severity = 1.0, kind = `"mixed"`. Flagged for
 ///   human review.
+/// - A score that comes out NaN is reported as 1.0. NaN compares false
+///   with everything, so it passed every `min_severity` floor, even 1.0.
 pub fn compute_severity(
+    primaries: &[&emem_fact::PrimaryFact],
+    bands: &BandRegistry,
+    band_key: &str,
+) -> (f32, String) {
+    let (severity, kind) = score_disagreement(primaries, bands, band_key);
+    // An infinite value on a band with no registered range gives
+    // spread / range = inf / inf; NaN components in a vector do the same.
+    if severity.is_nan() {
+        (1.0, kind)
+    } else {
+        (severity, kind)
+    }
+}
+
+fn score_disagreement(
     primaries: &[&emem_fact::PrimaryFact],
     bands: &BandRegistry,
     band_key: &str,
@@ -1439,6 +1456,36 @@ mod tests {
         .await
         .expect("ok");
         assert_eq!(resp_low.contradictions.len(), 1);
+    }
+
+    /// An infinite value on a band with no registered range scored
+    /// inf / inf = NaN, which no floor could filter and which serialises
+    /// as `null`. It must score as a flagrant 1.0 instead.
+    #[tokio::test]
+    async fn infinite_value_on_an_unranged_band_scores_one_not_nan() {
+        let storage = Arc::new(MockMultiStorage::new());
+        for (b, v) in [(1u8, f64::INFINITY), (2, 1.0)] {
+            storage.insert_attestation(
+                "damO.zb000.xUti.zde78",
+                "test.band_with_no_range",
+                12,
+                signer(b),
+                CborValue::Float(v),
+                1.0,
+                "2026-05-01T12:00:00Z",
+            );
+        }
+        let resp = memory_contradictions(
+            &ContradictionsReq {
+                min_severity: Some(1.0),
+                ..Default::default()
+            },
+            &test_server(storage),
+        )
+        .await
+        .expect("ok");
+        assert_eq!(resp.contradictions.len(), 1);
+        assert_eq!(resp.contradictions[0].severity, 1.0);
     }
 
     /// `validate_request` rejects malformed windows.
