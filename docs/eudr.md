@@ -172,7 +172,8 @@ The block has the schema id `emem.visual_evidence.v2`. It contains these parts:
   the latest scene in the window with less than 20 % cloud.
   It does not pick the clearest scene.
   The `x-emem-scene-datetime` and `x-emem-scene-cloud-cover` headers name the scene it used.
-  If no scene passes, the handler returns 404 `no_clear_scene` and does not widen the search.
+  These URLs set `max_cloud` and `datetime`, so the handler tries one search only.
+  If no scene passes, it returns 404 `no_clear_scene` and does not widen the search.
   Show the images as a year-by-year grid in an audit packet.
 
 On 7 November 2026, a request at the Mount Fuji cell `defi.zb592.nUkO.zEzE` with the window
@@ -353,8 +354,45 @@ The deferral does not change the cut-off that the verdict uses.
 
 ## Related endpoints
 
-- `GET /v1/algorithms/eudr_compliance@1`: input bands, formula, accuracy notes
-- `GET /v1/algorithms/eudr_dds@1`: algorithm card for the polygon step
-- `GET /v1/schemas/eudr_dds.json`: JSON Schema (draft 2020-12); it does not list every response field
-- `GET /v1/cells/{cell64}/scene.png`: true-colour Sentinel-2 RGB chip
-- `GET /v1/cells/{cell64}/scene.rgb`: raw 256×256×3 byte stream that the client draws itself
+| Request | What it returns |
+|---|---|
+| `GET /v1/algorithms/eudr_compliance@1` | Card for the per-cell rule: `inputs`, `formula`, `accuracy_band`, `citation` |
+| `GET /v1/algorithms/eudr_dds@1` | Card for the polygon step that wraps `eudr_compliance@1` |
+| `GET /v1/schemas/eudr_dds.json` | JSON Schema (draft 2020-12) of the response. It does not list every response field. |
+| `GET /v1/cells/{cell64}/scene.png` | True-colour Sentinel-2 chip, 256 x 256 pixels, PNG |
+| `GET /v1/cells/{cell64}/scene.rgb` | The same chip as raw bytes, without PNG framing |
+
+All five requests returned 200 on 7 November 2026.
+
+### Read a scene chip
+
+Both scene requests use one pipeline and send the same `x-emem-scene-*` headers.
+If you send no `max_cloud`, `datetime` or `at`, the handler tries up to three searches:
+
+| Step | Cloud cap | Window before now | `x-emem-scene-fallback` header |
+|---|---|---|---|
+| 1 | 20 % | 90 days | not sent |
+| 2 | 20 % | 365 days | `widened_window` |
+| 3 | 60 % | 365 days | `relaxed_cloud` |
+
+If you send `max_cloud` or a window, the handler tries one search only.
+The `at=<date>` parameter sets a window of 7 days that ends at that date.
+If no search finds a scene, the handler returns 404 `no_clear_scene` with a `tried` list.
+
+The `.rgb` body is `width x height x 3` bytes: 8-bit R, G and B values, one pixel after the next.
+Read the size from `x-emem-scene-width` and `x-emem-scene-height`.
+`x-emem-scene-bbox-crs` gives the bounds as `min_x,min_y,max_x,max_y` in the CRS of `x-emem-scene-epsg`.
+The bounds are not in WGS 84. Project your point to that CRS first, then find its pixel:
+`col = (x - min_x) / pixel_x` and `row = (max_y - y) / pixel_y`.
+`x-emem-scene-pixel-size` gives `pixel_x,pixel_y` in metres.
+
+On 7 November 2026, this request at the Mount Fuji cell returned 196,608 bytes (256 x 256 x 3):
+
+```sh
+curl -s -o scene.rgb -D - \
+  "https://emem.dev/v1/cells/defi.zb592.nUkO.zEzE/scene.rgb" \
+  | grep -iE '^x-emem-scene-(width|height|datetime|cloud-cover|epsg|bbox-crs|pixel-size|fallback)'
+```
+
+It sent no fallback header, so step 1 found the scene of 2026-10-28, with 9.90 % cloud.
+The EPSG was 32654 and the pixel size was 10 m.
