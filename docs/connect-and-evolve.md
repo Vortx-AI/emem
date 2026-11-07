@@ -143,6 +143,10 @@ On 7 November 2026 both calls returned a first value of
 | `include: ["edges"]`, and no edges exist | `edges: []`. |
 | No `include` | No `edges` key. The answer and the receipt are the same as before edges existed. |
 
+By default, a recall returns up to 32 edges for each fact and 256 edges
+in total. The variables `EMEM_RECALL_EDGES_PER_FACT` and
+`EMEM_RECALL_EDGES_TOTAL_CAP` change these limits.
+
 If the refinement loop marked a returned fact, the answer also has a
 top-level `contested` array that names it. This array is advice only. It
 is not in the receipt preimage, so a recall before and after the mark
@@ -157,9 +161,11 @@ Send a signed attestation envelope to `POST /v1/edges`. Its `edges[]`
 array must not be empty. The envelope must also have a `facts` array. For
 an envelope with only edges, send `"facts": []`. The edge leaves go into
 the Merkle root that the signature covers. The answer gives `fact_cids`,
-`edge_cids` and `edge_count`. Each
-signing key can write about 240 times a minute, with a burst of 60, by
-default. Above that rate the answer is HTTP 429 `rate_limited`.
+`edge_cids` and `edge_count`. Each signing key can write about 240 times
+a minute, with a burst of 60, by default. Above that rate the answer is
+HTTP 429 `rate_limited`. Its `details` give `code: "write_rate_limited"`
+and `retry_after_s`. The variables `EMEM_WRITE_RATE_PER_MIN` and
+`EMEM_WRITE_RATE_BURST` change these limits.
 
 An edge has no `(cell, band, tslot)` address. Thus the `fact_plane_closed`
 gate, which keeps callers off fact addresses, does not stop an envelope
@@ -203,7 +209,9 @@ When the loop runs, it does these steps:
    caller counts them.
 2. It skips each contradiction with a severity below the minimum.
 3. For each remaining contradiction, it pairs the fact with the lowest
-   confidence and the fact with the highest confidence.
+   confidence and the fact with the highest confidence. When
+   `EMEM_REFINEMENT_MAX_PAIRS` is above 1, the next pair is the second
+   lowest and the second highest, and so on.
 4. It writes a signed `disagrees_with` edge between the two facts. `subj`
    is the smaller CID. `valid_from` is the tslot of the contradiction.
    The edge `confidence` is the severity of the contradiction. The edge
