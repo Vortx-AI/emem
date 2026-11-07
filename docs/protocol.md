@@ -41,14 +41,15 @@ read the sections it names.
 | Test your own encoder or verifier | [§12 Conformance gates](#12-conformance-gates-the-four-cids), [§13 Test vectors](#13-test-vectors) |
 
 To check a receipt, a note or a log proof with no code of your own, use a
-verifier from the Claude Code plugin. Each script uses only the Python
-standard library. Each section above shows how to run it.
+verifier from the Claude Code plugin. Each plugin script uses only the
+Python standard library. Each section in the table shows how to run it.
 
 | Check | Script in `plugins/emem/skills/` | Section |
 |---|---|---|
 | Receipt signature | `emem-verify-receipt/scripts/verify.py` | [§7.4](#74-offline-verification-python) |
 | Note authorship | `emem-multi-agent-handoff/scripts/verify_note.py` | [§7.5.1](#751-check-a-notes-authorship-by-hand) |
 | Signed tree head, inclusion or consistency proof | `emem-transparency-log/scripts/verify_log.py` | [§9.6.1](#961-check-an-inclusion-proof-by-hand), [§9.6.1.1](#9611-check-a-consistency-proof-by-hand) |
+| Witness co-signature | None. Use the script in the section. It needs `blake3` and `pynacl`. | [§9.6.2.1](#9621-check-a-witness-co-signature-by-hand) |
 
 The words cell64, tslot, fact, receipt and responder have one meaning
 each. The [glossary](glossary.md) gives it.
@@ -92,7 +93,7 @@ repository.
      | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["valid"], d["preimage_blake3_hex"])'
    ```
 
-On 7 November 2026 at 00:39 UTC, step 2 printed `VALID` and step 4
+On 7 November 2026 at 02:05 UTC, step 2 printed `VALID` and step 4
 printed `True` with the same digest. The signer in step 2 and the key in
 step 3 were both `777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka`.
 

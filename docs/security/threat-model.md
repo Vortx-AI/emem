@@ -24,7 +24,7 @@ anything. Writes have tiers by what they can reach, never by who is asking
   apply" to keys that nobody had enrolled. The attester registry only counted
   keys. `/v1/enlist` said that no caller could write a fact by any route,
   which was false.
-- Now: the plane is closed by default. Storage admits three kinds of key: the responder
+- Now: storage closes the plane by default. It admits three kinds of key: the responder
   key, a trace-enrolled device with its trace, and a key in
   `EMEM_FACT_PLANE_WRITERS`. It refuses all others with 403 `level_too_low`,
   on every route. `EMEM_FACT_PLANE_OPEN=1` opens the plane on purpose, and the
