@@ -1276,7 +1276,7 @@ Look at `/v1/data_availability` before you select a window.
 
 ### MCP tools by shape
 
-`tools/list` on `/mcp` shows the 18 `core` tools in one page (about 75 KB of descriptors).
+`tools/list` on `/mcp` shows the 18 `core` tools in one page (about 77 KB of descriptors), on 7 November 2026.
 `/mcp/full` advertises all 116 (about 355 KB over 9 pages on 7 November 2026). Send
 `{"tier": "core"}`, `"extended"` or `"all"` to change the list on either
 endpoint. The `extended` and `all` lists come in pages: follow `nextCursor`. `tools/call` runs any tool by name on both endpoints, so a short
@@ -1303,24 +1303,34 @@ is the form of the answer. The table lists all 116 tools on 7 November
 | `prose` (1) | Model text over cited facts. It is `model_output`, and emem does not sign it | `emem_reason` |
 
 `emem_tools` filters the catalogue. With no arguments it returns the core
-loop, a bundle menu, and a shape menu in about 13 KB.
+loop, a bundle menu, and a shape menu in about 14 KB.
 
 | Argument | What it selects |
 |---|---|
 | `{"shape": "raster"}` | Tools with that shape. All 13 shapes worked on 7 November 2026, but the input schema lists only the first 11 |
 | `{"bundle": "robotics"}` | Tools for one job. Bundles overlap: `tokenisation`, `verification`, `agent_to_agent`, `long_horizon`, `robotics`, `satellites`, `agriculture`, `forestry`, `climate_risk` |
-| `{"category": "read"}` | Tools for one kind of job: `read`, `write`, `verify`, `introspect` or `plan`. On 7 November 2026 these held 75, 8, 11, 19 and 3 tools. A `read` tool can still write: read `annotations.readOnlyHint` (see [Tool hints](#tool-hints)) |
+| `{"category": "read"}` | Tools for one kind of job: `read`, `write`, `verify`, `introspect` or `plan`. On 7 November 2026, `matched` gave 75, 8, 11, 19 and 3 (see below). A `read` tool can still write: read `annotations.readOnlyHint` (see [Tool hints](#tool-hints)) |
 | `{"q": "ndvi"}` | A text search over the catalogue |
 | `{"tier": "core"}` | Limits the other filters to `core`, `extended` or `all`. The default is `all`. On 7 November 2026, `{"q": "ndvi"}` matched 14 tools, and 1 with `tier: "core"` |
 | `{"name": "emem_ndvi"}` | One tool's input schema and a runnable example, about 8 KB. The tool then ignores all other arguments |
 
 `{"bundle": "robotics"}` also works as a `tools/list` argument. Then the
-list holds that bundle only.
+list holds that bundle only. On 7 November 2026 the robotics list had 15
+entries.
+
+The `matched` field adds the core loop tools to the tools in `groups`.
+A core loop tool that is also in a group counts two times, and
+`emem_tools` does not list itself (lib.rs:33032, 33043). Thus `matched`
+can differ from the shape table above. On 7 November 2026,
+`{"shape": "proof"}` gave `matched` 13 for 12 tools, because
+`emem_guard_verdict` is in the loop and in a group. `{"shape": "plan"}`
+gave 1, because only `emem_intent` is listed. To count tools, count
+the names.
 
 ### Tool hints
 
 Every tool carries the four MCP hints. On 7 November 2026, 51 tools
-had `readOnlyHint: false`. Some reads change the corpus: on a miss,
+had `readOnlyHint: false`: the 8 `write` tools and 43 others. Some reads change the corpus: on a miss,
 `emem_recall`, `emem_ask` and the other fetching tools sign and store a new
 fact. These tools also set `openWorldHint: true`. The memory verbs and the
 entity writes (`emem_entity`, `emem_entity_link`) are writes. Five memory verbs, and
