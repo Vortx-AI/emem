@@ -1648,7 +1648,9 @@ MCP_BYTES_TOLERANCE = 0.5
 MCP_BYTES_CLAIMS = [
     # (file, regex capturing the KB figure, which surface it describes)
     ("README.md", r"core loop in one page, about (\d+) KB of context", "core"),
-    ("README.md", r"whole catalog of " + str(CANON["mcp_tools"]) + r" descriptors is about (\d+) KB", "full"),
+    # Two wordings: the signed README on main, and the re-signed README of PR #28.
+    ("README.md", r"(?:all " + str(CANON["mcp_tools"]) + r" descriptors costs|whole catalog of "
+     + str(CANON["mcp_tools"]) + r" descriptors is) about (\d+) KB", "full"),
     ("docs/agents.md", r"in one page \(about\s+(\d+) KB of descriptors\)", "core"),
     # `over \d+`, not `over 7`. Pinning the page count inside this pattern meant
     # that correcting the page count (7 -> 8, which had itself gone stale)
@@ -1669,7 +1671,7 @@ MCP_BYTES_CLAIMS = [
     ("docs/agents.md", r"a bundle menu, and a shape menu in about (\d+) KB", "menu"),
     ("docs/agents.md", r"a runnable example, about (\d+) KB", "one_tool"),
     ("README.md", r"returns the loop and a menu in about (\d+) KB", "menu"),
-    ("docs/mcp-directory.md", r"\(about (\d+) KB, versus about \d+ KB for the full list", "one_tool"),
+    ("docs/mcp-directory.md", r"\(about (\d+) KB, versus about \d+ KB\s+for the full list", "one_tool"),
     ("docs/whitepaper.md", r"core loop in a single page, about (\d+) KB", "core"),
 ]
 
