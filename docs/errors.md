@@ -246,15 +246,25 @@ refusal names itself in `details.code`.
 | `derive_invalid_argument` | `invalid_argument` | 400 | `fn_key`, `cell`, `band` or `op` is empty. |
 | `derive_invalid_cell` | `invalid_argument` | 400 | `cell` does not have the cell64 shape. Get the address from `/v1/locate`. |
 | `derive_no_inputs` | `invalid_argument` | 400 | `inputs` is empty. A derivation must name at least one parent token. |
-| `derive_too_many_inputs` | `invalid_argument` | 400 | `inputs` names more parents than the cap. Put them in one `emem:bundle:` token and cite that. |
+| `derive_too_many_inputs` | `invalid_argument` | 400 | `inputs` names more than 1024 parents. Put them in one `emem:bundle:` token and cite that. |
 | `derive_invalid_tslot_window` | `invalid_argument` | 400 | `tslot_window` is not in order. It is inclusive `[start, end]`. |
 | `derive_invalid_confidence` | `invalid_argument` | 400 | `confidence` is not a finite number from 0 to 1. |
-| `derive_provenance_class_refused` | `invalid_argument` | 400 | A caller cannot declare `direct_sensor` or `deterministic_index`. `details.allowed` lists the classes you can use. |
+| `derive_provenance_class_refused` | `invalid_argument` | 400 | A caller can declare only `model_output`, `human_curated` or `estimator`. The classes `direct_sensor` and `deterministic_index` are for the responder only. `details.allowed` lists the three. |
 | `derive_input_unparseable` | `invalid_argument` | 400 | `inputs[details.index]` is not a valid token. |
 | `derive_parent_unresolved` | `cid_not_found` | 404 | This responder does not hold that parent fact. Recall it here first, or send the derivation to the responder that holds it. |
 | `derive_parent_cell_mismatch` | `invalid_argument` | 409 | The token names a cell that is not the cell of the signed fact. The message gives the correct token. |
 | `derive_attestation_required` | `invalid_argument` | 401 | The body has no `attester` block. `details.how_to_sign` carries the digest to sign. |
 | `derive_attestation_invalid` | `bad_signature` | 401 | The key has a bad shape (`reason: bad_pubkey`) or the signature does not verify (`reason: bad_signature`). The message names the expected digest. |
+
+Four more derive refusals have no `details` block. The route code is the
+start of `message`.
+
+| Start of `message` | Top-level `code` | HTTP | Meaning |
+|---|---|---|---|
+| `derive_uncanonicalisable_body` | `invalid_argument` | 400 | The responder cannot encode the body as canonical CBOR, so it cannot compute `body_hash`. |
+| `derive_attestation_failed` | `internal` | 500 | The responder could not build or sign the attestation for the new fact. Report it. |
+| `derive_store_returned_no_cid` | `internal` | 500 | The store accepted the attestation but returned no fact cid. Report it. |
+| `derive_namespace_violation` | `invalid_argument` | 403 | The code maps this case, but it cannot occur today. `/v1/derive` is not under a `by_attester` path. |
 
 ## Other route codes
 
