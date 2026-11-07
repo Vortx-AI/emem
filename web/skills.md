@@ -5,7 +5,8 @@
 These recipes are for AI agents that build on emem. emem is a shared,
 verifiable memory for AI agents. It gives each place and object one
 citable identity, so different models reason from the same object and
-not from different descriptions. This is referential drift. Signed
+not from different descriptions. Different descriptions of one thing
+cause referential drift. Signed
 Earth observation is the base.
 Each recipe combines two or three `/v1/*` calls into one useful step.
 
