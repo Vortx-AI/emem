@@ -147,8 +147,10 @@ M = (O*, E*)
 
 This is an append-only set of observations plus typed temporal edges
 `E = (subj, pred, obj, valid_from, valid_to)`. The predicate is a free
-label. The labels in use include `disagrees_with`, `supersedes`,
-`replaced_by` and `co_located_with`.
+label that the signer chooses. A caller writes edges with a signed
+attestation to `POST /v1/edges`. The responder itself writes one label,
+`disagrees_with`, from the refinement loop. The tool descriptions give
+`supersedes`, `replaced_by` and `co_located_with` as examples only.
 
 ### Tokens
 
@@ -203,7 +205,7 @@ machine checks is open work for all of them.
 
 | Property | Statement | Mechanism |
 |---|---|---|
-| Immutability | no operation rewrites an observation; a change is a new observation that `supersedes` the old one on the transaction-time axis | content addressing (a changed byte gives a different `cid`); supersede edges; bi-temporal reads replay the old state |
+| Immutability | no operation rewrites an observation; a change is a new observation that `supersedes` the old one on the transaction-time axis | content addressing (a changed byte gives a different `cid`). The old observation stays stored under its `cid`. A note supersede keeps each version in the path history. Bi-temporal reads replay the old state |
 | Determinism | the encoding is canonical: equal values give equal bytes, and equal bytes give equal names | canonical CBOR and BLAKE3; a CI test checks the browser verifier against vectors from the Rust signer (`scripts/verify_core_test.cjs`) |
 | Reproducibility | a name resolves to byte-identical bytes on any responder that holds it. You can also compute `direct_sensor` and `deterministic_index` observations again from their cited raw source | content addressing; provenance classes; the `deterministic: true` recall filter |
 | Verifiability | any signed answer verifies offline with only the public key of the responder | the receipt preimage (see below). An RFC 6962 transparency log (`/v1/log/*`) that outside witnesses co-sign. `/verify` in the browser. The Python samples in [agents](./agents.md) run against production and print VALID |
