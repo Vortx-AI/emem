@@ -123,8 +123,7 @@ connects the cache to the fetch `Dispatcher` and to the
   It is the full 32-byte digest, 52 characters. Reference ids use the
   16-byte rule (26 characters), for example `entity_cid`, `bundle_cid`,
   the memory `file_cid`, `ReasonCid` and `review_cid`. `FactCid` never
-  uses it. This page stated the
-  16-byte rule for facts until 2026-08-13.
+  uses it. This page stated the 16-byte rule for facts until 2026-08-13.
 - **Receipt rule.** Each primitive response carries a `Receipt` with an
   Ed25519 signature over the canonical preimage. An empty `cells` or
   `fact_cids` list still writes its segment, so a verifier rebuilds the
@@ -171,16 +170,17 @@ Upstream source --> fetch connector --> materializer --> PrimaryFact
                                            facts)       + fsync)       Merkle path)
 ```
 
-The hot store has two tables. Since the redb cutover they live in
-`<EMEM_DATA>/facts.redb` (`emem-cache/src/redb_facts.rs`):
+The hot store keeps facts in two tables in `<EMEM_DATA>/facts.redb`
+(`emem-cache/src/redb_facts.rs`):
 
 - `emem.canonical_index`: `cell\0band\0tslot_be8` to the fact CID bytes.
 - `emem.facts`: the fact CID bytes to the canonical CBOR of the fact.
 
 The same redb file holds `emem.fact_proofs`, `emem.multi_attester_index`
-and `emem.state_records`. On a miss the node falls back to the old sled
-trees until the background backfill has copied them.
-`EMEM_HOT_BACKEND=sled` goes back to the old layout. The sled database
+and `emem.state_records`. Older nodes kept these tables in sled. On
+such a node, a redb miss reads the old sled trees until a background
+backfill has copied them. `EMEM_HOT_BACKEND=sled` goes back to the
+sled layout. The sled database
 stays open in both modes, because the memory trees and the small side
 indexes (attesters, entities, trace gate) live there.
 
@@ -197,14 +197,30 @@ POST /v1/recall {cell, bands?, tslot?}
   -> storage: prefix scan or point gets -> fact_cids
   -> storage: get_facts_many(fact_cids) -> facts
   -> sign_receipt("emem.recall", [cell], cids, ...)
-  -> router: blake3(sorted fact_cids) -> ETag
+  -> router: blake3(sorted fact_cids, one "\n" after each) -> ETag
   -> 200 JSON + ETag + Cache-Control: private, max-age=60
 ```
 
-The router honours `If-None-Match`. A repeat recall with a matching ETag
+The ETag is the first 16 hex characters of that BLAKE3 digest. The
+router honours `If-None-Match`. A repeat recall with a matching ETag
 gets `304 Not Modified` and an empty body. The `served_at` field of the
 receipt changes on each call. The ETag comes from the fact CIDs, so it
 does not change.
+
+These two calls show it. They ran on emem.dev on 7 November 2026: the
+first gave `200` with an ETag, the second gave `304` with 0 bytes.
+
+```sh
+CELL=defi.zb4d7.zb8ec.zf21e
+ETAG=$(curl -s -D - -o /dev/null -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' -d "{\"cell\":\"$CELL\"}" \
+  | awk 'tolower($1)=="etag:" {print $2}' | tr -d '\r')
+curl -s -o /dev/null -w '%{http_code} %{size_download}\n' \
+  -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
+  -H "if-none-match: $ETAG" -d "{\"cell\":\"$CELL\"}"
+```
+
+A new fact at the cell changes the ETag, and the next call gets `200`.
 
 ### Auto-materialize on a miss
 
@@ -572,8 +588,7 @@ A new client usually calls these in order:
    first tries the embedded tables: named regions, countries, admin 1
    to 3, GeoNames cities-1000 and POIs. Then it tries the geocode
    cache, Photon and Nominatim (`lib.rs::locate_inner`). Polygons come
-   from Overture
-   `divisions/division_area`.
+   from Overture `divisions/division_area`.
 6. `POST /v1/recall`, `/v1/find_similar`, `/v1/verify` or `/v1/diff`.
 
 `GET /v1/tools` lists the REST endpoints by category. `/openapi.json`
