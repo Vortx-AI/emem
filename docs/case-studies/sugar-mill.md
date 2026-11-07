@@ -250,14 +250,16 @@ Both notes end with this sentence.
 ### Lidar labels height, not cane
 
 We set two cane thresholds on ICESat-2 canopy heights. The lidar labels tall against low. It does not label cane.
-A tall maize or sorghum field also reads as tall. On the lidar shots the tests had a balanced accuracy near 0.77. On fresh blind cards, the fields that passed all three tests were cane in 0.62 of cases (95 % interval 0.49 to
-0.74, n 53).
+A tall maize or sorghum field also reads as tall. On the lidar shots the tests had a balanced accuracy near 0.77. On
+fresh blind cards, the fields that passed all three tests were cane in 0.62 of cases (95 % interval 0.49 to 0.74, n
+53).
 
 ### In-sample accuracy was too high
 
 We chose each threshold on the same 539 shots that scored it. A nested out-of-fold check later measured the loss.
 For the radar test it was 0.013 to 0.044 balanced accuracy, and the worst case was one date left out. Threshold
-choice did not cause the large gap between 0.77 and 0.62. That gap came from the reference. A cross-validation on the same reference cannot show it. Only the independent blind cards showed it.
+choice did not cause the large gap between 0.77 and 0.62. That gap came from the reference. A cross-validation on
+the same reference cannot show it. Only the independent blind cards showed it.
 
 ### One reference needed a second reference
 

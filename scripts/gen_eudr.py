@@ -2,8 +2,8 @@
 """EUDR supply-chain diagram in the engram's ink-on-paper Mithila hand.
 
 A geolocated plot is checked against the forest baseline and the Hansen
-loss-year, signed into one Due Diligence Statement, and that signed handle
-clears customs. Same kit as the engram, architecture, and federation.
+loss-year, signed into one Due Diligence Statement, and the operator files
+that statement in TRACES NT with the signed token as its evidence. Same kit as the engram, architecture, and federation.
 
 Output: docs/diagrams/eudr.png
 """
@@ -22,7 +22,7 @@ f_lab = c.font(FONT_MONO, 12)
 f_tiny = c.font(FONT_MONO, 10)
 
 c.text(56, 50, "EUDR: a plot, proven deforestation-free", f_title, INK)
-c.text(58, 86, "forest baseline + Hansen loss-year against the 2020 cut-off, signed into one handle that clears customs",
+c.text(58, 86, "forest baseline + Hansen loss-year against the 2020 cut-off, signed into one token the operator files as evidence",
        f_sub, INK_SOFT)
 
 MID = 470  # vertical centre of the narrative band
@@ -135,7 +135,7 @@ for k in range(7):  # arch dots
 # EU ring of stars on the arch
 c.dot_ring(GX, GY - gh / 2 - 18, 22, 8, 2.2, GOLD_PALE)
 c.text(GX, GY - gh / 2 - 56, "TRACES NT · EU customs", f_lab, INK, center=True)
-c.text(GX, GY + gh / 2 + 16, "the handle clears the border", f_tiny, INK_SOFT, center=True)
+c.text(GX, GY + gh / 2 + 16, "the operator files the statement", f_tiny, INK_SOFT, center=True)
 
 # ----------------------------------------------------------------- legend
 ly = H - 60
@@ -143,6 +143,6 @@ lx = 70
 c.seal(lx + 7, ly, 7, fill=LEAF); c.text(lx + 18, ly - 7, "pass (deforestation-free)", f_lab, INK); lx += 18 + c.textw("pass (deforestation-free)", f_lab) + 28
 c.line((lx, ly - 8), (lx, ly + 8), VERMIL, 1.6); c.text(lx + 8, ly - 7, "2020 cut-off", f_lab, INK); lx += 8 + c.textw("2020 cut-off", f_lab) + 28
 c.di.rectangle([c.S(lx), c.S(ly - 8), c.S(lx + 9), c.S(ly)], fill=c.rgba(TURMERIC, 220), outline=c.rgba(INK, 255)); c.text(lx + 16, ly - 7, "signed loss-year histogram", f_lab, INK); lx += 16 + c.textw("signed loss-year histogram", f_lab) + 28
-c.line((lx, ly), (lx + 26, ly), LEAF, 1.6); c.text(lx + 32, ly - 7, "signed CID crosses customs", f_lab, INK)
+c.line((lx, ly), (lx + 26, ly), LEAF, 1.6); c.text(lx + 32, ly - 7, "signed token goes with the statement", f_lab, INK)
 
 print("eudr.png", c.save("docs/diagrams/eudr.png"))

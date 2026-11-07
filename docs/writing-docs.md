@@ -45,7 +45,7 @@ Use a bundle to send many facts in one line."
 
 Two scripts check Markdown. Both need only Python 3.
 
-`scripts/doc_lint.py` is the gate in CI. The `doc-lint` job runs it on each push and each pull request. It reads
+`scripts/doc_lint.py` is the gate in CI. The `doc-lint` job runs it on each push to `main` and each pull request to `main`. It reads
 `README.md`, `CONTRIBUTING.md` and `docs/**/*.md`. It finds these problems:
 
 - em and en dashes,

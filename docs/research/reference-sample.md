@@ -12,7 +12,7 @@ JRC TMF from the same Landsat archive. On the same cells they agree at an MCC of
 Hansen also shares an input with one of the candidates, the Landsat version of the memory detector. Neither product
 dates a loss more finely than its year, so neither can measure how fast an alert arrives.
 
-[Rule of evidence 13](program.md) says that only independent references decide. The strongest independent reference
+[Rule of evidence 13](program.md#5-rules-of-evidence) says that only independent references decide. The strongest independent reference
 is one that people make by eye, on a sample drawn by chance so that its estimates generalise.
 
 ## 2. Population and sample
@@ -53,7 +53,7 @@ third, and the agreement before adjudication is reported.
   above. The adjudicated label is a signed note under the adjudicator's key, citing both.
 - The sample design (strata, allocation, seed) is signed before the first cell is drawn.
 - The lab reads the adjudicated labels as an independent reference, kind 3 under rule 13. The lab's guard lists
-  independent products by band. The operator adds adjudicated sample notes to that list by their signer keys,
+  independent products by band. Adjudicated sample notes go on that list by their signer keys,
   never by a key of the fleet.
 
 ## 5. What it makes measurable

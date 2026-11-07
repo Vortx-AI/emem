@@ -180,7 +180,7 @@ It found that the selection plan did not print the parameters block its verifier
 3. `verification@1` and a verifier desk. Done: the integrity desk re-derives each new experiment from its signed
    records. It checks every input's receipt and canonical bytes offline, and signs the outcome under its own key.
    From the second selection on, `decision@1` is signed for every forest, with each policy's choice and the evidence
-   it read. The first selection signed none (section 9).
+   it read. The first selection signed none (companion paper, section 5.19).
 4. The experiment is registered (section 6) and the lab desk runs it without help. Its decisions are signed before
    the later period is read.
 5. The context policy (P2), from a pool scored for the years before the later period (section 6).

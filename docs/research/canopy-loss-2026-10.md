@@ -970,7 +970,7 @@ cell's median, which every rule except the two sub-pixel ones reads. That is why
 rules, which wait for the median to fall, while the single-difference registry rule kept recall by alarming often.
 The sub-pixel readings (the 10th percentile, the share of green pixels) were the program's answer to this. Neither
 beat the baseline at scale or on the seven fresh forests, and on those the 10th-percentile rule scored below zero.
-They won later, on the ten forests of section 5.8 and in managed forests (section 5.12), but not on clearing frontiers.
+After the cloud screen, they won later, on the ten forests of section 5.8 and in managed forests (section 5.12), but not on clearing frontiers.
 Reading a 400 m cell's percentiles is not enough to see a clearing a twentieth of its area. Section 5.10 tested a
 finer cell. At 200 m every detector found more of the lost pixels. The 10th-percentile rule gained with an interval
 clear of zero. No detector in this paper reads the raster itself.
@@ -1022,14 +1022,14 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
 - To watch many tropical forests and act only on what is likely real, use `lab:seasonal_loss_nbr@1` or
   `lab:seasonal_canopy_loss@1`: pooled over eight and six disjoint sets of forests, they beat the registry rule by
   +0.12 and +0.15 MCC (section 5.21). The strict status rule reads them not replicated after one tie (section 5.13).
-  Read a silence as "no large loss seen", not as "no loss". They find nine in ten cells where half the forest went,
-  and one in five where a twentieth did.
+  Read a silence as "no large loss seen", not as "no loss". The three quiet rules include seasonal NBR. They find
+  nine in ten cells where half the forest went. They find one in five where 5 to 10% was cleared (section 5.9).
 - Where harvests take part of a cell, use `lab:subcell_loss_p10@1+screen` (section 5.12), and not on clearing
   frontiers.
 - In snowy boreal forest, do not trust any of them (section 5.11).
 - `lab:memory_optical@1` is replicated and forest-dependent, by +0.21 MCC (section 5.21). It is the one method above
   the registry rule in every climate class it ran in (section 5.18, post hoc).
-- The version-2 memory detectors pool higher but are not shown better, because their forests disagree (I² 96 to 99%,
+- The later memory detectors pool higher but are not shown better, because their forests disagree (I² 96 to 99%,
   section 5.21). `lab:memory_hls_emp@4` won the one experiment it has entered (section 5.15); wait for its next.
 - To find every clearing at one site, the registry's `deforestation_alert_ndvi_drop@1` finds more of it, and most of
   what it flags is not loss; check each flag against a second source.

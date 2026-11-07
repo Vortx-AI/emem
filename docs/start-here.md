@@ -73,8 +73,9 @@ verdict = verify_receipt_offline(json.load(open("fact.json"))["receipt"])
 print(verdict.ok, verdict.why)
 ```
 
-The check uses the public key in the receipt, `receipt.responder_pubkey_b32`. To be sure that emem signed it, compare that key with the field
-`responder.pubkey_b32` in [`/.well-known/emem.json`](https://emem.dev/.well-known/emem.json):
+The check uses the public key in the receipt, `receipt.responder_pubkey_b32`. To be sure that emem signed it,
+compare that key with the field `responder.pubkey_b32` in
+[`/.well-known/emem.json`](https://emem.dev/.well-known/emem.json):
 
 ```bash
 curl -sS https://emem.dev/.well-known/emem.json | jq -r .responder.pubkey_b32
