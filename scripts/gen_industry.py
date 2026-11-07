@@ -202,7 +202,7 @@ SCENES = {
     insight="The index payout cites the facts that set it off."),
 
 "28-forestry-timber": dict(industry="forestry & timber", seed=28,
-    tagline="legal-harvest provenance that travels with the log",
+    tagline="harvest-stand evidence that travels with the log",
     bands=[("forest_change.lossyear", "2019"), ("jrc_tmf.deforestation_year", "none"),
            ("protected.is_protected_area", "no"), ("indices.ndvi", "0.79"),
            ("forest_change.treecover2000", "78 %")],
@@ -343,14 +343,14 @@ SCENES = {
 
 "29-eudr-supply-chain": dict(industry="EUDR supply chain", seed=29,
     cell="plot defi.zb3bb.zbb96.jUko",
-    tagline="a deforestation-free plot, signed into one handle for the customs filing",
+    tagline="a plot checked against 2020 forest maps, in one handle for customs",
     bands=[("jrc_gfc2020.forest_2020", "forest"), ("forest_change.lossyear", "none"),
            ("forest_change.treecover2000", "82 %"), ("sentinel1_raw", "VV -7 dB"),
            ("indices.ndvi", "0.80")],
     receipt="EUDR DDS",
     consumers=[("operator", "the statement"), ("customs", "TRACES NT"),
                ("importer", "clears the border")],
-    insight="A geolocated plot, proven deforestation-free, in one signed handle the border can re-check."),
+    insight="Forest evidence for one plot, in one signed handle the border can re-check. Legality is not covered."),
 }
 
 
