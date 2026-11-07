@@ -216,7 +216,7 @@ applications compute over the memory, and they also read from it.
 | `evolve(M)` | attest; a later observation `supersedes` an older one and does not erase it; the refinement loop records `disagrees_with` edges from contradictions |
 | `resolve(name)` | token dereference: `emem:fact:` gives byte-identical bytes, `emem:bundle:` gives its signed envelope, `emem:entity:` gives the object record |
 | `ensure(M, a, B)` | ships for one step. A `POST /v1/recall` with a band list states the goal. The responder uses what exists and fetches and signs the rest. `materialize_notes` gives the status of each band it tried (`materialized`, `skipped` or `deferred`). The agent does not control the fetch |
-| `valid(M, a)` | `POST /v1/temporal_route`: staleness Q(dt) for each band, from the physics decay kernel of the band. It splits bands into `cite_now` (fresh enough to cite) and `fetch_for_intent` (needs a new read) |
+| `valid(M, a)` | `POST /v1/temporal_route`: staleness Q(dt) for each band, from the physics decay kernel of the band. It returns two ranked lists. `cite_now` ranks all bands by score. `fetch_for_intent` ranks only the bands that match the `intent`; recall these to fetch them. One band can be in both lists |
 | `attribute(M, a, t1, t2)` | `POST /v1/change_attribution` (`change_attribution@1`): the evidence for why the readout of one cell moved between two visits, term by term. The request has only `cell`. The responder uses the two latest visits of each band, so the caller does not choose `t1` and `t2`. Each item has its fact cids, under a signed receipt. emem does not compute the numeric split of the delta among the terms, so `split` is null and says why |
 
 `ensure` for targets that need more than one step is open work. See
@@ -353,7 +353,7 @@ The mechanisms above already give most of an execution substrate:
 | Question | Mechanism that ships |
 |---|---|
 | What exists at this cell? | every recall returns `bands_already_attested_at_cell` |
-| What is still valid? | the staleness scores of `temporal_route` split `cite_now` from `fetch_for_intent` |
+| What is still valid? | `temporal_route` ranks the bands by staleness score in `cite_now`, and the bands for an intent in `fetch_for_intent` |
 | What replaced what? | supersede edges |
 | Why believe it? | the receipt |
 | How do I state a goal? | a recall with a band list is `ensure`: you state what must exist, and the responder decides to use a stored value or to fetch |
