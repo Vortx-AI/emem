@@ -8,10 +8,10 @@
 > `POST /v1/trace_resolve` for `emem:trace:` and `emem:attestation:` tokens,
 > `GET /v1/device_platforms`, and the opt-in roster (`GET /v1/devices`, `POST
 > /v1/device_publish`). Every shipped trust anchor is provisional, so
-> enrollment refuses every call today. Still open: a first production anchor,
-> the drift-anchor wiring (step 4, including the Copernicus checksum), traces
-> in the transparency log, an `emem trace verify` CLI subcommand, and an
-> os-trace section in `docs/protocol.md`. The current summary is the substrates
+> self-service enrollment refuses every call today. Still open: a first
+> production anchor and the drift-anchor wiring (step 4, with the Copernicus
+> checksum). Also open: traces in the transparency log, an `emem trace verify`
+> CLI subcommand, and an os-trace section in `docs/protocol.md`. The current summary is the substrates
 > section of [docs/roadmap.md](../roadmap.md).
 
 Status: registry, schema, verifier, write-path gate (storage side),
@@ -20,7 +20,7 @@ code; the REST/MCP surface and drift-anchor wiring are open. Owner:
 protocol. First written 2026-07-26.
 
 The whole architecture on one page, gaps labeled:
-![Three columns. Orbit: the open archive (Sentinel-1, Sentinel-2, Cop-DEM, CHIRPS), admitted because anyone can recompute it. Operator satellites must ship a signed execution trace. emem: a trust gate that admits device output only inside a complete trace, and the shared memory of cells, signed facts and tokens. Ground: robot fleets, agent swarms and an auditor who verifies years later. A panel lists the gaps that do not ship yet. The first is that enrollment refuses every call today.](../diagrams/39-orbit-to-ground-trust.svg)
+![Three columns. Orbit: the open archive (Sentinel-1, Sentinel-2, Cop-DEM, CHIRPS), admitted because anyone can recompute it. Operator satellites must ship a signed execution trace. emem: a trust gate that admits device output only inside a complete trace, and the shared memory of cells, signed facts and tokens. Ground: robot fleets, agent swarms and an auditor who verifies years later. A panel lists the gaps that do not ship yet. The first is that self-service enrollment refuses every call today.](../diagrams/39-orbit-to-ground-trust.svg)
 
 ## The one-sentence rule
 

@@ -161,7 +161,7 @@
 <rect x="935" y="730" width="610" height="262" rx="14" fill="#faf7ee" stroke="#5c564b" stroke-width="1.8" stroke-dasharray="6 5"/>
 <text x="960" y="765" class="h" font-size="17" font-weight="bold" letter-spacing="2">HONEST GAPS · COMING SOON</text>
 <g class="h" font-size="13.5">
-<text x="960" y="794">· a first production trust anchor: enrollment refuses every call</text>
+<text x="960" y="794">· a first production trust anchor: self-service enrollment refuses every call</text>
 <text x="972" y="812">today; drift scoring is not yet wired into the write path</text>
 <text x="960" y="836">· a freshness nonce, so a window cannot be replayed</text>
 <text x="960" y="860">· hardware quotes (TPM / DICE) as one more evidence layer</text>

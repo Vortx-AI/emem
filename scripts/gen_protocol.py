@@ -492,7 +492,7 @@ def address_algebra():
     rows = [("cell", "64", "four base-65,536 bigrams", "defi.zb493.xuqA.zcb5f", INDIGO),
             ("tslot", "64", "t. + base32-nopad leb128", "t.aaaaagy", TEAL),
             ("cid", "32 B blake3", "base32-nopad-lowercase", "qi3jo4sq…l2hgjtwm", LEAF),
-            ("vec", "1792-D fp16", "12-byte short form (vec64)", "full vector via /v1/state", LAC)]
+            ("vec", "1792-D fp16", "12-byte hash id (vec64)", "full vector via /v1/state", LAC)]
     tx, ty, tw = 196, 300, 1208
     rh = 118
     cols = [tx + 100, tx + 320, tx + 560, tx + 900]

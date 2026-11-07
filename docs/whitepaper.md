@@ -540,7 +540,7 @@ and `resolution = 21` distinguishes the active grid from the pre-0.0.3
 305 m grid. A legacy cell64 fails decoding with `NotGeoCell` rather than
 silently misplacing a fact by hundreds of metres.
 
-![A table of the four wire forms. cell: 64 bits, four base-65,536 bigrams. tslot: 64 bits, base32 LEB128 with a t. prefix. cid: a 32-byte BLAKE3 digest in lowercase base32. vec: a 1792-D fp16 vector, with a 12-byte short form (vec64); /v1/state returns the full vector. Cells that are near each other share a string prefix.](/docs/diagrams/09-address-algebra.svg)
+![A table of the four wire forms. cell: 64 bits, four base-65,536 bigrams. tslot: 64 bits, base32 LEB128 with a t. prefix. cid: a 32-byte BLAKE3 digest in lowercase base32. vec: a 1792-D fp16 vector. Its short id (vec64) is the first 12 bytes of its BLAKE3 hash. /v1/state returns the full vector. Cells that are near each other share a string prefix.](/docs/diagrams/09-address-algebra.svg)
 *Figure 4: the four wire forms and their sizes. The cell, the tslot
 and the CID together address one fact.*
 
