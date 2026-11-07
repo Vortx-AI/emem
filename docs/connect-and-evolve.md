@@ -37,8 +37,15 @@ EdgeFact(subj, pred, obj, valid_from, valid_to)
 | `valid_from` | The first tslot in which the relation is true. |
 | `valid_to` | The last tslot in which the relation is true. No value means "still true". |
 
-An edge also carries `confidence`, `signer`, `signed_at` and an optional
-`note`.
+An edge also carries `confidence` (0 to 1), `signer` and `signed_at`. It
+can also carry a `note` and a `schema_cid` for the relation.
+
+A read with `as_of_tslot` equal to `valid_to` still returns the edge. A
+read with a later tslot does not. The test
+`forward_recall_edges_valid_to_boundary` in
+`crates/emem-storage/src/lib.rs` holds this rule. The doc comment on
+`EdgeFact.valid_to` says "exclusive", but the read path does not work
+that way.
 
 ## Read the edges of a fact
 
