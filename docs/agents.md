@@ -501,7 +501,8 @@ The answer held one NDVI fact, at tslot 20589. The receipt signs the bound in
 
 A bound before every fact gives an empty `facts` list with status 200, not a
 404. `temporal_advice.facts_at_cell_unbounded` counts the facts that the bound
-removed. On 7 November 2026 it was 377 at this cell. The answer has
+removed. At 14:00 UTC on 7 November 2026 it was 388 at this cell. It
+increases when emem stores new facts there. The answer has
 `temporal_advice` only when the bound removes every fact. The call above,
 which kept one fact, had no `temporal_advice`. A past `as_of_signed_at`
 does not fetch new data. Its `materialize_notes` entry has `reason`
@@ -572,8 +573,9 @@ curl -s -X POST https://emem.dev/v1/memory_token/resolve \
   -d '{"token":"emem:fact:defi.zb592.nUkO.zEzE:qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq"}'
 ```
 
-`value`, `unit` and `band` are at the top level. The full signed body is in
-`fact`. Quote `value_verbatim`, the exact decimal string that emem signed.
+`value`, `value_verbatim`, `unit` and `band` are at the top level. The full
+signed body is in `fact`. Quote `value_verbatim`, the exact decimal string
+that emem signed.
 On 7 November 2026 it was `"3539.042236328125"`. A JSON number can lose
 digits when you copy it. If the cell in the token is a different valid
 cell, the answer is HTTP 409. If emem cannot read the cell, it uses the
