@@ -380,8 +380,9 @@ The validator applies four rules to a `multimodal` block. A
 | R4 | `priority_chain[0]` is the tier of `anchor_band` |
 
 R2 stops a "10 m flood risk" algorithm from using only `era5.*` inputs as
-its variance sources. R4 is the rule that checks the tier of the anchor. Coarse physics algorithms (SPI on POWER precipitation, GDD on POWER
-temperature) declare their true, larger resolution.
+its variance sources. Coarse physics algorithms (SPI on POWER
+precipitation, GDD on POWER temperature) declare their true, larger
+resolution.
 
 For an `inference` block, I1 requires that `tier` is not `Absence` and that
 `tier_chain[0]` equals `tier`. I2 requires `accuracy_band` when a GPU
@@ -454,9 +455,16 @@ One example of each kind:
 
 ## emem-sources (sources-v0.json)
 
-46 source schemes. Each scheme has an ordered `providers[]` list. The
-dispatcher tries the providers in order and stops at the first 2xx. The
-receipt records which provider answered.
+46 source schemes. Each scheme has an ordered `providers[]` list.
+`Dispatcher::fetch` in `crates/emem-fetch/src/lib.rs` tries the providers in
+that order and returns the first success. `emem-storage` holds a
+`Dispatcher`, but no serving path calls it. The materializers in
+`emem-api-rest` call their connectors directly.
+
+A fact names what it read in its `sources[]` list: `scheme`, `url` and
+`captured_at`. The receipt has no provider field. On 7 November 2026, a
+recall of `copdem30m.elevation_mean` at Mount Fuji gave scheme
+`copernicus.dem.30m.aws` and the GLO-30 tile URL.
 
 `ConnectorKind` (`sources.rs`) has 8 variants. The provider counts are from
 `sources-v0.json` on 7 November 2026.
@@ -477,7 +485,7 @@ Per-scheme fields (struct `sources::SourceScheme`):
 | Field | Description |
 |---|---|
 | `scheme` | unique key; matches `SourceRequirement.scheme` in the function registry |
-| `providers[]` | providers in failover order; the first 2xx wins |
+| `providers[]` | providers in failover order |
 | `tempo` | natural cadence of the source, as a string |
 | `native_resolution_m` | resolution at the source, in metres |
 
@@ -494,8 +502,8 @@ Per-provider fields (struct `sources::Provider`):
 | `license` | licence string (`"CC-BY-4.0"`, `"Copernicus open data"`) |
 
 The validator rejects two schemes with the same name. An empty
-`providers[]` is valid. It declares the scheme with no provider. On 7 November 2026, one scheme had no provider:
-`openet.30m.daily`.
+`providers[]` is valid. It declares the scheme with no provider. On
+7 November 2026, one scheme had no provider: `openet.30m.daily`.
 
 `template.rs` resolves these template variables: `{cell64}`, `{tslot}`,
 `{year}`, `{month}`, `{day}`, `{channel}`, `{lat_band}`, `{lon_band}`,
