@@ -72,8 +72,9 @@ A trace covers one capture window on one device. It holds:
 5. Optional `prev_trace_cid`: the previous trace of the same device, so
    windows also form a chain.
 6. The device signature over a BLAKE3 preimage. The preimage binds the
-   schema, the identity digest, the profile, the window, the root, the digest
-   of each whole output record and `prev_trace_cid`. The preimage is
+   schema, the identity digest, the profile, the window and the root. It
+   also binds the digest of each whole output record and `prev_trace_cid`.
+   The preimage is
    `emem_attest::os_trace_preimage_v1`.
 
 `trace_cid` is the BLAKE3 hash of the canonical CBOR of the whole signed
