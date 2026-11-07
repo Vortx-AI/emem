@@ -15,6 +15,19 @@ anything. Writes have tiers by what they can reach, never by who is asking
 (`GET /v1/enlist`). The [security page](../security.md) explains the tiers.
 To report a new attack, follow [SECURITY.md](../../SECURITY.md).
 
+## Summary of the surfaces
+
+| Surface | Who can write | What the write can change for other readers |
+|---|---|---|
+| Fact plane | Responder key, enrolled devices, operator-listed keys | The fact at `(cell, band, tslot)` |
+| Canonical index | Only the key that holds the address | Nothing: a second signer goes to the multi-attester index |
+| Shared entity space | T3 keys | The rank of a phrase binding, by count of distinct keys |
+| Derivations and edges | T1 keys | Nothing until someone gives a reader the token |
+| Own-namespace notes | T1 keys, signed | Prose that readers get as data |
+| `EMEM_ENLISTMENT_ENFORCE` | The operator | Whether the tier gates apply |
+
+The sections below give the details and the tests for each row.
+
 ## The surfaces
 
 ### Fact plane: `/v1/attest`, `/v1/attest_traced`
@@ -69,8 +82,8 @@ To report a new attack, follow [SECURITY.md](../../SECURITY.md).
 - What a write changes for others: nothing that another agent reads until
   someone gives them the token.
 - Before and now: a write needs tier T1 and a valid attester. It goes to its
-  own tree and cites its parents. Any T1 key can write here, on purpose. A `Fact::Derivative` takes no address,
-  and neither does an edge.
+  own tree and cites its parents. Any T1 key can write here, on purpose. A
+  `Fact::Derivative` takes no address, and neither does an edge.
 - Test: `derive_is_idempotent_per_attester_and_body`.
 
 ### Own-namespace notes: `emem_memory_*`, `/v1/inbox`
@@ -105,18 +118,19 @@ To report a new attack, follow [SECURITY.md](../../SECURITY.md).
   append. On 7 November 2026 (03:05 UTC) `POST /v1/entity/resolve` with
   `{"text":"Trafalgar Square"}` still returned 3 candidates,
   `contested: true`, each with `independent_attesters: 0`.
-- `CanonicalKey = (cell, band, tslot)`. The redb `put_batch` wrote the index
-  with no check. On 14 September 2026, 20 million `fact_proofs` rows and 2.4
-  million multi-attester rows sat next to it. Those rows let a reader see the fact
-  that lost the slot.
+- Before the fix, the redb `put_batch` wrote the canonical index with no
+  check. The index key is `CanonicalKey = (cell, band, tslot)`. On
+  14 September 2026, 20 million `fact_proofs` rows and 2.4 million
+  multi-attester rows sat next to the index. Those rows let a reader see the
+  fact that lost the slot.
 
 ## What is still not done
 
 - The 21-minute cold open on restart is a deploy cost. It is not a security
-  item. On 14 September 2026 `fact_proofs` held 20 million rows in sled and
-  caused it. The
-  code now keeps `fact_proofs` and the multi-attester index in a redb file
-  (`facts.redb`). A background job copies the old sled rows across.
+  item. The cause was `fact_proofs`, which held 20 million rows in sled on
+  14 September 2026. The code now keeps `fact_proofs` and the multi-attester
+  index in a redb file (`facts.redb`). A background job copies the old sled
+  rows across.
   `EMEM_HOT_BACKEND=sled` rolls this back. The header of `emem-sled-slim` has
   the measurement. The server still opens the sled store at boot. The cold
   open stays until both backfills finish and an operator slims the store.
