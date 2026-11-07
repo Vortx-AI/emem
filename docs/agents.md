@@ -1575,8 +1575,7 @@ send it. The target is one cell for each 100 km², clamped to 64 to 1024.
 series means that emem fetched nothing there yet. It does not mean that
 the source has no observation. For a band with history, an empty read with
 no pin carries `fill.call`. That is the exact `/v1/backfill` body for the
-window.
-Run it, then read again.
+window. Run it, then read again.
 
 `/v1/field_series` reads an area over time, one row per scene.
 
