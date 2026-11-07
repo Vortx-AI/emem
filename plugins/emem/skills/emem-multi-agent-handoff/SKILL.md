@@ -170,7 +170,7 @@ matches and the signature is valid.
 | `banner` | `VALID` | The key in the banner stated the replacement target and the reason. | no change |
 | `banner` | `INVALID` | The target, the reason or the base changed after the key signed them. | 1 |
 | `banner` | `UNSIGNED` | An older supersede with no stored signature. Only the responder vouches for it. | no change |
-| `banner` | `NONE` | The note is not marked as replaced. | no change |
+| `banner` | `NONE` | No supersede replaces the note. | no change |
 | `card` | see Step 5 | The key card of the author. | no change |
 
 The script checks the note offline. It takes BLAKE3 and Ed25519 from

@@ -163,7 +163,7 @@ The encoding registry had 8 encodings: `linux.ftrace.v1`,
 Its `manifest_cid` was
 `fmyxah55fjr2vfzmktjdghutg37g2qdt2zmu7ub2dtgtpn64otga`.
 
-Each registry is content-addressed. When you say what was admitted on
+Each registry is content-addressed. When you say what the registry admitted on
 a date, cite the `manifest_cid` of that date.
 
 ## Related

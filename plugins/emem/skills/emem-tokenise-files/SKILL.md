@@ -166,10 +166,9 @@ Step 3 printed the first three lines only. Step 5 printed
 | 1 | One check printed `MISMATCH`. |
 | 2 | Bad input, for example a file that is not JSON. |
 
-On 7 November 2026, one hash in the audit path of `row.json` was
-changed. The `root` line then printed `MISMATCH` and the script exited
-with 1. A record from 28 September
-2026 shows the same result for the `unit` line when one word of the
+On 7 November 2026, a test changed one hash in the audit path of
+`row.json`. The `root` line then printed `MISMATCH` and the script
+exited with 1. A record from 28 September 2026 shows the same result for the `unit` line when one word of the
 source changed. The same record shows `check` passing on a published
 107-row index of the GPT-2 safetensors file
 (`emem:tree:amii4tnpkfoofsyzrbbs2vxsj4#row=1`, a tensor of 3072 bytes).
