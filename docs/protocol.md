@@ -1912,6 +1912,15 @@ On 7 November 2026 this script passed on a live receipt from the call
 above. It printed the same `preimage_blake3_hex` as
 `POST /v1/verify_receipt`, which also gave `merkle_proof_valid: true`.
 
+CI runs this listing unchanged on each push and pull request to `main`.
+CI starts a fresh node. `scripts/spec_verifier_check.py` then gets a
+receipt from that node and runs the block. A receipt that does not verify fails the build. On
+7 November 2026 at 02:52 UTC this check passed against emem.dev.
+
+The check runs the first `python` block in this file that contains both
+`emem.preimage.v1` and `VerifyKey`. The witness block in §9.6.2.1 also
+contains both. If you edit this page, keep the §7.4 block before it.
+
 The Claude Code plugin ships a second verifier that needs no packages.
 It reads a saved `POST /v1/recall` response or a bare receipt:
 
