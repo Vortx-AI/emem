@@ -315,6 +315,16 @@ were 12,384 bytes long, and their BLAKE3 was equal to `artifact_cid`. Cite
 `tokens.raster`. To check it later, send it to `POST /v1/raster/resolve`
 (MCP `emem_raster_resolve`) with `"spot_check": true`.
 
+Branch on `spot_check.passed`. It is true when the grid bytes agree with the
+sampled anchors in the signed record. When an anchor cites a per-cell fact of
+the same band, that fact must also match the pixel exactly. On 7 November
+2026, the resolve of the token above gave 5 anchors, `grid_matches_record`
+5, `anchors_with_fact` 0 and `passed` true. The record cites no per-cell fact
+because anchors only cite facts that the store already holds. The spot check
+does not hash the bytes. For that, get `artifact.url` and compare its BLAKE3
+with `artifact_cid`. If `artifact.present` is false, the bytes were evicted.
+Send the same `band_raster` call again to rebuild the same bytes.
+
 Each call signs and stores a new derivation record, because the record holds
 its own `signed_at`. Thus `derivation_cid` and both tokens change from call to
 call. The `artifact_cid` stayed the same for the same scene. Call once and
