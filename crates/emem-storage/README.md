@@ -72,9 +72,10 @@ toolchain. The test counts come from the test attributes in the source.
 1. A primitive asks for `(cell, band, tslot)` keys. The crate looks for
    their fact ids in the cache.
 2. On a hit, it returns the stored fact id.
-3. On a miss, it finds the function for the band in the registry. It gets
-   the upstream data through `emem-fetch`, computes the value, signs it,
-   and stores it.
+3. On a miss, `materialize_many` returns `MaterializeMiss` (wire code
+   `CidNotFound`). It does not fetch. The inline materializers in
+   `emem-api-rest` read the upstream data with `emem-fetch`, compute the
+   value, sign it, and store it with `put_attestation`.
 4. `put_attestation` checks the Merkle root over the fact ids and the
    signature before it stores anything. It then appends the attestation
    to the log and saves one proof per fact.
