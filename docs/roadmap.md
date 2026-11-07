@@ -486,69 +486,94 @@ specification was in code only.
 
 ### Open validation: the measurements the claims still rest on
 
-Every other item on this page is *build X*. This one is *prove X*, and it
-is listed separately because the two go stale differently: a feature that
-does not exist is obvious, while a claim nobody has measured looks exactly
-like a claim that has been. Each item below names what the current
-evidence actually establishes, which is usually narrower than the sentence
-it supports.
+The other items on this page ask someone to build a feature. The items in
+this section ask someone to measure a claim. A missing feature is easy to
+see. A claim that nobody measured looks the same as a measured claim. Each
+item says what the current evidence shows. That is usually less than the
+sentence that cites it.
 
-- **The grid, compared rather than asserted.** Partly closed, and it went
-  against us. Token cost is now measured: a cell64 is 12.5 BPE tokens
-  (cl100k_base, mean over 14 live cells; 12.1 under o200k_base) against
-  8.5 for H3 at a comparable pitch and 7.5 to 8.0 for a geohash or a hex
-  S2 id, so the address is the most expensive of the four in the unit a
-  language model pays in. Earlier drafts of the whitepaper claimed the
-  opposite as the justification for the design; that sentence is now
-  corrected. Still open, and needed before the choice can be defended
-  rather than merely disclosed: encode and decode cost against the same
-  three, address stability under a resolution change, area distortion as
-  a function of latitude quantified rather than described, and whether
-  the addressing scheme measurably changes recall latency at all. The
-  honest position today is that cell64 loses to H3 on both equal-area
-  and token economy, and buys decode-free prefix locality in exchange.
-- **Per-encoder calibration for the change gate.** Closed by retirement:
-  the three-encoder ensemble it targeted was removed with the Clay and
-  Prithvi encoders. One finding carries over to any future gate: a scalar
-  nuisance parameter relocates a threshold and can never reorder the
-  candidates (dpwotikn, 2026-08-13).
-- **Accuracy, measured separately from verifiability.** Independently
-  corroborated from outside on 2026-08-13, which is why it stays first.
-  dpwotikn, scoring a detector in a wholly different domain, put it in
-  their own documents rather than waiting for a reviewer: "verifiability
-  improves none of the accuracy metrics. It is pure overhead on detection
-  performance, justified only on multi-party trust grounds." That is the
-  same finding as ours, reached from the other side, and it means the gap
-  is a property of what signing does rather than a quibble about how we
-  measured. Their framing of the boundary is also sharper than ours and
-  worth borrowing: a chain proves "this pipeline signed these bytes and
-  nobody altered them since", and does not prove "these bytes came off
-  that sensor". Closing the second is exactly what `os_trace_required`
-  admission is for, and is why a device substrate cannot be admitted on a
-  software key.
- The grounding
-  comparison scores whether an answer carries a resolvable `fact_cid`. A
-  model with no tools cannot produce one by construction, so that result
-  establishes that emem supplies checkable output and CANNOT establish
-  that emem's values are closer to the truth than another geospatial
-  source's. Those are different claims and only one of them is currently
-  supported. What is needed is an arm that ignores citations entirely:
-  emem's band values against independent reference data (published DEM
-  validation sets, in-situ stations, an established provider queried
-  directly), scored on absolute error, with the disagreements reported
-  whichever way they fall. This is the single most load-bearing gap on
-  this page, because "verifiable" is being read as "accurate" by
-  everyone who has not read the method.
-- **Contradiction scoring, quantitatively.** The primitive ships and now
-  reports provider substitutions as well as multi-attester disagreement,
-  but its severity score has never been evaluated. Needed: seeded
-  disagreements of known magnitude across scalar, vector and categorical
-  bands, and precision and recall of the score against them, so
-  `severity: 0.62` means something to a reader who did not write it.
-- **Memory search, quantitatively.** `emem_memory_search` is BGE over the
-  agent-memory namespace and has no reported recall@k on any held-out
-  set. Until it does, it is a feature with no number, and the honest
-  description of it in any paper is "provided" rather than "effective".
+| Item | Status |
+|---|---|
+| Grid cost against other grids | Partly measured; the result is against `cell64` |
+| Per-encoder calibration for the change gate | Closed: the maintainers removed the encoders |
+| Accuracy, separate from verifiability | Open; the largest gap on this page |
+| Contradiction severity score | Open: no evaluation |
+| Memory search quality | Open: no recall figure |
+
+#### Grid cost against other grids
+
+The maintainers measured the token cost of a `cell64` on 2026-08-13 (see
+`docs/collaboration-log.md`). Over 14 live cells:
+
+| Address | BPE tokens (`cl100k_base`) |
+|---|---|
+| `cell64` | 12.5 mean, range 11 to 15 (12.1 under `o200k_base`) |
+| H3, comparable pitch | 8.5 |
+| Geohash, 10 characters | 7.5 to 8.0 |
+| S2 id in hex | 7.5 to 8.0 |
+
+So `cell64` costs the most tokens of the four. Earlier drafts of the
+whitepaper said the opposite. The maintainers corrected that sentence.
+
+These measurements are still open:
+
+- Encode and decode cost against the same three grids.
+- Address stability when the resolution changes.
+- Area distortion as a number for each latitude, not a description.
+- Whether the grid changes recall latency at all.
+
+Today `cell64` loses to H3 on equal area and on token cost. In exchange, a
+reader can compare two addresses by prefix without a decode step.
+
+#### Per-encoder calibration for the change gate
+
+This item needs no more work. The gate used three encoders, and the maintainers
+removed them with the Clay and Prithvi encoders. One result still applies
+to a future gate. A scalar nuisance parameter can move a threshold, but it
+cannot change the order of the candidates (dpwotikn, 2026-08-13).
+
+#### Accuracy, separate from verifiability
+
+This is the largest gap on this page. Many readers take "verifiable" to
+mean "accurate".
+
+On 2026-08-13, dpwotikn found the same gap in a different domain. They
+scored a detector and wrote: "verifiability improves none of the accuracy
+metrics. It is pure overhead on detection performance, justified only on
+multi-party trust grounds." Their limit for a signed chain is also clear.
+A chain proves "this pipeline signed these bytes and nobody altered them
+since". It does not prove that the bytes came from that sensor.
+`os_trace_required` admission is for the second claim. For this reason, emem
+does not admit a device substrate that signs with a software key.
+
+The current grounding comparison scores one thing: whether an answer
+carries a `fact_cid` that resolves. A model with no tools cannot make one.
+So the result shows that emem gives output a reader can check. It does
+not show that emem values are nearer the truth than the values of another
+geospatial source.
+
+The missing test ignores citations. It compares emem band values with
+independent reference data and scores the absolute error. Examples of
+reference data include published DEM validation sets, in-situ stations and an
+established provider. The report must give each disagreement, whichever
+side it favours.
+
+#### Contradiction severity score
+
+`emem_memory_contradictions` ships. It reports disagreement between
+attesters, and a provider substitution by one attester
+(`crates/emem-primitives/src/memory_contradictions.rs`). Nobody has
+evaluated its severity score. The test needs seeded disagreements of
+known size in scalar, vector and categorical bands. It then reports the
+precision and recall of the score against them. After that, a value such
+as `severity: 0.62` has a meaning for a reader.
+
+#### Memory search quality
+
+`emem_memory_search` embeds memory notes with BGE-base-en-v1.5
+(`crates/emem-primitives/src/memory_search/text_embedder.rs`). It has no
+recall@k on any held-out set. Until it has one, a paper must say that emem
+supplies the search, not that the search works well.
 
 ### Next substrates: and the address space that gates all of them
 
