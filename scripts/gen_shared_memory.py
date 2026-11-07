@@ -161,7 +161,7 @@ def two_agents():
     s.text(tx + 24, ty + 82, "emem:fact:defi.zb493.xuqA.zcb5f:", 13, INDIGO, font=MONO, weight="bold")
     s.text(tx + 24, ty + 106, "yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala", 11.5, INK, font=MONO)
     s.text(tx + 24, ty + 140, "84 characters, one line", 10.5, INK_SOFT, font=MONO)
-    s.text(tx + 24, ty + 162, "stands in for a 3,122-byte response (7 Nov 2026)", 10.5, INK_SOFT, font=MONO)
+    s.text(tx + 24, ty + 162, "stands in for about 3,100 bytes (7 Nov 2026)", 10.5, INK_SOFT, font=MONO)
     s.seal(tx + tw - 34, ty + 30, 9, fill=LEAF)
     s.flow((AX + 62, AY - 10), (tx - 8, ty + th / 2), TURMERIC, 1.6, op=0.9, bow=-30, glow=True)
     s.flow((tx + tw + 8, ty + th / 2), (BX - 62, BY - 10), TURMERIC, 1.6, op=0.9, bow=-30, glow=True)
