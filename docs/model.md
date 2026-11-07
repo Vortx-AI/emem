@@ -361,41 +361,55 @@ The git analogy holds in the same way. Blob, tree and commit map to
 observation, edge, and rule with receipt. Worlds, meshes and projects
 are to come from these. They are not to become new stored types.
 
-The review is correct on one point: today `v` is band-typed. emem now
-signs whole fields as one object (a raster bundle, and the `emem:cube:`
-band cube over time). But a gaussian patch, a mesh or a road graph is
-not an observation yet. The worlds bake keeps its derived splats in a
-provenance sidecar. The real content of the gap "derivation over more
-than one step as signed objects" is this: let `v` hold typed artifacts
-with canonical encodings. Then emem signs a mesh, and agents cite and
-evict it, in the same way as an NDVI reading. This makes the fact model stronger. It
-does not add a second object system next to it.
+The review is correct on one point: today `v` is band-typed. emem signs
+some whole fields as one object: a raster bundle, and the `emem:cube:`
+band cube over time. A gaussian splat, a mesh or a road graph is not an
+observation yet.
+
+The worlds bake shows the gap. `scripts/bake_worlds.sh` runs
+`examples/3d-worlds/make_splats.py`, which writes the splat files and a
+sidecar file, `world.provenance.json`. The sidecar lists the signed facts
+and receipts behind each splat, and the SHA-256 of each splat file. The
+sidecar has no signature of its own.
+
+To close the gap "derivation over more than one step as signed objects",
+`v` must hold typed artifacts with canonical encodings. Then emem signs a
+mesh, and agents cite and evict it in the same way as an NDVI reading.
+This makes the fact model stronger. It does not add a second object
+system next to it.
 
 ### Learned graphs and declared rules
 
-A build system expects someone to write the graph. For the Earth, nobody
+A build system expects a person to write the graph. For the Earth, nobody
 knows the graph. The position here is deliberate:
 
 - The RULES stay declared, versioned and signed, because nobody can
-  verify a discovered rule again.
-- Discovery, not hardcoded code, picks WHICH declared derivations
-  exist, apply and are worth running at a cell for a goal. Only the
-  seed of this planner ships (see below).
+  check a discovered rule again.
+- A planner, not fixed code, is to pick WHICH declared derivations exist,
+  apply and are worth a run at a cell for a goal.
 
-The seed of that planner ships. `/v1/ask` sends a question to the
-recipes that apply, in `algorithms_for_question`. One goal already has
-competing derivations. Deforestation comes from the NDVI-drop alert,
-from SAR disturbance, or from the Hansen and JRC TMF loss layers that
-`/v1/eudr_dds` reads. The rule is: learn the graph, never learn the
-rule.
+Only the seed of that planner ships. `/v1/ask` sends a question to the
+recipes that apply, in the `algorithms_for_question` list of its answer.
+One goal already has competing derivations in the algorithms registry.
+For deforestation, `deforestation_alert_ndvi_drop@1` reads an NDVI drop,
+`sar_forest_disturbance@1` reads SAR, and `/v1/eudr_dds` reads the
+Hansen and JRC TMF loss layers. The rule is: learn the graph, never learn
+the rule.
 
 The verb of this direction is `prove(goal)`. The answer to a goal is an
-artifact and a chain that a machine can check. The chain shows that
-each dependency is valid for this location at this time. For one step
-this ships today: each `ensure` returns a receipt, a provenance class
-and a staleness score. Over a discovered chain of several steps it is
-planner work, in the gap list. It asks its trust question for each
-step ("can I trust this gaussian", not only "does it exist").
+artifact plus a chain that a machine can check. The chain shows that
+each dependency is valid for this location at this time.
+
+For one step, this ships today. A `POST /v1/recall` with a band list
+(`ensure`) returns a receipt. Add `"include": ["freshness", "provenance"]`
+and each fact also carries its `provenance_class` and a `freshness` block
+with the Q(dt) score. Both are outside the signed preimage. On 7 November
+2026, a recall of `cams.pm25` at the Mount Fuji cell `defi.zb592.nUkO.zEzE`
+gave class `model_output`, `q` 0.0 and `stale: true`.
+
+Over a discovered chain of several steps, `prove` is planner work, in the
+gap list. At each step it must ask a trust question ("can I trust this
+gaussian"), not only "does it exist".
 
 ### Comparison with other systems
 
