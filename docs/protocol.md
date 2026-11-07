@@ -2104,7 +2104,7 @@ is a Merkle tree, and the attestation signs its root. A receipt's
 to that root. If the fold ends on `root`, the fact was in the signed
 batch.
 
-The struct is `MerkleProof` in `crates/emem-fact/src/receipt.rs:244-276`:
+The struct is `MerkleProof` in `crates/emem-fact/src/receipt.rs`:
 
 ```rust
 struct MerkleProof {
@@ -2123,8 +2123,8 @@ The leaf is the 32 bytes of the fact's `fact_cid`: base32-decode the
 
 `leaf_index` is the position of the leaf in the **sorted** batch (the
 same sort that produced `batch_root`), not the original fact index.
-`persist_fact_proofs` makes this conversion at write time
-(`crates/emem-storage/src/lib.rs:2039-2100`).
+`persist_fact_proofs` in `crates/emem-storage/src/lib.rs` makes this
+conversion at write time.
 
 ### Which rule a proof uses
 
@@ -2134,8 +2134,8 @@ the v1 attestation rule (§6), and 0 for older ones.
 
 | `version` | Leaf promotion | Internal node | Code |
 |---|---|---|---|
-| `0`, or absent | `blake3(C \|\| C)` | `blake3(left \|\| right)` | `verify_merkle_path`, `crates/emem-attest/src/lib.rs:104-127` |
-| `1` | `blake3(0x00 \|\| C)` | `blake3(0x01 \|\| left \|\| right)` | `promote_leaf_v1`, `verify_merkle_path_v1`, `crates/emem-attest/src/lib.rs:738-830` |
+| `0`, or absent | `blake3(C \|\| C)` | `blake3(left \|\| right)` | `verify_merkle_path`, `crates/emem-attest/src/lib.rs` |
+| `1` | `blake3(0x00 \|\| C)` | `blake3(0x01 \|\| left \|\| right)` | `promote_leaf_v1`, `verify_merkle_path_v1`, `crates/emem-attest/src/lib.rs` |
 
 `C` is the leaf: the 32 bytes of the `fact_cid`. Both rules use the same
 tree shape. An odd layer pairs its last node with itself. Version 1
@@ -2146,7 +2146,8 @@ a duplicate leaf (`has_adjacent_duplicate`). Without that check,
 
 On 6 November 2026, a live `POST /v1/recall` receipt from emem.dev carried
 `version: 1`, `leaf_count: 1` and an empty `path`. Its root was
-`blake3(0x00 || C)`, as §8.3 says.
+`blake3(0x00 || C)`, as §8.3 says. A receipt served at
+`2026-11-07T01:11:55Z` had the same shape, and its root also matched.
 
 ### 8.1 verify_merkle_path
 
@@ -2156,7 +2157,7 @@ odd `idx` means it is the right child: `acc := H(sibling, acc)`. Then
 `idx /= 2`. At the end, `acc` must equal `root`. `H` is the node hash
 from the table above.
 
-Two preconditions a verifier must respect:
+A verifier must obey two rules:
 
 1. The `leaf` argument is the **promoted** leaf, not the raw `C`. Promote
    it with the rule that `version` names before you fold. The tests
@@ -2171,8 +2172,8 @@ holds the fact. It reports the result as `merkle_proof_valid`.
 
 ### 8.2 Worked path: leaf 1 of a 4-leaf tree
 
-For four facts producing sorted leaves `[C0, C1, C2, C3]`, with
-promoted forms `[l0, l1, l2, l3]`. This trace uses the version 0 node
+Four facts give the sorted leaves `[C0, C1, C2, C3]`. Their promoted
+forms are `[l0, l1, l2, l3]`. This trace uses the version 0 node
 hash `b3(left || right)`. For version 1, read each `b3(x || y)` as
 `b3(0x01 || x || y)`; the steps do not change.
 
@@ -2184,7 +2185,7 @@ hash `b3(left || right)`. For version 1, read each `b3(x || y)` as
        l0          l1               l2          l3
 ```
 
-Inclusion proof for fact at sorted index 1 (that is, promoted-leaf `l1`):
+The inclusion proof for the fact at sorted index 1 (promoted leaf `l1`) is:
 
 - `leaf_index = 1`
 - `path = [ l0, L23 ]`
@@ -2201,19 +2202,19 @@ Trace `verify_merkle_path(l1, 1, [l0, L23], root)`:
 
 ### 8.3 Single-leaf case
 
-For a one-fact attestation, `path` is empty (no siblings to combine)
-and the promoted leaf **is** the root (test
-`single_leaf_path_is_empty_and_root_is_self_hash`). The verifier
-short-circuits: `acc = leaf; return acc == root`. Under version 1 the
-root is `blake3(0x00 || C)`.
+For a one-fact attestation, `path` is empty because no sibling exists.
+The promoted leaf **is** the root (test
+`single_leaf_path_is_empty_and_root_is_self_hash`). The loop does not
+run, so the verifier only compares `leaf` with `root`. Under version 1
+the root is `blake3(0x00 || C)`.
 
 ### 8.4 Odd-cardinality case
 
-When a layer has odd size, the trailing node pairs with itself
-(`merkle_root_and_paths`, `crates/emem-attest/src/lib.rs:41-49`). The
+When a layer has an odd number of nodes, the last node pairs with itself
+(`merkle_root_and_paths` in `crates/emem-attest/src/lib.rs`). The
 recorded sibling for that node at that layer is the node itself.
-`verify_merkle_path` reproduces the duplicate pair without a special case,
-because `idx % 2 == 0` for the last index, so `acc := b3(acc || acc)`.
+`verify_merkle_path` needs no special case for this. The last index is
+even, so `acc := b3(acc || acc)`.
 Test: `odd_cardinality_last_leaf_self_pairs`.
 
 ---
@@ -2294,12 +2295,13 @@ segments at start or while it writes. It is a tool for an operator.
 
 `SegmentBackup` is a trait for a backup backend. An operator writes one
 to copy sealed segments to S3, IPFS or a different store. The backend
-also pulls them back to replay and restore. The protocol does not specify a backend. The wire
-contract is the segment file format and the trailer hash.
+also pulls them back to replay and restore. The protocol does not
+specify a backend. The wire contract is the segment file format and the
+trailer hash.
 
 <a id="transparency-log"></a>
 
-### 9.6 Transparency log {#transparency-log}
+### 9.6 Transparency log
 
 In short: the log in §9.1 to §9.5 makes entries durable. The
 transparency log lets a third party prove two more things. An entry is
