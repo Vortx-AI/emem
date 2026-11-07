@@ -332,8 +332,13 @@ the topic that the router chose.
 
 ## Record a demo run
 
-`emem-livedemo` takes a base URL and an output directory. The defaults
-are `http://localhost:5051` and `./var/demos/<UTC stamp>`.
+`emem-livedemo` takes a base URL and an output directory. Without a URL
+argument, it uses `EMEM_BASE_URL`, then `http://localhost:5051`. The
+default directory is `./var/demos/<UTC stamp>`.
+
+The server serves runs from `EMEM_DEMOS_DIR`, default `var/demos` in its
+own working directory. Run the demo from the directory where the server
+runs. If you cannot, set `EMEM_DEMOS_DIR` on the server.
 
 ```sh
 cargo run --release --bin emem-livedemo -- http://127.0.0.1:5051
