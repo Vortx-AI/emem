@@ -94,7 +94,19 @@ How to read this result:
 - All eight hotspot NDVI values were between -0.333 and -0.216. The formula is `chl_a_mg_m3 = clip(70 * max(0, ndvi) - 5, 0, 200)`, so each cell scores 0 mg/m³. There was no chlorophyll signal in these facts.
 - The top value came from a scene observed on 14 September 2026. The same cell had newer NDVI facts up to 25 October 2026 (see [How a hunt ranks cells](#how-a-hunt-ranks-cells)).
 
-How to cite it: quote the hotspot's `fact_cid` and the `algorithm_key`. Quote `ranking.gate` to show that the cell passed the water test. Anyone can check the receipt at [/verify](https://emem.dev/verify) or with `POST /v1/verify_receipt`.
+How to cite it: quote the hotspot's `fact_cid` and the `algorithm_key`. Quote `ranking.gate` to show that the cell passed the water test. Anyone can check the receipt at [/verify](https://emem.dev/verify) or with `POST /v1/verify_receipt`. This command runs the hunt again and sends its receipt to the check:
+
+```bash
+curl -sS -X POST https://emem.dev/v1/hunt \
+  -H 'content-type: application/json' \
+  -d '{"event":"algal_bloom","region":"Lake Erie"}' \
+  | jq -c '{receipt}' \
+  | curl -sS -X POST https://emem.dev/v1/verify_receipt \
+      -H 'content-type: application/json' -d @- \
+  | jq -c '{valid, signature_valid, primitive, fact_cids_count}'
+# {"valid":true,"signature_valid":true,"primitive":"hunt","fact_cids_count":8}
+# (7 November 2026)
+```
 
 ## 2. Deforestation in Borneo
 
@@ -113,7 +125,7 @@ The algorithm is `deforestation_alert_ndvi_drop@1`. Its formula from `/v1/algori
 if baseline_tc < 30: return null (not a forest cell); drop = ndvi_60d - ndvi_now; alert = drop > 0.20 AND ndvi_now < 0.5
 ```
 
-The hunt ranks cells by `indices.ndvi`, lowest first, with no gate. It does not apply the Hansen 2000 tree-cover test or the 60-day drop. On 7 November 2026 it sampled 64 cells. The eight hotspot NDVI values were between -0.702 and -0.238. This hunt also applied the embedding rerank (`embedding_rerank.applied: true`, 16 candidates, method `cluster_centroid_cosine`). The rerank takes the 16 cells with the lowest NDVI. It sorts them by how near each cell's stored embedding is to the mean of the stored embeddings in that group. Cells with no stored embedding go last. Thus the hotspots are not in NDVI order. The first hotspot had NDVI -0.275, and the second had -0.702.
+The hunt ranks cells by `indices.ndvi`, lowest first, with no gate. It does not apply the Hansen 2000 tree-cover test or the 60-day drop. On 7 November 2026 it sampled 64 cells. The eight hotspot NDVI values were between -0.702 and -0.238. This hunt also applied the embedding rerank (`embedding_rerank.applied: true`, `candidates_used: 16`, `method: "cluster_centroid_cosine"`). The rerank takes the 16 cells with the lowest NDVI. It sorts them by how near each cell's stored embedding is to the mean of the stored embeddings in that group. Cells with no stored embedding go last. Thus the hotspots are not in NDVI order. The first hotspot had NDVI -0.275, and the second had -0.702.
 
 A low NDVI alone does not prove forest loss. Check the baseline at each hotspot before you call it deforestation:
 
