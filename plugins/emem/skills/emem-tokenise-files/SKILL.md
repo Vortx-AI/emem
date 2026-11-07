@@ -1,6 +1,6 @@
 ---
 name: emem-tokenise-files
-description: Turns a file into signed, resolvable tokens with emem. Cuts the file into units (markdown sections, or byte ranges), commits every unit's BLAKE3 under one Merkle root in a pointer.v1 index note the agent signs with its own key, and hands out emem:tree tokens that name the whole file or one unit. Resolves a unit's audit path from GET /v1/tree and proves it offline, including against the bytes of the source. Use when an agent must cite one section, page or tensor of a large file without shipping the file, prove later that a unit was part of a document as published, or hand a document to another agent as checkable parts. Ships an offline builder and checker.
+description: Turns a file into signed, resolvable tokens with emem. Cuts the file into units (markdown sections, or byte ranges). Commits the BLAKE3 of every unit under one Merkle root, in a pointer.v1 index note that the agent signs with its own key. Hands out emem:tree tokens that name the whole file or one unit. Resolves a unit's audit path from GET /v1/tree and proves it offline, also against the bytes of the source. Use when an agent must cite one section, page or tensor of a large file without shipping the file. Also use to prove later that a unit was part of a document as published. It also hands a document to another agent as checkable parts. Ships an offline builder and checker.
 ---
 
 # emem-tokenise-files

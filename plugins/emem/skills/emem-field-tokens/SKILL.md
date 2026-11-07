@@ -1,6 +1,6 @@
 ---
 name: emem-field-tokens
-description: Fetches a native-resolution raster field over an area from emem, or the same field over several dates, as a signed artifact that anyone can re-derive, not a set of per-cell values. Use when the user needs the grid of values over an area, not one number at one point. Examples are a world-model input, a band or NDVI layer, change over a scene window, or pixels a third party can re-hash. Returns content-addressed grid artifacts, a signed derivation record, and an emem:raster, emem:cube or emem:rasterset token. Reads need no key.
+description: Fetches a native-resolution raster field over an area from emem, or the same field over several dates. The result is a signed artifact that anyone can re-derive, not a set of per-cell values. Use when the user needs the grid of values over an area, not one number at one point. Examples are a world-model input, a band or NDVI layer, change over a scene window, or pixels a third party can re-hash. Returns content-addressed grid artifacts, a signed derivation record, and an emem:raster, emem:cube or emem:rasterset token. Reads need no key.
 ---
 
 # emem-field-tokens

@@ -15,16 +15,16 @@ signed answer in three calls:
 1. **Ask.** `POST /v1/ask {"q":"what is the NDVI near Mount Fuji?"}`
    (MCP tool `emem_ask`, or `emem_intent` / `POST /v1/intent` for a
    structured single-shot). The classifier routes the question to one of
-   four paths: a self-description of emem, a corpus audit (a redirect to
-   the coverage endpoints, with no receipt), a hunter sweep over a region,
-   or a point answer. The hunter sweep and the point answer carry a signed
-   receipt. Ask answers point questions with a current value, so send a
+   four paths. These are a self-description of emem, a corpus audit, a
+   hunter sweep over a region, or a point answer. A corpus audit redirects
+   to the coverage endpoints and has no receipt. The hunter sweep and the point answer carry a signed
+   receipt. Ask answers point questions with a current value. Send a
    change question ("how has X changed") to `emem_intent` with
    `did_change`, or to `emem_diff`. This is the fastest path.
 2. **Or take control.** `POST /v1/locate {"place":"Mount Fuji"}` → a
    `cell64`, then `POST /v1/recall {"cell":"<cell64>"}` (auto-materialises
    on a miss).
-3. **Cite it.** Verify the receipt offline at `/verify` or via
+3. **Cite it.** Verify the receipt offline at `/verify` or through
    `POST /v1/verify_receipt`; hand other agents an `emem:fact:` token from
    `emem_memory_token` (or `emem_memory_bundle` for several).
 
@@ -36,11 +36,11 @@ for agents editing the source.
 
 ## Repo shape
 
-Rust workspace, 19 crates, version 2.4.5, MSRV 1.91. `emem-guard` is the verdict server for AI inference checkpoints (Anthropic Inference hooks, Claude Code hooks); it is a separate binary and shares no code path with the responder. The bulk of the code
+Rust workspace, 19 crates, version 2.4.5, MSRV 1.91. `emem-guard` is the verdict server for AI inference checkpoints, such as Anthropic Inference hooks and Claude Code hooks. It is a separate binary and shares no code path with the responder. The bulk of the code
 lives in `crates/emem-api-rest/src/lib.rs` (HTTP/MCP router plus every inline materializer) and
 `crates/emem-fetch/src/*.rs` (27 data connectors + 8 utility modules).
 Earlier versions ran Clay, Prithvi, Galileo and JEPA-v2 on a GPU sidecar;
-facts they signed still verify. Web surface in `web/` is plain HTML, no build step, included via
+facts they signed still verify. Web surface in `web/` is plain HTML, no build step, included with
 `include_str!`.
 
 ## Build
@@ -95,8 +95,8 @@ cargo clippy --workspace --all-targets -- -D warnings            # CI gate
 
 Both gates run in `.github/workflows/ci.yml` on Linux. Only the
 `test` job runs on Linux and macOS. There is also an MSRV 1.91 build
-job. Don't ship a commit that fails either: the CI
-will reject it and the next agent will have to figure out why.
+job. Do not ship a commit that fails either. CI
+rejects it, and the next agent then has to find out why.
 
 Every action in `.github/workflows/` is pinned to a full commit SHA with
 its tag in a trailing comment (`@<sha> # v4.4.0`). A tag can be moved to
@@ -105,16 +105,18 @@ other code; a SHA cannot. To bump one, resolve the new tag with
 peeled `^{}` line for an annotated tag) and change the SHA and the comment
 together.
 
-Two hard-won specifics. CI installs Rust from the `stable` branch of
-`dtolnay/rust-toolchain` (pinned to a commit like every other action;
-that commit installs whatever stable is current when the job runs), so the
-clippy gate tracks CURRENT stable, not the MSRV: run `rustup update
-stable` first (never while a build is running; it deletes the old
-toolchain's rlibs out from under an in-flight compile) or new-in-stable
-lints will pass locally and fail in CI one at a time. And run clippy
-with `--all-targets`: a plain `--lib` test run never compiles the
-integration-test and demo-bin targets, which is exactly where CI finds
-what you missed.
+Two hard-won specifics:
+
+- CI installs Rust from the `stable` branch of `dtolnay/rust-toolchain`.
+  That action is pinned to a commit like every other action, and the commit
+  installs the stable that is current when the job runs. So the clippy gate
+  tracks CURRENT stable, not the MSRV. Run `rustup update stable` first, or
+  lints that are new in stable pass locally and fail in CI one at a time.
+  Never run it while a build runs: it deletes the old toolchain's rlibs
+  under the compile.
+- Run clippy with `--all-targets`. A plain `--lib` test run never compiles
+  the integration-test and demo-bin targets, and CI finds what you missed
+  there.
 
 ## Code style
 
@@ -128,10 +130,10 @@ what you missed.
   workaround for a specific bug, a subtle invariant). Don't explain *what*
   the code does; well-named identifiers do that. Don't reference the
   current task or PR; those belong in the PR description.
-- **Receipts and CIDs are load-bearing**. Any change to
-  `crates/emem-storage/src/server.rs::sign_receipt` or the canonical-CBOR
-  layout in `crates/emem-fact/src/` requires a corresponding update to
-  `docs/protocol.md` (the byte-by-byte preimage example) and to the
+- **Receipts and CIDs are load-bearing**. A change to
+  `crates/emem-storage/src/server.rs::sign_receipt` or to the canonical-CBOR
+  layout in `crates/emem-fact/src/` needs two more updates. Update
+  `docs/protocol.md` (the byte-by-byte preimage example). Update the
   in-browser verifier at `web/humans.html` (the BLAKE3 + Ed25519 path).
   These three places must always agree.
 
@@ -179,7 +181,7 @@ hook fails, fix the underlying issue.
 | Hunter and corpus-audit classifiers for /v1/ask | `crates/emem-api-rest/src/ask_foundation.rs` |
 | Physics solvers (heat / wave / NDVI AR(2)) | `crates/emem-api-rest/src/physics.rs` |
 | `/humans` interactive console | `web/humans.html` |
-| Static web surface | `web/` (served via `include_str!` from api-rest) |
+| Static web surface | `web/` (served with `include_str!` from api-rest) |
 | Demos | `crates/emem-cli/src/bin/emem-{demo,livedemo,realdemo}.rs` |
 
 ## Where to read more

@@ -1,6 +1,6 @@
 ---
 name: emem-shared-identity
-description: Makes two agents refer to the same object. Finds an existing canonical identity for a thing (a field, a corridor, an asset, a place treated as an object) from a fuzzy phrasing, attests that two phrasings denote one object, or mints a new identity when none exists. Use when several agents or documents call one thing by different names and the disagreement is about words rather than measurements, or before handing another agent a finding it must be able to look up. Reads are open; writing to the shared identity space needs a key and tier T3.
+description: Makes two agents refer to the same object. Finds an existing canonical identity for a thing from a fuzzy phrasing: a field, a corridor, an asset, a place treated as an object. Attests that two phrasings denote one object, or mints a new identity when none exists. Use when several agents or documents call one thing by different names, and the disagreement is about words, not measurements. Also use before you hand another agent a finding that it must be able to look up. Reads are open; writing to the shared identity space needs a key and tier T3.
 ---
 
 # emem-shared-identity

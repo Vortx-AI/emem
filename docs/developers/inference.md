@@ -157,20 +157,33 @@ the offshore end and 57 m at the coastal end. It ran 204 steps at
 about 23. Because the coastal end is 57 m deep, this is a wave over deep
 water, not a wave that reaches a beach.
 
-On the same day, cells at the shore near Waikiki, Bondi Beach and Nazare
-(from `/v1/locate` by name), with `n_offshore_cells: 64`, all gave the
-land-locked rejection. At Bondi and Nazare the offshore end cell had
-0 m depth.
-
-This request shows the 422 rejection with its details. On 7 November
-2026 its profile had 44 cells, not 64. The offshore end cell had 0 m
-depth, and 32 % of the cells were more than 1 m deep:
+A wave that reaches a beach needs a coastal cell whose seaward profile reaches water of 5 m or more. On
+7 November 2026, the cell that `/v1/locate` gives for La Jolla Cove did:
 
 ```sh
 curl -s https://emem.dev/v1/wave_solve \
   -H 'content-type: application/json' \
-  -d '{"coastal_cell":"defi.zb4f2.bOpA.zf12a","offshore_height_m":2,"period_s":10,"n_offshore_cells":64}'
+  -d '{"coastal_cell":"defi.zb575.zc3cb.gIhE","offshore_height_m":2,"period_s":10,"n_offshore_cells":64}'
 ```
+
+It gave HTTP 200 with 64 profile cells, 10 m deep at the offshore end and 0 m at the coast. It ran 282 steps at
+`cfl_factor` 0.5. `arrival_height_m` was about 1.08, and `arrival_time_s` was about 92.
+
+Most beach cells do not work with 64 cells. On the same day, these places gave the land-locked rejection: Waikiki,
+Bondi Beach, Nazare, Copacabana Beach, Marina Beach (Chennai), Miami Beach, Juhu Beach and Monaco. We used the cell
+that `/v1/locate` gives for each. Each gave HTTP 422, because the offshore end cell was less than 5 m deep. Valletta and Oia gave HTTP 200, but the wave
+never arrived (`arrival_time_s` null), because most of their profile cells are land.
+
+The rejection names the cell and the depth that failed. For example, this body:
+
+```json
+{"coastal_cell":"defi.zb4f2.bOpA.zf12a","offshore_height_m":2,"period_s":10,"n_offshore_cells":64}
+```
+
+gave HTTP 422 with `land-locked seaward profile from coastal_cell=defi.zb4f2.bOpA.zf12a` on 7 November 2026. Its
+profile had 44 cells, not 64. The offshore end cell had 0 m depth, and 32 % of the cells were more than 1 m deep. To
+try another coast, take a cell from `/v1/locate`, then read `profile_cells_offshore_to_coast` and `depth_profile_m`
+in the answer.
 
 ## `/v1/jepa_predict`: closed-form NDVI AR(2)
 
