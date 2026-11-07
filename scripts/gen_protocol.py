@@ -34,8 +34,8 @@ def architecture():
                   inner=["ring", "hatch", "leaf"][i % 3])
         s.flow((SRCX + 18, y), (CX - LR - 60, CY + (y - CY) * 0.25), INK_SOFT, 1.0, op=0.5, bow=16 * math.sin(i))
     s.text(SRCX, CY - 250, "46 sources", 13, INK, font=MONO, anchor="middle", weight="bold")
-    s.text(SRCX, CY + 268, "STAC + COG, signed", 11, INK_SOFT, font=MONO, anchor="middle")
-    s.text(SRCX, CY + 286, "on the first miss", 11, INK_SOFT, font=MONO, anchor="middle")
+    s.text(SRCX + 26, CY + 268, "STAC + COG, signed", 11, INK_SOFT, font=MONO, anchor="middle")
+    s.text(SRCX + 26, CY + 286, "on the first miss", 11, INK_SOFT, font=MONO, anchor="middle")
 
     # top: clients
     for (cx, label, col) in [(CX - 170, "MCP", TEAL), (CX + 170, "REST", INDIGO)]:
@@ -75,11 +75,13 @@ def architecture():
            anchor="middle", weight="bold")
 
     # manifests row top-right (under the frieze, clear of the title)
-    s.text(W - 520, 142, "manifests:", 11, INK, font=MONO, weight="bold")
-    for i, m in enumerate(["bands_cid", "algorithms_cid", "sources_cid", "schema_cid"]):
-        x = W - 408 + i * 96
+    # Place each item after the previous label's mono width, so no label runs under the next seal.
+    s.text(W - 560, 142, "manifests:", 11, INK, font=MONO, weight="bold")
+    x = W - 448
+    for i, m in enumerate(["bands", "algorithms", "sources", "schema"]):
         s.seal(x, 138, 8, fill=[INDIGO, LEAF, TURMERIC, LAC][i])
-        s.text(x + 12, 142, m.split("_")[0], 10.5, INK_SOFT, font=MONO)
+        s.text(x + 12, 142, m, 9.5, INK_SOFT, font=MONO)
+        x += 12 + len(m) * 8.2 + 22
     s.save(f"{OUT}/01-architecture.svg")
     return "01-architecture"
 
