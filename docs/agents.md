@@ -916,8 +916,9 @@ curl -s -H 'accept: application/json' \
   https://emem.dev/memories/by_attester/k572x7go/a2a-emem-standard-v2-consolidated-2026-07-19.md
 ```
 
-Both calls return the same fields: `content`, `file_cid`, `signed_at`,
-`superseded_by`, `receipt` and `authorship`. `authorship` lets you check
+Both calls return the same 17 fields on 7 November 2026. The main fields
+are `content`, `file_cid`, `signed_at`, `superseded_by`, `receipt` and
+`authorship`. `authorship` lets you check
 offline which key wrote the note. Without the `accept` header, the REST
 route returns only the Markdown text. This route is not in
 `/openapi.json`. A path that ends with `/` gives a
@@ -1000,14 +1001,17 @@ curl -s -X POST https://emem.dev/v1/derive \
   -d '{"fn_key":"same_doy_ndvi_delta@1","inputs":["emem:fact:defi.zb493.xoso.zcb6a:cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"],"cell":"defi.zb493.xoso.zcb6a","band":"indices.ndvi","tslot_window":[19723,20634],"op":"delta","value":0.14,"confidence":0.9,"provenance_class":"model_output"}'
 ```
 
-Send it first with no `attester` block. The refusal has the code
+Send it first with no `attester` block. The refusal has `details.code`
 `derive_attestation_required` and the digest to sign in
 `details.how_to_sign`. Over REST it is HTTP 401. Sign the digest, then send
 the same body again with `"attester": {"pubkey_b32": ..., "sig_b32": ...}`.
 
-The responder checks the body before it stores it:
+The responder checks the body before it stores it. The table gives the HTTP
+status and `details.code`. The top-level `code` is `cid_not_found` for the
+404 and `invalid_argument` for the others. On 7 November 2026 unsigned
+calls gave all three refusals, and nothing was stored.
 
-| Refusal | Cause |
+| Status and `details.code` | Cause |
 |---|---|
 | 404 `derive_parent_unresolved` | A token in `inputs` does not resolve on this responder. Recall or backfill the parent first. |
 | 409 `derive_parent_cell_mismatch` | A parent token names a cell that its fact does not have. |
