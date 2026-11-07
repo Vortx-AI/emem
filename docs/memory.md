@@ -583,7 +583,11 @@ not its path. Readers of the old path then get `superseded_by` and a
 `_superseded` banner above the content. The banner holds
 `this_note_was_replaced_by`, the `reason`, and the key and signature of
 the supersede. Your signature covers the target and the reason, so
-nobody can change either one later. The responder applies these rules:
+nobody can change either one later. The responder first checks the
+signature, the namespace owner and the rate limit, as for every write
+(see [Signed writes and namespaces](#signed-writes-and-namespaces)). Only
+the check for an empty `superseded_by` comes before them. Then it
+applies these rules:
 
 | Case | Result |
 |---|---|
@@ -616,7 +620,9 @@ A path that ends in `/` deletes a directory. The responder first checks
 every file under it. If one file has a different owner, it removes
 nothing and returns 403 `memory_namespace_violation`. It also refuses the
 root `/memories/`. An empty directory gives 404. Each removed file gets
-its own tombstone and its own log entry.
+its own tombstone and its own log entry. A directory delete does not
+remove `vault` entries under it. Delete each `vault` entry by its own
+path. A directory that holds only `vault` entries gives 404.
 
 To see everything that happened to a path, call `emem_memory_view` with
 `view: "history"`. The result lists `versions` (the bytes the path held,
