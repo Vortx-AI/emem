@@ -639,7 +639,7 @@ breaks one of these rules:
 - A non-provisional anchor is a 32-byte digest.
 - An `active` platform has one or more non-provisional anchors.
 
-## Publishing a new manifest
+## Publish a new manifest
 
 1. Edit the JSON file in `crates/emem-core/data/`.
 2. Run `cargo test -p emem-core`. The crate tests parse each embedded
@@ -657,7 +657,7 @@ An operator who runs their own responder does the same steps with their own
 JSON files. Fact CIDs and receipt CIDs stay compatible. The registry CIDs
 differ, which is the purpose of content addressing.
 
-## Looking up CIDs at runtime
+## Get the CIDs at runtime
 
 ```sh
 curl -s https://emem.dev/v1/manifests
