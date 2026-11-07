@@ -254,10 +254,10 @@ digest in the refusal.
 
 | Layer | Endpoint | Wire shape | Returns |
 |---|---|---|---|
-| State (single encoder) | `POST /v1/state` | `{cell, encoder?, view?, as_of_tslot?, as_of_signed_at?}` | a stored embedding vector and a memory_token; no encoder runs now (see below), so it answers only from vectors signed before the retirement |
-| State (full cube) | `POST /v1/state` view=cube | same, plus `materialize?` | 1792-D state vector, per-slot coverage, `state_cid` and an `emem:bundle:` token |
-| State fan-out | `POST /v1/state_multi` | `{cell, encoders?, as_of_*?}` | per-encoder dense map; empty by default, since no encoder is live |
-| State delta | `POST /v1/state_diff` | `{cell, encoder?, tslot_a, tslot_b}` | residual + cosine + both fact_cids |
+| State (single encoder) | `POST /v1/state` | `{cell, encoder?, view?, tslot?, as_of_tslot?, as_of_signed_at?, scope?}` | a stored embedding vector and a memory_token; no encoder runs now (see below), so it answers only from vectors signed before the retirement |
+| State (full cube) | `POST /v1/state` view=cube | same, plus `materialize?`, `families?`, `include_reserved?` | 1792-D state vector, per-slot coverage, `state_cid` and an `emem:bundle:` token |
+| State fan-out | `POST /v1/state_multi` | `{cell, encoders?, tslot?, as_of_*?, scope?, vectors?}` | per encoder: `dim`, `l2_norm`, `fact_cid`, `memory_token`, `tslot`; the floats only with `vectors:true`. Empty by default, since no encoder is live |
+| State delta | `POST /v1/state_diff` | `{cell, encoder?, tslot_a, tslot_b}`; the two tslots must differ | `delta_vector`, `l2_norm_of_delta`, `cosine_a_b`, and the fact_cid and memory_token of each side |
 | Memory token | `POST /v1/memory_token` | `{cell, fact_cid, band?, observed_on?}` | `emem:fact:<cell>:<fact_cid>` and `cell_token` (`emem:cell:<cell>`); with `band` and `observed_on`, also a `descriptor_token` |
 | Memory token resolve | `POST /v1/memory_token/resolve` | `{token}` | full signed fact body |
 | Memory token resolve, batch | `POST /v1/memory_token/resolve_many` | `{tokens}` (1 to 256) | one resolved item per token |
@@ -282,6 +282,13 @@ retires `geotessera` through `EMEM_RETIRED_BANDS`. Their bands stay in the
 manifest, so old vectors still recall and verify. The responder makes no
 new vectors. On a cell with no stored vector, `view=encoder` returns 404.
 The 404 names the retirement and points to `view="cube"`.
+
+On 7 November 2026, `POST /v1/state` with `{"cell":"defi.zb592.nUkO.zEzE"}`
+(Mount Fuji) returned a stored 128-D `geotessera` vector and its
+`emem:fact:` token. `POST /v1/state_multi` on the same cell returned
+`"encoders": []`. Its default list leaves out retired bands, so it
+asks for no encoder. To read a stored vector, name the band in
+`encoders`.
 
 Tokens with the old prefixes still resolve. The server reads `memt:` as
 `emem:fact:`, `memb:` as `emem:bundle:` and `meme:` as `emem:entity:`.
