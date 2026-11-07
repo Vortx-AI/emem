@@ -348,8 +348,8 @@ If you pinned a head earlier, add `at_or_after=<your tree_size>`. The
 response then has a `nearest_witnessed` block. It gives the nearest co-signed
 head at or after your size. It prefers a head that a key other than this
 node's own `self_operator` key co-signed. A free `key_only` key counts for
-this choice, so the chosen head is not always from an independent operator. It also gives a
-consistency proof from your size to that head. Check each witness signature,
+this choice, so the chosen head is not always from an independent
+operator. It also gives a consistency proof from your size to that head. Check each witness signature,
 then check the proof
 ([protocol §9.6.2.1](./protocol.md#9621-check-a-witness-co-signature-by-hand)).
 
@@ -502,10 +502,15 @@ curl -s 'https://emem.dev/v1/log/inclusion?entry_hash=<log_entry_hash>' -o inclu
 python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py inclusion inclusion.json
 ```
 
-The head inside `inclusion.json` can be newer than `sth.json`. To
-connect them, run the `consistency` command below with `sth.json` and
-`inclusion.json` as the two heads. The script reads the `sth` object in
-each file.
+The head inside `inclusion.json` can be newer than `sth.json`. Connect the
+two heads with a consistency proof. The script reads the `sth` object in
+each file. When the two sizes are equal, the proof has 0 hashes.
+
+```sh
+jq .sth.tree_size sth.json inclusion.json
+curl -s 'https://emem.dev/v1/log/consistency?first=<sth.json size>&second=<inclusion.json size>' -o link.json
+python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py consistency sth.json inclusion.json link.json
+```
 
 Keep `sth.json`. Later, get a new head and prove that the log only grew
 between the two heads. Each file keeps its size at `.sth.tree_size`:
@@ -522,7 +527,10 @@ emem.dev. The receipt was from a recall at Mount Fuji. Its inclusion
 proof was for leaf 2,788,378 at `tree_size` 3,245,983, with 22 hashes.
 The consistency proof went from size 3,245,983 to 3,245,984, with 14
 hashes. At 03:02 UTC we ran the walk again with `inclusion.json` as the
-first head. All checks gave `VALID`.
+first head. All checks gave `VALID`. At 03:13 UTC the receipt, the
+inclusion proof and the link from `sth.json` to `inclusion.json` gave
+`VALID` again. Both heads had `tree_size` 3,246,150, so the link proof
+had 0 hashes.
 
 The scripts do not check the link from the log entry to the receipt's
 Merkle root. That is step 7 of
