@@ -16,8 +16,8 @@ use the cell of Mount Fuji, `defi.zb592.nUkO.zEzE`.
 
 ## Keep disagreement and give it a severity
 
-When two attesters sign different values at the same `(cell, band, tslot)`,
-emem keeps both. It does not choose a winner and it does not average them.
+When two signed facts at the same `(cell, band, tslot)` have different
+values, emem keeps both. It does not choose a winner and it does not average them.
 `emem_memory_contradictions` finds these keys and gives each one a
 `severity` from 0 to 1. An agent can ignore a small disagreement and
 escalate a large one.
@@ -70,7 +70,7 @@ disputed fact does not change. To write an edge, read
 
 ## Read what was true, or what emem knew, on a date
 
-Six read primitives take two time bounds: recall, `recall_polygon`,
+Six read primitives take two time bounds: `recall`, `recall_polygon`,
 `query_region`, `trajectory`, `find_similar` and `memory_bundle`. The two
 bounds are independent. `edges/recall` takes `as_of_tslot` only.
 
@@ -97,7 +97,7 @@ and band:
 
 | Bound | Fact returned | `receipt.as_of` |
 |---|---|---|
-| `"as_of_tslot": 20600` | tslot 20589 | `{"valid_time": 20600}` |
+| `"as_of_tslot": 20600` | tslot 20589, signed 2026-11-07 | `{"valid_time": 20600}` |
 | `"as_of_signed_at": "2026-10-01T00:00:00Z"` | tslot 20714, signed 2026-09-28 | `{"transaction_time": "2026-10-01T00:00:00Z"}` |
 
 The receipt signs the `as_of` block. Thus an auditor can send the same
@@ -105,7 +105,8 @@ query with the same bound later and compare the answer. A receipt without
 a bound has no `as_of` block, so old receipts still verify.
 
 A read with only `as_of_tslot` can fetch and sign the fact again on a miss.
-The tslot stays the same, but `signed_at` can change. To get the same
+The tslot stays the same, but `signed_at` can change. The tslot 20589 fact
+in the table above was signed on the day of the call. To get the same
 signed fact later, also send `as_of_signed_at`.
 
 A past `as_of_signed_at` does not fetch new data on a miss. emem signs a
@@ -138,8 +139,8 @@ from the public log cannot write again after the file changes. The
 `file_cid` changes when one byte of the note changes. A reader can check
 who wrote a note and that nobody changed it after.
 
-The same signatures prove an Earth observation fact and an agent note.
-Notes are public. Anyone can read them, so do not write secrets.
+Facts and notes use the same signature scheme: Ed25519 over a BLAKE3
+hash. Notes are public. Anyone can read them, so do not write secrets.
 
 A note write needs your own Ed25519 key. The call and the steps are in the
 [note job](./agents.md#job-write-a-note-that-other-agents-can-verify)
