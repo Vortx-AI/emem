@@ -9,7 +9,7 @@ import pytest
 import respx
 
 from emem_langmem import EmemAttestationError, EmemSigner, EmemStore, EmemStoreError
-from emem_langmem.signing import attester_preimage, body_hash
+from emem_langmem.signing import BASE_ABSENT, attester_preimage_v2, body_hash
 from emem_langmem.store import _key_to_path, _decode_value, _encode_value
 
 # Fixed, throwaway seed so the derived namespace is stable. Test-only.
@@ -149,16 +149,58 @@ def test_mdelete_dispatches_emem_memory_delete():
 # ---------- signed writes ----------
 
 
-def _verify_block(block: dict, verb: str, path: str, body: bytes) -> None:
-    """Check an attester block the way the responder does."""
+def _verify_block(
+    block: dict, verb: str, path: str, body: bytes, base: str = BASE_ABSENT
+) -> None:
+    """Check an attester block the way the responder does: v2 only."""
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
     def _b32d(s: str) -> bytes:
         return base64.b32decode(s.upper() + "=" * (-len(s) % 8))
 
     Ed25519PublicKey.from_public_bytes(_b32d(block["pubkey_b32"])).verify(
-        _b32d(block["sig_b32"]), attester_preimage(verb, path, body_hash(body))
+        _b32d(block["sig_b32"]), attester_preimage_v2(verb, path, body_hash(body), base)
     )
+
+
+@respx.mock
+def test_mset_over_an_existing_note_signs_its_file_cid_as_base():
+    """The responder refuses v1 on every verb, and a v2 create must name
+    the file_cid it replaces, or `absent` for a new note."""
+    captured = {}
+    cid = "3aytp566f6s4nvb64ex2pn5o5i"
+
+    def _fn(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if body["params"]["name"] == "emem_memory_view":
+            return httpx.Response(
+                200,
+                json={"jsonrpc": "2.0", "id": "x", "result": {"structuredContent": {"file_cid": cid}}},
+            )
+        captured["body"] = body
+        return _ok(request)
+
+    respx.post("https://emem.dev/mcp").mock(side_effect=_fn)
+    EmemStore(base_url="https://emem.dev", signing_key=_SEED).mset([("my-note", b"v2")])
+    args = _args_of(captured)
+    _verify_block(args["attester"], "create", args["path"], b"v2", base=cid)
+
+
+@respx.mock
+def test_mset_of_a_new_note_signs_absent():
+    captured = {}
+
+    def _fn(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if body["params"]["name"] == "emem_memory_view":
+            return _refusal("cid_not_found: no memory at that path")
+        captured["body"] = body
+        return _ok(request)
+
+    respx.post("https://emem.dev/mcp").mock(side_effect=_fn)
+    EmemStore(base_url="https://emem.dev", signing_key=_SEED).mset([("new", b"x")])
+    args = _args_of(captured)
+    _verify_block(args["attester"], "create", args["path"], b"x")
 
 
 def test_signing_key_reroots_the_store():

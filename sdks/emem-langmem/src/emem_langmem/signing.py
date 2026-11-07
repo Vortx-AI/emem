@@ -4,8 +4,11 @@ The emem responder gates every memory write verb (`create`,
 `str_replace`, `insert`, `delete`, `rename`) behind an `attester`
 block. The block binds the write to an ed25519 key:
 
-    sig = ed25519(blake3(b"emem.memory_write|" + verb + b"|"
-                         + path + b"|" + body_hash))
+    sig = ed25519(blake3(b"emem.memory_write.v2|" + verb + b"|"
+                         + path + b"|" + body_hash + b"|" + base))
+
+`base` is the `file_cid` now at `path`, or `absent` when nothing is there.
+The v1 preimage (no `base`) is retired: the responder refuses it.
 
 and travels on the wire as::
 
@@ -67,8 +70,10 @@ _PREIMAGE_TAG = b"emem.memory_write|"
 _PREIMAGE_V2_TAG = b"emem.memory_write.v2|"
 #: What `base` is when nothing is at the path yet (emem_primitives::BASE_ABSENT).
 BASE_ABSENT = "absent"
-#: Verbs the responder refuses to verify under the v1 preimage.
-V2_REQUIRED_VERBS = ("delete", "rename")
+#: Verbs the responder refuses to verify under the v1 preimage. That is all of
+#: them: the responder answers a v1 signature on any verb with
+#: `memory_attestation_invalid` ("signed with the retired v1 preimage").
+V2_REQUIRED_VERBS = WRITE_VERBS
 _SEP = b"|"
 
 
@@ -97,7 +102,9 @@ def rename_body_hash(old_path: str) -> bytes:
 
 
 def attester_preimage(verb: str, path: str, body_digest: bytes) -> bytes:
-    """Build the 32-byte digest that gets signed.
+    """Build the retired v1 digest. Kept so old signatures can be checked;
+    the responder refuses new writes signed with it. Sign with
+    `attester_preimage_v2`.
 
     `body_digest` is the 32 raw bytes from `body_hash`, not the body.
     """
@@ -116,8 +123,7 @@ def attester_preimage(verb: str, path: str, body_digest: bytes) -> bytes:
 
 
 def attester_preimage_v2(verb: str, path: str, body_digest: bytes, base: str) -> bytes:
-    """The v2 digest, which the responder tries first and requires for
-    delete and rename.
+    """The v2 digest, which the responder requires for every write verb.
 
     `base` is the `file_cid` now at `path`, or `BASE_ABSENT` when nothing is
     there. It binds the signature to the version being replaced, so a
@@ -210,23 +216,27 @@ class EmemSigner:
     def attester_block(
         self, verb: str, path: str, body: bytes = b"", base: Optional[str] = None
     ) -> dict:
-        """Build the wire `attester` block for one write.
+        """Build the wire `attester` block for one write, signed with the v2
+        preimage.
 
         `body` is the byte string the responder will hash for this verb
         (see the table in this module's docstring). It defaults to empty,
         which is right for `delete`. For `rename`, prefer
         `rename_attester_block`.
+
+        `base` is the `file_cid` now at `path`, or `BASE_ABSENT`. A `create`
+        without `base` signs `BASE_ABSENT`, which is right for a new note; to
+        overwrite a note, pass its current `file_cid`. Every other verb
+        changes a note that exists, so it must name the `base`.
         """
-        if base is None and verb in V2_REQUIRED_VERBS:
-            raise ValueError(
-                f"{verb} is refused under the v1 preimage; pass base= the file_cid "
-                "now at the path (for rename, use rename_attester_block)"
-            )
-        digest = (
-            attester_preimage_v2(verb, path, body_hash(body), base)
-            if base is not None
-            else attester_preimage(verb, path, body_hash(body))
-        )
+        if base is None:
+            if verb != "create":
+                raise ValueError(
+                    f"{verb} must be signed against base= the file_cid now at the path "
+                    "(for rename, use rename_attester_block)"
+                )
+            base = BASE_ABSENT
+        digest = attester_preimage_v2(verb, path, body_hash(body), base)
         return {
             "pubkey_b32": self.pubkey_b32,
             "sig_b32": b32_nopad_lc(self.sign_preimage(digest)),

@@ -43,7 +43,7 @@ from typing import Optional, Union
 import httpx
 from langchain_core.stores import BaseStore
 
-from emem_langmem.signing import EmemSigner, coerce_signer
+from emem_langmem.signing import BASE_ABSENT, EmemSigner, coerce_signer
 
 # LangChain BaseStore is generic over (K, V); we standardise on
 # (path-string, opaque-bytes) — the most flexible shape for downstream
@@ -254,6 +254,30 @@ class EmemStore(BaseStore[_K, _V]):
             out.append(_decode_value(resp.get("content")))
         return out
 
+    def _create_base(self, path: str) -> Optional[str]:
+        """The v2 `base` for a signed create: the note's file_cid when one
+        is there (an overwrite), else BASE_ABSENT. None when unsigned."""
+        if self.signer is None:
+            return None
+        try:
+            view = self._mcp_call("emem_memory_view", {"path": path})
+        except EmemStoreError as e:
+            if _is_missing(e):
+                return BASE_ABSENT
+            raise
+        return self._delete_base(view) or BASE_ABSENT
+
+    async def _acreate_base(self, path: str) -> Optional[str]:
+        if self.signer is None:
+            return None
+        try:
+            view = await self._mcp_call_async("emem_memory_view", {"path": path})
+        except EmemStoreError as e:
+            if _is_missing(e):
+                return BASE_ABSENT
+            raise
+        return self._delete_base(view) or BASE_ABSENT
+
     def mset(self, key_value_pairs: Sequence[tuple[_K, _V]]) -> None:
         for k, v in key_value_pairs:
             # Anthropic memory-tool spec field name is `file_text`, not
@@ -261,16 +285,18 @@ class EmemStore(BaseStore[_K, _V]):
             # returns `tool error (-32602): missing field 'file_text'`
             # when the wrong field is sent.
             file_text = _encode_value(v)
+            path = self._path(k)
             self._mcp_call(
                 "emem_memory_create",
                 self._write_args(
                     "create",
-                    self._path(k),
+                    path,
                     # The responder hashes `file_text.as_bytes()`, so the
                     # signature covers the encoded string, not `v`. These
                     # differ whenever `v` was base64-wrapped.
                     file_text.encode("utf-8"),
                     {"file_text": file_text, "kind": self.default_kind},
+                    self._create_base(path),
                 ),
             )
 
@@ -330,13 +356,15 @@ class EmemStore(BaseStore[_K, _V]):
             # See note on mset: field is `file_text`, and the signature
             # covers the encoded string the responder hashes.
             file_text = _encode_value(v)
+            path = self._path(k)
             await self._mcp_call_async(
                 "emem_memory_create",
                 self._write_args(
                     "create",
-                    self._path(k),
+                    path,
                     file_text.encode("utf-8"),
                     {"file_text": file_text, "kind": self.default_kind},
+                    await self._acreate_base(path),
                 ),
             )
 
