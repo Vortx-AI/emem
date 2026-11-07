@@ -248,6 +248,15 @@ tests the rows of this table in order and takes the first match:
 A `true` value means that a later call can succeed. A `false` value means
 that the same call to this responder gives the same skip.
 
+One skip has the wrong class in version 2.4.4. A key such as
+`vegetation_condition.ndvi` is a topic and a dimension, not a band. The
+`reason` starts with `topic_name_used_as_band` and lists the bands of that
+topic. No row of the table matches this text, so the class is
+`upstream_error` with `retryable: true`. A retry gives the same skip. Recall
+one of the listed bands instead. On 7 November 2026, emem.dev sent this note
+when the request also named a known band. When the responder knows no band
+in the request, the recall refuses with 400 `band_not_in_registry`.
+
 Two skip notes cover more than one band. They have `bands[]` in place of
 `band`, and they have no `absence` key:
 
@@ -443,6 +452,7 @@ These routes also put a route code in `details.code`. The top-level code is
 | `/v1/derived` | `derived_attester_required`, `derived_attester_malformed` | 400 | `attester_pubkey_b32` is missing, or it is not a 52-character base32 Ed25519 key. This read lists the derivations of one key only. |
 | `/v1/derived` | `derived_band_needs_cell` | 400 | You sent `band` without `cell`. Send `cell` too, or filter by band on your side. |
 | `/v1/derived` | none | 503 | Top-level `cache_error`, no `details`. The message starts with `derived_index_unavailable`. The responder has no durable store. |
+| `/v1/derived` | none | 500 | Top-level `cache_error`, no `details`. The message starts with `derived_index_open_failed` or `derived_index_scan_failed`. The store could not open or read the derivation index. Retry once. |
 | `/v1/inferences` | `inferences_place_required`, `inferences_invalid_coordinates` | 400 | Send `cell`, or `lat` and `lng` together. The route does not take a place name. `lat` must be in [-90, 90] and `lng` in [-180, 180]. |
 | `/v1/inferences` | `inferences_invalid_cell`, `inferences_cell_latlng_disagree` | 400 | `cell` is not a cell64, or `cell` and `lat`/`lng` name different cells. Send one of them. |
 | `/v1/inferences` | `inferences_too_many_attesters`, `inferences_attester_malformed` | 400 | `attesters` names more than 64 keys, or one entry is not a 52-character base32 Ed25519 key. |
@@ -451,6 +461,9 @@ These routes also put a route code in `details.code`. The top-level code is
 | `/v1/inferences` | `inferences_index_unavailable` | 503 | Top-level `cache_error`. The responder has no durable store, so it has no place index. Resolve derivations by token. |
 | `/v1/device_publish` | `device_key_malformed`, `device_key_invalid`, `signature_malformed`, `signature_invalid` | 400 | The device key or the device signature is bad. Only the device can sign its own listing decision. |
 | `/v1/a2a/tasks` | `a2a_skill_required`, `a2a_skill_unknown` | 400 | The `skill` field is empty, or it names no skill on the agent card. |
+| `/v1/a2a/tasks` | none | 503 | Top-level `internal`, no `details`. The message starts with `a2a_task_spawn_failed`. The task registry is full of running tasks. The limit is 256 (`EMEM_MCP_MAX_TASKS`). Retry later. `/a2a/tasks` answers in the same call when the skill ends in 20 s; a slower skill needs a registry slot there too. |
+| `/v1/memory/search` | none | 503 | Top-level `internal`, no `details`. The node has no text embedder, so it cannot search notes. The message starts with `memory_search: text embedder unavailable`. |
+| `/v1/memory/search` | none | 500 | Top-level `internal`, no `details`. The search index failed. The message starts with `memory_search: index error`. An empty `q` gets 400 `invalid_argument`. |
 | `/v1/building_footprints` | `needs_location` | 400 | Send `polygon_bbox`, or a `place` that resolves to a bounding box. |
 | `/v1/range_hash` | `invalid_argument`, `range_too_large`, `url_refused` | 400 | The body is bad, the length is 0 or over the cap, or the URL is not public HTTPS. The cap is 16 MiB on 7 November 2026 (`EMEM_RANGE_HASH_MAX_BYTES`, at most 256 MiB). |
 | `/v1/range_hash` | `unresolvable`, `fetch_failed`, `too_many_redirects`, `redirect_refused`, `range_not_honoured`, `short_read` | 502 | Top-level `source_fetch_failed`. The upstream host failed or did not return the byte range. |
