@@ -884,6 +884,20 @@ On 7 November 2026 at the Mount Fuji cell, the bound
 `2026-09-28T11:05:40Z`. The bound `2026-09-28T11:00:00Z` returned no
 facts.
 
+The text compare has two more traps. The responder accepts both, and
+both can drop facts without an error:
+
+- Use an upper-case `T` between date and time. The responder also
+  accepts a space or a lower-case `t`. A space sorts before `T`, so the
+  bound drops every fact signed on that date.
+- Do not send fractional seconds. A `.` sorts before `Z`, so the bound
+  drops a fact signed in that same second.
+
+On 7 November 2026 at the Mount Fuji cell, the bound
+`2026-09-28T23:00:00Z` returned the fact signed at
+`2026-09-28T11:05:40Z`. The bounds `2026-09-28 23:00:00Z` and
+`2026-09-28T11:05:40.5Z` returned no facts.
+
 If two facts at one address have the same `signed_at`, the read
 returns the fact with the higher `fact_cid` in text order. Every
 responder makes the same choice.
@@ -914,8 +928,10 @@ without filters have no `as_of` field, so older receipts still verify
 byte for byte.
 
 With `"as_of_signed_at":"2026-09-01T00:00:00Z"` the same read returned
-no facts and a 200 status. The `temporal_advice` block said that the cell
-held 326 facts without the bound and that the bound removed all of them.
+no facts and a 200 status. The `temporal_advice` block
+explains the empty answer. At 03:20 UTC on 7 November 2026, it said
+that the cell held 369 facts and that the bound removed all of them. This count grows as the
+cell gets new facts.
 
 ### Errors and edge cases
 
@@ -923,7 +939,7 @@ held 326 facts without the bound and that the bound removed all of them.
 |---|---|
 | You set `tslot` and `as_of_tslot`, and `as_of_tslot` is lower | 400 `invalid_argument`, message starts with `invalid_temporal_bound:` |
 | `as_of_signed_at` does not have the form `YYYY-MM-DDTHH:MM:SS`, then optional fractional seconds, then `Z`, `+HH:MM` or `-HH:MM` | 400 `invalid_argument`, message starts with `invalid_signed_at_format:` |
-| `as_of_signed_at` has an offset other than `Z` | accepted, but compared as text without conversion (see above) |
+| `as_of_signed_at` has an offset other than `Z`, a space or `t` in place of `T`, or fractional seconds | accepted, but compared as text without conversion (see above) |
 | The filter removes every fact | 200 with `temporal_advice`. Zero facts is a valid answer to "what did emem know then". |
 | `recall` with `as_of_signed_at` in the past | no fetch on a miss. The responder signs a new fact with the current time, so it cannot pass the filter. `materialize_notes` gives `reason: as_of_signed_at_in_the_past`. |
 
