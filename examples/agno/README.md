@@ -64,4 +64,4 @@ The model must call `emem_locate` first and then recall by `cell`.
   another Agno model class, for example the Anthropic or Gemini class.
 - `/mcp` lists 18 core tools. For all tools, set
   `EMEM_MCP_URL=https://emem.dev/mcp/full`. On 7 November 2026 that list had
-  116 tools in 8 pages, and `MCPTools` loaded all 116.
+  116 tools in 8 or 9 pages, and `MCPTools` loaded all 116.

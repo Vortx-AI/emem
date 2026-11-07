@@ -69,7 +69,8 @@ a hunt samples and ranks cells.
 ## Notes
 
 - `/mcp/full` sends its tools in pages. On 7 November 2026 it had 116 tools
-  in 8 pages, and the first page had 13 tools. `MCPClient` in `@mastra/mcp`
+  in 8 or 9 pages. The count changed with server updates. The first page
+  had 12 or 13 tools. `MCPClient` in `@mastra/mcp`
   0.10.12 calls `tools/list` once and does not send the next cursor. So the
   agent gets only the first page. `emem_hunt` was on that page. A tool on a
   later page does not get to the agent.

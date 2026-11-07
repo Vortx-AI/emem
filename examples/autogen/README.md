@@ -71,6 +71,5 @@ See [Verify the receipt](../../docs/quickstart.md#verify-the-receipt).
 - Any AutoGen model client can drive the agent. Change
   `OpenAIChatCompletionClient` to the client for another provider.
 - `/mcp` lists 18 core tools. `https://emem.dev/mcp/full` lists all tools in
-  pages. On 7 November 2026 it had 116 tools in 8 pages, and `McpWorkbench`
-  loaded only the first page (13 tools). That page did not have
+  pages. On 7 November 2026 it had 116 tools in 8 or 9 pages. The count changed with server updates. `McpWorkbench` loaded only the first page (12 or 13 tools). That page did not have
   `emem_recall` or `emem_verify_receipt`. Keep `/mcp` for this script.

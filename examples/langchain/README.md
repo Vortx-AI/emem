@@ -65,6 +65,6 @@ The model must use the cell from `emem_locate`.
   `ChatAnthropic`, `ChatGoogleGenerativeAI` or another chat model class.
 - `/mcp` lists 18 core tools. For all tools, set
   `EMEM_MCP_URL=https://emem.dev/mcp/full`. On 7 November 2026 that list had
-  116 tools in 8 pages, and the adapter loaded all 116.
+  116 tools in 8 or 9 pages, and the adapter loaded all 116.
 - [`examples/langchain.py`](../langchain.py) wraps the REST API instead of
   MCP. This example uses MCP through `langchain-mcp-adapters`.

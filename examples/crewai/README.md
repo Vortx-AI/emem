@@ -67,8 +67,7 @@ deforestation rule does not apply to it.
 
 ## Notes
 
-- `/mcp/full` sends its tools in pages. On 7 November 2026 it had 116 tools
-  in 8 pages, and `MCPServerAdapter` loaded only the first page (13 tools).
+- `/mcp/full` sends its tools in pages. On 7 November 2026 it had 116 tools in 8 or 9 pages. The count changed with server updates. `MCPServerAdapter` loaded only the first page (12 or 13 tools).
   That page had `emem_eudr_dds` and `emem_hunt`. It did not have
   `emem_recall` or `emem_verify_receipt`.
 - To add a verifier agent with `emem_verify_receipt`, give it a second

@@ -30,13 +30,13 @@ The server has two endpoints:
 
 | Endpoint | Tools listed | Size of the tool list (7 November 2026) |
 |---|---|---|
-| `https://emem.dev/mcp` | 18, the core loop | 76,817 bytes, one page |
-| `https://emem.dev/mcp/full` | all 116 | 354,058 bytes, 8 pages of 11 to 22 tools |
+| `https://emem.dev/mcp` | 18, the core loop | about 76,800 bytes, one page |
+| `https://emem.dev/mcp/full` | all 116 | about 354,000 bytes, 8 or 9 pages of 2 to 22 tools |
 
 On `/mcp/full`, send the `nextCursor` value from each page to get the next page.
 The server cuts the pages by size, at about 45,000 bytes each. The number of pages can change when tool descriptions change.
-Some MCP clients read only the first page. On 7 November 2026 the LangChain and Agno adapters read every page, which was 8 pages on that date.
-The LlamaIndex, AutoGen, Semantic Kernel and CrewAI adapters read only page 1 (13 tools). See the examples in [`examples/`](examples/).
+Some MCP clients read only the first page. On 7 November 2026 the LangChain and Agno adapters read every page. That was 8 or 9 pages on that date, because the count changed with server updates.
+The LlamaIndex, AutoGen, Semantic Kernel and CrewAI adapters read only page 1 (12 or 13 tools). See the examples in [`examples/`](examples/).
 The source of `@mastra/mcp` 0.10.12 also reads only page 1. We did not run the Mastra example, because Node is not on our test host.
 
 The two endpoints differ only in the list. You can call any of the 116 by name at either endpoint.
