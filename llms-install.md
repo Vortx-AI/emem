@@ -8,9 +8,15 @@ An agent can check an answer offline. It needs no key, no account and no trust i
 
 Cline reads this file (`llms-install.md`) to install a server. Other MCP clients can use the same steps.
 
-**What you need:** an MCP client that supports Streamable HTTP, or `curl` to test the endpoint.
+## What you need
 
-**What you get:** the emem tools in your client. Reads need no key.
+- An MCP client that supports Streamable HTTP.
+- `curl` and `jq` to test the endpoint. Both are optional.
+
+## What you get
+
+- The emem tools in your client. Reads need no key.
+- A command that tests the endpoint, three test prompts and the rules to verify a receipt.
 
 ## Remote MCP endpoint
 
@@ -31,6 +37,7 @@ On `/mcp/full`, send the `nextCursor` value from each page to get the next page.
 The server cuts the pages by size, at about 45,000 bytes each. The number of pages can change when tool descriptions change.
 Some MCP clients read only the first page. On 7 November 2026 the LangChain and Agno adapters read every page, which was 8 pages on that date.
 The LlamaIndex, AutoGen, Semantic Kernel and CrewAI adapters read only page 1 (13 tools). See the examples in [`examples/`](examples/).
+The source of `@mastra/mcp` 0.10.12 also reads only page 1. We did not run the Mastra example, because Node is not on our test host.
 
 The two endpoints differ only in the list. You can call any of the 116 by name at either endpoint.
 If a tool is not in your list, it is still on the server. Call `emem_tools` to search the other tools or to get the schema of one tool.
