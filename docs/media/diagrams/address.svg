@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 1176" width="640" height="1176" role="img" aria-labelledby="t d">
+  <title id="t">What a cell64 tells you about a place</title>
+  <desc id="d">What a cell64 tells you about a place, shown for Mount Fuji from POST /v1/locate. 1: the cell64 defi.zb592.nUkO.zEzE has four parts of 16 bits. Part 1, defi, is a geo tag and is the same for every cell. Part 2, zb592, is a latitude band about 9.8 km tall. Part 3, nUkO, holds finer latitude and coarse longitude. Part 4, zEzE, holds fine longitude. One cell is about 9.55 m north to south. 2: the nine cells around the summit all start with defi.zb592. Going north or south changes part 3; going east or west changes part 4 (west is on the left). 3: a point 10 km north is defi.zb593.pEsu.zEzE, so parts 2 and 3 change. A point at the same latitude in California, 35.36 N 119.00 W, is defi.zb592.nUfi.zd82d. It starts with the same defi.zb592 but is 8,766 km away. To find neighbours, read neighborhood_cells from /v1/locate; do not compare strings. Live reads on 7 November 2026 at 12:27 UTC; a port of the emem-codec encoder gives the same 11 strings.</desc>
+  <style>
+    .sans { font-family: "DejaVu Sans", system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .mono { font-family: "DejaVu Sans Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .h { font-size: 23px; font-weight: 600; fill: #e6edf3; }
+    .term { font-size: 20px; font-weight: 600; fill: #e6edf3; }
+    .term2 { font-size: 18px; font-weight: 600; fill: #e6edf3; }
+    .big { font-size: 24px; font-weight: 600; fill: #79c0ff; }
+    .ex { font-size: 18px; fill: #79c0ff; }
+    .ex2 { font-size: 17px; }
+    .cellm { font-size: 21px; }
+    .same { fill: #8b949e; }
+    .diff { fill: #79c0ff; font-weight: 600; }
+    .txt { font-size: 17px; fill: #8b949e; }
+    .foot { font-size: 16px; fill: #8b949e; }
+    .num { font-size: 17px; font-weight: 600; fill: #79c0ff; }
+    .box { fill: #161b22; stroke: #30363d; stroke-width: 1; }
+    .door { fill: #0d1117; stroke: #30363d; stroke-width: 1; }
+    .own { fill: #0d1117; stroke: #79c0ff; stroke-width: 2; }
+    .ring { fill: #0d1117; stroke: #79c0ff; stroke-width: 1.5; }
+  </style>
+  <rect x="0" y="0" width="640" height="1176" rx="12" fill="#0d1117"/>
+  <text class="sans h" x="24" y="42">What a cell64 tells you about a place</text>
+  <text class="sans txt" x="24" y="70">Mount Fuji, from POST /v1/locate</text>
+  <rect class="box" x="40" y="96" width="560" height="262" rx="8"/>
+  <circle class="ring" cx="64" cy="126" r="15"/>
+  <text class="sans num" x="64" y="132" text-anchor="middle">1</text>
+  <text class="sans term" x="92" y="133">Four parts, 16 bits each</text>
+  <rect class="door" x="58" y="162" width="128" height="60" rx="6"/>
+  <text class="mono big" x="122" y="201" text-anchor="middle">defi</text>
+  <text class="sans txt" x="122" y="252" text-anchor="middle">geo tag</text>
+  <text class="sans txt" x="122" y="276" text-anchor="middle">the same</text>
+  <text class="sans txt" x="122" y="300" text-anchor="middle">for every cell</text>
+  <rect class="door" x="190" y="162" width="128" height="60" rx="6"/>
+  <text class="mono big" x="254" y="201" text-anchor="middle">zb592</text>
+  <text class="sans txt" x="254" y="252" text-anchor="middle">latitude</text>
+  <text class="sans txt" x="254" y="276" text-anchor="middle">band, 9.8 km</text>
+  <text class="sans txt" x="254" y="300" text-anchor="middle">north to south</text>
+  <rect class="door" x="322" y="162" width="128" height="60" rx="6"/>
+  <text class="mono big" x="386" y="201" text-anchor="middle">nUkO</text>
+  <text class="sans txt" x="386" y="252" text-anchor="middle">finer latitude</text>
+  <text class="sans txt" x="386" y="276" text-anchor="middle">and coarse</text>
+  <text class="sans txt" x="386" y="300" text-anchor="middle">longitude</text>
+  <rect class="door" x="454" y="162" width="128" height="60" rx="6"/>
+  <text class="mono big" x="518" y="201" text-anchor="middle">zEzE</text>
+  <text class="sans txt" x="518" y="252" text-anchor="middle">fine</text>
+  <text class="sans txt" x="518" y="276" text-anchor="middle">longitude</text>
+  <text class="sans txt" x="56" y="336">One cell is about 9.55 m north to south.</text>
+  <rect class="box" x="40" y="380" width="560" height="336" rx="8"/>
+  <circle class="ring" cx="64" cy="410" r="15"/>
+  <text class="sans num" x="64" y="416" text-anchor="middle">2</text>
+  <text class="sans term" x="92" y="417">Next-door cells change the end</text>
+  <text class="sans txt" x="56" y="450">All nine start with</text>
+  <text class="mono ex" x="226" y="450">defi.zb592.</text>
+  <rect class="door" x="124" y="472" width="152" height="48" rx="6"/>
+  <text class="mono ex2" x="200" y="503" text-anchor="middle"><tspan class="diff">nUsi</tspan><tspan class="same">.</tspan><tspan class="diff">zEzA</tspan></text>
+  <rect class="door" x="284" y="472" width="152" height="48" rx="6"/>
+  <text class="mono ex2" x="360" y="503" text-anchor="middle"><tspan class="diff">nUsi</tspan><tspan class="same">.</tspan><tspan class="same">zEzE</tspan></text>
+  <rect class="door" x="444" y="472" width="152" height="48" rx="6"/>
+  <text class="mono ex2" x="520" y="503" text-anchor="middle"><tspan class="diff">nUsi</tspan><tspan class="same">.</tspan><tspan class="diff">zEzI</tspan></text>
+  <rect class="door" x="124" y="528" width="152" height="48" rx="6"/>
+  <text class="mono ex2" x="200" y="559" text-anchor="middle"><tspan class="same">nUkO</tspan><tspan class="same">.</tspan><tspan class="diff">zEzA</tspan></text>
+  <rect class="own" x="284" y="528" width="152" height="48" rx="6"/>
+  <text class="mono ex2" x="360" y="559" text-anchor="middle"><tspan class="same">nUkO</tspan><tspan class="same">.</tspan><tspan class="same">zEzE</tspan></text>
+  <rect class="door" x="444" y="528" width="152" height="48" rx="6"/>
+  <text class="mono ex2" x="520" y="559" text-anchor="middle"><tspan class="same">nUkO</tspan><tspan class="same">.</tspan><tspan class="diff">zEzI</tspan></text>
+  <rect class="door" x="124" y="584" width="152" height="48" rx="6"/>
+  <text class="mono ex2" x="200" y="615" text-anchor="middle"><tspan class="diff">nUcu</tspan><tspan class="same">.</tspan><tspan class="diff">zEzA</tspan></text>
+  <rect class="door" x="284" y="584" width="152" height="48" rx="6"/>
+  <text class="mono ex2" x="360" y="615" text-anchor="middle"><tspan class="diff">nUcu</tspan><tspan class="same">.</tspan><tspan class="same">zEzE</tspan></text>
+  <rect class="door" x="444" y="584" width="152" height="48" rx="6"/>
+  <text class="mono ex2" x="520" y="615" text-anchor="middle"><tspan class="diff">nUcu</tspan><tspan class="same">.</tspan><tspan class="diff">zEzI</tspan></text>
+  <text class="sans foot" x="102" y="503" text-anchor="middle">N</text>
+  <text class="sans foot" x="102" y="615" text-anchor="middle">S</text>
+  <text class="sans txt" x="56" y="664">West is on the left. North or south: part 3 changes.</text>
+  <text class="sans txt" x="56" y="688">East or west: part 4 changes.</text>
+  <rect class="box" x="40" y="738" width="560" height="330" rx="8"/>
+  <circle class="ring" cx="64" cy="768" r="15"/>
+  <text class="sans num" x="64" y="774" text-anchor="middle">3</text>
+  <text class="sans term" x="92" y="775">The same start does not mean near</text>
+  <text class="sans term2" x="56" y="814">Mount Fuji</text>
+  <text class="mono cellm" x="56" y="844"><tspan class="same">defi</tspan><tspan class="same">.</tspan><tspan class="same">zb592</tspan><tspan class="same">.</tspan><tspan class="same">nUkO</tspan><tspan class="same">.</tspan><tspan class="same">zEzE</tspan></text>
+  <text class="sans term2" x="56" y="888">10 km north</text>
+  <text class="sans txt" x="584" y="888" text-anchor="end">parts 2 and 3 change</text>
+  <text class="mono cellm" x="56" y="918"><tspan class="same">defi</tspan><tspan class="same">.</tspan><tspan class="diff">zb593</tspan><tspan class="same">.</tspan><tspan class="diff">pEsu</tspan><tspan class="same">.</tspan><tspan class="same">zEzE</tspan></text>
+  <text class="sans term2" x="56" y="962">35.36 N, 119.00 W</text>
+  <text class="sans txt" x="584" y="962" text-anchor="end">8,766 km away</text>
+  <text class="mono cellm" x="56" y="992"><tspan class="same">defi</tspan><tspan class="same">.</tspan><tspan class="same">zb592</tspan><tspan class="same">.</tspan><tspan class="diff">nUfi</tspan><tspan class="same">.</tspan><tspan class="diff">zd82d</tspan></text>
+  <text class="sans txt" x="56" y="1030">To find neighbours, read neighborhood_cells</text>
+  <text class="sans txt" x="56" y="1054">from /v1/locate. Do not compare strings.</text>
+  <text class="sans foot" x="24" y="1100">Live reads of POST /v1/locate on 7 November 2026 at 12:27 UTC.</text>
+  <text class="sans foot" x="24" y="1124">A port of emem-codec geo.rs gives the same 11 strings.</text>
+  <text class="sans foot" x="24" y="1148">East to west, one cell at Fuji is about 7.8 m.</text>
+</svg>

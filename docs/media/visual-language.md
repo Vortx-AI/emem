@@ -91,6 +91,7 @@ Each row gives the question the image answers and the page that shows it. Paths 
 | `diagrams/agent-loop.svg` | What does an agent do with emem, step by step? | `agents.md`, embed in PR #30 | Hand-written SVG, values from one live ask |
 | `diagrams/data-flow.svg` | How does one pixel become a fact with a content id? | `developers/data-sources.md`, embed asked of PR #33 | `diagrams/src/data_flow.py`, bytes of one live fact |
 | `diagrams/architecture.svg` | What answers when an agent calls emem? | `developers/architecture.md`, embed asked of PR #33 | `diagrams/src/architecture.py`, five live reads |
+| `diagrams/address.svg` | What does a `cell64` tell you about a place, and what does it not? | `protocol.md` section 1.2, embed asked of PR #32 | `diagrams/src/address.py`, three live `locate` reads |
 | `films/emem-fact-to-check.mp4` | Can another agent check a fact from a token, and does one changed character fail? | `start-here.md` | `films/src/emem-fact-to-check.html` |
 | `films/emem-note-write.mp4` | How does a refused note write become an accepted one? | `memory.md` | `films/src/emem-note-write.html` |
 | `stills/recall-one-cell.webp` | What does one recall return at one cell? | `agents.md` | `stills/src/recall_cell.py` |

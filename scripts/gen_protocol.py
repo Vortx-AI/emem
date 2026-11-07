@@ -526,9 +526,9 @@ def address_algebra():
 
     s.line(220, H - 142, W - 220, H - 142, INK_SOFT, 0.8, op=0.45)
     s.dot(220, H - 142, 2.4, VERMIL); s.dot(W - 220, H - 142, 2.4, VERMIL)
-    s.text(W / 2, H - 104, "The active grid is about 9.55 m at the equator; adjacent cells share a string prefix,",
+    s.text(W / 2, H - 104, "The active grid is about 9.55 m at the equator. Next-door cells usually share the first two parts,",
            15, INK, font=SERIF, anchor="middle", italic=True)
-    s.text(W / 2, H - 74, "so an LLM that emits defi.zb493… already lands in roughly the right place.",
+    s.text(W / 2, H - 74, "but so do cells on the same latitude band across the world: use neighborhood_cells.",
            15, INK, font=SERIF, anchor="middle", italic=True)
     s.save(f"{OUT}/09-address-algebra.svg"); return "09-address-algebra"
 
