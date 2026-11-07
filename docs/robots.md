@@ -65,13 +65,20 @@ cameras, and the live-frame call took 2.9 s.
 
 On 7 November 2026 at 01:34 UTC, the call above took 1.1 s. It counted
 7 cars, 11 people, 1 bus and 1 truck, from a camera 184 m away.
-The perception routes have a 120 s time limit (`EMEM_PERCEPTION_TIMEOUT_S`,
-clamped to 40..600). Most other routes have a 40 s limit (`EMEM_TIMEOUT_SECS`).
-Past the limit, the server returns a typed 504. The limit is high because clip
-detection runs on a shared GPU, and a busy GPU can make a call slow.
-The same variable also sets how long the server waits for the perception
-service, clamped to 5..600. Thus a value below 40 stops the wait first. Then
-the server returns a 502 with "the perception service did not answer".
+The perception routes have a 120 s time limit. Most other routes have a 40 s
+limit (`EMEM_TIMEOUT_SECS`). Past the limit, the server returns a typed 504.
+The limit is high because clip detection runs on a shared GPU, and a busy GPU
+can make a call slow.
+
+One variable, `EMEM_PERCEPTION_TIMEOUT_S` (default 120), sets two limits:
+
+| limit | clamp | what you get past the limit |
+|---|---|---|
+| the time limit of the route | 40..600 s | a typed 504 |
+| the wait for the perception service | 5..600 s | a 502 with "the perception service did not answer" |
+
+If an operator sets a value below 40, the route limit stays at 40 s. The
+wait is shorter, so it ends first, and you get the 502.
 
 The response names the camera that it used and the distance to that camera. It
 also says why the server chose that camera. A count from a camera 300 m away is
@@ -223,12 +230,22 @@ The values come from an Open-Meteo and MET Norway forecast blend. The route has
 no band filter, so read the band that you need from `bands`. The provenance
 class is `model_output`, not a measurement.
 
-Each reading has `captured_at` and `age_s`. A wind speed is a decision input
-only while it is fresh. The newest value that emem holds is not always a
-current value. Check `age_s` before you act, so that the sprayer does not use a
-value from yesterday afternoon. On 7 November 2026 at 03:05 UTC, the wind speed
-at this cell was 2.1 m/s, with `captured_at: 2026-11-07T02:00:00Z` and
-`age_s: 1801`.
+Each reading has `captured_at`, `signed_at` and `age_s`. A wind speed is a
+decision input only while it is fresh. The newest value that emem holds is not
+always a current value.
+
+The two times measure different things:
+
+| field | what it measures |
+|---|---|
+| `captured_at` | The hour that the forecast value is for. |
+| `age_s` | The seconds since emem signed the fact (`signed_at`). It is not the age of the value. |
+
+Before you act, compare `captured_at` with your clock. Then the sprayer does
+not use a value from yesterday afternoon. A fact that emem signed a moment ago
+can still carry an old `captured_at`. On 7 November 2026 at 07:18 UTC, the
+wind speed at this cell was 3.8 m/s, with `captured_at: 2026-11-07T07:00:00Z`
+and `age_s: 0`.
 
 The weather and soil routes return a `fact_cid` for each band, but no receipt.
 To get a receipt, send the same cell and bands to `POST /v1/recall`.
