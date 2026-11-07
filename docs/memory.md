@@ -722,6 +722,13 @@ emem.memory_bundle.v1|<purpose>\n
 <cell>|<band>|<resolved_tslot>|<fact_cid or empty>\n    (one line per citation)
 ```
 
+With no `purpose`, the first line is `emem.memory_bundle.v1|` and a
+newline. An empty `purpose` gives the same line, so it gives the same
+token. A triple with no fact keeps its `cell` and `band`. Its
+`resolved_tslot` is the `tslot` that you sent, or 0 when you sent none.
+For the bundle above, the recomputed `bundle_cid` matched the token on
+7 November 2026.
+
 The hash covers the citation list. It does not cover the bodies of the
 facts. To check a fact body, resolve its `emem:fact:` token.
 
