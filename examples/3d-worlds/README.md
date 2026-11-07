@@ -237,9 +237,14 @@ byte-for-byte reproducible.
 
 ## Capture the GIFs
 
-The orbit GIFs in the main README come from these exact templates rendered
-deterministically in headless Chromium by [`capture.mjs`](capture.mjs)
-(no dependencies, Node >= 22):
+The orbit GIFs in [`docs/media/`](../../docs/media/) come from these exact
+templates. [`capture.mjs`](capture.mjs) renders them deterministically in
+headless Chromium (no dependencies, Node >= 22). The main README does not
+embed them on 7 November 2026. This is the carbon world over Rondônia:
+
+<img src="../../docs/media/world-rondonia.gif" width="720" loading="lazy" alt="The carbon world over Rondônia, turning slowly: 848 cells and 3,733 signed facts. Splat height is ESA CCI above-ground biomass. Green splats are standing forest and orange splats are cells with a Hansen loss year.">
+
+The command that made it:
 
 ```bash
 python3 make_splats.py --preset carbon --out out/rondonia
