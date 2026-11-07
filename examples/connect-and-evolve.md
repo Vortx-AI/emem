@@ -91,7 +91,7 @@ facts above. A scan that stops at its time budget returns
 Keep `cell_prefix` (alias `cell`) narrow. A full cell64 scans few keys.
 On 7 November 2026, this cell answered in less than 0.1 s. A short
 prefix scans up to 50,000 keys. On 7 November 2026, the prefix `defi`
-took 8 s, scanned 44,682 keys, found 74 contradictions and stopped with
+took 8 s, scanned about 44,700 keys, found 74 contradictions and stopped with
 `scan_truncated: true`. On 6 November 2026, one 10-character prefix took
 108 s.
 
