@@ -1455,10 +1455,20 @@ curl -s -X POST https://emem.dev/v1/recall \
   "band": "surface_water.recurrence",
   "reason": "jrc_gsw_no_data: surface_water.recurrence at (0.500007,-140.500021) returned 255 or non-finite. ...",
   "reason_cid": "ww5mv5uvnsnlqxigmugspn5vju",
-  "fact_cid": "caeais3m5g2rq3legrkz5nrwukap6dndrmxvcrhi2p5wnnmgs35a",
+  "fact_cid": "y77lzheyxcxbjdfepmrthgrzob2oeypw2f6r67aogt2mmchqox3a",
+  "signed_at": "2026-11-07T07:05:47Z",
   "tslot": 0
 }
 ```
+
+Your call can return a different `fact_cid`. An Absence stands as the
+answer for six hours by default (`EMEM_ABSENCE_RECHECK_SECS`, 21,600).
+After that time, the next recall asks the upstream again. When the pixel is
+still empty, the responder signs a new Absence with a new `signed_at`. The
+`fact_cid` hashes `signed_at`, so it changes. The `reason_cid` stays the
+same. The older Absence still resolves by its cid: on 7 November 2026,
+`POST /v1/fetch` with `caeais3m5g2rq3legrkz5nrwukap6dndrmxvcrhi2p5wnnmgs35a`
+returned the Absence signed at 23:43:13 UTC on 6 November.
 
 An agent that cites an Absence `fact_cid` makes a claim that you can
 verify: no data exists for this cell, band and tslot. A `404` gives no
