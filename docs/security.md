@@ -327,16 +327,16 @@ The live response `note` still points to `head_is_independently_witnessed`.
 The code comments call `independent_witness_count` a number that "a swarm of
 fresh keys inflates at will".
 
-On 7 November 2026 at 01:29 UTC, `/v1/log/witnesses` reported the values
-below. The tree size and the lag grow with each log entry.
+On 7 November 2026 at 07:24 UTC, `/v1/log/witnesses` reported the values
+below. The tree size and the lag change with each log entry.
 
 | Field | Value |
 |---|---|
-| `current_tree_size` | 3,244,676 |
+| `current_tree_size` | 3,247,652 |
 | `independent_witness_count` | 112 keys |
 | `witness_keys_by_tier` | 111 `key_only`, 1 `org_vouched`, 1 `self_operator` |
 | `independent_operator_count` | 1 |
-| `freshest_independent_witness_entries_behind` | 22 |
+| `freshest_independent_witness_entries_behind` | 9 |
 | `head_is_independently_witnessed` | `false` |
 | `head_is_witnessed_by_independent_operator` | `false` |
 
@@ -523,13 +523,13 @@ curl -s 'https://emem.dev/v1/log/consistency?first=<old tree_size>&second=<new t
 python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py consistency sth.json new_sth.json consistency.json
 ```
 
-On 7 November 2026 at 03:40 UTC all four checks gave `VALID` against
+On 7 November 2026 at 07:24 UTC all four checks gave `VALID` against
 emem.dev. The four checks are the receipt, the inclusion proof, the link
-from `sth.json` to `inclusion.json` and the later consistency proof. The receipt was from a
-recall at Mount Fuji. Its inclusion proof was for leaf 2,788,378 at
-`tree_size` 3,246,307, with 22 hashes. Both heads had that size, so the
-link proof had 0 hashes. The later proof went from size 3,246,307 to
-3,246,310, with 12 hashes.
+from `sth.json` to `inclusion.json` and the later consistency proof. The
+receipt was from a recall at Mount Fuji and named 369 facts. Its inclusion
+proof was for leaf 2,788,378 at `tree_size` 3,247,646, with 22 hashes. Both
+heads had that size, so the link proof had 0 hashes. The later proof went
+from size 3,247,646 to 3,247,649, with 13 hashes.
 
 The scripts do not check the link from the log entry to the receipt's
 Merkle root. That is step 7 of
