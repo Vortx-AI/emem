@@ -27,8 +27,9 @@ a place name, the solver calls `/v1/locate` first.
 
 The grid pitch is the cell64 pitch at the equator, about 9.55 m
 (`emem_codec::CELL_PITCH_M_EQUATOR`). The response field `cell_pitch_m`
-shows the value. The solvers check the CFL stability condition before
-they start.
+shows the value. The heat and wave solvers choose their time step from
+the CFL stability condition. The response gives it in `cfl_factor` and
+`cfl_bound`.
 
 ## `/v1/heat_solve`: 2D explicit FTCS
 
@@ -134,12 +135,29 @@ which case you have.
 On success, `arrival_height_m` is the largest wave height at the
 coast. `arrival_time_s` is the time it first reaches
 `arrival_threshold_m`, which is 5 % of `offshore_height_m`. It is null
-when the wave does not reach the threshold. On 7 November 2026, every coastal
-cell tried on emem.dev returned 422. Cells near Waikiki, Bondi Beach and
-Nazare (from `/v1/locate`), with `n_offshore_cells: 64`, all gave the
+when the wave does not reach the threshold.
+
+A cell at the shore usually fails the depth checks. Pick a cell that is
+already in deep water. This request uses a cell in the sea off Monaco
+(43.728 N, 7.430 E, from `/v1/locate` with `lat` and `lng`):
+
+```sh
+curl -s https://emem.dev/v1/wave_solve \
+  -H 'content-type: application/json' \
+  -d '{"coastal_cell":"defi.zb5f1.vulU.nadU","offshore_height_m":2,"period_s":10,"n_offshore_cells":64}'
+```
+
+On 7 November 2026 it gave HTTP 200 with 64 profile cells, 84 m deep at
+the offshore end and 57 m at the coastal end. It ran 204 steps at
+`cfl_factor` 0.5. `arrival_height_m` was 1.0 and `arrival_time_s` was
+about 23. Because the coastal end is 57 m deep, this is a wave over deep
+water, not a wave that reaches a beach.
+
+On the same day, cells at the shore near Waikiki, Bondi Beach and Nazare
+(from `/v1/locate` by name), with `n_offshore_cells: 64`, all gave the
 land-locked rejection. At Bondi and Nazare the offshore end cell had 0 m depth.
 
-This request runs, and shows the 422 rejection with its details. On
+This request shows the 422 rejection with its details. On
 7 November 2026 its profile had 44 cells, not 64. The offshore end cell had
 0 m depth, and 32 % of the cells were more than 1 m deep:
 
