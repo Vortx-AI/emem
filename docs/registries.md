@@ -207,6 +207,17 @@ offsets.
 | `embedding` | 29 | operations on an embedding: a foundation encoder's, or a field's seasonal memory |
 
 74 of the 172 carry an `evaluation` AST. 8 carry a `parameters` block.
+The counts in this section come from `algorithms-v0.json`.
+
+Six entries have an AST and also `documentation_only: true`, so the
+responder does not run their AST. `route_heat_exposure@1` and
+`weather_summary@1` are two of them. `AlgorithmRegistry::evaluate` returns
+no value for these six before it reads the AST.
+
+`GET /v1/algorithms` adds a live `here` block to each entry.
+`here.status` is `runs`, `stored_only` (it reads a retired band) or
+`cannot_run` (its route is gone). On 7 November 2026, `here_counts` was
+128 `runs`, 36 `stored_only` and 8 `cannot_run`.
 
 ### Per-algorithm fields
 
@@ -228,7 +239,11 @@ Struct `algorithms::Algorithm`:
 | `accuracy_band` | no | editorial confidence note |
 | `multimodal` | no | `Multimodal` declaration (anchor band and tier chain) |
 | `temporal_recipe` | no | per-window backfill |
+| `pitfalls` | no | a trap that the output does not show (11 entries) |
 | `evaluation` | no | `Expr` AST for deterministic evaluation in the process |
+| `documentation_only` | no | default `false`; `true` means the responder does not run the formula (88 entries) |
+| `runtime_path` | no | the REST route that runs the algorithm, for example `/v1/terrain` (56 entries) |
+| `partial_runtime` | no | default `false`; `true` means the route runs only part of `formula` (36 entries) |
 | `inference` | no | `InferenceTier` declaration (algorithms that need a GPU) |
 | `parameters` | no | typed tunable thresholds (see below) |
 | `learned_from` | with `parameters` | where each parameter came from |
@@ -284,9 +299,13 @@ number back to its source.
 
 `prerequisites` names external seed data. For example,
 `climate_archetype_triple@1` uses the 12-entry Köppen-Geiger archetype table in
-`crates/emem-core/data/climate_archetype_centroids_v1.json`. When that
-data is not available, the dispatcher returns a structured Absence
-(`archetype_centroids_unavailable`). It does not crash.
+`crates/emem-core/data/climate_archetype_centroids_v1.json`. The
+`prerequisites` text says that the algorithm emits an Absence
+`archetype_centroids_unavailable` when the responder has not loaded the table. No Rust
+code reads that file or sends that Absence. The algorithm is
+`documentation_only` and has no AST, so the dispatcher skips it. On
+7 November 2026, its `here.status` was `stored_only`, because it reads
+the retired `clay_v1` and `prithvi_eo2` bands.
 
 ### Other rules the validator enforces
 
@@ -342,8 +361,21 @@ Evaluation is pure. Given `samples: HashMap<String, f64>`, the AST reduces to
 silent zero. The one exception is `or_else`: when its `primary` has a
 missing band, it returns `fallback`. Before evaluation, the dispatcher
 checks the required bands. These are all bands except the bands inside an
-`or_else` primary. When one is missing, the receipt shows
-`algorithm_outcomes[].skip_reason: "missing_input:<band>"`.
+`or_else` primary.
+
+The dispatcher (`dispatch_algorithms` in `crates/emem-api-rest/src/lib.rs`)
+runs only entries that have an AST. It puts one of these texts in
+`skip_reason` when it cannot give a value:
+
+| Case | `skip_reason` |
+|---|---|
+| a required band has no scalar fact | `missing input band for <key>: <band>` |
+| the AST gives `None`, or the entry is `documentation_only` | `expression evaluated to None (likely division by zero)` |
+| the value is not finite | `evaluation produced non-finite value (overflow / nan)` |
+
+The second text also covers a `documentation_only` entry, so the words
+"division by zero" can be wrong. The comments in `algorithms.rs` name a
+`missing_input:<band>` form. The code does not send it.
 
 The triple-consensus algorithms do not use `Expr`. They use a wider formula
 language (cosine over embedding vectors, `slice_latest` and `slice_prev`,
