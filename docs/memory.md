@@ -692,8 +692,12 @@ oldest first) and `events` (each supersede and delete). When
 delete. When it is `latest_records`, the responder has no event list
 for the path. Then `events` shows only the current supersede and the
 last delete. A path that nobody superseded or deleted also gives
-`latest_records`, with an empty `events`. The example below is such a
-path. This read ran on 7 November 2026:
+`latest_records`, with an empty `events`. In each version, `base` is the
+version before it on this path. `signed_base` is the base that the
+author's signature names. A deleted path keeps its history. A path that
+nobody wrote gives `cid_not_found` with the message "no history for"
+the path. The example below is a path with no supersede and no delete.
+This read ran on 7 November 2026:
 
 ```sh
 curl -s https://emem.dev/mcp \
