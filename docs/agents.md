@@ -1882,8 +1882,13 @@ the byte array `responder`. Both hold the same 32-byte Ed25519 key.
 `/.well-known/emem.json` also publishes it. This key is the only trust
 anchor.
 
-This script verifies a live receipt. It needs `requests`, `blake3`,
-`cbor2` and `cryptography`. On 7 November 2026 it printed
+This script verifies a live receipt. It needs four packages:
+
+```bash
+pip install requests blake3 cbor2 cryptography
+```
+
+On 7 November 2026 the script printed
 `VALID, signed by 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka`.
 The script does not build segments `0x03` to `0x05`. It prints `INVALID`
 for a valid receipt that has `scope`, `as_of` or edges. Send such a receipt
@@ -2026,7 +2031,8 @@ can check each one without trust in the responder.
 Send `Accept: application/cbor` to get the exact bytes that the cid
 hashes. Do not rebuild the bytes from JSON. JSON cannot keep the CBOR
 type widths: `confidence` is a CBOR float32, and JSON makes it a double.
-The rebuilt bytes then do not match.
+The rebuilt bytes then do not match. This script needs `requests` and
+`blake3`.
 
 ```python
 import base64, requests, blake3
