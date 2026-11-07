@@ -112,7 +112,7 @@ dispatch. Only the size of the `tools/list` answer changes.
 | endpoint | `tools/list` returns | size on 6 November 2026 |
 |---|---|---|
 | `POST /mcp` | the 18 core tools, one page | about 75 KB |
-| `POST /mcp/full` | all 116 tools, 9 pages | about 346 KB |
+| `POST /mcp/full` | all 116 tools, in several pages | about 346 KB |
 
 An MCP host loads every listed descriptor into the model context when it connects. So `tools/list` at `/mcp`
 returns the 18 core tools in a single page (about 75 KB), not the whole catalog. If a host listed all of
@@ -144,7 +144,7 @@ about the form of the answer, not the topic. For example, `scalar` is one number
 
 | shapes | bundles |
 |---|---|
-| `scalar`, `timeseries`, `raster`, `geometry`, `vector`, `identity`, `token`, `proof`, `plan`, `file`, `catalog` | `tokenisation`, `verification`, `agent_to_agent`, `long_horizon`, `robotics`, `satellites`, `agriculture`, `forestry`, `climate_risk` |
+| `scalar`, `timeseries`, `raster`, `geometry`, `vector`, `prose`, `reading`, `identity`, `token`, `proof`, `plan`, `file`, `catalog` | `tokenisation`, `verification`, `agent_to_agent`, `long_horizon`, `robotics`, `satellites`, `agriculture`, `forestry`, `climate_risk` |
 
 A bundle groups tools by job, and bundles overlap. You can filter `emem_tools` by shape or bundle.
 `tools/list` also accepts a bundle: `{"bundle":"robotics"}` returns only the tools in that bundle.

@@ -123,9 +123,11 @@ Every runtime uses the same loop. Each step names the REST route and the MCP too
    `/mcp` returns the core tier only. Send `{"tier":"all"}` or use `/mcp/full` for every tool. `emem_tools` also
    filters by the shape of the answer (`{"shape":"raster"}`) or by the job (`{"bundle":"robotics"}`).
 2. Name the object. `POST /v1/entity` (`emem_entity`) mints or returns one identity,
-   `emem:entity:<entity_cid>`, so two agents refer to the same object. The body needs a `label`, plus an anchor
-   (`place`, `cell`, or `lat` and `lng`). This is a write to the shared entity space: emem.dev asks for a signed
-   `attester` and refuses an unsigned call. To find an identity that exists, use `POST /v1/entity/resolve`.
+   `emem:entity:<entity_cid>`, so two agents refer to the same object. The body needs a `label` and an
+   anchor. The anchor is `place`, `cell`, `lat` and `lng`, or `external_ids.anchor` for an object with no
+   place. This is a write to the shared entity space: emem.dev asks for a signed `attester` and refuses an
+   unsigned call. The key must also be at tier T3, or the call fails with 403. `GET /v1/enlist` lists the
+   tiers and their checks. To find an identity that exists, use `POST /v1/entity/resolve`.
 3. Locate. `POST /v1/locate {"place":"Mount Fuji"}` (`emem_locate`) changes a place name, or `lat` and `lng`, into
    a `cell64`. `q`, `query` and `name` also work as the field name. The response says which geocoder answered, so the
    agent can judge the match.
@@ -270,8 +272,8 @@ curl -sX POST https://emem.dev/v1/memory_bundle \
 curl -sS https://emem.dev/v1/memory_bundle/emem:bundle:pzcbww6am7hyzhcicblv3imqei | jq .
 ```
 
-One call takes at most 256 triples. The responder resolves each triple through recall, then hashes the resulting
-fact CIDs and the `purpose` into `bundle_cid`. The same facts and the same purpose give the same `bundle_cid` on any
+One call takes at most 256 triples. The responder resolves each triple through recall. Then it hashes the `purpose`
+and, for each triple in the order you sent, the cell, band, resolved tslot and fact CID into `bundle_cid`. The same facts and the same purpose give the same `bundle_cid` on any
 responder. A triple resolves to the newest fact, so a newer fact gives a new `bundle_cid`. To bind exact facts, send
 `fact_cids` instead of `triples`.
 
@@ -421,7 +423,8 @@ curl -sX POST https://emem.dev/v1/recall \
 ```
 
 This call returns no facts, because emem signed the elevation fact on 16 May 2026, after the bound. Use this bound to
-cite evidence as it was on a fixed date. An example is the submission date of an EUDR due diligence statement.
+cite evidence as it was on a fixed date. Examples are the submission date of an EUDR due diligence statement and the
+bind date of an insurance policy. A third is a log entry under Article 12 of the EU AI Act.
 
 ## Check a draft before you publish it
 
@@ -479,7 +482,7 @@ if (!v.allow) return v.result;
 curl -sS -X POST 'https://emem.dev/v1/guard/verdict?shape=policy' \
   -H 'content-type: application/json' \
   -d '{"input":{"prompt":"...","tool":"publish"}}'
-# -> {"result":{"allow":true,"deny":[]}}
+# -> {"result":{"allow":true,"deny":[],"verdict":{...}},"advisory":true,...}
 ```
 
 `?shape=cloudevent` accepts CloudEvents 1.0, so a Knative, Dapr or Argo Events mesh can send agent output through
@@ -500,6 +503,7 @@ Use the `fix` field in your code, not the prose:
 | `contact_admin` | A person restricted the item. The evidence is not the problem. |
 | `cite_observation` | Resolve the observation through emem and cite the token that it returns. |
 | `correct_value` | Change the number in the draft to the signed value. |
+| `redact_and_retry` | Only a self-hosted guard returns this value. Remove the flagged span and retry. |
 
 A citation that the node does not hold is an allow. It looks the same as a citation from another responder, so a
 deny would punish an agent that cites across nodes.
