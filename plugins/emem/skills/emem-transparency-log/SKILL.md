@@ -78,11 +78,13 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/verify_log.py" sth old_sth.json
 python3 "${CLAUDE_SKILL_DIR}/scripts/verify_log.py" inclusion inc.json
 ```
 
-The `inclusion` check also verifies the head that the response carries.
-On 7 November 2026 at 00:44 UTC these commands printed:
+The `inclusion` check also verifies the head that the response carries,
+so it prints an `sth` line first. On 7 November 2026 at 02:33 UTC these
+commands printed:
 
 ```
-sth          VALID    tree_size=3243860 signed_at=2026-11-07T00:44:43Z signer=777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
+sth          VALID    tree_size=3245770 signed_at=2026-11-07T02:33:13Z signer=777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
+sth          VALID    tree_size=3245770 signed_at=2026-11-07T02:33:13Z signer=777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
 inclusion    VALID    leaf_index=12345 path=22 hashes
 ```
 
@@ -99,19 +101,19 @@ Ask for the consistency proof from the old size to the new size. Put
 your two sizes in the query:
 
 ```sh
-curl -s 'https://emem.dev/v1/log/consistency?first=3243860&second=3243861' -o cons.json
+curl -s 'https://emem.dev/v1/log/consistency?first=3245770&second=3245806' -o cons.json
 python3 "${CLAUDE_SKILL_DIR}/scripts/verify_log.py" consistency old_sth.json new_sth.json cons.json
 ```
 
 With MCP, call `emem_log_consistency` with
-`{"first": 3243860, "second": 3243861}`.
+`{"first": 3245770, "second": 3245806}`.
 
-On 7 November 2026 at 00:45 UTC the check printed:
+On 7 November 2026 at 02:33 UTC the check printed:
 
 ```
-sth          VALID    tree_size=3243860 signed_at=2026-11-07T00:44:43Z signer=777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
-sth          VALID    tree_size=3243861 signed_at=2026-11-07T00:45:03Z signer=777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
-consistency  VALID    3243860 -> 3243861, 14 hashes
+sth          VALID    tree_size=3245770 signed_at=2026-11-07T02:33:13Z signer=777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
+sth          VALID    tree_size=3245806 signed_at=2026-11-07T02:33:28Z signer=777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
+consistency  VALID    3245770 -> 3245806, 14 hashes
 ```
 
 Always send `second`. Without it, the server uses the current size. The
@@ -137,7 +139,7 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/verify_log.py" inclusion bad_inc.json
 ```
 
 On 7 November 2026 this printed `inclusion INVALID leaf_index=12346`
-and exited with 1. A changed `tree_size` in a head also gave `INVALID`.
+after a valid `sth` line, and exited with 1. A changed `tree_size` in a head also gave `INVALID`.
 
 ## Step 3: prove that a memory note is in the log
 
@@ -172,7 +174,7 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/verify_log.py" inclusion note_inc.json
 
 On 7 November 2026 the response had `matched: "memory_note_content"`,
 `memory_note_file_cid: "fucoti2h7r6plhxzd2m2cmtuve"` and
-`leaf_index: 3235700`. The path verified.
+`leaf_index: 3235700`. The path of 19 hashes verified.
 
 The proof covers the log entry. It does not cover the content itself.
 To close the loop, get that entry from `/v1/log/entries` and decode its
@@ -209,10 +211,11 @@ three levels of independence:
 | `head_is_independently_witnessed`, `independent_witness_count` | Keys other than the node's own. Keys are free, so many fresh keys can raise this count. |
 | `head_is_witnessed_by_independent_operator`, `independent_operator_count` | Keys with fresh DNS or well-known evidence under a domain that is not the node's own. This count costs something to move. |
 
-On 7 November 2026 at 00:45 UTC the log had 112 independent witness
+On 7 November 2026 at 02:33 UTC the log had 112 independent witness
 keys. Only one independent operator domain had fresh evidence:
-`eudr.dev`. Its freshest co-signature was 25 entries behind the head, so
-`head_is_witnessed_by_independent_operator` was false.
+`eudr.dev`. Its freshest co-signature was 58 entries behind the head, so
+`head_is_witnessed_by_independent_operator` was false. The value of
+`head_is_witnessed` was also false.
 
 To check a co-signature, verify it offline. Then run a consistency proof
 from its `tree_size` to the head that you hold. Add

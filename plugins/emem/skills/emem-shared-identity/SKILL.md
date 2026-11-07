@@ -55,9 +55,10 @@ curl -s -X POST https://emem.dev/v1/entity/resolve -H 'content-type: application
 
 The endpoint also accepts `name`, `q` and `query` as synonyms of `text`.
 Add `"near": "<place or cell64>"` to narrow the search to objects near a
-place.
+place. On 7 November 2026, `"near": "Tokyo"` kept the first two
+candidates below and changed the third.
 
-On 7 November 2026 at 00:42 UTC this call returned these three candidates:
+On 7 November 2026 at 02:33 UTC this call returned these three candidates:
 
 | `entity_token` | kind | cell64 | corroboration | provenance |
 |---|---|---|---|---|
