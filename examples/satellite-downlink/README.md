@@ -20,7 +20,9 @@ In the code, `candidate` means "pinned so device makers can build against it, bu
 ## What you need
 
 - A Rust toolchain (MSRV 1.91) and a clone of this repository.
-- No network, no key and no account.
+- `protoc`, the Protocol Buffers compiler. The `lance-encoding` dependency needs it at build time.
+  On Debian or Ubuntu, install `protobuf-compiler`. Or set `PROTOC` to the path of a `protoc` binary.
+- Network access for the first build only, to download crates. The program itself uses no network, no key and no account.
 
 ## Run it
 
@@ -28,13 +30,49 @@ In the code, `candidate` means "pinned so device makers can build against it, bu
 cargo run -p emem-primitives --example satellite_downlink
 ```
 
-We did not run this command for this page, because the docs host has no Rust toolchain.
+We ran this command on 7 November 2026 with rustc 1.99.1 and libprotoc 30.2.
+The first build took about 25 minutes on the docs host. A second run took 5 s.
+Two runs gave byte-identical output.
 CI compiles the example (`cargo clippy --workspace --all-targets`), but no CI job runs it.
-The expected results below come from reading the source.
 
 ## What you get
 
 The program prints one block for each act and asserts the results.
+The full output of the run on 7 November 2026:
+
+```text
+act 1  enrolled spacecraft key mwndc7zcesxqvw7bgxmbff3trktrynx3edprmwtzodv6qt45vqvq
+       profile orbital.satellite.v1 requires 8 trace layers:
+       [Syscall, Scheduler, Memory, SensorBus, Signal, Energy, Thermal, Storage]
+
+act 2  write without a trace:
+       attestation verification failed: os_trace gate: attester mwndc7zcesxqvw7bgxmbff3trktrynx3edprmwtzodv6qt45vqvq is enrolled under orbital.satellite.v1; writes require the device's OS execution trace and none was presented
+
+act 3  smuggle one unemitted fact into a sound batch:
+       attestation verification failed: os_trace gate: fact at band indices.ndvi carries payload digest cyzwaknc3wznnmpjc52er4sy4kxqkeq6ysflubbmahrxassy4jlq that is not bound in the trace's emitted outputs
+
+act 4  admitted: 3 facts under one verified trace
+       emem:fact:defi.zb55e.natI.tUpu:ol4ugzp4rmkc7nodxgfnm3bucamdbell6anysvt5syqlwhmzjtia
+       emem:fact:defi.zb55e.nadU.tUra:wndl3zwt4b27q2ufzpwc6oxwqx7a2t3ysd3evwzjnewvz5wphefa
+       emem:fact:defi.zb55e.mUgI.tUsE:asue5jcmxpwiur3ajfj7xil5u7uz7bvh4rrxbcqswkvjeop2lbhq
+       emem:trace:3arfrney6ieeugzekzqfufwoayvqj3edhc6fbwaqzhydxn2hbogq
+       emem:bundle:sfxaann374s7omyhfhbavl3qne
+
+act 5  drift-anchor scoring against the open archive:
+       defi.zb55e.natI.tUpu  device 0.6431 vs anchor 0.6402  score 0.05  Consistent
+       defi.zb55e.nadU.tUra  device 0.6512 vs anchor 0.6402  score 0.15  Consistent
+       defi.zb55e.mUgI.tUsE  device 0.2103 vs anchor 0.6402  score 0.88  Contradicted
+
+       tampered segment 2 after signing; the verifier answers:
+       reject: chain broken at seq 3
+
+done   three facts, one trace, one bundle, and every forgery named.
+```
+
+The tokens are local to the in-memory store. They do not resolve on emem.dev.
+The act 5 heading says "open archive", but the anchor is the fixed constant in the source.
+
+What each act does:
 
 1. Enroll. The spacecraft key enrolls under `orbital.satellite.v1`.
    The substrate registry sets the eight trace layers that the platform must capture.
