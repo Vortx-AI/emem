@@ -1690,19 +1690,22 @@ needs its own fields:
 `emem_field_series`. Thus a host that lists only the core tools can get an
 area series. If `type` is missing, REST answers 400 `invalid_argument`
 with "missing field `type`". If `type` has a wrong value, the 400 error
-names the eight types. `emem_intent`
-answers `status: needs_intent_type` with `valid_types`. This `confirm` call
+names the eight types. In both cases, the MCP tool `emem_intent` answers
+without an error: `status: needs_intent_type`, and `valid_types` with the
+fields that each type needs. This `confirm` call
 checks a claim at one cell:
 
 ```bash
 curl -s -X POST https://emem.dev/v1/intent \
   -H 'content-type: application/json' \
-  -d '{"type":"confirm","cell":"defi.zb493.xuqA.zcb5f",
+  -d '{"type":"confirm","cell":"defi.zb592.nUkO.zEzE",
        "claim":{"band":"indices.ndvi","op":"gt","value":0}}'
 ```
 
 On 7 November 2026 it answered 200 with `plan`, `results` and
-`composite_suggestions`.
+`composite_suggestions`. The plan had one call, to `emem_verify`. Its
+result in `results` had `verdict: true`, the evidence fact CIDs and a
+receipt.
 
 #### Physics
 
@@ -1742,8 +1745,8 @@ result. When an input is not available, it returns
 `verdict: "inconclusive"` and no number.
 
 The registry gives each `documentation_only` entry
-`here.executes: "agent"`, also these four. For these four, the route
-computes the result and signs it.
+`here.executes: "agent"`. These four also have that value, but their
+route computes the result and signs it.
 
 | Path | Body | Algorithm |
 |---|---|---|
@@ -1754,7 +1757,7 @@ computes the result and signs it.
 
 All four routes are `POST`. The second half of the deforestation alert
 compares two GeoTessera vintages (`geotessera.multi_year`). emem.dev
-retires that band (see [Algorithms](#algorithms)), so the second half
+no longer makes that band (see [Algorithms](#algorithms)), so the second half
 needs vectors that emem stored before the retirement. On 7 November 2026
 the registry gave this algorithm `here.status: "stored_only"` and
 `use_instead: ["deforestation_alert_ndvi_drop@1"]`.
