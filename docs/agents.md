@@ -1777,8 +1777,8 @@ response tells which layer answered.
 | `direct` | You sent coordinates, not a name |
 | `wide_bbox_table` | A curated table of large regions, for example the Sahara or the Amazon |
 | `country`, `admin1`, `admin2`, `admin3` | GeoNames administrative tables, in-process |
-| `embedded` | GeoNames cities1000 populated places, in-process |
-| `geonames` | GeoNames cities5000 (68,581 places), in-process |
+| `embedded` | GeoNames cities1000 populated places (169,051 rows), in-process |
+| `geonames` | The same cities1000 lookup again. `embedded` answers first, so this value does not occur in practice |
 | `pois` | Curated GeoNames landmarks: peaks, lakes, parks, airports and monuments |
 | `cache` | Earlier Photon and Nominatim answers, stored by the responder |
 | `photon` | komoot Photon, the first network geocoder |
@@ -1789,6 +1789,12 @@ response tells which layer answered.
 On 7 November 2026, `Sahara` came from `wide_bbox_table`, `France` from
 `country`, `Karnataka` from `admin1` and `Paris` from `embedded`.
 Coordinates (`{"lat":35.36,"lng":138.73}`) came back with `via: "direct"`.
+
+The `via` enum in `/openapi.json` (`LocateResp`) is older than the code.
+It names `direct_latlng` where `/v1/locate` sends `direct`. It does not
+list `geonames`, `overture_admin_fallback` or `wikidata`. Use the table
+above. The order and the values come from `locate_inner` in
+`crates/emem-api-rest/src/lib.rs`.
 
 ---
 
