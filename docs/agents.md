@@ -2898,9 +2898,19 @@ client read timeout of `gateway_timeout_secs` plus 5 s. A region request
 gateway timeout. When time runs out, it gives a partial 200 and a retry
 hint.
 
-Retry a 5xx once. Do not retry a 4xx, except 429. A 429 (`rate_limited`)
-and a 503 (`overloaded`) have a `Retry-After` header of 1 second. Wait
-that long, then retry.
+Retry a 5xx once. Do not retry a 4xx, except 429. Wait for the time
+that the refusal gives, then retry:
+
+| Refusal | Wait |
+|---|---|
+| 429 `rate_limited`, the per-IP limit | `Retry-After: 1` |
+| 503 `overloaded`, the in-flight limit | `Retry-After: 1` |
+| 429 from a daily per-IP quota, for example on `/v1/read`, `/v1/ocr`, `/v1/decide`, `/v1/range_hash` or `scene.png` | `Retry-After: 86400`. Try again the next day. |
+| 429 `rate_limited` with `details.code: write_rate_limited`, the per-key write limit | No header. Read `details.retry_after_s`. |
+
+The rules are in `crates/emem-api-rest/src/lib.rs`
+(`RATE_LIMITED_RETRY_AFTER`, `enforce_write_rate_limit_key`) and
+`reader.rs` (`quota_refused`).
 
 ## CORS policy
 
