@@ -36,7 +36,7 @@ On this page:
 | [Derivation refusals](#derivation-refusals-post-v1derive) | Fix a refused `POST /v1/derive`. |
 | [Other route codes](#other-route-codes) | Find a `details.code` from another route. |
 | [JSON-RPC errors](#json-rpc-errors-from-mcp-and-a2atasks) | Handle errors from `/mcp` and `/a2a/tasks`. |
-| [Responses that are not `emem.error.v1`](#responses-that-are-not-ememerrorv1) | Handle quota, plain-text, proxy and OAuth bodies. |
+| [Responses that are not `emem.error.v1`](#responses-that-are-not-ememerrorv1) | Handle quota, plain-text, proxy, `/splats` and OAuth bodies. |
 | [Routes that only a self-hosted node answers](#routes-that-only-a-self-hosted-node-answers) | Understand a 501 from emem.dev. |
 | [Deny codes from the guard](#deny-codes-from-the-guard) | Act on a guard `deny`. |
 | [Endpoints that help you recover](#endpoints-that-help-you-recover) | Find the live catalogues. |
@@ -629,6 +629,33 @@ the service. Three other failures send a bare status with no body:
 On 7 November 2026, `GET /v1/perception/nope` gave the 404 body.
 `GET /v1/perception/clips/a%20b` also gave it, because a space breaks the
 segment rule. `POST /v1/perception/health` gave the 405 of the service.
+
+### Errors from the `/splats` static files
+
+`GET /splats/<path>` serves the files of the 3D viewer. The files are in
+`EMEM_SPLATS_DIR` (default `<EMEM_DATA>/splats-site`). These handlers are
+`serve_splats_file` and `splats_post` in `crates/emem-api-rest/src/lib.rs`.
+
+| Case | HTTP | Body |
+|---|---|---|
+| A path segment is empty, `.` or `..`. | 404 | `{"code":"not_found","message":"bad path"}`. No `schema`. |
+| No file is at the path. | 404 | `{"code":"not_found","message":"not found"}`. No `schema`. |
+| The responder cannot read the file. | 404 | `{"code":"not_found","message":"read error"}`. No `schema`. |
+| The `Range` header asks for bytes after the end of the file. | 416 | Empty. The `content-range` header is `bytes */<file length>`. |
+| `POST` to a path other than `api/gemma`. | 404 | `{"code":"not_found","message":"not found"}`. |
+| `POST /splats/api/gemma` and the local model bridge does not answer in time, or its body cannot be read. | 502 | Empty. |
+
+The responder does not refuse every bad `Range` header. A header with more
+than one range, or a header that does not parse, gets the whole file with 200.
+An `If-Range` value that is not the current `etag` also gets the whole file.
+`POST /splats/api/gemma` forwards the body to a model bridge on
+`127.0.0.1:8080`. It returns the status and body of the bridge unchanged. The
+time limit is `EMEM_SPLATS_GEMMA_TIMEOUT_S` seconds (default 120).
+
+On 7 November 2026, emem.dev sent 416 with `content-range: bytes */8009` for
+`Range: bytes=999999999-` on `/splats/viewer/temporal.html`. It sent 206 for
+`bytes=0-9` and 200 for `bytes=0-1,4-5`. `/splats/a//b` (sent with
+`curl --path-as-is`) gave the `bad path` body.
 
 ### Errors from the OAuth routes
 
