@@ -1200,8 +1200,8 @@ On 7 November 2026, emem.dev routed two models: `google.gemma-3-12b-it`
 Cosmos model returned a typed error that day: the host had no CUDA device.
 
 The `model` field also works on the MCP tools `emem_ask` and `emem_reason`,
-and on the A2A door. Use the `emem_ask` skill there. It returns the signed
-answer also when the model does not finish. `emem_reason` returns only the
+and on the A2A door. On the A2A door, use the `emem_ask` skill. It returns
+the signed answer also when the model does not finish. `emem_reason` returns only the
 prose, so a slow model leaves you with nothing.
 
 ```bash
@@ -1402,7 +1402,13 @@ curl -s -X POST https://emem.dev/v1/query_region \
 `geometry` is one cell64, or `cells:` followed by cell64s with commas
 between them. `agg` is one of `mean`, `median`, `p90` and
 `vector_centroid`. `vector_centroid` gives the mean of each dimension of a
-vector band. The call above returned a mean elevation of 915.07 m.
+vector band.
+
+`query_region` reads only the facts that the responder already stores. It
+does not fetch from the upstream. On 7 November 2026 the call above
+returned 915.07 m, but `facts` held one fact. Only the first cell had a
+stored elevation. Count `facts` before you report the mean. To fill a
+cell first, recall it with `/v1/recall`.
 
 ### 4. Add history for a band
 
