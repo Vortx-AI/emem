@@ -313,7 +313,7 @@ the `BAAI/bge-base-en-v1.5` model on the CPU.
 
 Run `scripts/install-topic-model.sh` once to download the model (about
 435 MB) before the first `/v1/ask` call. The script writes it to
-`EMEM_TOPIC_MODEL_DIR`. If that is not set, it writes to
+`EMEM_TOPIC_MODEL_DIR`. If you do not set it, the script writes to
 `<EMEM_DATA>/models/bge-base-en-v1.5/`, with `EMEM_DATA` default
 `./var/emem`.
 
