@@ -672,7 +672,7 @@ receiver checks arithmetic, not reputation.
 re-checks it without trusting the server; the `/verify` page recomputes
 these steps in the browser.*
 
-![One live recall receipt at Mount Fuji, 3539.04 m, checked offline on 7 November 2026. Eight fields make a 328-byte preimage. Its BLAKE3 digest verifies with Ed25519 against the key from /.well-known/emem.json: VALID. Change served_at by one character and the digest changes: INVALID. A valid check shows which key signed these fact ids, not that the value is true.](/docs/media/diagrams/receipt-check.svg)
+![One live recall receipt at Mount Fuji, 3539.04 m, checked offline on 7 November 2026. A fixed header and seven receipt fields make a 328-byte preimage. Its BLAKE3 digest verifies with Ed25519 against the key from /.well-known/emem.json: VALID. Change served_at by one character and the digest changes: INVALID. A valid check shows which key signed these fact ids, not that the value is true.](/docs/media/diagrams/receipt-check.svg)
 *Figure 5 applied to one live receipt, checked offline with the
 `verify.py` script of the `emem-verify-receipt` skill.*
 

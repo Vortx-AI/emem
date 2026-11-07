@@ -120,7 +120,7 @@ box(X, y, CW, 262)
 head(y, "1", "Four parts, 16 bits each")
 cw4 = (CW - 32) // 4
 labels = [
-    ("geo tag", "the same", "for every cell"),
+    ("geo tag", "the same for", "every geo cell"),
     ("latitude", f"band, {band_km:.1f} km", "north to south"),
     ("finer latitude", "and coarse", "longitude"),
     ("fine", "longitude", ""),
@@ -187,7 +187,7 @@ H = y + 4
 
 desc = (
     "What a cell64 tells you about a place, shown for Mount Fuji from POST /v1/locate. "
-    f"1: the cell64 {F} has four parts of 16 bits. Part 1, defi, is a geo tag and is the same for every cell. "
+    f"1: the cell64 {F} has four parts of 16 bits. Part 1, defi, is a geo tag and is the same for every geo cell. "
     f"Part 2, zb592, is a latitude band about {band_km:.1f} km tall. Part 3, nUkO, holds finer latitude and "
     f"coarse longitude. Part 4, zEzE, holds fine longitude. One cell is about {ns_m:.2f} m north to south. "
     "2: the nine cells around the summit all start with defi.zb592. Going north or south changes part 3; "

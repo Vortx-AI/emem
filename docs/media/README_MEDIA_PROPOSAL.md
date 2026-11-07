@@ -107,7 +107,7 @@ from live reads of emem.dev on 7 November 2026. They add an image where README.m
 
 | README line (7 November 2026) | Proposed | Why |
 |---|---|---|
-| 47, after the table in "What crosses, and what stays" | `docs/media/diagrams/data-flow.svg` (6,251 bytes) | The last table row says that a signed fact names its source bytes. The diagram follows one value from a 43.4 MB open file to a fact id. Then it changes one byte and shows that the id changes. |
+| 47, after the paragraph that starts "What each check proves" (the table ends at line 45), before `## Quickstart` | `docs/media/diagrams/data-flow.svg` (6,251 bytes) | The last table row says that a signed fact names its source bytes. The diagram follows one value from a 43.4 MB open file to a fact id. Then it changes one byte and shows that the id changes. |
 | 221, after the paragraph that ends with `/v1/verifier_spec` | `docs/media/diagrams/receipt-check.svg` (6,376 bytes) | The paragraph says that a reader can re-check any receipt. The diagram does it for one live receipt: 8 fields, 328 bytes, a BLAKE3 digest and an Ed25519 check. One changed character makes the check fail. |
 | 308, after the paragraph that ends with "the exact digest to sign" | `docs/media/diagrams/agent-loop.svg` (6,220 bytes) | The paragraph says where an agent uses emem and how it writes. The diagram shows one turn: ask, recall, cite, act, then write back a note signed with the agent's own key. |
 | 312, after "The hosted node runs the binary in this repo" and its `docker run` block | `docs/media/diagrams/architecture.svg` (8,484 bytes) | The section says that one binary runs the node. The diagram shows what that binary does when a call comes in: find, fetch on a miss, hash, sign, log, answer. |
@@ -127,7 +127,7 @@ Markup for line 47:
 Markup for line 221:
 
 ```html
-<img src="docs/media/diagrams/receipt-check.svg" alt="One live recall receipt at Mount Fuji, 3539.04 m, checked offline on 7 November 2026. Eight fields make a 328-byte preimage. Its BLAKE3 digest verifies with Ed25519 against the key from /.well-known/emem.json: VALID. Change served_at by one character and the digest changes: INVALID. A valid check shows which key signed these fact ids, not that the value is true." width="540">
+<img src="docs/media/diagrams/receipt-check.svg" alt="One live recall receipt at Mount Fuji, 3539.04 m, checked offline on 7 November 2026. A fixed header and seven receipt fields make a 328-byte preimage. Its BLAKE3 digest verifies with Ed25519 against the key from /.well-known/emem.json: VALID. Change served_at by one character and the digest changes: INVALID. A valid check shows which key signed these fact ids, not that the value is true." width="540">
 ```
 
 Markup for line 308:
