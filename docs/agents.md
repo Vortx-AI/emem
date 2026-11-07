@@ -351,6 +351,18 @@ Cite `tokens.cube`, and check it with `POST /v1/cube/resolve` (MCP
 `cube_cid` hashes the member `derivation_cid` values, and those change on each
 call.
 
+```bash
+curl -s -X POST https://emem.dev/v1/cube/resolve \
+  -H 'content-type: application/json' \
+  -d '{"token":"<tokens.cube from the call above>"}'
+```
+
+On 7 November 2026, this call gave `resolved: true`, the signed record and
+2 `member_tokens`, each with its `raster_token` and `artifact_cid`. The server
+recomputes `cube_cid` from the members and refuses a changed member list with
+a 409. It does not resolve the members. Resolve each `raster_token` with
+`emem_raster_resolve`.
+
 A Sentinel-2 grid has a limit of 512 pixels on each side, about 5.1 km at
 10 m. The `band` field also takes `copdem30m.elevation`, an encoder band or a
 forest layer, each with its own limits. `emem_tools` with
