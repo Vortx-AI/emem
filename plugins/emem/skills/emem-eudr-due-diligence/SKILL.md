@@ -79,7 +79,7 @@ REST route.
 | Field | Required | Value |
 |---|---|---|
 | `plot_id` | yes | Your own id for the plot. |
-| `geometry_geojson` | yes | A Polygon for a plot of more than 4 ha, or for cattle. A Point for a plot of 4 ha or less (Article 2(28)). `{"bbox":[w,s,e,n]}` is also accepted. |
+| `geometry_geojson` | yes | A Polygon for a plot of more than 4 ha, or for cattle. A Point for a plot of 4 ha or less (Article 2(28)). The endpoint also takes `{"bbox":[w,s,e,n]}`. |
 | `country_of_production` | yes | ISO 3166-1 alpha-3, for example `CIV`. |
 | `commodity_hs` | yes | HS-6 or longer. The endpoint checks it against Annex I. |
 | `quantity_kg` | yes | The quantity in kg. |
@@ -91,7 +91,7 @@ REST route.
 |---|---|---|
 | `operator` | none | `{"name": ...}` for the envelope. |
 | `cut_off_date` | `2020-12-31` | The deforestation cut-off. |
-| `forest_baseline_override` | JRC with Hansen | `jrc_gfc2020_v4`, `hansen_only` or `both`. `jrc_gfc2020_v3` is still accepted. |
+| `forest_baseline_override` | JRC with Hansen | `jrc_gfc2020_v4`, `hansen_only` or `both`. The endpoint still takes `jrc_gfc2020_v3`. |
 | `max_cells_per_plot` | from the polygon area | The sample size for each plot. |
 | `per_cell_detail` | `rows` | `rows` puts the per-cell rows in the response. `anchor` leaves them out and keeps `per_cell_rows_cid`. |
 | `per_cell_offset` | none | Pages the per-cell rows. See step 4. |
@@ -118,7 +118,7 @@ jq '{verdict: .due_diligence_statement.verdict,
 |---|---|
 | `pass` | No forest loss after the cut-off on forest that stood at the cut-off. |
 | `fail` | Forest loss after the cut-off, over at least 0.5 ha. |
-| `not_in_scope` | The land was cleared at or before the cut-off, so it was not forest at the cut-off. |
+| `not_in_scope` | The forest loss on the land came at or before the cut-off, so the land was not forest at the cut-off. |
 | `indeterminate` | The inputs do not decide the verdict. |
 | `below_mmu` | The failing area is less than the 0.5 ha floor. It counts as compliant. |
 
@@ -129,7 +129,7 @@ them in the Article 12 record.
 
 | Field | What it tells you |
 |---|---|
-| `forest_baseline_dataset` | The name, version and source of each dataset that was read. Quote the versions from this field. |
+| `forest_baseline_dataset` | The name, version and source of each dataset that the endpoint read. Quote the versions from this field. |
 | `forest_baseline` | The JRC version that the facts came from, for example `jrc_gfc2020_v4`. The fact derivations carry it too (`jrc_gfc2020_v4_pixel@1`). |
 | `tmf_cross_check` | The JRC TMF deforestation year on each cell, compared with Hansen after the cut-off: `both`, `hansen_only`, `tmf_only`, `neither` and `agreement`. It does not change the verdict. A `tmf_only` loss sets `review_required: true`, because TMF often sees a clearance that started as degradation and that Hansen misses. |
 | `verdict_support.level` | `strong`, `moderate` or `weak`. It shows how complete the inputs are. It is not a calibrated probability. Each shortfall is in `limits`. |
@@ -153,9 +153,9 @@ A value between the two columns gives `moderate`. Three more cases give
 - The plot is less than 0.5 ha.
 - TMF read no cell, and the plot is within 30 degrees of the equator.
 
-### When the statement is held for review
+### When the endpoint holds the statement for review
 
-The statement is held for review when one of these is true:
+The endpoint holds the statement for review when one of these is true:
 
 - A plot has `tmf_cross_check.review_required: true`.
 - A plot has `verdict_support.level` `weak`.
@@ -165,7 +165,7 @@ The statement is held for review when one of these is true:
 `statement_of_compliance_signable` at the top level and
 `statementOfComplianceSignable` in the envelope use one rule, so they
 always agree. Each is true only when the overall verdict is `pass` and
-the statement is not held for review.
+the endpoint does not hold the statement for review.
 
 `statement_of_compliance_held_because` (in the envelope:
 `statementOfComplianceHeldBecause`) lists each cause that applies. It is
@@ -241,8 +241,8 @@ each cid behind `per_cell_rows_cid`.
   cell: `<cell>|<verdict>|<fact_cids joined by ,>` and a newline. Use
   the number in `verdict` (for example `1`), not the text in `label`.
   The joined pages give the same hash. On 7 November 2026 the hash of
-  the one row in step 3 matched `per_cell_rows_cid`. The receipt does not sign this hash,
-  but it signs the fact cids in it.
+  the one row in step 3 matched `per_cell_rows_cid`. The receipt does
+  not sign this hash, but it signs the fact cids in it.
 - `sampled_polygon_fraction` is the coverage (sampled area over polygon
   area). Do not use the number of rows as coverage.
 - Without `per_cell_offset`, the rows over the cap are a sample: failing
@@ -261,14 +261,14 @@ certificate or a land title in the same file, see
 | `source_fetch_failed` | An upstream tile was slow or cold. The error names it. | Do step 1, then send the request again. |
 | `review_required: true` | TMF saw a loss that Hansen did not see. | Read `tmf_cross_check.review_cells`. A person must look at those cells. |
 | `verdict_support.level` `weak` | An input is incomplete. | Read `limits`. Send a Polygon or a larger `max_cells_per_plot`. |
-| `annex_i_warnings` not empty | The HS code is not in Annex I. The verdict is still computed, but EUDR does not cover that commodity. | Check `commodity_hs`. |
+| `annex_i_warnings` not empty | The HS code is not in Annex I. The endpoint still computes the verdict, but EUDR does not cover that commodity. | Check `commodity_hs`. |
 | Plot `verdict` `indeterminate` with no cells | The geometry did not parse. | Check `geometry_geojson`. |
 
 ## What to tell the user
 
 - The verdict, the `verdict_support.level` of each plot, and its
   `limits`.
-- If review is required, say why. Use `tmf_cross_check.review_cells`.
+- If the statement needs review, say why. Use `tmf_cross_check.review_cells`.
 - For a Point plot: one cell, about 9.5 m, stands for a plot of up to
   4 ha. The `sampling_caveat` field says so.
 - The statement does not assess legality or degradation.
