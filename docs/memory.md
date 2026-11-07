@@ -743,15 +743,30 @@ triple.
 One bad triple stops the whole call, and the responder makes no
 bundle. A `cell` that has the shape of a cell64 but does not decode
 gives a 400 `invalid_cell`. The responder does not geocode it. A place
-name that gets no geocoder answer in 10 seconds gives a 504
+name that the geocoder does not find gives a 404 `no_geocoder_match`.
+A place name that gets no geocoder answer in 10 seconds gives a 504
 `invalid_argument`. Send a cell64 to avoid the geocoder.
 
-The response gives `bundle_token`, one citation per entry, and two
-counts. `members` is the number of entries. `resolved` is the number of
-entries that found a fact. An entry with no fact has a `miss_reason`.
-Read the two counts before you hand the token on. A bundle can be
-partial. The citations keep the order of the request. The `fact_cids`
-and `cells` lists in the response drop repeats.
+The POST and the GET return the same fields:
+
+| Field | What it holds |
+|---|---|
+| `bundle_token` | `emem:bundle:<bundle_cid>`. Give this to other agents. |
+| `bundle_cid` | The hash part of the token. |
+| `schema` | Always `emem.memory_bundle.v1`. |
+| `members` | The number of entries. |
+| `resolved` | The number of entries that found a fact. |
+| `citations` | One per entry, in the order of the request. Each has `cell`, `band`, `resolved_tslot` and `fact_cid`. A hit also has `memory_token`, the `emem:fact:` token. A miss has `fact_cid` null and a `miss_reason`. |
+| `fact_cids` | The fact cids of the hits, with no repeats. |
+| `cells` | The cells of the citations, with no repeats and no empty cell. |
+| `purpose` | Your `purpose` string. The field is absent when you sent none. |
+| `signed_at` | The time of the signature, in UTC. |
+| `responder_pubkey_b32` | The public key of the responder, in lowercase base32. |
+| `receipt` | The signed receipt over `cells` and `fact_cids`. |
+
+Read `members` and `resolved` before you hand the token on. A bundle
+can be partial. The receipt signs the `cells` list, so the cell of a
+missed triple is in the receipt. The receipt has no cid for that miss.
 
 The command below composes a bundle. This page does not run it, because
 the responder stores each bundle it composes. A triple can also make
