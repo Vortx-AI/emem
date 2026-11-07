@@ -162,8 +162,12 @@ example.
 curl -s https://emem.dev/v1/tools
 ```
 
-The MCP search returned `emem_trajectory` and `emem_temporal_route`. The REST
-route ignores `q` and `name` and returns all 116 tools.
+The MCP search returned `emem_trajectory` and `emem_temporal_route`, under
+`groups`. The REST route has no search. It ignores `q` and `name` and returns
+all 116 tools, each with `input_schema` and `example_args`. It reads one
+parameter, `tier`. On 7 November 2026, `?tier=core` gave the 18 core tools
+and `?tier=extended` gave the other 98. Any other `tier` value gives the core
+tools.
 
 ### Job: answer a question in plain words
 
@@ -253,7 +257,7 @@ The call sampled 4 cells in an area of 13.4 km². Read `cells_sampled`,
 `coverage_fraction` and `is_exhaustive` before you state an area total. You can
 also send `bbox` or `polygon_geojson` instead of `place`.
 
-Over MCP on 7 November 2026, the 4-cell answer was 18,940 bytes on the wire.
+Over MCP on 7 November 2026, the 4-cell answer was 18,943 bytes on the wire.
 It had no `structuredContent`, so read it from the text. With
 `"max_cells": 16`, the MCP answer omitted `by_cell`, which holds the facts and
 the receipt of each cell. Its `fetch` body kept only `place`. For more than a
