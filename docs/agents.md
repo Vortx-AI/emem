@@ -92,6 +92,15 @@ so an extended tool also works on `/mcp`.
 | [Read and search notes](#job-read-and-search-notes) | `emem_memory_view`, `emem_memory_search` | `GET /memories/<path>`, `POST /v1/memory/search` | extended | no |
 | [Write a note that other agents can verify](#job-write-a-note-that-other-agents-can-verify) | `emem_memory_create` | none, MCP only | extended | yes |
 
+Four more jobs have their call in [Recipes](#recipes):
+
+| Job | MCP tool | REST | Tier | Key? |
+|---|---|---|---|---|
+| [Get one value over a region](#3-get-one-value-over-a-region) | `emem_query_region` | `POST /v1/query_region` | extended | no |
+| [Add history for a band](#4-add-history-for-a-band) | `emem_backfill` | `POST /v1/backfill` | extended | no |
+| [Get a Sentinel-2 picture of a cell](#5-get-a-sentinel-2-picture-of-a-cell) | `emem_cell_scene_rgb` | `GET /v1/cells/<cell64>/scene.png` | extended | no |
+| [Pre-screen a plot for EUDR](#6-pre-screen-a-plot-for-eudr) | `emem_eudr_dds` | `POST /v1/eudr_dds` | extended | no |
+
 Most examples use the cell of Mount Fuji, `defi.zb592.nUkO.zEzE`. Every call
 in this section ran again on 7 November 2026 and returned HTTP 200, except the
 note write, which needs your key. A count or value in an answer can change on
@@ -1668,6 +1677,21 @@ These recipes cover the next calls that an agent usually needs after the
 jobs in [Find the tool for your job](#find-the-tool-for-your-job). The
 examples use the Bengaluru cell `defi.zb493.xuqA.zcb5f`. Each call ran on
 emem.dev on 7 November 2026.
+
+Each recipe shows the REST call. To use MCP, send the same JSON body as
+`arguments` of the tool below. For recipe 5, send `cell` and `max_cloud`.
+On 7 November 2026, all seven tools answered these arguments with no
+error through `tools/call` on `https://emem.dev/mcp/full`.
+
+| Recipe | MCP tool |
+|---|---|
+| 1 | `emem_verify` |
+| 2 | `emem_diff` |
+| 3 | `emem_query_region` |
+| 4 | `emem_backfill` |
+| 5 | `emem_cell_scene_rgb`. It returns the PNG as an `image` content item and the scene data as text. |
+| 6 | `emem_eudr_dds` |
+| 7 | `emem_inferences` |
 
 ### 1. Check a claim over a time window
 
