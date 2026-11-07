@@ -273,9 +273,10 @@ def _pipeline(name, seed, title, sub, stages, endlabel, endsub, footer):
         if i:
             s.flow((xs[i - 1] + 36, ys), (xs[i] - 36, ys), INK_SOFT, 1.4, op=0.7)
         s.roundel(xs[i], ys, 34, col, petal=(i % 2 == 0), inner=inners[i % len(inners)])
-        s.text(xs[i], ys + 56, lab, 12, INK, font=MONO, anchor="middle", weight="bold")
+        # below the petal tips (r * 1.55), so the spikes do not cross the label
+        s.text(xs[i], ys + 74, lab, 12, INK, font=MONO, anchor="middle", weight="bold")
         if sub2:
-            s.text(xs[i], ys + 74, sub2, 10.5, INK_SOFT, font=MONO, anchor="middle")
+            s.text(xs[i], ys + 92, sub2, 10.5, INK_SOFT, font=MONO, anchor="middle")
     s.flow((xs[-1] + 36, ys), (rx - 112, ys), LEAF, 1.6, op=0.85, glow=True)
     s.lotus(rx, ys, 92); s.seal(rx + 76, ys - 76, 12, fill=LEAF)
     # below the lotus medallion (radius 1.46 * 92), so the bud ring does not cross the label
