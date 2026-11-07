@@ -224,6 +224,13 @@ From zero to a signed, cite-able answer in three calls:
    `emem_memory_token` (`emem:fact:<cell64>:<fact_cid>`) or
    `emem_memory_bundle` (`emem:bundle:<bundle_cid>`) for several.
 
+<img src="media/stills/recall-one-cell.webp" alt="Still from live emem.dev calls on 7 November 2026. A 10 km Sentinel-2 crop of Lake Geneva from 12 October 2026, with a ring on cell defi.zb610.tAhU.hejI at 46.4500 N, 6.5500 E. One recall returned 8 facts from 6 sources, oldest first: climate class Cfb (30 Oct 2018), elevation 368 m (30 Apr 2021), water occurrence 98 percent (1 Jan 2022), land cover class 80, permanent water bodies (28 Oct 2022), NDVI 0.055 with pixel class Water, so not a vegetation reading, and NDWI 0.226 (15 Oct 2026), precipitation 0 mm and air temperature 9.9 degrees C (7 Nov 2026, 09:00 UTC). Green dots mark the 3 facts that are recomputable from the source: elevation, NDVI and NDWI. One receipt covers all 8 fact ids; signature valid, merkle proof valid." width="540">
+
+The still above is one live `recall` with eight named bands, drawn by
+[`stills/src/recall_cell.py`](media/stills/src/recall_cell.py). Each fact
+keeps its own source and `observed_at`. On the same day, a recall at this
+cell with no `bands` list returned two facts. Name the bands that you need.
+
 That is the whole loop. Everything below is depth on each step.
 
 The endpoints map cleanly onto the vocabulary other agent-memory libraries

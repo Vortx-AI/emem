@@ -26,9 +26,10 @@ These add an image where README.md has none today. They remove nothing.
 | README line (7 November 2026) | Proposed | Why |
 |---|---|---|
 | 218, after item 6 in "Why you can trust it" | `docs/media/stills/log-proof.webp` (189,188 bytes) | Item 6 says that a reader can prove one entry under a signed head and that the log only grows. The still shows both for one live fact: a 22-hash inclusion path and a 14-hash consistency proof. |
+| 90, after step 3 of the quick start ("Read a signed measurement") | `docs/media/stills/recall-one-cell.webp` (197,332 bytes) | Step 3 reads one band at one place. The still shows what one `recall` holds at one cell: 8 facts from 6 sources, each with its own date and class, under one receipt. |
 | 291, after the first paragraph of "Earth is the first corpus, not the limit" | `docs/media/stills/ndvi-two-seasons.webp` (203,294 bytes) | The paragraph says that public archives fill the memory. The still shows one signed `field_series` answer: 17 clear Sentinel-2 scenes over two seasons, and the 8 cloudy scenes it left out. |
 
-The numbers in both stills are from 7 November 2026. Item 6 in README.md gives a log size from 10 October 2026.
+The numbers in these stills are from 7 November 2026. Item 6 in README.md gives a log size from 10 October 2026.
 The still and the text show different sizes, and each is true for its date.
 
 Markup for line 218:
@@ -41,6 +42,12 @@ Markup for line 291:
 
 ```html
 <img src="docs/media/stills/ndvi-two-seasons.webp" alt="One signed field_series answer for a farm box near Ames, Iowa, from live emem.dev calls on 7 November 2026. Median NDVI of 17 clear Sentinel-2 scenes from February 2024 to November 2025 has two summer peaks. True-colour crops: 1 August 2024, NDVI 0.88, and 22 October 2024, NDVI 0.26. Eight cloudy scenes are marked as left out." width="540">
+```
+
+Markup for line 90:
+
+```html
+<img src="docs/media/stills/recall-one-cell.webp" alt="One recall at a Lake Geneva cell, from live emem.dev calls on 7 November 2026. Eight signed facts from six sources, oldest first: climate class Cfb, elevation 368 m, water occurrence 98 percent, land cover permanent water, NDVI 0.055 on a water pixel, NDWI 0.226, precipitation 0 mm, air temperature 9.9 degrees C. Three are recomputable from the source. One receipt covers all eight; signature valid." width="540">
 ```
 
 ## Orbit GIFs of the 3D worlds
