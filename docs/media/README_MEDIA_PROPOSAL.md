@@ -56,7 +56,7 @@ These add an image where README.md has none today. They remove nothing.
 
 | README line (7 November 2026) | Proposed | Why |
 |---|---|---|
-| 218, after item 6 in "Why you can trust it" | `docs/media/stills/log-proof.webp` (249,976 bytes) | Item 6 says that a reader can prove one entry under a signed head and that the log only grows. The still shows both for one live fact: a 22-hash inclusion path and a 14-hash consistency proof. |
+| 218, after item 6 in "Why you can trust it" | `docs/media/stills/log-proof.webp` (256,380 bytes) | Item 6 says that a reader can prove one entry under a signed head and that the log only grows. The still shows both for one live fact: a 22-hash inclusion path and a 14-hash consistency proof. |
 | 90, after step 3 of the quick start ("Read a signed measurement") | `docs/media/stills/recall-one-cell.webp` (255,266 bytes) | Step 3 reads one band at one place. The still shows what one `recall` holds at one cell: 8 facts from 6 sources, each with its own date and class, under one receipt. |
 | 266, after the paragraph about two Claude sessions, the signed channel and A2A | `docs/media/stills/a2a-exchange.webp` (242,500 bytes) | The paragraph says that A2A reaches every tool as a skill. The still shows one live A2A exchange with no key: the signed agent card, one `message/send` answered by `emem_ask`, and the receipt in the task checked offline. |
 | 291, after the first paragraph of "Earth is the first corpus, not the limit" | `docs/media/stills/ndvi-two-seasons.webp` (236,182 bytes) | The paragraph says that public archives fill the memory. The still shows one signed `field_series` answer: 17 clear Sentinel-2 scenes over two seasons, and the 8 cloudy scenes it left out. |
@@ -67,7 +67,16 @@ The still and the text show different sizes, and each is true for its date.
 Markup for line 218:
 
 ```html
-<img src="docs/media/stills/log-proof.webp" alt="The Mount Fuji elevation fact, 3539.04 m, is entry 2,463,431 of 3,248,898 in the log. A ladder of 22 hashes is its audit path to the signed tree head, and the Ed25519 signature is valid. One character changed in one hash gives a different root, and inclusion is invalid. A 14-hash consistency proof links the head of size 3,248,892 to the head of size 3,248,898: valid. Live calls to emem.dev on 7 November 2026." width="720">
+<img src="docs/media/stills/log-proof.webp" alt="The Mount Fuji elevation fact, 3539.04 m, was signed in a batch of one fact. That batch is entry 2,463,431 of 3,248,898 in the log. A ladder of 22 hashes is its audit path to the signed tree head, and the Ed25519 signature is valid. One character changed in one hash gives a different root, and inclusion is invalid. A 14-hash consistency proof links the head of size 3,248,892 to the head of size 3,248,898: valid. Live calls to emem.dev on 7 November 2026." width="720">
+```
+
+A film can take the place of this still at line 218. `docs/media/films/emem-log-climb.mp4` shows the same proof in
+motion. The entry climbs one hash at a time, and the view zooms out from 1 entry to the whole log. Then one changed
+character breaks the proof, and a second proof shows that the log only grew. Use the still or the film, not both:
+
+```html
+<a href="docs/media/films/emem-log-climb.mp4"><img src="docs/media/films/emem-log-climb-poster.webp" alt="Film, 38 seconds, silent, from live emem.dev reads on 7 November 2026. The Mount Fuji elevation fact sits in entry 2,463,431 of 3,248,898 in emem's log. The poster shows hash 17 of 22 in its audit path: a bar of 424,992 entries around the entry, 131,072 entries covered so far and the next block of 131,072. The film ends at the signed root, then shows one changed character giving inclusion invalid and a 14-hash consistency proof." width="540"></a>
+<br><sub>Silent, 38 seconds. <a href="docs/media/films/emem-log-climb.webm">WebM</a>.</sub>
 ```
 
 Markup for line 291:

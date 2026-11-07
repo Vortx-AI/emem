@@ -951,8 +951,9 @@ A leaf is `blake3(0x00 || blake3(attestation_cbor))`: the hash of a whole
 attestation *batch*, appended from exactly one call site, after
 verification. Individual facts are not leaves.
 
-Five endpoints: `GET /v1/log/sth`, `GET /v1/log/inclusion`,
-`GET /v1/log/consistency`, `POST /v1/log/witness`, and
+Seven endpoints: `GET /v1/log/sth`, `GET /v1/log/inclusion`,
+`GET /v1/log/consistency`, `GET /v1/log/entries`,
+`GET /v1/log/test_vectors`, `POST /v1/log/witness`, and
 `GET /v1/log/witnesses`. Inclusion and consistency proofs are both real,
 both pure functions, and both round-trip tested for every leaf at every
 size from 1 to 33; the inclusion verifier rejects an over-long path, and
@@ -1001,20 +1002,44 @@ appended in an order.
 This is the gap most worth stating plainly, because the two mechanisms
 read as one system and are not.
 
-A client **cannot currently prove that a fact it was served is in the
-transparency log.** The receipt preimage has no log binding: there is no
-`sth`, `root`, `tree_size`, or `leaf_index` segment in the tag table
-(§6.2). The Merkle proof a receipt does carry is over the batch root, a
-different tree. And to query `/v1/log/inclusion?entry_hash=`, a client
-would need `blake3(attestation_cbor)` for a batch it never receives and
-cannot request, because no endpoint reads an attestation back. There is
-no `fact_cid -> leaf_index` index.
+The receipt preimage has no log binding: there is no `sth`, `root`,
+`tree_size`, or `leaf_index` segment in the tag table (§6.2). The Merkle
+proof that a receipt carries is over the batch root, a different tree.
+A receipt also carries `merkle_proof.log_entry_hash`, the hash of the
+log entry that holds the fact's batch. That field is outside the signed
+preimage (`crates/emem-fact/src/receipt.rs`).
 
-In practice the log is auditable as a standalone append-only structure,
-disconnected from the facts anyone is actually served. Closing that gap
-is tracked as the next increment on this substrate, and until it lands,
-the honest description is the one in this paragraph rather than the one
-the word "transparency" suggests.
+A client can still join a fact to the log with three reads, and check
+each step offline:
+
+1. `GET /v1/log/inclusion?fact_cid=<cid>` names the entry that holds the
+   fact's batch and returns its audit path to the current signed tree head.
+2. `GET /v1/log/entries?start=<i>&end=<i+1>` returns the bytes of that
+   entry. Their BLAKE3 must equal the `entry_hash_b32` of the proof.
+3. The client decodes the attestation in those bytes and finds the fact
+   in it.
+
+On 7 November 2026 the Mount Fuji elevation fact `qejpz7cg...` gave entry
+2,463,431 of 3,248,898. The entry was one attestation of 1,235 bytes
+that held one fact. Its BLAKE3 matched the proof, and the 22-hash audit
+path reached the signed root. The film below shows that proof step by
+step.
+
+So the log is no longer separate from the facts that clients get. The
+join is a set of extra reads, not part of the signed receipt. For a fact
+signed before receipts carried `log_entry_hash`, step 1 returns 404
+`cid_not_found` until the responder builds its batch-root index, a few
+minutes after a restart.
+
+[![Film poster. The audit path of the Mount Fuji entry, hash 17 of 22: a bar shows 424,992 entries around the entry, the 131,072 entries covered so far in blue and the next block of 131,072 entries in purple. A list shows hashes 14 to 18, with the size of each block, its side and the new hash.](media/films/emem-log-climb-poster.webp)](media/films/emem-log-climb.mp4)
+
+*Silent, 38 seconds. Select the picture to play the MP4, or get the
+[WebM](media/films/emem-log-climb.webm). The film shows the Fuji entry
+climb 22 hashes to the root of the signed head of size 3,248,898. One
+changed character in hash 10 gives another root, and inclusion is
+invalid. A 14-hash consistency proof links the head of size 3,248,892 to
+it. Live reads on 7 November 2026, checked offline with `verify_log.py`.
+The source is in [media/films/src/](media/films/src/log_climb_data.py).*
 
 ### 8.5 Witnesses are scaffolding, not a network
 

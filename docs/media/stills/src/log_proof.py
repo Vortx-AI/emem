@@ -106,7 +106,7 @@ def ladder():
     g.append(f'<line x1="{cx}" x2="{cx}" y1="40" y2="{yb + 4}" stroke="#ffa657" stroke-width="3"/>')
     g.append(f'<circle cx="{cx}" cy="{yb + 10}" r="8" fill="#ffa657"/>')
     g.append(f'<text x="{cx}" y="{yb + 46}" class="ax" text-anchor="middle" style="fill:#ffa657">'
-             f'leaf {m:,}: the Mount Fuji fact</text>')
+             f'entry {m:,}: the batch with the Fuji fact</text>')
     return f'<svg viewBox="0 0 {cw} {ch}" width="{cw}" height="{ch}">{"".join(g)}</svg>'
 
 
@@ -131,13 +131,13 @@ h1{{font-size:44px;line-height:1.2;margin:0 0 10px}}
 </style><div class="wrap">
 <h1>Anyone can prove offline that this fact is in the log, and that the log only grew</h1>
 <div class="q">The Mount Fuji elevation fact, <span class="v" style="color:#e6edf3">{fact['value']:.2f} m</span>
-(<span class="mono id">{fact['fact_cid'][:12]}…</span>), is entry {m:,} of {n:,} in emem's RFC 6962 log.</div>
+(<span class="mono id">{fact['fact_cid'][:12]}…</span>), was signed in a batch of one fact. That batch is entry {m:,} of {n:,} in emem's log.</div>
 
 <div class="panel">
 <div class="ph">1. Inclusion: {len(path)} hashes stand in for the other {n - 1:,} entries</div>
 {ladder()}
 <div class="key">Each bar is one hash in the proof. It stands for a block of entries to the left or right of the
-path. Bar length is on a log scale. Hash the fact up through all {len(path)} and you get the root.</div>
+path. Bar length is on a log scale. Hash the entry up through all {len(path)} and you get the root.</div>
 <div class="cards">
 <div class="card"><div class="lab">root you compute</div><div class="mono id val">{sth1['root_b32'][:8]}…</div>
 <div class="lab" style="margin-top:8px">inclusion</div><div class="mono ok val">valid</div></div>
