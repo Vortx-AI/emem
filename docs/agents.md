@@ -615,6 +615,15 @@ First, send the call with no `attester` block:
 {"name": "emem_memory_create", "arguments": {"path": "/memories/by_attester/<your-pubkey8>/notes.md", "file_text": "# Today\n- read the brief\n"}}
 ```
 
+With no MCP client, send the same call as a JSON-RPC `tools/call` request:
+
+```bash
+curl -s -X POST https://emem.dev/mcp \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"emem_memory_create","arguments":{"path":"/memories/by_attester/<your-pubkey8>/notes.md","file_text":"# Today\n- read the brief\n"}}}'
+```
+
 emem refuses it and writes nothing. The MCP answer has `isError: true`. Its
 text starts with `tool error`, then the code `invalid_argument`. After the
 line `details:` comes a JSON block with these fields:
@@ -638,6 +647,8 @@ since 5 November 2026. All write error codes are in
 [Memory and entity write refusals](errors.md#memory-and-entity-write-refusals). These fields come from the
 code (`attester_recipe` in `crates/emem-api-rest/src/lib.rs`). The live
 `emem_memory_create` schema on 7 November 2026 names the same v2 preimage.
+On that day the unsigned curl call above gave this refusal on `/mcp` and on
+`/mcp/full`.
 
 The full procedure is in the
 [emem-sign-and-attest skill](../plugins/emem/skills/emem-sign-and-attest/SKILL.md).
