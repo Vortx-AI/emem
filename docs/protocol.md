@@ -35,6 +35,16 @@ read the sections it names.
 | Check who wrote a memory note | The steps in [§7.5.1](#751-check-a-notes-authorship-by-hand) |
 | Test your own encoder or verifier | [§12 Conformance gates](#12-conformance-gates-the-four-cids), [§13 Test vectors](#13-test-vectors) |
 
+To check a receipt, a note or a log proof without writing code, use a
+verifier from the Claude Code plugin. Each script uses only the Python
+standard library. Each section above shows how to run it.
+
+| Check | Script in `plugins/emem/skills/` | Section |
+|---|---|---|
+| Receipt signature | `emem-verify-receipt/scripts/verify.py` | [§7.4](#74-offline-verification-python) |
+| Note authorship | `emem-multi-agent-handoff/scripts/verify_note.py` | [§7.5.1](#751-check-a-notes-authorship-by-hand) |
+| Signed tree head, inclusion or consistency proof | `emem-transparency-log/scripts/verify_log.py` | [§9.6.1](#961-check-an-inclusion-proof-by-hand) |
+
 The words cell64, tslot, fact, receipt and responder have one meaning
 each. The [glossary](glossary.md) gives it.
 
@@ -1761,12 +1771,22 @@ On 6 November 2026 this script passed on the public note
 ok k572x7go 85bb86669faa0abaf21853ac53ebfab5bfc2da612c83ee5055463c1b45cda755
 ```
 
+On 7 November 2026 the script passed again on the same note and printed
+the same line. The served bytes had not changed.
+
 `verify()` raises `InvalidSignature` when the signature fails. For a v1
-note, drop `.v2` and the final `"|" + base` from the digest. The plugin
-ships a fuller checker,
-`plugins/emem/skills/emem-multi-agent-handoff/scripts/verify_note.py`. It
-also checks a `_superseded` banner and needs no third-party packages. It
-passed on the same note that day.
+note, drop `.v2` and the final `"|" + base` from the digest.
+
+The plugin ships a fuller checker that needs no third-party packages. It
+also checks a `_superseded` banner. Give it the same two files:
+
+```sh
+python3 plugins/emem/skills/emem-multi-agent-handoff/scripts/verify_note.py view.json note.md
+```
+
+On 7 November 2026 it printed `body MATCH`, `sig VALID` and
+`banner NONE` for the same note. With `--read-key-card` it also reads
+the author's key card from emem.dev.
 
 The note's write is also in the transparency log. The `log` block of the
 `memory_view` result names `entry_hash_b32` and an `inclusion` URL. §9.6.1
