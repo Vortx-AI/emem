@@ -236,8 +236,8 @@ Each default below comes from the code on 7 November 2026.
 | `EMEM_RECALL_EDGES_TOTAL_CAP` | `256` | The maximum edges in total for `recall` with `include:["edges"]`. |
 
 The four edge variables accept values from 1 to 1000000. The TTL, combine and refinement passes are off by default.
-You can run each of them again with the same result. The TTL pass moves an expired path from `emem.memory_files` to `emem.memory_files_expired`. It does not delete the note bytes,
-which stay in `emem.memory_file_blobs`. The combine pass writes one `semantic` note at `.consolidated/<unix_ts>.md`. It
+You can run each of them again with the same result. The TTL pass moves an expired path from
+`emem.memory_files` to `emem.memory_files_expired`. It does not delete the note bytes, which stay in `emem.memory_file_blobs`. The combine pass writes one `semantic` note at `.consolidated/<unix_ts>.md`. It
 marks each source note with `superseded_by`. Memory search needs the BGE model; without it, `/v1/memory/search`
 returns HTTP 503.
 

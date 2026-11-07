@@ -264,7 +264,7 @@ with the band, materializer and function registry entries.
 
 | Goal | Command |
 |---|---|
-| Unit, binary and integration tests, no network | `EMEM_NO_NETWORK=1 cargo test --workspace --lib --bins --tests` (CI runs `cargo test --workspace --release`) |
+| Unit, binary and integration tests | `EMEM_NO_NETWORK=1 cargo test --workspace --lib --bins --tests` (CI runs `cargo test --workspace --release`) |
 | Live network tests | `cargo test -p emem-fetch --test live_cog_fetch` |
 | Format | `cargo fmt --all` |
 | Format, CI gate | `cargo fmt --all --check` |
@@ -276,6 +276,28 @@ runs them, unless you set `EMEM_NO_NETWORK=1`. Run them after you change
 a connector or the source registry. A transport error makes a live test
 return without a failure, so a pass does not prove that the upstream
 answered.
+
+`EMEM_NO_NETWORK=1` does not keep the whole suite offline. Only the
+tests that read it skip their network calls. Seven `emem-api-rest` tests
+still reach upstreams, for example the topic-router model and the
+Sentinel-2 catalogues (`.github/workflows/ci.yml`). To run the tests as
+CI does, build with the network first. Then point every HTTP client at a
+closed port:
+
+```sh
+export CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_DEBUG=0
+cargo test --workspace --release --no-run
+export https_proxy=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9
+export http_proxy=http://127.0.0.1:9 HTTP_PROXY=http://127.0.0.1:9
+export all_proxy=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9
+export no_proxy=127.0.0.1,localhost,::1 NO_PROXY=127.0.0.1,localhost,::1
+EMEM_NO_NETWORK=1 cargo test --workspace --release
+```
+
+A test that reaches out then fails at once, as it does with no network.
+Tests that start their own server on `localhost` still work. Keep the
+two profile variables the same in both steps. If they change, the second
+step builds everything again.
 
 Unit tests are in `src/`, next to the code (`#[cfg(test)] mod tests`).
 Five crates also have tests in `tests/`: `emem-airgap`, `emem-fact`,
