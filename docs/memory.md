@@ -1566,4 +1566,8 @@ What the substrate gives you:
   [Time filters on reads](#time-filters-on-reads-bi-temporal)).
 - `/v1/verify_receipt`: POST `{receipt}` back. The response gives
   `valid`, `signature_valid`, `merkle_proof_valid`, `primitive`,
-  `preimage_blake3_hex`, `signer_pubkey_b32` and other fields.
+  `preimage_blake3_hex`, `signer_pubkey_b32` and other fields. Use
+  `valid` to decide. It is true only when the signature holds, no Merkle
+  proof fails and no fact that you send fails to match the receipt. When
+  it is false, `reason` names the cause, for example `signature_invalid`,
+  `merkle_proof_invalid` or `fact_mismatch`.
