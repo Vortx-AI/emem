@@ -655,8 +655,8 @@ null.
 
 A path that ends in `/` deletes a directory. The responder first checks
 every file under it. If one file has a different owner, it removes
-nothing and returns 403 `memory_namespace_violation`. It also refuses the
-root `/memories/`. An empty directory gives 404. Each removed file gets
+nothing and returns 403 `memory_namespace_violation`. A delete of the root
+`/memories/` gets the same 403 before any signature check. An empty directory gives 404. Each removed file gets
 its own tombstone and its own log entry. A directory delete does not
 remove `vault` entries under it. Delete each `vault` entry by its own
 path. A directory that holds only `vault` entries gives 404.
@@ -664,9 +664,12 @@ path. A directory that holds only `vault` entries gives 404.
 To see everything that happened to a path, call `emem_memory_view` with
 `view: "history"`. The result lists `versions` (the bytes the path held,
 oldest first) and `events` (each supersede and delete). When
-`events_source` is `latest_records`, the path changed before the
-responder kept a full event list. Then `events` shows only the current
-supersede and the last delete. This read ran on 7 November 2026:
+`events_source` is `event_list`, `events` holds every supersede and
+delete. When it is `latest_records`, the responder has no event list
+for the path. Then `events` shows only the current supersede and the
+last delete. A path that nobody superseded or deleted also gives
+`latest_records`, with an empty `events`. The example below is such a
+path. This read ran on 7 November 2026:
 
 ```sh
 curl -s https://emem.dev/mcp \
