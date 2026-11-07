@@ -1298,8 +1298,8 @@ Read these fields:
 - `kind` is `primary`, `derivative` or `absence`. An absence has no
   `value`. See [Three kinds of fact](#three-kinds-of-fact).
 - `observed_at` is when the source captured the data. `signed_at` is when
-  the responder signed the fact. Here the DEM tile is from 2021 and the
-  fact is from September 2026.
+  the responder signed the fact. Here the DEM tile is from 2021. The
+  responder signed the fact in September 2026.
 - `memory_token` is the `emem:fact:` handle for this fact. Give it to
   another agent as is. See
   [Cite one fact for another agent](#job-cite-one-fact-for-another-agent).
