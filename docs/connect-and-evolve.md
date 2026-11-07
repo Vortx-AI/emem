@@ -166,7 +166,8 @@ the Merkle root that the signature covers. The answer gives `fact_cids`,
 a minute, with a burst of 60, by default. Above that rate the answer is
 HTTP 429 `rate_limited`. Its `details` give `code: "write_rate_limited"`
 and `retry_after_s`. The variables `EMEM_WRITE_RATE_PER_MIN` and
-`EMEM_WRITE_RATE_BURST` change these limits.
+`EMEM_WRITE_RATE_BURST` change these limits. `EMEM_WRITE_RATE_LIMIT=off`
+turns the limit off.
 
 An edge has no `(cell, band, tslot)` address. Thus the `fact_plane_closed`
 gate, which keeps callers off fact addresses, does not stop an envelope
