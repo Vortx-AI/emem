@@ -97,10 +97,11 @@ commit in the header
 [`X-Emem-Commit`](https://emem.dev/.well-known/emem.json).
 
 emem controls no machine and runs no control loop. A warm recall takes
-milliseconds. The first read of a new place can take tens of seconds. Do not
-put emem inside a safety loop. [Machines that ask emem where they are](robots.md) has worked
-calls for a street robot, a sprayer, a harvester, an indoor arm and a
-satellite. The production truth workflow runs `scripts/example_check.py`
+milliseconds. On 7 November 2026, a warm `POST /v1/recall` of `elevation` at
+Mount Fuji took about 26 ms end to end from a cloud host. The first read of a
+new place can take tens of seconds. Do not put emem inside a safety loop.
+[Machines that ask emem where they are](robots.md) has worked calls for a
+street robot, a sprayer, a harvester, an indoor arm and a satellite. The production truth workflow runs `scripts/example_check.py`
 against emem.dev each hour to check them again.
 
 ## How agents talk to emem and to each other
