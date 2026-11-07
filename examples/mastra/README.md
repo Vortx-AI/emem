@@ -63,8 +63,9 @@ emem and loaded the tools. `tsc --strict --noEmit` gave no errors.
 We did not see the agent answer, because that needs a real OpenAI key.
 
 We called `emem_hunt` with the same arguments over MCP on 7 November 2026. It
-returned 8 hotspots with the algorithm `algal_bloom_chlorophyll_ndci@1`. The first hotspot was cell `defi.zb5de.rAsI.wEfA`, with
-primary band `indices.ndvi` at -0.216 and gate band `indices.ndwi` at 0.537.
+returned 8 hotspots with the algorithm `algal_bloom_chlorophyll_ndci@1`. The
+first hotspot was cell `defi.zb5de.rAsI.wEfA`, with primary band
+`indices.ndvi` at -0.216 and gate band `indices.ndwi` at 0.537.
 Each hotspot had a `fact_cid` and a `facts_url`. The `facts_url` is a GET
 on `/v1/recall`, which accepts only POST, so it returns 405. To read the
 facts, send `POST /v1/recall` with the `cell64`.
