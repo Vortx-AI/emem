@@ -663,20 +663,32 @@ The 8 families:
 | 6 | `Water` | water, inland and coastal |
 | 7 | `Cryo` | snow, ice or wetland |
 
-The class identifier is `"lcv-1.f<fam_idx>.l<leaf_idx>"`. An operator who
+The class identifier is `"lcv-1.f<fam_idx>.l<leaf_idx>"`. The code does
+not reject a byte with the high bits set. `Lcv1::family()` returns `Cryo`
+for every value from 56 to 255. `Lcv1::id()` prints the raw family bits, so
+the value 64 gives `lcv-1.f8.l0`. An operator who
 wants readable labels can publish a separate label manifest. They then cite
 its CID next to the taxonomy CID.
 
 ## emem-cell64-alphabet
 
 The 65 536 bigrams that turn a 64-bit cell ID into a text form of four
-chunks. Each bigram is a CVCV pattern. There are 21 consonants and 10 vowels
-(`aeiouAEIOU`), so `21 x 10 x 21 x 10 = 44 100` patterns. A `z<hex4>`
-suffix fills the rest of the 65 536.
+chunks. Each bigram is a CVCV pattern. There are 21 consonants
+(`bcdfghjklmnpqrstvwxyz`) and 10 vowels (`aeiouAEIOU`), so
+`21 x 10 x 21 x 10 = 44 100` patterns. Entries 44 100 to 65 535 are
+`z` plus the entry index in four lowercase hex digits (`zac44` to `zffff`).
+
+The encoder cuts the 64-bit ID into four 16-bit digits. The highest 16 bits
+come first. Each digit is an index into the alphabet. In the Mount Fuji cell
+`defi.zb592.nUkO.zEzE`, the second digit is `0xb592`, so its chunk is a
+`z<hex4>` entry.
 
 `build_alphabet_v0()` in `crates/emem-codec/src/alphabet.rs` builds the
 alphabet in code. The build is deterministic from the consonant and vowel
 constants in the same file. A change to this file changes every cell64.
+There is no JSON file and no served CID for the alphabet. `/v1/manifests`
+does not list it. The name `emem-cell64-alphabet` exists only as the
+constant `MANIFEST_CELL64_ALPHABET` in `manifest.rs`, and no code reads it.
 
 ## Counts and validator rules
 
