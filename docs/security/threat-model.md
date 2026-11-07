@@ -24,7 +24,7 @@ anything. Writes have tiers by what they can reach, never by who is asking
   apply" to keys that nobody had enrolled. The attester registry only counted
   keys. `/v1/enlist` said that no caller could write a fact by any route,
   which was false.
-- Now: **closed by default.** Storage admits three kinds of key: the responder
+- Now: the plane is closed by default. Storage admits three kinds of key: the responder
   key, a trace-enrolled device with its trace, and a key in
   `EMEM_FACT_PLANE_WRITERS`. It refuses all others with 403 `level_too_low`,
   on every route. `EMEM_FACT_PLANE_OPEN=1` opens the plane on purpose, and the
@@ -40,7 +40,7 @@ anything. Writes have tiers by what they can reach, never by who is asking
   gets.
 - Before: the last writer won. The test asserted `canonical == cids_b` as the
   correct result.
-- Now: **the address stays with the key that holds it.** The server stores a
+- Now: the address stays with the key that holds it. The server stores a
   fact from a different signer and indexes it under multi-attester. The
   contradiction scan can see it. It does not take the slot.
 - Test: `put_attestation_populates_multi_attester_index`, with its assertion
@@ -53,7 +53,7 @@ anything. Writes have tiers by what they can reach, never by who is asking
   attribution. The alias tree was a bare list of CIDs in arrival order.
   `resolve` told readers to cite the first one. There was no dispute path and
   no rate limit.
-- Now: **`emem.entity_alias_claims` records who made every claim**, with
+- Now: `emem.entity_alias_claims` records who made every claim, with
   entity, stance, key, `signed_at` and receipt ids. `resolve` ranks by the
   number of distinct keys that assert a binding, never by arrival order.
 - Each candidate carries `asserted_by`, `disputed_by`,
@@ -68,7 +68,7 @@ anything. Writes have tiers by what they can reach, never by who is asking
 - What a write changes for others: nothing that another agent reads until
   someone gives them the token.
 - Before and now: tier T1, attester validated, own tree, cites its parents.
-  This is the open door, on purpose. A `Fact::Derivative` takes no address,
+  Any T1 key can write here, on purpose. A `Fact::Derivative` takes no address,
   and neither does an edge.
 - Test: `derive_is_idempotent_per_attester_and_body`.
 
@@ -86,47 +86,50 @@ anything. Writes have tiers by what they can reach, never by who is asking
 - What a write changes for others: whether any of the gates above apply.
 - Before: shadow mode unless an operator set the variable to `1`. A node that
   forgot the variable failed open.
-- Now: **enforcing unless set to `0`, `off`, `false` or `shadow`.**
-- Test: the `enlistment_enforcing` default.
+- Now: enforcing unless set to `0`, `off`, `false` or `shadow`.
+- Test: none. The default is in the function `enlistment_enforcing` in
+  `crates/emem-api-rest/src/lib.rs`. A tier verdict reports it in its
+  `enforcing` field.
 
 ## What we measured on the live responder
 
 - On 14 September 2026, `POST /v1/entity/alias` with no attester returned
-  `403 level_too_low`. The tier gate already worked. The work added
-  everything after the gate.
-- `emem_entity_resolve("Trafalgar Square")` returned **3 distinct objects,
-  `contested: true`**, none attributed. That was the state before the fix.
+  `403 level_too_low`. The tier gate already worked. The fixes added the
+  attribution, ranking and dispute steps that come after the gate.
+- `emem_entity_resolve("Trafalgar Square")` returned 3 distinct objects,
+  `contested: true`, none attributed. That was the state before the fix.
   A reader now sees it, and the server does not silently pick the first
   append. On 7 November 2026 the same call still returned 3 candidates,
   `contested: true`, each with `independent_attesters: 0`.
 - `CanonicalKey = (cell, band, tslot)`. The redb `put_batch` wrote the index
-  with no check. On 14 September 2026, 20M `fact_proofs` rows and 2.4M
-  multi-attester rows sat next to it. Those rows let a reader see the fact
+  with no check. On 14 September 2026, 20 million `fact_proofs` rows and 2.4
+  million multi-attester rows sat next to it. Those rows let a reader see the fact
   that lost the slot.
 
 ## What is still not done
 
-- **The 21-minute cold open is a deploy cost, not a security item.** On
-  14 September 2026 `fact_proofs` held 20M rows in sled and caused it. The
+- The 21-minute cold open on restart is a deploy cost. It is not a security
+  item. On 14 September 2026 `fact_proofs` held 20 million rows in sled and
+  caused it. The
   code now keeps `fact_proofs` and the multi-attester index in a redb file
   (`facts.redb`). A background job copies the old sled rows across.
   `EMEM_HOT_BACKEND=sled` rolls this back. The header of `emem-sled-slim` has
   the measurement.
-- **Legacy alias rows stay unattributed.** There were 251 such rows on
+- Legacy alias rows stay unattributed. There were 251 such rows on
   14 September 2026. They rank below any attributed row and carry a label. An
   operator can assert the true ones again under the responder key to remove
   the label.
-- **A dispute does not lower a rank**, by design. The server shows a dispute
+- A dispute does not lower a rank. This is by design. The server shows a dispute
   but does not subtract it. One hostile key must not be able to demote a
   binding that ten honest keys made. The next step is a score that counts
   asserts minus disputes, once per key. It needs a written Sybil analysis
   first.
-- **T3 means "callable at a declared endpoint."** One such key is still one
+- T3 means "callable at a declared endpoint". One such key is still one
   vote in the shared space. A count of independent keys raises the cost of an
   attack from one key to N endpoints. It does not make the cost infinite.
   T4 and T5 are the real limit. On 7 November 2026 the server computed T4 on
   demand and did not compute T5 (`/v1/enlist` says so).
-- **The boot panic** (`PathAndQuery::from_static`, right after the ACME
+- The boot panic (`PathAndQuery::from_static`, right after the ACME
   cached-cert event) did not have a backtrace. The production unit now sets
   `RUST_BACKTRACE=1` (`deploy/systemd/emem-server.service`), so the next
   panic logs one.
