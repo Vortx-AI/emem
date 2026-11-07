@@ -2955,10 +2955,10 @@ Every `/v1/*` route, `/mcp`, `/openapi.json` and each discovery route
 answers with `Access-Control-Allow-Origin: *`. The allowed methods are
 `GET`, `POST` and `OPTIONS`. The allowed request headers include
 `content-type`, `authorization`, `accept` and the MCP session headers.
-This is by design. No read needs a cookie or a
-bearer token, and each read gives a receipt that the caller verifies
-offline. There is no credential for a cross-origin page to steal. A
-browser agent on any origin is a normal client.
+This is by design. No read needs a cookie or a bearer token, and each
+read gives a receipt that the caller verifies offline. There is no
+credential for a cross-origin page to steal. A browser agent on any
+origin is a normal client.
 
 A security questionnaire can flag `Access-Control-Allow-Origin: *`. Wide
 CORS is a risk when a page can read authenticated answers from another
