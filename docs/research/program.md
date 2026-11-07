@@ -144,10 +144,9 @@ the darkest tenth of a cell's pixels as another. Neither beat the registry rule 
 the MCC replication; after the cloud screen, both beat it on the ten of the third replication, where their best
 sites were managed forests with partial harvests. They have a mixed record. The quiet rules are the three that flag the
 least stable forest. The paper's section 5.9 pools the three MCC experiments. There they found 91% of cells that lost
-half their forest or more.
-They found 20% of cells that lost 5 to 10%. So the cell-size experiment read the same detectors at 200 m,
-scored on the same Hansen pixels. Every detector found more of the lost forest, and the share of stable pixels
-flagged barely moved (paper, section 5.10).
+half their forest or more. They found 20% of cells that lost 5 to 10%. So the cell-size experiment read the same
+detectors at 200 m, scored on the same Hansen pixels. Every detector found more of the lost forest, and the share of
+stable pixels flagged barely moved (paper, section 5.10).
 
 **Cloud and haze correction.** Sen2Cor's scene classification misses thin cloud and haze, which pull NDVI and NBR
 down and almost never up. The program tests corrections in time rather than trusting the mask: a temporal screen
@@ -277,10 +276,9 @@ reads met server timeouts (502) and upstream errors (400) (gap ledger).
 new forests, the memory detectors led, and the calibrated ones flagged 1.2 to 1.8% of stable cells against a stated 5%.
 JRC TMF marked only 5 cells as loss, against 42 for Hansen, too few to judge any method. Version 4
 (`lab:memory_hls_emp@4`) adds Landsat 8 and 9 to the optical memory. On nine forests that had loss, it scored MCC 0.420
-and beat the registry rule
-with forests resampled (+0.031 to +0.685). Its gain over version 3 (-0.066 to +0.203) is not yet clear of zero. The
-replication in section 5.21 read the four forests that failed and six new ones. Its best detector scored MCC 0.93, but
-56 of its 59 loss cells are one clearing at Humaitá.
+and beat the registry rule with forests resampled (+0.031 to +0.685). Its gain over version 3 (-0.066 to +0.203) is not
+yet clear of zero. The replication in section 5.21 read the four forests that failed and six new ones. Its best detector
+scored MCC 0.93, but 56 of its 59 loss cells are one clearing at Humaitá.
 
 **How high can accuracy go?** The score is bounded by the reference. On 4,391 tropical forest cells, Hansen's loss
 year and JRC TMF's deforestation year agree on which cells lost forest at an MCC of only 0.39 to 0.48 (2021 to 2023;
@@ -393,8 +391,7 @@ disagreements between sources; that list is the program's agenda.
 - Much of that disagreement follows the climate (the paper, section 5.18, post hoc): in seasonally dry forest the
   registry rule stays competitive, and in evergreen forest the memory detectors beat it widely. The method-selection
   experiments test whether choosing by climate beats the best method on average (sections 5.19 and 5.20 of the paper).
-  In the
-  first, the context policy chose as the global policy at every forest. In the second, its difference from the
+  In the first, the context policy chose as the global policy at every forest. In the second, its difference from the
   global policy was -0.035 to +0.028 MCC, so the test does not decide.
 - At 400 m the quiet rules find 20% of cells with 5 to 10% cleared (the paper, section 5.9). The cell-size
   experiment (section 5.10) scored the same pixels at 200 m. Two detectors gained with intervals clear of zero, and
