@@ -2514,16 +2514,19 @@ route reads five shapes:
 | `?shape=` | Body it reads | Answer |
 |---|---|---|
 | `native` (default) | `{"texts":[...]}` or a chat-completions `messages` list | `{"action":"allow"\|"deny", ...}` |
-| `mcp` | a JSON-RPC `tools/call`, or a tool result | `{"allow":bool, ...}`. A deny adds `result`: the `CallToolResult` (with `isError`) to return instead of the tool output |
-| `openai` | a moderations or chat-completions body | a moderations-shaped result with `flagged` |
-| `cloudevent` | a CloudEvents 1.0 structured event | a CloudEvent with the verdict |
-| `policy` | `{"input":{...}}` | `{"result":{"allow":bool,"deny":[...],"verdict":{...}}}`. `verdict` is the full native verdict |
+| `mcp` | a JSON-RPC `tools/call`, or a tool result. It reads the tool name and all strings in `arguments` and `result`, at the top level or under `params` | `{"allow":bool, ...}`. A deny adds `result`: the `CallToolResult` (with `isError`) to return instead of the tool output |
+| `openai` | a moderations or chat-completions body. It reads only `input` and `messages` | a moderations-shaped result with `flagged` |
+| `cloudevent` | a CloudEvents 1.0 structured event. It reads all strings in `data` | a CloudEvent with `type` `dev.emem.guard.verdict.allow` or `dev.emem.guard.verdict.deny`. `data` is the native verdict |
+| `policy` | `{"input":{...}}`. It reads all strings in `input` | `{"result":{"allow":bool,"deny":[...],"verdict":{...}}}`. `verdict` is the full native verdict |
 
 Send the body that matches the shape. If the body has no text in the fields
 that the shape reads, the route checks nothing and answers `allow` with
-`checked: 0` (`guard_texts_for`, `lib.rs`). The `openai` shape reads only
-`input` and `messages`. On 7 November 2026, a `{"texts":[...]}` body with
-`?shape=openai` gave `flagged: false` and `checked: 0`.
+`checked: 0` (`guard_texts_for`, `lib.rs`; `interop.rs` in emem-guard). On
+7 November 2026, a `{"texts":[...]}` body with `?shape=openai` gave
+`flagged: false` and `checked: 0`. The same body with `?shape=policy` gave
+`allow: true` and `checked: 0`. The 2000 m text above, sent in the correct
+body for `mcp`, `cloudevent` and `policy`, gave a deny with `PROV_VALUE`
+in all three.
 
 In the `openai` shape, branch on `flagged`, not on `categories`. Four
 `emem/*` categories map to four deny codes: `PROV_SIG`, `PROV_BYTES`,
