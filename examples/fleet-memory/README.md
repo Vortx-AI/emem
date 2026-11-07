@@ -23,7 +23,8 @@ share no backend and no credentials, and B does not have to trust A.
 
 ## Run it
 
-Run these commands from the root of the repository.
+Run these commands from the root of the repository. If your system Python
+refuses `pip install`, run them inside a virtual environment.
 
 ```bash
 pip install requests blake3 cbor2 cryptography
@@ -73,7 +74,7 @@ The server-side check is the responder checking itself. The offline check is
 the one that does not trust the responder.
 
 On 7 November 2026, `resolve` returned `contested: true` with two candidates
-for both phrasings. The script takes the first candidate. A real fleet should
+for both phrasings: `4itylz3k...` and `qd54sx3d...`. The script takes the first candidate. A real fleet should
 read `corroboration` and `independent_attesters` before it picks one.
 On 7 November 2026 these fields did not break the tie. Both candidates had
 `corroboration: none_attributed` and `independent_attesters: 0`. Both had
