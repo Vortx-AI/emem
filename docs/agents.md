@@ -2279,8 +2279,10 @@ These responses carry steps:
 
 The active codec is `cell64-geo-21x22`: 21 latitude bits and 22
 longitude bits in one u64. The string form is four base-65,536 bigrams
-joined by dots, for example `defi.zb493.xuqA.zcb5f`. On 7 November 2026,
-`GET /v1/grid_info` gave these cell sizes:
+joined by dots, for example `defi.zb493.xuqA.zcb5f`, a cell in central
+Bengaluru. `GET /v1/cells/<cell64>/info` gives the centre, bounds and
+size of one cell. On 7 November 2026, `GET /v1/grid_info` gave these
+cell sizes:
 
 | Axis | Size |
 |---|---|
