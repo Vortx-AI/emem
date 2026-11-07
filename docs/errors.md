@@ -77,8 +77,8 @@ caller can branch on the code name without the number.
    invalid_argument` and `details.code: memory_attestation_required`.
 2. Do not switch on the HTTP status alone. One code can have different
    statuses on different routes. `band_not_in_registry` is 400 from
-   `/v1/recall`. It is 404 from `/v1/backfill` and from every route that
-   passes on a storage error.
+   `/v1/recall`. It is 404 from `/v1/backfill` with one `cell`, and from
+   every route that passes on a storage error.
 3. Do not treat a signed absence as an error. A `/v1/recall` fact with
    `kind: "absence"` and a `reason_cid` is a signed answer: this band has
    no data at this cell. A retry gives the same answer.
@@ -185,8 +185,8 @@ curl -s -X POST https://emem.dev/v1/recall \
   -d '{"cell":"defi.zb4d9.pefa.zf619","bands":["elevation_mean","copdem30m.elevation_mean"]}'
 ```
 
-`/v1/backfill` sends the same code with HTTP 404, not 400. It refuses the
-unknown band before it fetches anything:
+`/v1/backfill` with one `cell` sends the same code with HTTP 404, not 400.
+It refuses the unknown band before it fetches anything:
 
 ```sh
 curl -s -X POST https://emem.dev/v1/backfill \
@@ -525,6 +525,9 @@ code in `crates/emem-primitives/src/` and `post_*` handlers in `lib.rs`.
 | `/v1/query_region` | A `geometry` string in the form `bbox:lon_min,lat_min,lon_max,lat_max` is bad. It does not have 4 numbers (live), a latitude or longitude is out of range, or a minimum is more than its maximum. Split a box that crosses the antimeridian into two. | 400 | `invalid_cell` |
 | `/v1/query_region` | A `geometry` covers more than 4096 cells. This applies to a `cells:` list and to a `bbox:` string. | 400 | `invalid_cell` |
 | `/v1/query_region` | A `geometry` starts with `{`. The route does not read GeoJSON. Send a `bbox` or a `cells:` list. | 400 | `invalid_cell` |
+| `/v1/backfill` | The body has no `cell` and no `cells` (live). | 400 | `invalid_argument` |
+| `/v1/backfill` | The `cells` list is empty or has more than 64 entries (live). Send a longer list in pages. | 400 | `invalid_argument` |
+| `/v1/backfill` | You sent `cells`, and one cell fails, for example with an unknown band (live). This is not an error. The response is 200 with `converged` false. The cell is in `pending` with `state` `upstream_failed`, and `reason` holds the error message. | 200 | none |
 | `/v1/edges/recall` | `direction` is not `out` or `in` (live). | 400 | `invalid_argument` |
 | `/v1/edges/recall` | Direction `out` (the default) with an empty `subj` (live), or with `obj` also set (live). | 400 | `invalid_argument` |
 | `/v1/edges/recall` | Direction `in` with an empty `obj`, or with `subj` also set (live). The responder uses `in` when you send only `obj`. | 400 | `invalid_argument` |
