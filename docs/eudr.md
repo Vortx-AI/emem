@@ -567,6 +567,7 @@ If you send no `max_cloud`, `datetime` or `at`, the handler tries up to three se
 | 3 | 60 % | 365 days | `relaxed_cloud` |
 
 If you send `max_cloud` or a window, the handler tries one search only.
+A `max_cloud` that is not a number does not count. The handler ignores it and runs the three steps.
 That search uses a 20 % cap if you send no `max_cloud`.
 It uses the last 90 days if you send no window.
 The `datetime=<start>/<end>` parameter sets the window directly.
@@ -580,6 +581,7 @@ The two PNG requests share a quota of 60,000 per client IP per day (`EMEM_SCENE_
 Past it they return 429 with `retry-after: 86400`.
 
 The bbox request reads at 10 m and crops the scene to your box.
+The box must have `w` < `e` and `s` < `n`, with latitudes from -85 to 85. Otherwise the request gets 400.
 The crop centres on the cell that holds the centre of the box, so it can move by about 5 m.
 Each side is at least 32 and at most 1024 pixels, so the box can be about 10 km wide.
 A larger box gets 400 with the size it would need.
