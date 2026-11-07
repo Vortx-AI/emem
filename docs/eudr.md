@@ -28,6 +28,8 @@ A plot without a polygon (a GeoJSON Point or a `bbox`) of 4 ha or less uses 1 ce
 unless the commodity is cattle.
 If the operator does not set a count, the sampler uses about 110 cells per hectare of the
 largest plot in the request.
+The sampler takes the area of each plot's bounding box, not the area inside the polygon.
+Thus a long or irregular polygon gets more cells than its own area needs.
 All other plots in that request get this same count.
 The count is at least 55 and at most 51,200.
 If no plot geometry gives an area, the count is 64.
@@ -146,11 +148,14 @@ Thus a plot with one sample, or a plot under 0.5 ha, never gets `strong`.
 The responder counts a GeoJSON Point as 0.01 ha, so a Point plot gets both limits.
 
 The sample spacing is the square root of the plot area divided by the cell count.
+For a polygon, this plot area is the area inside the polygon, not the area of its bounding box.
 A `bbox` plot of 4 ha or less gets one sample, so its spacing is the square root of the box area.
 Above 2 ha, that spacing is more than 141 m.
 The level is then `weak`, and the responder holds the statement.
 For a `bbox` plot of more than 2 ha, send the plot as a polygon.
-A polygon plot gets about 110 cells per hectare.
+A polygon plot gets about 110 cells per hectare of its bounding box.
+Its spacing is then about 10 m or less.
+Above about 465 ha of box, the 51,200 cap applies and the spacing grows.
 
 The responder holds the statement back when one of these is true:
 
