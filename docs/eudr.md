@@ -54,6 +54,7 @@ It then finds each cell in that in-memory buffer.
 Thus the upstream reads stay constant and the lookups grow with the cell count (O(1) and
 O(N)).
 With warm caches, a fully sampled polygon gets its base verdict in a few seconds.
+This batched read is on by default. An operator can set `EMEM_EUDR_BATCH_PATH=0` to read each cell on its own.
 
 The endpoint also reads the JRC TMF v1.2025 deforestation year on every cell.
 It reads a COG copy of the JRC tiles with HTTP Range requests.
@@ -70,6 +71,38 @@ If `failing_area_ha < 0.5`, the plot gets `below_mmu` instead of `fail`.
 The DDS total counts a `below_mmu` plot as compliant.
 A cell that lost its forest at or before the cut-off year was not forest at the cut-off.
 Its verdict is `not_in_scope`, never `pass`.
+
+### When the responder holds the statement for review
+
+A `pass` does not always give a statement that you can sign.
+Each plot carries a `verdict_support` block. It grades the inputs by a fixed rule, not by a probability.
+
+| Input | `strong` needs | `weak` when |
+|---|---|---|
+| Cells with both the JRC baseline and the Hansen loss year | 95 % or more | below 80 % |
+| TMF and Hansen agree on loss after the cut-off, where TMF reads | 90 % or more | below 70 % |
+| Cells within 2 points of the 10 % canopy threshold | 10 % or less | above 30 % |
+| Distance between samples, on a plot of 0.5 ha or more | 71 m or less | above 141 m |
+
+A value between the two columns gives `moderate`.
+The block lists each limit in `limits`, with `severity` `weakens` or `qualifies`.
+Two more cases add a `qualifies` limit. One is a plot with one point sample.
+The other is a plot within 30 degrees of the equator where TMF read no cell.
+
+The responder holds the statement back when one of these is true:
+
+| `statement_of_compliance_held_because` value | Cause |
+|---|---|
+| `tmf_cross_check_review_required` | On a plot, TMF sees a loss after the cut-off that Hansen does not |
+| `verdict_support_weak` | A plot has `verdict_support.level` `weak` |
+| `jrc_baseline_unavailable_hansen_only` | The verdict ran on Hansen alone, because the JRC baseline gave no value |
+
+The list names every cause that applies.
+If the DDS verdict is not `pass`, the list starts with `verdict_<label>`, for example `verdict_fail`.
+`statement_of_compliance_signable` is true only for a `pass` with an empty list of causes.
+When the responder holds it, `statement_of_compliance` gives the reason in place of the Annex II point 5 text.
+The code is `verdict_support`, `tmf_cross_check` and `statement_of_compliance` in
+`crates/emem-api-rest/src/lib.rs`.
 
 ## Loss-year histogram
 
