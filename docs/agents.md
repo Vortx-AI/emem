@@ -904,6 +904,18 @@ citable. Pass `model` and you get a
 second field, `model_answer`, holding one model's prose reading of that same
 envelope, beside the deterministic answer rather than instead of it.
 
+<img src="media/stills/ask-trail.webp" alt="Still from one live call to POST /v1/ask on 7 November 2026: what is the NDVI in Central Park, New York? The answer is NDVI 0.79. Four reasoning stages follow, each with its own address that commits to the stage before it: located (cell defi.zb5d0.bAhE.zd9c1), routed (topic vegetation_condition), recalled (3 signed NDVI facts) and scored (5 computed values). The three Sentinel-2 NDVI facts are 0.60 on 4 May 2026, 0.88 on 21 October 2026 and 0.79 on 4 November 2026; the answer quotes the newest. The receipt over the 3 fact ids is valid offline and at /v1/verify_receipt. All 4 stage addresses recompute as BLAKE3 over the stored bytes. One changed byte in the recalled stage moves its address." width="540">
+
+The still above shows one live answer and the `reasoning` block that comes
+with it. Each stage has an `emem:state:` address. `GET /v1/state/<cid>`
+returns the stage bytes, and BLAKE3 over those bytes gives the address
+again. The receipt signs the fact ids. The stage addresses are content
+addresses, not signatures. The responder computes the scored values for
+the answer and does not sign them as facts.
+[`stills/src/fetch_ask.py`](media/stills/src/fetch_ask.py) saves the
+responses and [`stills/src/ask_trail.py`](media/stills/src/ask_trail.py)
+checks them and draws the image.
+
 ```bash
 curl -s -X POST https://emem.dev/v1/ask \
   -H 'content-type: application/json' \

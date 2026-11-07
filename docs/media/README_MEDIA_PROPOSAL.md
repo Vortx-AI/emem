@@ -12,6 +12,7 @@ The new files follow [visual-language.md](visual-language.md).
 | 211, section "Why you can trust it" | `docs/media/readme/02-verify.gif` (1,034,577 bytes, a screen recording of the verify page) | Poster `docs/media/films/emem-fact-to-check-poster.webp` linked to `docs/media/films/emem-fact-to-check.mp4` | The section says that one changed byte changes the id and that the receipt verifies. The film shows both with live values: the receipt passes, then one changed character in the receipt fails with `signature_invalid`. |
 | 225, under the paragraph about `emem-guard` | `docs/media/readme/04-guard.gif` (231,519 bytes, a screen recording) | `docs/media/stills/guard-check.webp` (184,624 bytes) | The paragraph says that the guard answers allow or deny with a reason and a `fix`. It also says that a stricter claim rule is off by default. The still shows live verdicts on one Table Mountain fact: allow, then deny `PROV_VALUE` with `correct_value`. An uncited number passes by default and fails with `claim_gating=true`. |
 | 264, under "One record, many readers" | `docs/media/readme/11-two-agents.gif` (1,072,956 bytes, a screen recording of two Claude sessions) | `docs/media/stills/bundle-handoff.webp` (222,750 bytes) | The paragraph says that agent A hands over one bundle line and agent B resolves it and checks the signature. The still shows that handoff with live reads. A bundle from 23 September 2026 resolves on 7 November 2026 to four facts in Bengaluru. Each receipt is valid. One changed character in a fact id makes the bundle receipt fail. |
+| 285, before "Earth is the first corpus, not the limit" | `docs/media/readme/10-research.gif` (1,263,818 bytes, a screen recording of a Claude session) | `docs/media/stills/ask-trail.webp` (230,432 bytes) | The caption says that every number in the answer is a signed record. The still shows one live `/v1/ask` answer: NDVI 0.79 in Central Park. It also shows the four reasoning stages, the three signed facts and the checks. The still is not a Claude session, so the caption at line 287 must change too (text below). |
 
 ## Markup for the swap at line 211
 
@@ -31,7 +32,15 @@ The new files follow [visual-language.md](visual-language.md).
 <img src="docs/media/stills/bundle-handoff.webp" alt="Live reads of emem.dev on 7 November 2026. Agent A hands over one 38-character line, emem:bundle:y2k6h2laeo4libfsiebucdw4mu, minted on 23 September 2026: four facts at one cell in Bengaluru. Agent B resolves the bundle and each fact token: elevation 915.07 m, NDVI 0.33, PM2.5 27.8 micrograms per cubic metre and air temperature 20.1 degrees C, each with its own date. Each fact receipt is valid. The bundle receipt is valid; with one character of a fact id changed, it fails." width="540">
 ```
 
-Do not delete `02-verify.gif`, `04-guard.gif` or `11-two-agents.gif` before the signed README stops using them.
+## Markup for the swap at line 285
+
+```html
+<img src="docs/media/stills/ask-trail.webp" alt="One live call to POST /v1/ask on 7 November 2026: what is the NDVI in Central Park, New York? The answer is NDVI 0.79. Four reasoning stages (located, routed, recalled, scored) each have an address that commits to the stage before it. The recall found three signed Sentinel-2 NDVI facts: 0.60, 0.88 and 0.79; the answer quotes the newest. The receipt is valid, all four stage addresses recompute, and one changed byte moves an address." width="540">
+```
+
+Put this caption at line 287, in place of its first sentence. "One live answer from `/v1/ask`: the number, the stages that reached it, and the signed facts under it." Keep the video link.
+
+Do not delete `02-verify.gif`, `04-guard.gif`, `10-research.gif` or `11-two-agents.gif` before the signed README stops using them.
 
 ## Additions
 
