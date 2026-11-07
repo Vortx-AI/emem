@@ -146,7 +146,7 @@ def federation():
     client(CX + R + 116, CY + 150, nodes[6])
     s.text(CX - R - 116, CY - 186, "client", 11, INK, font=MONO, anchor="middle", weight="bold")
     s.text(CX - R - 116, CY - 120, "verifies offline", 10.5, INK_SOFT, font=MONO, anchor="middle")
-    s.text(W / 2, H - 76, "Eight responders, one content id — resolved byte-for-byte under eight keys.",
+    s.text(W / 2, H - 76, "Eight example responders, one content id, same bytes under eight keys. On 7 Nov 2026 emem.dev had one peer.",
            16, INK, font=SERIF, anchor="middle", italic=True)
     s.save(f"{OUT}/08-decentralised.svg")
     return "08-decentralised"
@@ -308,7 +308,7 @@ def anatomy():
          ("cache miss", "cold", VERMIL), ("fetch tile", "upstream COG", TURMERIC),
          ("sign", "ed25519", LAC)],
         "RECEIPT", "fact_cid + proof",
-        "On 7 Nov 2026 a cold read took about 1.2 to 1.5 s. A warm read took under 0.1 s.")
+        "On 7 Nov 2026 a first read took 0.6 to 1.7 s. A warm read took under 0.1 s.")
 
 
 def _cycle(name, seed, title, sub, stages, centre, signed_lab, bead, footer,
