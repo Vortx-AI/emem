@@ -1740,8 +1740,8 @@ of one independent operator (`independent_operator_count` 1 on
 - Clients do not gossip roots to each other.
 
 Do not read `head_is_witnessed` as proof of independent checks. The node's own
-write canary co-signs the head every 2 minutes, so that flag is almost always
-true. Read `head_is_witnessed_by_independent_operator` first. It counts
+write canary co-signs the head every 2 minutes, so that flag is often true.
+Read `head_is_witnessed_by_independent_operator` first. It counts
 only witnesses with a vouched operator domain. See [federation.md](federation.md#read-the-independent-fields-not-head_is_witnessed).
 
 What ships is append-only transparency against accidental or operator

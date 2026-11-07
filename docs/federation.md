@@ -435,8 +435,9 @@ gave 108 entries behind.
 watchdog write canary, co-signs the current head every 2 minutes. It times a
 write and catches a store that answers reads but refuses writes. It shares a
 key and an endpoint with witnessing. So `head_is_witnessed` answers "did
-anything sign this head", and it is almost always `true`. A node cannot catch
-itself showing two histories.
+anything sign this head". A node cannot catch itself showing two histories.
+Six reads over two minutes on 7 November 2026 gave `true` three times. The
+node's own co-signature was 0 or 1 entry behind the head each time.
 
 The fields that bear on split view leave out `self_witness_pubkey_b32`.
 Of these, read `head_is_witnessed_by_independent_operator` and
