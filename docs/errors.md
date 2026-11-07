@@ -518,8 +518,15 @@ Two of them have no `code` field, so branch on the HTTP status.
 | The service answered with a 5xx status. | 502 | `error`, `code: "upstream_failed"`, `upstream_status`, `upstream_body` (first 512 bytes), `fronted_by`, `note`. The `x-emem-upstream-status` header repeats the upstream status. |
 | The service did not answer. | 502 | `error`, `detail` (the transport error), `note`. No `code`. |
 
-A 4xx status from the service comes back unchanged, with the body of the
-service. Three other failures send a bare status with no body:
+A path under a prefix in `fronted_trees` also gets the 404 when it breaks a
+segment rule. The path can have 8 segments at most. A segment must not be
+empty or `..`. It can use only ASCII letters, digits, `-`, `_` and `.`. An
+operator can add single-segment paths with `EMEM_PERCEPTION_EXTRA_PATHS`, a
+comma-separated list. These rules are in `perception_proxy` in
+`crates/emem-api-rest/src/lib.rs`.
+
+A status below 500 from the service comes back unchanged, with the body of
+the service. Three other failures send a bare status with no body:
 
 - 500: the proxy cannot build its HTTP client.
 - 405: the method is HEAD. Other methods such as DELETE get the JSON
@@ -527,7 +534,8 @@ service. Three other failures send a bare status with no body:
 - 502: the proxy cannot read the body that the service sent.
 
 On 7 November 2026, `GET /v1/perception/nope` gave the 404 body.
-`POST /v1/perception/health` gave the 405 of the service.
+`GET /v1/perception/clips/a%20b` also gave it, because a space breaks the
+segment rule. `POST /v1/perception/health` gave the 405 of the service.
 
 ## Routes that only a self-hosted node answers
 
