@@ -102,8 +102,9 @@ hold the key. Do not put secrets in any hosted namespace.
 
 ### Place ids are compact, but not yet token-optimal
 
-A `cell64` costs a mean of 12.5 BPE tokens today (`cl100k_base`, 14 live
-cells; see [Grid cost against other grids](#grid-cost-against-other-grids)).
+A `cell64` cost a mean of 12.5 BPE tokens when the maintainers measured it
+on 2026-08-11 (`cl100k_base`, 14 live cells; see
+[Grid cost against other grids](#grid-cost-against-other-grids)).
 The codec design targets 4 tokens or fewer per `cell64`
 (`crates/emem-codec/src/lib.rs`). The id format expects an alphabet tuned
 to the tokenizer. The shipped alphabet does not reach that target
