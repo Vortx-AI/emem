@@ -335,9 +335,9 @@ The fetch codes of `/v1/range_hash` (`url_refused`, `unresolvable`,
 `too_many_redirects`, `redirect_refused`, `fetch_failed`) also come from
 `/v1/read`, from `/v1/ocr` with a `url`, and from the two parse routes with a
 `url`. These routes share one fetcher. `/v1/read`, `/v1/ocr` and the parse
-routes with a `url` add two 502 codes. `upstream_status` means the upstream did not send a 2xx status.
-`too_large` means it sent more than the cap: 4 MiB for `/v1/read`, 8 MiB for
-`/v1/ocr`.
+routes with a `url` add two 502 codes. `upstream_status` means the upstream
+did not send a 2xx status. `too_large` means it sent more than the cap:
+4 MiB for `/v1/read`, 8 MiB for `/v1/ocr`.
 
 The top-level code of all these routes follows one rule in `range_hash::refuse`.
 HTTP 502 gives `source_fetch_failed`. Every other status gives
@@ -458,7 +458,9 @@ service. Three other failures send a bare status with no body:
 
 - 500: the proxy cannot build its HTTP client.
 - 405: the method is not GET or POST.
-- 502: the proxy cannot read the body that the service sent. On 7 November 2026, `GET /v1/perception/nope` gave the 404 body.
+- 502: the proxy cannot read the body that the service sent.
+
+On 7 November 2026, `GET /v1/perception/nope` gave the 404 body.
 `POST /v1/perception/health` gave the 405 of the service.
 
 ## Routes that only a self-hosted node answers
