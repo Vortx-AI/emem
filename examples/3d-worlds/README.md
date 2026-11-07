@@ -201,8 +201,8 @@ The sidecar uses schema `emem.splat_provenance.v2`, which labels each splat:
 - Any other node has `kind: "derived"`. It records up to four source cells
   and a bilinear `weight` for each. The weights sum to 1.
 
-The sidecar stores the measured `cids` and `values` once, in a `cells` table. You can
-re-derive each continuous band of a derived splat:
+The sidecar stores the measured `cids` and `values` once, in a `cells`
+table. You can re-derive each continuous band of a derived splat:
 
 ```
 value[band] == sum_i weight_i * cells[source_i].vals[band]
@@ -213,13 +213,14 @@ splat gets its tilt from the gradient of the same bilinear patch.
 
 Two rules keep the derived values true:
 
-- The exporter does not blend a categorical band. Examples are a Hansen loss year or a
-  class code. List these bands in `categoricalBands`. A derived node takes
-  the value of its nearest signed corner. `--check-derived` accepts
-  `value[band] == cells[nearest].vals[band]` for those bands.
+- The exporter does not blend a categorical band. Examples are a Hansen
+  loss year or a class code. List these bands in `categoricalBands`. A
+  derived node takes the value of its nearest signed corner.
+  `--check-derived` accepts `value[band] == cells[nearest].vals[band]` for
+  those bands.
 - A node on an original cell is that signed cell, with its exact value. The
-  exporter writes it even at a ragged grid edge where the quad is incomplete. So
-  densifying never drops or relabels a measured fact.
+  exporter writes it even at a ragged grid edge where the quad is
+  incomplete. So densifying never drops or relabels a measured fact.
 
 Check a v2 sidecar offline. You need only the file:
 
@@ -258,8 +259,8 @@ disk read.
 
 - [`scripts/bake_worlds.sh`](../../scripts/bake_worlds.sh) runs this
   exporter for each preset against the local responder. It uses small
-  batches with `--sleep` between them, so the responder can still serve other traffic.
-  It verifies each receipt. It then swaps the finished files into
+  batches with `--sleep` between them, so the responder can still serve
+  other traffic. It verifies each receipt. It then swaps the finished files into
   `EMEM_WORLDS_DIR` (default `var/worlds`) in one step.
 - [`scripts/stage_worlds.py`](../../scripts/stage_worlds.py) copies the
   committed `scenes/` files there instead. A fresh clone can then serve
@@ -297,9 +298,9 @@ captured GIFs stay byte-for-byte reproducible.
 
 ## Capture the GIFs
 
-The world GIFs in `docs/media/` come from these templates. [`capture.mjs`](capture.mjs)
-renders them in headless Chromium with no other dependencies. It needs Node
-22 or later. These commands did not run on our test host, because it has no
+The world GIFs in `docs/media/` come from these templates.
+[`capture.mjs`](capture.mjs) renders them in headless Chromium with no other
+dependencies. It needs Node 22 or later. These commands did not run on our test host, because it has no
 Chromium:
 
 ```bash
