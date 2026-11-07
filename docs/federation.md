@@ -28,7 +28,7 @@ embedded store and one append-only Merkle log. The store is `facts.redb`
 (the default of `EMEM_HOT_BACKEND`). Before the redb cutover it was a `sled`
 database. Production showed two limits.
 
-The first limit is one writer. Every cold write goes through one store and
+The first limit is one writer. Every cold write uses one store and
 one log. Two changes lowered the cost: the log append moved off
 the async worker (group fsync in `spawn_blocking`), and the store now merges
 per-write index flushes. The order of writes still comes from one writer. On
@@ -278,7 +278,7 @@ a writer learns before enforcement starts.
 ## 6. The first build: a peer-resolve prototype
 
 This is the smallest slice that proves federation end to end and is safe on
-the live serving path. It is not built.
+the live serving path. Nobody has built it yet.
 
 ```
 EMEM_PEERS=https://emem.dev,https://mirror.example   # static peer list
@@ -587,7 +587,7 @@ what a reader needs to check those facts:
   witnesses.
 
 On 7 November 2026 emem.dev published everything on this list. It is still
-not a resolver for other nodes, because read federation (§4a) is not built.
+not a resolver for other nodes, because read federation (§4a) does not exist yet.
 The role exists so that the bar is ready before someone needs it.
 
 #### Check a node against this bar
@@ -715,8 +715,8 @@ This page records a decision: reads are free at every tier, on every node,
 and a self-hosted node never sees a price. Sybil pressure is real on two
 surfaces: `SharedEntitySpace` (T3) and `FactPlane` (T4). Behind a flag that
 ships off, the public node may answer those in the x402 shape. The URL of
-the settlement service would come from the environment. None of this is
-built. The smaller step
+the settlement service would come from the environment. None of this exists
+yet. The smaller step
 came first: emem.dev enforces the ladder. On 2026-09-02 that showed that
 enforcement without vouching locks out the operator's own agents, which all
 read T1. The vouching document (§9c.3) turns enforcement into a policy and
@@ -785,8 +785,8 @@ never scores, so the docs lost the sentence and the code stayed.
 5. Content addressing interop. Shipped: `cid_v1` sits beside `fact_cid` on
    recall facts. BLAKE3 is multihash `0x1e` in the multiformats table
    (draft). The CIDv1 of an emem fact is `0x01 0x55 0x1e 0x20` followed by the
-   32-byte digest. It uses lower-case base32 with the `b` prefix. No new hash
-   is computed.
+   32-byte digest. It uses lower-case base32 with the `b` prefix. The responder
+   computes no new hash.
    IPFS, Filecoin and ATProto tools can address emem facts directly. The
    `IpldConnector` stub stays unbound until an operator registers a
    blockstore.

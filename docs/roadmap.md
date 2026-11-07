@@ -521,8 +521,8 @@ sentence that cites it.
 
 #### Grid cost against other grids
 
-The token cost of a `cell64` was measured on 2026-08-11 and recorded in
-the whitepaper on 2026-08-13 (see `docs/collaboration-log.md`). Over 14
+The maintainers measured the token cost of a `cell64` on 2026-08-11 and
+recorded it in the whitepaper on 2026-08-13 (see `docs/collaboration-log.md`). Over 14
 live cells:
 
 | Address | BPE tokens (`cl100k_base`) |
@@ -720,7 +720,7 @@ finds.
 The Earth substrate keeps its own rule, `archive_recomputable`: anyone
 can recompute a fact from free public archives. The plan is to use Earth
 facts as the drift anchor: emem would score device claims against them
-for contradictions. That wiring is not built.
+for contradictions. That wiring does not exist yet.
 The design and the wiring steps are in `docs/plans/encoder-substrates.md`.
 
 What ships for devices:
@@ -930,7 +930,7 @@ one new thing: the signed receipt. `emem-langmem` signs its writes.
 | LangChain | `pip install emem-langmem` | `emem_langmem` |
 
 Do not run `pip install emem`. That PyPI name belongs to an unrelated
-package. The npm package is scoped, because npm refuses the name
+package. The npm package has a scope, because npm refuses the name
 `ememdev` as too similar to `okemdev`. The unscoped name stays unpublished.
 
 The Python package has a CLI, `ememdev`, with three commands: `whoami`,
