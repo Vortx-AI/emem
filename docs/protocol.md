@@ -547,7 +547,7 @@ the map with already-sorted keys; emem does not re-sort silently.
 text string, `tslot` as a plain unsigned int, and each CID as a text
 string (`cid.rs`, `serde(transparent)` over `String`), with no tag.
 Do not add tags when you rebuild a fact, because the CID would change.
-The numbers are reserved:
+`cbor.rs` reserves these numbers:
 
 | Tag | Meaning | Tagged value |
 |-----|---------|--------------|
