@@ -4,7 +4,7 @@ This page is a design. Most of it does not ship. The table below says what
 runs today and what does not. The rest of the page explains the plan and the
 reasons for it.
 
-| Part | State in 2.4.4, checked on 6 November 2026 |
+| Part | State in 2.4.4, checked on 7 November 2026 |
 |---|---|
 | Content addressing, signed receipts, offline verification | ships |
 | Multi-attester index and `memory_contradictions` scoring | ships |
@@ -12,7 +12,7 @@ reasons for it.
 | Witness job `scripts/witness_peers.py` and its timer | ships, runs on emem.dev every 15 minutes |
 | Node identity: `/.well-known/did.json`, `_emem-node` DNS check | ships |
 | `federation` block in `/.well-known/emem.json` | ships |
-| Enlistment ladder (`GET /v1/enlist`) | ships; enforcement is off by default |
+| Enlistment ladder (`GET /v1/enlist`) | ships; enforcement is on by default |
 | `cid_v1` beside `fact_cid` on recall | ships |
 | `docker-compose.yml` for a witness node | ships |
 | Read federation (peer resolve, §4a) | not built |
@@ -257,11 +257,15 @@ open. The code documents it as a known limit, not as safe.
 
 #### Shipping state
 
-The ladder, the checks and the gate are live. Enforcement is off by default
-in the code. `EMEM_ENLISTMENT_ENFORCE=1` turns it on, and emem.dev sets it
-(`deploy/systemd/emem-server.service`). `entity` and `entity_link` accepted
-anonymous writes from the day they shipped. Enforcement in one deploy would
-break every peer at once. Shadow mode records which writes the gate would
+The ladder, the checks and the gate are live. Enforcement is on by default
+in the code (`enlistment_enforcing` in `crates/emem-api-rest/src/lib.rs`).
+An operator turns it off with `EMEM_ENLISTMENT_ENFORCE` set to `0`, `off`,
+`false` or `shadow`. emem.dev sets `EMEM_ENLISTMENT_ENFORCE=1`
+(`deploy/systemd/emem-server.service`).
+Earlier releases defaulted to shadow mode. `entity` and
+`entity_link` accepted anonymous writes from the day they shipped, so
+enforcement in one deploy would have broken every peer at once.
+Shadow mode records which writes the gate would
 refuse, and why.
 It returns that verdict to the caller in the response, not only to a log, so
 a writer learns before enforcement starts.
@@ -648,7 +652,7 @@ The three jobs a token does, and what does them here:
 
 | Token job | Web3 mechanism | emem today | Gap |
 |---|---|---|---|
-| Sybil cost on writes | stake (The Graph: 100,000 GRT minimum) | ladder T0 to T5 in `enlistment.rs`; 240 writes per minute per attester; DNS TXT and organisation vouching | code default is shadow mode; emem.dev enforces. On 2026-09-02 every key read T1, the operator's own agents too, so the shared entity space was closed to everyone (fixed, §9d) |
+| Sybil cost on writes | stake (The Graph: 100,000 GRT minimum) | ladder T0 to T5 in `enlistment.rs`; 240 writes per minute per attester; DNS TXT and organisation vouching | the code default now enforces (earlier releases used shadow mode), and emem.dev sets it explicitly. On 2026-09-02 every key read T1, the operator's own agents too, so the shared entity space was closed to everyone (fixed, §9d) |
 | Reward for serving | issuance (The Graph: 3% a year) | none; operators run a node because they need the data, as in the Nostr relay and ATProto PDS model | none needed at four nodes |
 | Settlement | on-chain transfer | none | a payment rail without a token exists (§9b) |
 
