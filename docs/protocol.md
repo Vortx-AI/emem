@@ -145,7 +145,8 @@ Defined in `crates/emem-codec/src/geo.rs:41-50`.
 
 The lat axis carries one fewer bit than the lng axis on purpose.
 180° / 2^21 ≈ 360° / 2^22, so the bucket is square at the equator.
-Each axis is about 9.55 m; the test at geo.rs:367 pins this.
+Each axis is about 9.55 m. The test `cell_pitch_at_equator_is_955m`
+in `crates/emem-codec/src/geo.rs` pins this.
 Equal bit counts would give 1:2-rectangular cells.
 
 ### 1.2 Encoding rule (lat/lng → Cell)
@@ -2737,7 +2738,7 @@ The type is `PrivacyClass` in `crates/emem-core/src/privacy.rs`.
 The discriminator is `class` (`#[serde(tag = "class", rename_all =
 "snake_case")]`), CBOR-encoded as the leading map key.
 
-On 6 November 2026, `bands-v0.json` declared these classes for its
+On 7 November 2026, `bands-v0.json` declared these classes for its
 43 bands:
 
 | Class | Bands |
@@ -2769,7 +2770,7 @@ The responder picks one, and it MUST say which it did. Without that,
 an agent that gets an empty result cannot tell a prohibited band from
 an absent one.
 
-What ships on 6 November 2026: no code outside `privacy.rs` calls
+What ships on 7 November 2026: no code outside `privacy.rs` calls
 `permits_resolution`, and no response carries `privacy_snapped`. The
 responder addresses every band at the one active cell64 resolution
 (tag 21, §1.1). That is finer than `min_res` 11. Of the three
@@ -2874,7 +2875,8 @@ conformance gate:
 | `sources_cid` | `sources-v0.json` | 46 source schemes, each with its providers, tempo and native resolution. The manifest does not record transport. In the code, many connectors use the shared STAC + COG sampler (`crates/emem-fetch/src/cog.rs`). Others use HTTPS JSON, Parquet on S3, NCSS CSV, TAR or ZIP, Overpass QL and PMTiles |
 | `schema_cid` | `schema-v0.json` | CDDL bundle pinned to `hash="blake3"`, `signature="ed25519"`, `cid_encoding="base32-nopad-lowercase"` |
 
-The algorithm counts are from `algorithms-v0.json` on 6 November 2026.
+The counts are from the registry files on 7 November 2026. The `covers`
+block of `GET /v1/manifests` gave the same numbers that day.
 
 Recipe (the same for all four, `manifest_cid` in
 `crates/emem-core/src/manifest.rs`):
@@ -2916,7 +2918,7 @@ The directory `spec/test_vectors/` holds the conformance fixtures.
 Its `README.md` gives the file format: one JSON file per vector, with
 `id`, `kind`, `spec`, `level`, `input`, `expected` and `notes`.
 
-What ships on 6 November 2026 is one set: `os_trace/`, with four
+What ships on 7 November 2026 is one set: `os_trace/`, with four
 vectors (`admit`, `chain_broken`, `output_unbound`,
 `archive_refused`). The test `crates/emem-trace/tests/vectors.rs`
 generates them with a fixed key and fixed clocks.
@@ -2956,8 +2958,8 @@ working.
    set applied (§12).
 2. Schema changes happen at the manifest level. A CDDL change gives a
    new `schema_cid`. A fact has no version field, and the CBOR encoder
-   has no version on the wire. Each of two facts with different `schema_cid`
-   values has its own manifest.
+   has no version on the wire. If two facts carry different `schema_cid`
+   values, each one points to its own manifest.
 3. Operators add ops and connectors under semver. New `Claim` ops,
    new `Source` connector kinds and new `Tempo` variants ship with a
    new manifest CID. A responder that does not know an op or a
@@ -2982,7 +2984,7 @@ much. Read the Strength column before you cite one.
 | `emem:cube:<aoi_cid>:<band>:<tslot_lo>..<tslot_hi>:<derivation_cid>` | a field over an area over time | Full, over the artifact. The resolver recomputes `cube_cid` from the members and refuses a mismatch | `POST /v1/cube/resolve` |
 | `emem:cell:<cell64>` | a patch of ground, about 9.55 m | An address. Nothing to dereference | `GET /v1/cells/{cell64}` describes the cell |
 | `emem:state:<cid>` | one stage of an `/v1/ask` answer's reasoning | Full. The cid is the whole 32-byte blake3 of the state's canonical CBOR. Each state commits to the stage before it | `GET /v1/state/{cid}` |
-| `emem:tree:<file_cid>#row=<index>` | one row of a note's Merkle table | Full over the row: an audit path from the row to the note's signed root (§9.7) | `GET /v1/tree/{file_cid}?row=<index>` |
+| `emem:tree:<file_cid>#row=<index>` | one row of a note's Merkle table | Full over the row: an audit path from the row to the note's signed root ([§9.8](#98-merkle-trees-inside-notes-ememtree)) | `GET /v1/tree/{file_cid}?row=<index>` |
 | `emem:rasterset:<bundle_cid>:<derivation_cid>` | a set of `emem:raster:` layers | Full over the signed manifest. The resolver recomputes `bundle_cid` from the members and refuses a mismatch | `POST /v1/raster_bundle/resolve` |
 
 Only `emem:fact:` binds a whole body. Treat the anchors as shared
@@ -3012,8 +3014,8 @@ Use the route in the table for each kind.
 
 Check the receipt with `emem_verify_receipt`, or in your own process
 with any ed25519 and blake3 library (§7.4). The full grammar,
-with preimages and canonical bytes, is in
-[the spec](https://emem.dev/spec).
+with preimages and canonical bytes, is in §1 to §9 of this page.
+`https://emem.dev/spec` serves the deployed copy of this page.
 
 ### What a fact asserts, and what it does not
 
