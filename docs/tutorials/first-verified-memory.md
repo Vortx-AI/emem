@@ -16,7 +16,7 @@ second process. All steps use the public node at emem.dev.
 
 The example uses Cairo. You can use a different place name. The steps stay the same.
 
-All values on this page are what emem.dev returned on 6 November 2026. A newer reading can give a different
+All values on this page are what emem.dev returned on 7 November 2026. A newer reading can give a different
 `fact_cid`. The shape of each answer stays the same.
 
 ## 1. Read a signed fact
@@ -29,7 +29,7 @@ curl -s -X POST https://emem.dev/v1/recall \
 
 These fields in the response are important:
 
-| Field | What it is | Value on 6 November 2026 |
+| Field | What it is | Value on 7 November 2026 |
 |---|---|---|
 | `facts[0].value` | The elevation in metres at one cell of about 10 m, from the Copernicus 30 m elevation model | `187.33578491210938` |
 | `facts[0].cell` | The cell64 address of that cell. `receipt.cells[0]` holds the same value. | `defi.zb555.ze8e5.xawO` |
@@ -63,8 +63,8 @@ curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
 
 This call asks the server to do the check. It is not an independent check, because the responder checks its own
 signature. Use it to find problems. For an independent check, do the BLAKE3 and Ed25519 arithmetic yourself against
-the responder's published key. Any BLAKE3 and Ed25519 library can do it offline. The [`/verify`](https://emem.dev/verify) page does it in your browser: paste the receipt, or the token from
-step 3. The [Quickstart](../quickstart.md) shows the offline check in Python.
+the responder's published key. Any BLAKE3 and Ed25519 library can do it offline. The
+[`/verify`](https://emem.dev/verify) page does it in your browser: paste the receipt, or the token from step 3. The [Quickstart](../quickstart.md) shows the offline check in Python.
 
 ## 3. Write the token by hand
 
@@ -83,11 +83,12 @@ This tutorial uses one Cairo elevation fact that emem signed on 16 July 2026:
 emem:fact:defi.zb555.ze8e5.xawO:zxxbyowj2vlhyvgcj55brc47aoubvnibo7ydck4q2vn32uqcp3oa
 ```
 
-Your token from step 1 names a newer fact of the same cell. On 6 November 2026, that fact had `signed_at` 2026-09-28T09:06:51Z
-and the same value. The older token still resolves, because emem never rewrites a fact.
+Your token from step 1 names a newer fact of the same cell. On 7 November 2026, that fact had
+`signed_at` 2026-09-28T09:06:51Z and the same value. The older token still resolves, because emem never rewrites a
+fact.
 
-The token is 84 characters. You can put it in a commit message, a report, a note, or the context of another agent.
-You can drop the full fact, because the token gets it back.
+This token is 84 characters. The length changes a little with the cell. You can put it in a commit message, a report,
+a note, or the context of another agent. You can drop the full fact, because the token gets it back.
 
 ## 4. Give the token to a second party
 
