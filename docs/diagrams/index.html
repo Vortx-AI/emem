@@ -420,7 +420,7 @@
 
     <figure id="41"><a href="/docs/diagrams/41-guard-verdict-path.svg">
       <object class="frame" type="image/svg+xml" data="/docs/diagrams/41-guard-verdict-path.svg" aria-label="The verdict path in order: scan tokens, resolve, run modules, evaluate, sign with Ed25519, append to the log, then answer. Resolve stops at 400 ms. Each fast module has a 50 ms budget, and three overruns move it to shadow mode. The whole path has an 800 ms budget. Side panels show what happens when the log fails, shadow mode, and what a denial names."><img src="/docs/diagrams/41-guard-verdict-path.svg" alt="The verdict path in order: scan tokens, resolve, run modules, evaluate, sign with Ed25519, append to the log, then answer. Resolve stops at 400 ms. Each fast module has a 50 ms budget, and three overruns move it to shadow mode. The whole path has an 800 ms budget. Side panels show what happens when the log fails, shadow mode, and what a denial names." loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">41 &middot; GUARD</div><h2>One verdict, in order</h2><p>The guard builds the verdict, signs it, appends it to the log and then answers, within 800 ms. If it answered first, a caller could act on a verdict that the log never recorded.</p></figcaption>
+      <figcaption><div class="num">41 &middot; GUARD</div><h2>One verdict, in order</h2><p>The guard builds the verdict, signs it, appends it to the log and then answers, within 800 ms. If it answered first, a caller could act on a verdict that the log never recorded. If the log cannot take the entry, the guard still answers, with no leaf (<code>leaf=-</code>).</p></figcaption>
     </a></figure>
 
     <figure id="42"><a href="/docs/diagrams/42-guard-dlp-chassis.svg">
