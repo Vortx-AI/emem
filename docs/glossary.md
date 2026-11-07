@@ -17,8 +17,8 @@ term for one thing.
 |---|---|---|
 | band | A named kind of measurement, for example `copdem30m.elevation_mean` or `indices.ndvi`. | [Registries](registries.md), [`/v1/bands`](https://emem.dev/v1/bands) |
 | cube slot | A family of bands in the fixed layout of a cell, for example `sentinel2_raw`. One slot holds many bands. | [Registries](registries.md) |
-| fact | One signed observation: a cell, a band, a time and a value. | [Protocol](protocol.md), section 3 |
-| `fact_cid` | The id of a fact: the BLAKE3 hash of its canonical bytes, written as 52 base32 characters. | [Protocol](protocol.md), section 5 |
+| fact | One signed observation: a cell, a band, a time and a value. | [Protocol](protocol.md), section 5 |
+| `fact_cid` | The id of a fact: the BLAKE3 hash of its canonical bytes, written as 52 base32 characters. | [Protocol](protocol.md), section 3.2 |
 | canonical CBOR | A fixed binary encoding. The same data always gives the same bytes, so it always gives the same hash. | [Protocol](protocol.md), section 4 |
 | materialise | To read a value from the public archive on the first request, then sign it and store it. A band is "wired" when a connector for it exists. | [Data sources](developers/data-sources.md) |
 | provenance class | How emem made a value: a sensor read, a formula over a cited source (`deterministic_index`), a model (`model_output`) or a person (`human_curated`). The last two carry a caution. | [Protocol](protocol.md) |
@@ -59,5 +59,5 @@ term for one thing.
 | derive | Record a value that you computed from signed facts, signed with your key. For a pure operation (`delta`, `mean`, `sum`) emem computes it again before it records it. | [Protocol](protocol.md), section 5.2 |
 | `ulp_gap` | The distance, in steps of the last float digit, between emem's new calculation and your value. 0 means the bits are the same. | [README](../README.md) |
 | memory kinds | Labels for a note from the CoALA agent-memory taxonomy: `episodic` (events), `semantic` (facts), `procedural` (methods), `resource`. | [Memory](memory.md) |
-| A2A | The agent-to-agent protocol. emem gives each tool as an A2A skill through its agent card. | [`/.well-known/agent-card.json`](https://emem.dev/.well-known/agent-card.json) |
+| A2A | The agent-to-agent protocol. The agent card lists 18 main tools as A2A skills. `/v1/a2a/skills` lists all 116 tools (7 November 2026). | [`/.well-known/agent-card.json`](https://emem.dev/.well-known/agent-card.json), [`/v1/a2a/skills`](https://emem.dev/v1/a2a/skills) |
 | SSE | Server-Sent Events: an HTTP stream of new writes. It does not replay old events. | [Memory](memory.md) |
