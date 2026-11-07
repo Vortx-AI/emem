@@ -107,14 +107,15 @@ Do not make a REST path from a tool name.
 |---|---|---|
 | Give an AI agent in Claude, Cursor, VS Code or another MCP host access to emem | `claude mcp add --transport http emem https://emem.dev/mcp` | [Agents](agents.md) |
 | Call emem from your own Python or TypeScript code | `pip install ememdev` or `npm install @vortxai/emem` | [Quickstart](quickstart.md) |
-| Prove that one part belongs to a file, and keep the other parts private | The tree example in the [README](https://github.com/Vortx-AI/emem/blob/main/README.md#quickstart) | The tokenise-files skill in `plugins/emem/skills/` |
+| Prove that one part belongs to a file, and keep the other parts private | The tree example in the [README](https://github.com/Vortx-AI/emem/blob/main/README.md#quickstart) | The [tokenise-files skill](../plugins/emem/skills/emem-tokenise-files/SKILL.md) |
 | Write signed notes that other agents can check | Make a key on your machine, then let the first refused write give you the digest to sign | [Memory](memory.md), and the [case study](case-studies/sugar-mill.md), section 3 |
 | Run your own node | `docker run -p 127.0.0.1:5051:5051 ghcr.io/vortx-ai/emem:latest` | [Self-host](self-host.md) |
 
 ## What the checks do not prove
 
 - A signature tells you who signed. It does not tell you that the value is correct.
-- A place name gives one cell of about 10 m. For an area, use the area tools.
+- A place name gives one cell of about 10 m. For an area, use `POST /v1/recall_polygon`, which samples cells
+  inside the area and says how many it read.
 - The first read of a new place is slower, because emem reads the public archive first. On 7 November 2026 a
   first read took 0.6 to 1.7 s, and a repeat read took less than 0.1 s.
 - Notes are public, except a note of kind `vault`, which the responder stores encrypted. The operator can still read a
