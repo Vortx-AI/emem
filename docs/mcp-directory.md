@@ -1,7 +1,7 @@
 # emem MCP server
 
 This page is the listing text for MCP directories. It also records how emem gets into each directory.
-We measured the counts and sizes on emem.dev on 6 November 2026.
+The counts and sizes come from emem.dev on 7 November 2026.
 
 | field | value |
 |---|---|
@@ -109,15 +109,14 @@ Add the remote endpoint to your MCP client:
 To register the whole catalog, use `https://emem.dev/mcp/full` instead. It is the same server with the same
 dispatch. Only the size of the `tools/list` answer changes.
 
-| endpoint | `tools/list` returns | size on 6 November 2026 |
+| endpoint | `tools/list` returns | size on 7 November 2026 |
 |---|---|---|
 | `POST /mcp` | the 18 core tools, one page | about 75 KB |
 | `POST /mcp/full` | all 116 tools, in several pages | about 346 KB |
 
-An MCP host loads every listed descriptor into the model context when it connects. So `tools/list` at `/mcp`
-returns the 18 core tools in a single page (about 75 KB), not the whole catalog. If a host listed all of
-them, the full 116 cost about 346 KB of every conversation, also when the conversation does not use Earth
-observation.
+An MCP host loads every listed descriptor into the model context when it connects. That is why `/mcp`
+lists the core tools in a single page (about 75 KB). With the whole catalog, the full 116 cost about 346 KB
+of every conversation, also of conversations that do not use Earth observation.
 
 An explicit `{"tier":"core"|"extended"|"all"}` parameter overrides the endpoint default. For example, `/mcp`
 with `{"tier":"all"}` lists all 116 tools, over several pages.
@@ -182,7 +181,7 @@ There are two ways to publish:
 
 The workflow installs the `mcp-publisher` CLI and runs `mcp-publisher publish` against
 `https://registry.modelcontextprotocol.io`. Published versions cannot change. The workflow reads the version
-from `server.json`, so bump it there before you tag. On 6 November 2026 the registry listed 2.4.4 as the
+from `server.json`, so bump it there before you tag. On 7 November 2026 the registry listed 2.4.4 as the
 latest version, published on 18 October 2026.
 
 The directory at `https://github.com/mcp` reads the official registry on its own schedule. A new version
@@ -200,8 +199,8 @@ ImportError: cannot import name 'request_ctx' from 'mcp.server.lowlevel.server'
 ```
 
 emem has no part in this failure. The proxy stops at import time, before it contacts the binary. `mcp-proxy`
-declares `mcp>=1.17.0` with no upper bound. `mcp` 2.0.0 removed `request_ctx`. We installed both versions
-and searched the module: 1.29.0 contains the symbol four times, and 2.0.0 does not contain it.
+declares `mcp>=1.17.0` with no upper bound. `mcp` 2.0.0 removed `request_ctx`. A search of both installed
+versions found the symbol four times in 1.29.0 and zero times in 2.0.0.
 
 Pin exact versions in the build step. Do not use a range:
 
