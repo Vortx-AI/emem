@@ -1929,6 +1929,13 @@ A band key that the registry does not know gets an error before any fetch.
 On 7 November 2026, a recall with `"bands":["foo.bar"]` returned HTTP 400
 with `code: "band_not_in_registry"`. Use `GET /v1/bands` for the valid keys.
 
+The 400 comes only when no requested band is known. If you mix known and
+unknown keys, recall returns 200 with the known facts. The unknown keys are
+in `unknown_bands` and in `materialize_notes` with `reason_class:
+"unknown_band"`. On 7 November 2026, `copdem30m.elevation_mean` with
+`nosuch.band` gave one fact and `"unknown_bands":["nosuch.band"]`. Check
+`unknown_bands` before you read a missing fact as "no data".
+
 The error can suggest names, but the responder does not use them for you.
 It looks at the part of the key before the first dot. If wired bands share
 that part, `details.did_you_mean` lists them. On 7 November 2026, at the
