@@ -152,8 +152,9 @@ default. Above that rate the answer is HTTP 429 `rate_limited`.
 
 An edge has no `(cell, band, tslot)` address. Thus the `fact_plane_closed`
 gate, which keeps callers off fact addresses, does not stop an envelope
-that has only edges. A caller can sign an edge with its own key. For example, a second agent can record that it
-disagrees with a fact from the first agent. Do not use the steps for a
+that has only edges. A caller can sign an edge with its own key. For
+example, a second agent can record that it disagrees with a fact from the
+first agent. Do not use the steps for a
 signed note here, because a note signs a different digest. The envelope
 and its preimage are in
 [protocol section 6](protocol.md#6-attestation-envelope). The worked example in
@@ -170,8 +171,8 @@ the later `valid_from` hides the older edge. emem keeps both edges.
 1. emem keeps the edges with `valid_from` less than or equal to the tslot.
 2. emem removes the edges with a `valid_to` less than the tslot. An edge
    is still true at its `valid_to` tslot.
-3. For each neighbour fact, emem returns the edge with the largest
-   `valid_from`.
+3. For each predicate and neighbour fact, emem returns the edge with the
+   largest `valid_from`.
 
 Without `as_of_tslot`, step 3 runs on all edges. Thus a read for a 2025
 tslot shows the edge that was true in 2025, and a read for 2027 shows the
