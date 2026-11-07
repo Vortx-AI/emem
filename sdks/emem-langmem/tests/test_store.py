@@ -373,9 +373,11 @@ def test_yield_keys_on_an_empty_namespace_yields_nothing():
     assert list(store.yield_keys()) == []
 
 
-@pytest.mark.asyncio
 @respx.mock
-async def test_ayield_keys_follows_a_truncated_listing():
+def test_ayield_keys_follows_a_truncated_listing():
+    # Sync wrapper: CI installs no pytest-asyncio.
+    import asyncio
+
     def _listing(request: httpx.Request):
         args = json.loads(request.content)["params"]["arguments"]
         if args.get("offset") is None:
@@ -384,7 +386,11 @@ async def test_ayield_keys_follows_a_truncated_listing():
 
     respx.post("https://emem.dev/mcp").mock(side_effect=_listing)
     store = EmemStore(base_url="https://emem.dev", signing_key=_SEED)
-    assert [k async for k in store.ayield_keys()] == ["/m/a", "/m/b"]
+
+    async def _collect():
+        return [k async for k in store.ayield_keys()]
+
+    assert asyncio.run(_collect()) == ["/m/a", "/m/b"]
 
 
 # ---------- the refusal is legible ----------
