@@ -263,7 +263,7 @@ digest in the refusal.
 | State (single encoder) | `POST /v1/state` | `{cell, encoder?, view?, tslot?, as_of_tslot?, as_of_signed_at?, scope?}` | a stored embedding vector and a memory_token; no encoder runs now (see below), so it answers only from vectors signed before the retirement |
 | State (full cube) | `POST /v1/state` view=cube | same, plus `materialize?`, `families?`, `include_reserved?` | 1792-D state vector, per-slot coverage, `state_cid` and an `emem:bundle:` token |
 | State fan-out | `POST /v1/state_multi` | `{cell, encoders?, tslot?, as_of_*?, scope?, vectors?, include?}` | per encoder: `dim`, `l2_norm`, `fact_cid`, `memory_token`, `tslot`; the floats only with `vectors:true` or `include:["vectors"]`. Empty by default, since no encoder is live |
-| State delta | `POST /v1/state_diff` | `{cell, encoder?, tslot_a, tslot_b}`; the two tslots must differ | `delta_vector`, `l2_norm_of_delta`, `cosine_a_b`, and the fact_cid and memory_token of each side |
+| State delta | `POST /v1/state_diff` | `{cell, encoder?, tslot_a, tslot_b}`; the two tslots must differ | `dim`, `delta_vector`, `l2_norm_of_delta`, `cosine_a_b`, and the fact_cid and memory_token of each side. The default `encoder` is `geotessera`; each side reads the year band `geotessera.YYYY` for its tslot, named in `band_a` and `band_b`. emem.dev retires all these bands, so a diff works only where the responder holds both vintages (see below) |
 | Memory token | `POST /v1/memory_token` | `{cell, fact_cid, band?, observed_on?}` | `emem:fact:<cell>:<fact_cid>` and `cell_token` (`emem:cell:<cell>`); with `band` and `observed_on`, also a `descriptor_token` |
 | Memory token resolve | `POST /v1/memory_token/resolve` | `{token}` | full signed fact body |
 | Memory token resolve, batch | `POST /v1/memory_token/resolve_many` | `{tokens}` (1 to 256) | one resolved item per token |
@@ -295,7 +295,10 @@ On 7 November 2026, `POST /v1/state` with `{"cell":"defi.zb592.nUkO.zEzE"}`
 `emem:fact:` token. `POST /v1/state_multi` on the same cell returned
 `"encoders": []`. Its default list leaves out retired bands, so it
 asks for no encoder. To read a stored vector, name the band in
-`encoders`.
+`encoders`. `POST /v1/state_diff` with `"tslot_a":53,"tslot_b":54`
+(the 2023 and 2024 vintages) on the same cell returned 404
+`cid_not_found`. The message tells you to recall `geotessera.2023`
+first. That recall cannot make a new fact, because emem.dev retires the band.
 
 Tokens with the old prefixes still resolve. The server reads `memt:` as
 `emem:fact:`, `memb:` as `emem:bundle:` and `meme:` as `emem:entity:`.
