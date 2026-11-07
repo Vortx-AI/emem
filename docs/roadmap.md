@@ -1,47 +1,213 @@
 # Limits and roadmap
 
-One page for the edges: what emem does not do yet, the staged work to
-federation, and the open research list. Everything here says what
-already ships and what is still open, so nothing is a promise dressed
-up as a feature. The short version lives in the
-[README](https://github.com/Vortx-AI/emem#readme); this is the whole
-picture.
+This page lists the edges of emem: what it does not do yet, the staged
+work toward federation, and the open research list. Each item says what
+ships today and what is still open. The
+[README](https://github.com/Vortx-AI/emem#readme) has the short version.
 
-## Honest limits
+## What emem does not do yet
 
-emem is at version 2.4.4, a patch on 2.4.0, the minor that makes the agent surface usable without a human in the loop and breaks nothing: an intent registry, a capability manifest directories can poll, A2A `message/stream`, a supersede verb, local receipt verification in the SDK, and a mailbox reachable over MCP. The receipt preimage last moved in 2.0.0: the 1.x line promised the wire format, the receipt preimage and the cell64 address space would not break under a 1.x, and 2.0.0 changed the preimage, so it was a major for exactly that reason. Receipts signed under 1.x verify unchanged under the 1.x rule, and a verifier selects the rule from the receipt's own `preimage_version`. The cell64 address space is untouched and stays settled. What it does not do yet, so you can plan around it:
+emem is at version 2.4.4 (2026-10-18). It is a patch release, with no
+change to the signed receipt or the fact preimage. The receipt preimage
+last changed in 2.0.0, which is why 2.0.0 is a major release. Receipts
+signed under 1.x still verify: a verifier selects the rule from the
+receipt's own `preimage_version`. The cell64 address space has not
+changed.
 
-- **One writing host, two witnessing ones, and a join bar a stranger can
-  meet.** No read federation, no global routing, no SOC 2 yet. One responder holds the corpus and signs it. Since 2026-09-02 a second node, `geo.qa`, co-signs this log and has its own co-signed in turn, which is federation phase 0: it makes a split view detectable and moves nothing else. Reads still resolve on one host. As of 2.4.0 a third party can join without us:
-`docker-compose.yml` stands a node up in one command, `scripts/verify_node.py` checks it against the join bar anonymously, and federation.md §8e splits that bar in two. A WITNESS publishes an STH, a stable key, a `_emem-node` TXT binding one to the other, and a DID document. A RESOLVER additionally publishes the registries a reader needs to check what it serves. The split exists because the single bar had the registry CIDs in it and our own only peer failed it while co-signing this log every fifteen minutes: an acceptance test no participant passes is not a standard, it is a sentence. Nobody is a resolver yet, including us, because read federation is still unbuilt. Durability today is the hosted node plus any node you run; content addressing means any node that holds the bytes can re-serve and re-verify them, so run your own if the facts matter to you.
-- **Thousands of places, not billions.** The memory grows every day it is used, but it is early. Check the live count before you assume coverage.
-- **Two layers, two scopes, one write path.** The geospatial fact corpus grounds facts about physical places, not arbitrary text, and is not a general-purpose citation store for any document. The agent-memory layer under `/memories/*` is different on purpose: free-form, signed, BGE-searchable notes an agent wants another party or a later run to resolve and verify. What neither layer is, on the hosted node, is private; the next bullet says exactly how.
-- **Place ids are compact, not yet token-optimal.** A `cell64` measures 12 to 13 BPE tokens today. The id format is built for a tokenizer-optimized alphabet that would cut that further; the shipped alphabet does not achieve it yet.
-- **A place named in one language, labelled in another, is grounded from the names the gazetteer knows.** The confidence floor compares the query against the label, and gazetteer labels come back in the local script by design, so `Munich` against `München` and `Osaka` against `大阪市` once scored zero and were refused. The floor now consults the alternate names a place carries, and Munich, Osaka, Nuremberg, Florence, Gothenburg, Kazan, Copenhagen, Thessaloniki, Bruges and Chengdu all resolve to the right city. Two things were learned the hard way and are worth stating rather than smoothing over. The rescue's first version cleared the floor on a query's *country* words, so `Seoul, Republic of Korea` resolved to an embassy in Seoul and `Munich, Federal Republic of Germany` to an honorary consulate, both marked confident; a rescue is a claim about the place, so it now requires the place itself to match. And `of` is a prepositional anchor, which is right in `walkability of South Mumbai` and wrong inside `Republic of Korea`, where it made `Korea` a candidate that was tried before `Seoul` and answered with a village in Côte d'Ivoire. Candidates are tried in the order the question asks them now. Both produced a confident answer about the wrong place with a signed receipt attached, which is the failure this surface exists to prevent, and both were introduced by fixes for the refusal above.
-- **Upstream rate limits.** Some sources are rate-limited or slow to fetch (one land-surface-temperature source takes about 30 seconds per place).
-- **No sub-meter imagery** in the default build, and no notebook UI. Drive it from a notebook against REST or MCP.
-- **Agent-memory writes are attested; reads are not yet tenant-scoped.** As of 2026-07-14 the global `/memories/` namespace is closed to unauthenticated writes: every write needs a valid ed25519 `attester` block, so no anonymous caller can plant a fact that surfaces in another agent's recall. Confidentiality is coarser than that, and the honest map is: the flat namespace and `/memories/by_attester/<pubkey>/` are both world-readable (only writes are attester-scoped), and the `vault` seals under a key derived from the RESPONDER's secret, so on the hosted node the operator can open a vault entry and the writing agent cannot. There is no client-controlled private memory on hosted emem today. Private agent state belongs in a local store or on a self-hosted responder, where you hold the key, until owner-scoped reads ship (see below). Do not put secrets in any hosted namespace.
-- **The corpus is thin and skewed.** Facts materialize lazily, one place at a time, from upstream sources, so coverage today is deep in a few bands and empty in the tail. Check the live count and the specific band before you assume a place is warm; a cold place can time out on first read and return a typed `skipped` note, not a value. Filling this fast is the supply-side work below.
+Two earlier minor releases set the current shape. 2.2.0 (2026-08-18) made
+the agent surface usable without a human: it added the intent registry,
+the supersede verb and A2A `message/stream`. 2.4.0 (2026-09-07) let a
+third party join the federation without our help.
+
+Plan around the limits below.
+
+### One host writes, and reads do not federate
+
+There is no read federation, no global routing and no SOC 2 report. One
+responder, emem.dev, holds the corpus and signs it.
+
+Since 2026-09-02 a second node, `geo.qa`, co-signs the emem.dev log, and
+emem.dev co-signs the `geo.qa` log. This is federation phase 0. It makes
+a split view detectable. It does not change where reads resolve.
+
+Since 2.4.0 a third party can join without us:
+
+- `docker-compose.yml` starts a node with one command.
+- `scripts/verify_node.py` checks a node against the join bar, with no
+  account.
+- [`federation.md`](federation.md) §8e splits the join bar in two roles.
+
+A WITNESS publishes a signed tree head, a stable key, a `_emem-node` TXT
+record that binds the two, and a DID document. A RESOLVER also publishes
+the registries that a reader needs to check what it serves.
+
+The bar has two roles for a reason. The first bar included the registry
+CIDs, and our only peer failed it while it co-signed this log every 15
+minutes. A test that no participant passes is not a standard. No node is
+a resolver yet, emem.dev included, because nobody has built read federation yet.
+
+Durability today is the hosted node plus any node that you run. Content
+addressing lets any node that holds the bytes serve and verify them
+again. If the facts are important to you, run your own node.
+
+### The corpus is small and uneven
+
+On 7 November 2026, `GET /v1/coverage` on emem.dev reported 2,425 cells
+(`total_cells`). That is thousands of places, not billions.
+
+Facts materialize lazily, one place at a time, from upstream sources. So
+a few bands have deep coverage and most of the tail is empty. Check the
+live count and the specific band before you assume that a place is warm.
+A cold place can time out on its first read. It then returns a typed
+`skipped` note, not a value. The supply-side work below fills the corpus.
+
+### Some upstreams are slow
+
+Some sources are rate-limited or slow. The MODIS land surface
+temperature band takes about 30 seconds per cell (its entry in
+`crates/emem-api-rest/src/lib.rs`). The default per-upstream timeout is
+14 seconds (`EMEM_MATERIALIZER_TIMEOUT_SECS`). So a cold read of that
+band can stop at the timeout with a `skipped` note. Hunter mode reads
+that band at 8 cells or fewer.
+
+### The fact corpus is for places, and memory notes are not private
+
+emem has two layers with two scopes and one write path:
+
+| layer | holds | scope |
+|---|---|---|
+| fact corpus | facts about physical places | not a citation store for any document |
+| agent memory, `/memories/*` | free-form signed notes, searchable with BGE-base-en-v1.5 | notes an agent wants another party or a later run to resolve and verify |
+
+Neither layer is private on the hosted node.
+
+Since 2026-07-14 the global `/memories/` namespace refuses writes without
+authentication. Every write needs a valid Ed25519 `attester` block. So an
+anonymous caller cannot plant a note that appears in the recall of
+another agent.
+
+No read path checks the owner:
+
+- The flat namespace and `/memories/by_attester/<pubkey>/` are both
+  readable by everyone. Only writes check the attester.
+- The responder seals a `vault` entry with a key derived from its own
+  secret. On the hosted node the operator can open a vault entry, and the
+  writing agent cannot.
+
+Hosted emem has no memory that only the client can read. Keep private
+agent state in a local store or on a self-hosted responder, where you
+hold the key. Do not put secrets in any hosted namespace.
+
+### Place ids are compact, but not yet token-optimal
+
+The codec design targets 4 tokens or fewer per `cell64`
+(`crates/emem-codec/src/lib.rs`). The id format expects an alphabet tuned
+to the tokenizer. The shipped alphabet does not reach that target
+yet.
+
+### A place name in one language can resolve to the wrong place
+
+Gazetteer labels come back in the local script. So `Munich` against
+`München`, and `Osaka` against `大阪市`, once scored zero against the
+confidence floor, and locate refused them. The floor now also checks the
+alternate names of a place. On 7 November 2026, `Munich` resolved to
+Munich, Bavaria, and `Osaka` resolved to Osaka, Japan.
+
+Two fixes for that refusal caused a worse failure: a confident answer
+about the wrong place, with a signed receipt. This surface exists to
+prevent that failure.
+
+- The first rescue cleared the floor on the country words of a query.
+  So `Seoul, Republic of Korea` resolved to an embassy in Seoul, marked
+  confident. A rescue now requires the place itself to match.
+- The word `of` is a prepositional anchor. That is correct in
+  `walkability of South Mumbai` and wrong in `Republic of Korea`. It made
+  `Korea` a candidate before `Seoul`, and the answer was a village in
+  Côte d'Ivoire. Locate now tries candidates in the order of the question.
+
+The problem is still open on emem.dev. On 7 November 2026,
+`POST /v1/locate` gave these results:
+
+| query | label returned | `selected.is_high_confidence` |
+|---|---|---|
+| `Seoul, Republic of Korea` | a café in Gangnam-gu, Seoul (from the locate cache) | `true` |
+| `Munich, Federal Republic of Germany` | an honorary consulate in München | `false` |
+
+Read the returned label and `selected.is_high_confidence` before you use
+a cell.
+
+### No sub-meter imagery and no notebook UI
+
+The default build has no sub-meter imagery and no notebook UI. To use a
+notebook, call REST or MCP from it.
 
 ## Where it is going
 
-emem is a protocol, not a single service. The end state is a federation of independent responders that resolve the same ids byte-for-byte, cross-cite each other, and record where they disagree. One account of the world is a claim; several independent ones that verify against each other are a record. **The multi-host federation routing does not ship yet in the 1.x line**, and neither does read federation: `EMEM_PEERS` names the peers this node witnesses and no read path resolves against them. What did ship is the witness mesh underneath, running both directions since 2026-09-02. What ships today is the machinery it stands on: content addressing, signed receipts, an append-only attestation log with per-fact merkle proofs, a multi-writer attest endpoint, typed temporal links, cross-source disagreement scoring, and an offline refinement loop.
+emem is a protocol, not a single service. The end state is a federation
+of independent responders. They resolve the same ids to the same bytes,
+cite each other, and record where they disagree. One account of the
+world is a claim. Several independent accounts that verify against each
+other are a record.
 
-The staged work from here, building on those pieces:
+Multi-host routing and read federation do not ship. `EMEM_PEERS` names
+the peers that this node witnesses, and no read path resolves against
+them. The witness mesh does ship, and it has run in both directions since
+2026-09-02.
 
-1. **Receipts that name their log leaf.** The public transparency log itself shipped 2026-07-10 (signed tree heads, consistency and inclusion proofs, entry enumeration, and witness co-signing, all under `/v1/log/*`). What remains is chaining each receipt to its leaf, so tying one fact to the log is a single check instead of the receipt's batch proof plus enumeration, and gossiping heads between responders so a split view cannot survive. The gossip half is now running: `emem-witness.timer` co-signs a peer's head every 15 minutes and spot-checks four leaves under it, and an independent witness co-signs this one. See [`federation.md`](federation.md) §8a.
-2. **Signed absence proofs.** Turn "no fact here" from a signed statement into a checkable non-membership proof.
-3. **A public attester spec.** So partners and customers run their own signing nodes against the write path that already exists.
-4. **Quorum reads across responders.** Content addressing makes agreement trivial to check: same canonical bytes, same id, k signatures. The design is written up in [`federation.md`](federation.md).
+These parts ship today, and the staged work builds on them:
 
-Federate later; the fact ids will not move. Near-term work is tracked in [issues](https://github.com/Vortx-AI/emem/issues).
+- content addressing
+- signed receipts
+- an append-only attestation log with per-fact Merkle proofs
+- a multi-writer attest endpoint
+- typed temporal links
+- scores for disagreement between sources
+- an offline refinement loop
 
+The staged work:
+
+1. **Receipts that name their log leaf.** The public transparency log
+   shipped on 2026-07-10 under `/v1/log/*`. It has signed tree heads,
+   consistency and inclusion proofs, entry enumeration and witness
+   co-signing. Two parts remain. First, chain each receipt to its leaf,
+   so that one check ties a fact to the log. Today that takes the batch
+   proof of the receipt plus enumeration. Second, gossip heads between
+   responders, so that a split view cannot survive. The gossip part
+   runs now: `emem-witness.timer` co-signs the head of a peer every 15
+   minutes and spot-checks four leaves under it. An independent witness
+   co-signs the emem.dev head. See [`federation.md`](federation.md) §8a.
+2. **Signed absence proofs.** Change "no fact here" from a signed
+   statement into a non-membership proof that a reader can check.
+3. **A public attester spec.** Partners and customers can then run their
+   own signing nodes against the write path that exists now.
+4. **Quorum reads across responders.** Content addressing makes
+   agreement easy to check: the same canonical bytes give the same id,
+   with k signatures. [`federation.md`](federation.md) has the design.
+
+Federation can come later, because the fact ids will not move.
+[Issues](https://github.com/Vortx-AI/emem/issues) track the near-term
+work.
 
 ## Open research
 
-emem works end to end today. This is the honest list of what it does not do yet, kept in one place so a contributor or an agent can see where the edges are and pick one up. Two threads run through all of it. The first is the substrate: memory an agent can trust, carry between vendors, and verify without a callback. The second is the worlds at [`/worlds`](https://emem.dev/worlds), which are not the product but the proof, the most direct way to show a memory can be both generated and checkable at the same time. Each item says what already ships and what is still open, so nothing here is a promise dressed up as a feature.
+emem works end to end today. This section lists what it does not do
+yet, so that a contributor or an agent can see the edges and pick one
+up. Each item says what ships and what is still open.
 
-The test we hold every item to: does it make emem's memories more trusted, portable, and verifiable? If yes, it belongs here. Recall makes an agent convenient; verifiable memory makes it accountable, and accountability is the part still missing between today's demos and agents a regulated business will let run on their own. The same test carries the longer thesis: generating a plausible answer is cheap and getting cheaper, and what stays scarce is a shared account of the physical world that is measured, signed, and checkable by someone who was not there. Every item below exists so an agent inherits that account instead of re-observing it.
+Two threads run through the list. The first is the substrate: memory
+that an agent can trust, carry between vendors and verify without a
+callback. The second is the worlds at
+[`/worlds`](https://emem.dev/worlds). They are not the product. They
+show that a memory can be generated and checkable at the same time.
+
+Each item must pass one test: does it make emem memories more trusted,
+portable or verifiable? Recall makes an agent convenient. Verifiable
+memory makes it accountable, and a regulated business needs that before
+it lets agents run on their own. Plausible answers get cheaper to
+generate. A shared account of the physical world that is measured,
+signed and checkable by an absent party stays scarce. Each item below
+helps an agent inherit that account, so that it does not observe the
+world again.
 
 ### Change attribution: why did this place's readout move
 
