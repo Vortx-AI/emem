@@ -361,7 +361,7 @@ def deployments():
     invariants = [
         "a citation this node does not hold is an ALLOW, never a deny: it is indistinguishable from one minted elsewhere",
         "an uncertain case allows: we are one control among several, and a wrong deny is what gets a guard switched off",
-        "claim_gating denies on ABSENCE, so it ships off and shadow is the only way to turn it on",
+        "claim_gating denies on ABSENCE, so it ships off: measure it in shadow mode before you turn it on",
     ]
     for i, ln in enumerate(invariants):
         s.dot(300, 812 + i * 26, 2.6, VERMIL)
