@@ -462,7 +462,10 @@ enough.
   `segment_hash = blake3(all_records)`. A segment closed by a restart
   has no `segment_hash`.
 - `append()` calls fsync before it returns.
-- `verify()` hashes each sealed segment again and reports mismatches.
+- `verify()` hashes each segment file again. It compares the hash of
+  the body with the last 32 bytes. It reports a segment closed by a
+  restart as `trailing hash mismatch`, because that segment has no
+  `segment_hash`.
 
 The node also keeps an RFC 6962 transparency log with a signed tree
 head at `GET /v1/log/sth`. [federation.md](../federation.md) describes
