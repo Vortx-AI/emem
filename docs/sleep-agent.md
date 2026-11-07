@@ -60,9 +60,11 @@ Each pass has three steps.
      `EMEM_SLEEP_AGENT_MIN_SEVERITY` (default 0.3) is a candidate. A higher severity ranks the candidate
      higher.
    - Churn. The agent lists the notes of the configured kinds
-     (`emem_memory_list_by_kind`). It groups them by a normalized path stem:
-     `notes/site-1`, `notes/site-2` and `notes/site.md` all become
-     `notes/site`. A group with two or more notes is a candidate. A group
+     (`emem_memory_list_by_kind`). It groups them by a normalized path stem.
+     The stem is the path without the file extension, trailing digits,
+     trailing `-`, `_` or spaces, and a trailing `(copy)`
+     (`normalize_stem` in `lib.rs`). Thus `notes/site-1`, `notes/site-2`
+     and `notes/site.md` all become `notes/site`. A group with two or more notes is a candidate. A group
      whose total version count reaches the churn threshold is also a
      candidate. The agent does not read the version history of a note. It
      counts each note as one version (`history_len: 1` in `candidates.rs`).
@@ -80,7 +82,8 @@ Each pass has three steps.
 3. **Write back** (`merge.rs`). The agent adds a provenance trailer to the
    merged text. The trailer names each source as `path@file_cid`. The agent
    then sends the text with `emem_memory_create` to the canonical path of
-   the group.
+   the group. For a churn group, the canonical path is the first member
+   path in sort order. The other members stay as they are.
 
    A contradiction candidate carries no note. Its canonical path is
    `/memories/reconciled/<cell>/<band>`. The prompt gives the model only
