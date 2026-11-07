@@ -120,6 +120,22 @@ authentication. On 7 November 2026 the card listed 18 skills.
 | `POST /v1/a2a/tasks` | Runs the same skills as an async task that you poll or cancel |
 | `POST /v1/message:send` | The A2A HTTP+JSON binding of `message/send` |
 
+This call runs `emem_locate` through `message/send`. Put the skill name in
+`params.metadata.skill_id` and the tool arguments in a `data` part.
+
+```sh
+curl -s https://emem.dev/a2a/tasks -H 'content-type: application/json' -d '{
+  "jsonrpc": "2.0", "id": 1, "method": "message/send",
+  "params": {
+    "metadata": {"skill_id": "emem_locate"},
+    "message": {"role": "user", "messageId": "m1",
+      "parts": [{"kind": "data", "data": {"place": "Mount Fuji"}}]}}}'
+```
+
+On 7 November 2026 the task came back with state `TASK_STATE_COMPLETED`. Its
+one artifact, `emem_locate_result`, held `cell64` `defi.zb592.nUkO.zEzE`. If
+you send no `skill_id`, send a text part, and `emem_ask` answers it.
+
 The recording is from 30 September 2026. A frame of the recording shows a
 card with 117 skills for version 2.4.2.
 
