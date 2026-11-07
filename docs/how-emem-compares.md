@@ -206,7 +206,7 @@ BM25 equals the accuracy of the addressed arm with no minting, no round trips
 and no protocol.
 
 A coordinate is a rare literal string. So all chunks are almost the same in
-embedding space, but their token overlap is very different. Cosine similarity
+embedding space, but each chunk has different literal tokens. Cosine similarity
 cannot use that difference. BM25 uses it directly.
 
 So the claim is narrow. Dense embedding similarity fails on homogeneous numeric
@@ -281,8 +281,8 @@ So the tolerance is back, with a limit, and the response always shows it:
 | `ulp_gap` | the measured gap, on success and on failure |
 
 A caller who needs bit-identity can require gap 0, because the gap is visible.
-"Equal within 4 ULP, measured gap 2" is a verifier. "Equal" that means "close"
-is not.
+"Equal within 4 ULP, measured gap 2" is a result that a caller can check.
+"Equal" that means "close" is not.
 
 The code, not this page, enforces the line between what the responder signed and
 what it did not sign:
