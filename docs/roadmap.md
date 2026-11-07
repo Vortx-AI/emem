@@ -17,7 +17,7 @@ changed.
 Two earlier minor releases set the current shape. 2.2.0 (2026-08-18) made
 the agent surface usable without a human: it added the intent registry,
 the supersede verb and A2A `message/stream`. 2.4.0 (2026-09-07) let a
-third party join the federation without our help.
+third party join the federation with no help from the emem maintainers.
 
 Plan around the limits below.
 
@@ -30,7 +30,7 @@ Since 2026-09-02 a second node, `geo.qa`, co-signs the emem.dev log, and
 emem.dev co-signs the `geo.qa` log. This is federation phase 0. It makes
 a split view detectable. It does not change where reads resolve.
 
-Since 2.4.0 a third party can join without us:
+Since 2.4.0 a third party can join with no help from the maintainers:
 
 - `docker-compose.yml` starts a node with one command.
 - `scripts/verify_node.py` checks a node against the join bar, with no
@@ -42,7 +42,7 @@ record that binds the two, and a DID document. A RESOLVER also publishes
 the registries that a reader needs to check what it serves.
 
 The bar has two roles for a reason. The first bar included the registry
-CIDs, and our only peer failed it while it co-signed this log every 15
+CIDs, and the only peer failed it while it co-signed this log every 15
 minutes. A test that no participant passes is not a standard. No node is
 a resolver yet, emem.dev included, because nobody has built read federation yet.
 
@@ -270,13 +270,12 @@ Still open:
 
 ### Space, and the first substrate someone else built for
 
-We registered `space.deep.v1` and the `entity.cid` address space on
-2026-08-11. We designed them from our own idea of what a subject with no
-latitude needs. Two days later, `dpwotikn` published a fourteen-message
+The maintainers registered `space.deep.v1` and the `entity.cid` address
+space on 2026-08-11. The design came from their own idea of what a
+subject with no latitude needs. Two days later, `dpwotikn` published a fourteen-message
 handoff (`pqbrf5vlpjxan44peptluk4hnq`). It came from a working
 neuromorphic detector for resident space objects (RSO) on a 0.8 m
-optical station. They built against the registry and did not ask us to
-change it. Most of this section reports their work.
+optical station. They built against the registry and did not ask for a change to it. Most of this section reports their work.
 
 #### What their results show
 
@@ -308,7 +307,7 @@ Provenance does not make a real-time pipeline miss its deadline.
   The contrast that separates targets has the opposite sign on six of
   ten recordings.
 
-#### The finding that changes our design
+#### The finding that changes the substrate design
 
 They tried a generic motion-coherence gate against the false alarms.
 It failed: every setting that removed the stars also removed the
@@ -329,7 +328,7 @@ of them exists yet:
 #### Prior art, from their own review
 
 They ran three reviews to find what is not new, and they adopted all
-three results. This protects our framing and theirs.
+three results. This protects the framing of both projects.
 
 - Event-based SSA is an active field (Cohen et al. 2019; Afshar et al.
   2020, IEEE Sensors Journal 20(24):15117-15132). Afshar et al. also
@@ -343,21 +342,21 @@ three results. This protects our framing and theirs.
 - CCSDS 355.0-B-2 SDLS is link-layer security, not data provenance. Do
   not cite it as prior art for provenance.
 
-Their remaining claim is narrow, and we use their words. It is the
+Their remaining claim is narrow, and this page uses their words. It is the
 first provenance chain that reaches the raw sensor window, not only the
 reduced observation. It is also the first for neuromorphic event data. They
 withdrew a claim of "without trusting the producer". A review found it
-false at the capture boundary. Our own device gate stops at the same
+false at the capture boundary. The emem device gate stops at the same
 boundary.
 
-#### What we answered
+#### What emem changed in reply
 
 - Their blocker was the digest constructions of `emem.os_trace.v1`.
   These existed only in rejection messages, while the registry said
   that device makers could build against the pinned profiles.
   `GET /v1/verifier_spec` now has `os_trace_v1_device_side` (live on
   7 November 2026). It gives all three constructions and a known-good
-  fixture that our verifier checks in-process.
+  fixture that the emem verifier checks in-process.
 - Sky pointings and orbital buckets are not a new namespace and not a
   second resolver. They are anchors. `ExternalIds.anchor` mints an
   identity from an anchor with no place.
@@ -378,9 +377,9 @@ No shipped band uses the class. A test asserts this
 Nothing in the Earth corpus is a fitted quantity that can run again, so
 a relabel would only rename facts.
 
-We first told them that the class needed a version, because it would
-move `bands_cid`, and every receipt commits to that value. We measured
-it, and the cid did not change. The manifest hashes the registry data,
+The first answer to them was that the class needed a version, because it
+would move `bands_cid`, and every receipt commits to that value. A
+measurement showed that the cid did not change. The manifest hashes the registry data,
 and a class that no band uses does not appear in that data. The real
 cost was four match arms in one file. A test now pins the cid
 (`the_bands_manifest_cid_is_unchanged_by_the_class_vocabulary`). If a
@@ -393,16 +392,18 @@ estimator id, its input fact cids and its seed. Without these, it is
 structure that carries these three fields. That structure is the only
 work left before a band can use the class.
 
-#### What we have not built
+#### What is not built
 
-The `entity.cid` write path. The substrate registry admits a profile as
-`active` only on an address space that this build can key a fact by,
-and today that is `geo.cell64` alone. The `entity.cid` profiles are
-candidates for builders, not open for ingest
+The `space.deep.v1` bands. The `entity.cid` address space can key a fact
+(`has_write_path` and the test `an_object_is_as_addressable_as_a_place`
+in
+[`substrates.rs`](https://github.com/Vortx-AI/emem/blob/main/crates/emem-core/src/substrates.rs)).
+But `space.deep.v1` declares `bands: []`, so it stays a candidate, and
+there is no band to store a telescope reading under
 ([`substrates-v0.json`](https://github.com/Vortx-AI/emem/blob/main/crates/emem-core/data/substrates-v0.json)).
-A telescope can prove how it ran, but it has no place to store the
-reading. This is the keystone for every substrate that is not
-geographic, and it is next.
+The three `sky.*` materializers above are that work.
+[Address spaces in the substrate registry](#address-spaces-in-the-substrate-registry)
+has the full rule.
 
 ### Every number in a published algorithm says where it came from
 
