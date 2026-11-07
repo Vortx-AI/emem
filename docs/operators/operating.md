@@ -142,7 +142,7 @@ reverse proxy.
 | `EMEM_TLS_BIND` | `0.0.0.0:443` | The TLS listener. |
 | `EMEM_TLS_CONTACT` | unset | Your ACME contact, for example `mailto:ops@example.com`. With TLS on, the node does not start without it. |
 | `EMEM_TLS_STAGING` | unset | `1` uses the Let's Encrypt staging directory. Use it while you test. |
-| `EMEM_REDIRECT_HTTPS` | unset | `1` makes the plain listener answer with a redirect to HTTPS, unless `X-Forwarded-Proto` is `https`. |
+| `EMEM_REDIRECT_HTTPS` | unset | `1` makes the plain listener answer with a 308 redirect to HTTPS when the `Host` header is one of `EMEM_TLS_DOMAINS`. A request to another host, such as `127.0.0.1:5051`, gets a normal answer. A request with `X-Forwarded-Proto: https` also gets a normal answer. |
 
 The node keeps certificates in `$EMEM_DATA/acme.cache/`. Port 443 must be open to the internet, because TLS-ALPN-01
 connects to it.
@@ -297,8 +297,8 @@ $EMEM_DATA/
 `EMEM_HOT_BACKEND=sled` puts fact rows back in `cache.sled/`. It is the rollback path. `emem-sled-slim` copies the
 live sled trees into a new `cache.sled.slim/` and leaves out the fact trees that `facts.redb` now holds. Before it
 leaves out a tree, it copies into `facts.redb` each key of that tree that `facts.redb` does not have. It never
-overwrites a key that `facts.redb` holds. It deletes nothing. You rename the directories yourself. On emem.dev, the copy was 40 GB from 41 GB, so the maintainers kept the
-original (header of `emem-sled-slim.rs`).
+overwrites a key that `facts.redb` holds. It deletes nothing. You rename the directories yourself. On emem.dev,
+the copy was 40 GB from 41 GB, so the maintainers kept the original (header of `emem-sled-slim.rs`).
 
 ### Back up and move a node
 
