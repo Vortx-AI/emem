@@ -1691,10 +1691,20 @@ a CFL stability check. `jepa_predict` is a constrained AR(2) seasonal NDVI
 predictor with fixed coefficients. It is arithmetic, not a learned model.
 
 `cell` (or `coastal_cell`) also takes a place name, and `place` is an
-alias of it. The route then runs `/v1/locate` first. On 7 November 2026,
+alias of it. `wave_solve` also accepts `cell` in place of `coastal_cell`.
+The route then runs `/v1/locate` first. On 7 November 2026,
 `/v1/jepa_predict` with `{"place": "Mount Fuji"}` and `/v1/heat_solve`
 with `{"cell": "Mount Fuji"}` both answered 200 for cell
 `defi.zb592.nUkO.zEzE`.
+
+`wave_solve` walks seaward from the coastal cell. The last cell of that
+walk must be more than 5 m deep. At least half of the cells must be more
+than 1 m deep (`physics.rs`, `classify_seaward_profile`). If not, the
+answer is 422 `invalid_argument` with
+`details.error_kind: "LandLockedProfile"`.
+`details.next_steps` then suggests a larger `n_offshore_cells` (up to 64)
+or a cell nearer the coast. On 7 November 2026, `{"cell": "Santa Monica",
+"offshore_height_m": 2, "period_s": 10}` gave this answer.
 
 #### Routes for algorithms that the formula engine cannot run
 
