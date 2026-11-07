@@ -1612,10 +1612,10 @@ trust-chain anchor; always cite from the per-cell branch.
 
 The still below shows two live calls on 7 November 2026 with the same box over the Mount Fuji summit. The first
 call returned no facts. The responder was at its cold-fetch ceiling of 600 per minute. All 16 cells came back
-as unsigned pending entries with reason `deferred`. The second call, 50 seconds later, returned 16
+as unsigned pending entries with `reason_class` `deferred`. The second call, 50 seconds later, returned 16
 facts with 16 receipts.
 
-<img src="media/stills/area-receipts.webp" alt="Two identical recall_polygon calls on 7 November 2026 over a 7.54 square km box on the Mount Fuji summit, 16 cells, Copernicus DEM elevation. At 16:08:38 UTC: 0 facts and 16 unsigned pending entries, reason deferred, because the responder was at its cold-fetch ceiling of 600 per minute. At 16:09:28 UTC: 16 facts and 16 receipts, drawn as dots on a Sentinel-2 image with elevations from 3,022 m to 3,687 m. Each receipt names 1 cell and 1 fact id and checks valid offline; with another cell's fact id or cell it is invalid. merged_facts has no receipt. The mean, 3,349 m, is not signed, and 16 cells are 0.021 percent of the cells in the box." width="540">
+<img src="media/stills/area-receipts.webp" alt="Two identical recall_polygon calls on 7 November 2026 over a 7.54 square km box on the Mount Fuji summit, 16 cells, Copernicus DEM elevation. At 16:08:38 UTC: 0 facts and 16 unsigned pending entries, reason_class deferred, because the responder was at its cold-fetch ceiling of 600 per minute. At 16:09:28 UTC: 16 facts and 16 receipts, drawn as dots on a Sentinel-2 image with elevations from 3,022 m to 3,687 m. Each receipt names 1 cell and 1 fact id and checks valid offline; with another cell's fact id or cell it is invalid. merged_facts has no receipt. The mean, 3,349 m, is not signed, and 16 cells are 0.021 percent of the cells in the box." width="540">
 <br><sub>Contains modified Copernicus Sentinel data 2025.</sub>
 
 ---

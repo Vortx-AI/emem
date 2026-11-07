@@ -12,10 +12,13 @@ Run from the repository root:  python3 docs/media/stills/src/check_media.py
 5. README_MEDIA_PROPOSAL.md: each stated byte size equals the file size, each
    named file exists, and each swap row names the image that README.md shows
    on that line today.
+6. Each <img> tag in docs/ parses with html.parser and has only known
+   attributes, so a double quote inside alt text cannot cut it short.
 
 Exit status 1 when a check fails.
 """
 
+from html.parser import HTMLParser
 import pathlib
 import re
 import shutil
@@ -147,8 +150,33 @@ def check_proposal():
             fails.append(f"proposal: README.md line {line} does not show {now}")
 
 
+IMG_ATTRS = {"src", "alt", "width", "height"}
+
+
+class ImgAttrs(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.unknown = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "img":
+            self.unknown += [k for k, _ in attrs if k not in IMG_ATTRS]
+
+
+def check_img_tags():
+    for md, text in doc_pages():
+        for m in re.finditer(r"<img\b[^\n]*?>", text):
+            parser = ImgAttrs()
+            parser.feed(m.group(0))
+            if parser.unknown:
+                line = text[: m.start()].count("\n") + 1
+                fails.append(f"img: {md.relative_to(ROOT)}:{line} unknown attributes {parser.unknown[:3]}, "
+                             "a double quote in alt text? Use single quotes or &quot;")
+
+
 check_sizes()
 check_listed()
+check_img_tags()
 check_proposal()
 embeds = check_alt_numbers()
 check_durations()

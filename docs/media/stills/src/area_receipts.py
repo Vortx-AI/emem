@@ -153,7 +153,7 @@ the Mount Fuji summit, 16 cells, Copernicus DEM elevation. The same call twice, 
 <div class="panel">
 <div class="ph">1. {t1[11:19]} UTC: <span class="wait">0 facts</span></div>
 <div class="val">The 16 cells were cold. The responder was at its cold-fetch ceiling of 600 per minute, so it
-returned 16 <span class="mono">pending</span> entries, reason <span class="mono">deferred</span>, and
+returned 16 <span class="mono">pending</span> entries, <span class="mono">reason_class</span> <span class="mono">deferred</span>, and
 <span class="mono">converged: false</span>.</div>
 <div class="sub" style="margin-top:8px">Each cell receipt is valid and lists 0 fact ids. The pending entries carry
 no signature. An empty answer here does not mean that the place has no data.</div>

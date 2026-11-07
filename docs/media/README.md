@@ -22,7 +22,7 @@ More: [intro.md](../intro.md).
 
 Only when they resolve to the same point. A different point can give a different cell and a different value.
 
-<img src="stills/one-place-many-names.webp" alt="Five phrasings of Mount Fuji sent to locate on 7 November 2026 gave four cells. "Mount Fuji" and "mount fuji" gave defi.zb592.nUkO.zEzE, elevation 3539.04 m. "Fujisan" gave the Wikidata point 390 m away, 3766.73 m. The coordinates 35.3606, 138.7274 gave the next cell, 10 m from that point, 3768.41 m. "Fuji-san, Japan" gave a shrine 13.3 km away, 871.37 m, with disambiguation_required true. A map shows the points. The emem:fact: token for the first cell resolves to the same signed bytes for any agent. All four receipts check valid offline." width="540">
+<img src="stills/one-place-many-names.webp" alt="Five phrasings of Mount Fuji sent to locate on 7 November 2026 gave four cells. 'Mount Fuji' and 'mount fuji' gave defi.zb592.nUkO.zEzE, elevation 3539.04 m. 'Fujisan' gave the Wikidata point 390 m away, 3766.73 m. The coordinates 35.3606, 138.7274 gave the next cell, 10 m from that point, 3768.41 m. 'Fuji-san, Japan' gave a shrine 13.3 km away, 871.37 m, with disambiguation_required true. A map shows the points. The emem:fact: token for the first cell resolves to the same signed bytes for any agent. All four receipts check valid offline." width="540">
 
 More: [start-here.md](../start-here.md).
 
