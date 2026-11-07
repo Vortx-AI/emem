@@ -584,9 +584,10 @@ off. The responder stores nothing for a refused write, so send it again
 after `retry_after_s` seconds.
 
 The same bucket also counts the signed writes of that key to
-`/v1/attest`, `/v1/attest_cbor`, `/v1/attest_traced`, `/v1/edges` and
-`/v1/log/witness`. Thus a burst of edges
-can slow the next note. `GET /.well-known/mcp.json` shows the values
+`/v1/attest`, `/v1/attest_cbor`, `/v1/attest_traced`, `/v1/edges`,
+`/v1/log/witness`, `/v1/entity` and `/v1/entity/alias`. Thus a burst of
+edges can slow the next note. The two entity routes take the token
+before they check the signature. `GET /.well-known/mcp.json` shows the values
 that apply, under `security_posture.write_rate_limit`. On 7 November
 2026, `emem.dev` showed `enabled: true`, 240 a minute and a burst of 60.
 
