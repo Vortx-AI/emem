@@ -470,7 +470,7 @@ tombstones, both cases returned the same 404.
 - Some old records outside `by_attester/` have no stored attester, so no key
   can prove that it owns them. While the operator requires signed writes (the
   release default), nobody can change them. You can read them, but the
-  server refuses every change, also from the operator, with `reason:
+  responder refuses every change, also from the operator, with `reason:
   open_namespace_unowned_record`.
 - Each attester has a write rate limit: 240 writes per minute sustained, with
   a burst of 60. It stops runaway loops; it is not a business rule. An
@@ -515,8 +515,8 @@ the operator cannot read, encrypt on the client first.
   verified. `POST /v1/trace_verify` checks that an `emem.os_trace.v1` record
   is consistent and signed by the device key. It does not prove that the
   hardware is genuine. Every platform in `GET /v1/device_platforms` is
-  `candidate`, and every trust anchor is provisional. The responder accepts no vendor
-  root of trust yet.
+  `candidate`, and every trust anchor is provisional. The responder
+  accepts no vendor root of trust yet.
 
 ## 12. Verify the responder yourself
 

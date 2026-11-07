@@ -2007,7 +2007,7 @@ one of them, the plugin script names the segment and tells you to use
 | Exit status | Plugin script result |
 |---|---|
 | `0` | `VALID` |
-| `1` | `INVALID` |
+| `1` | `INVALID` on stdout when the signature does not verify. `INVALID` on stderr when the signature or the key is missing or has the wrong length. |
 | `2` | The arguments are wrong, the input is not JSON, or the input is an `emem.error.v1` body. |
 | `3` | The receipt has a segment the script does not rebuild, or its `preimage_version` is not 1 or 2. A legacy receipt also gives 3. |
 
@@ -2981,8 +2981,9 @@ entry later, because a late entry would record the time of logging, not
 the time of writing.
 
 `GET /v1/log/entries` takes a half-open range `start` (default 0) and
-`end` (default `start + 256`). One call returns 256 entries at most (`max_per_call`). If `end`
-is not more than `start`, the call returns 400 `invalid_argument`. Each
+`end` (default `start + 256`). One call returns 256 entries at most
+(`max_per_call`). If `end` is not more than `start`, the call returns
+400 `invalid_argument`. Each
 response gives `end_exclusive`: resume the next call from there.
 `truncated: true` means that the cap or the end of the log cut the
 range short. A responder without a durable log returns 501 `internal`.
@@ -3018,8 +3019,7 @@ same PreimageV1 construction as the STH (§9.6), under the responder
 key. In each domain, the first segment has tag 1, and each next
 segment adds 1 to the tag. `GET /v1/verifier_spec` lists the segments
 of four of the five domains in this table under `other_signed_objects`.
-It does not list
-`emem.doc_parse.v1`. For that domain, use this table, the
+It does not list `emem.doc_parse.v1`. For that domain, use this table, the
 `receipt.preimage` text in each parse response, or `doc_tag` in
 `crates/emem-api-rest/src/reader.rs`.
 

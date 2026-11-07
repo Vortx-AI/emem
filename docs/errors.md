@@ -464,9 +464,10 @@ gives the discovery document.
 We sent requests to emem.dev on 7 November 2026. Each gave the code and
 status in the tables. From `/mcp` we got -32600, -32601, -32602 (three
 causes), -32022, -32020, the 403 -32000 and the tool error -27. We also
-got the 403 for a bad body, and the `emem_cell_scene_rgb` -32000. From `/a2a/tasks` we
-got -32009, -32001 and -32601. We did not cause -32603, -32002, -32050 or
-the task registry -32000 live. Those rows come from the code in
+got the 403 for a bad body, and the `emem_cell_scene_rgb` -32000. From
+`/a2a/tasks` we got -32009, -32001 and -32601. We did not cause -32603,
+-32002, -32050 or the task registry -32000 live. Those rows come from
+the code in
 `crates/emem-api-rest/src/lib.rs`.
 
 ```sh
