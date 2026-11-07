@@ -50,17 +50,18 @@ Each step applies the 5-point Laplacian update:
 The 8 perimeter cells keep their values (Dirichlet). Only the centre
 cell changes. The scheme is stable while `α·Δt/Δx²` is 0.25 or less.
 The solver uses 0.20 as a safety margin, so its largest step is
-`0.20 · Δx² / α`. With the default α this step is about 211 days, so a normal call takes one
-step. A large α needs many steps. The step limit stops such a call from
-holding the handler for minutes. The 168 h limit exists because an 8-day MODIS
-composite is not a good start state for more than a week.
+`0.20 · Δx² / α`. With the default α this step is about 211 days, so
+a normal call takes one step. A large α needs many steps. The step
+limit stops such a call from holding the handler for minutes. The 168 h
+limit exists because an 8-day MODIS composite is not a good start state
+for more than a week.
 
 When a neighbour cell has no usable fact, the solver uses the centre
 value in its place. `imputed_neighbor_indices` lists these cells.
 
 When the range of the 9 stencil values is less than 0.01 K, the
-response sets `stencil_diagnostic.is_uniform` to true. The MODIS LST noise floor is about
-0.5 K. A uniform stencil can mean two things. The surface is really
+response sets `stencil_diagnostic.is_uniform` to true. The MODIS LST
+noise floor is about 0.5 K. A uniform stencil can mean two things. The surface is really
 uniform, or one coarse source pixel filled all 9 cells. The flag tells
 the caller to check which.
 
@@ -79,10 +80,11 @@ curl -s https://emem.dev/v1/heat_solve \
 ```
 
 That call gave `initial_condition_k` 305.04, `forecast_k` 305.025 and
-`delta_k` -0.015. The 8 neighbours all read 289.58 K. The `neighborhood_signed_at`
-field shows why. The responder signed the centre fact on 28 May 2026,
-and the neighbour facts on 7 November 2026. Thus the 15.46 K range in the stencil
-is a difference in time, not in space.
+`delta_k` -0.015. The 8 neighbours all read 289.58 K. The
+`neighborhood_signed_at` field shows why. The responder signed the
+centre fact on 28 May 2026, and the neighbour facts on 7 November 2026.
+Thus the 15.46 K range in the stencil is a difference in time, not in
+space.
 
 The solver recalls each of the 9 cells with no `tslot`. A cell with no
 fact gets a fetch first. The solver does not check that the 9 facts come from the
@@ -113,10 +115,12 @@ true:
 - The offshore boundary cell is more than 5 m deep.
 - At least 50 % of the profile cells are more than 1 m deep.
 
-A land-locked profile returns HTTP 422. The body has `code: invalid_argument`,
-a `message` and a `details` object. `details` has `error_kind: LandLockedProfile`, the measured
-GMRT depths in `depth_profile_m` (offshore end first), the limits in
-`thresholds` and a `next_steps` list. The list has
+A land-locked profile returns HTTP 422. The body has
+`code: invalid_argument`, a `message` and a `details` object. `details`
+has `error_kind: LandLockedProfile` and the measured GMRT depths in
+`depth_profile_m` (offshore end first). It also has the share of cells
+more than 1 m deep in `oceanic_fraction`, the limits in `thresholds` and a
+`next_steps` list. The list has
 `try_longer_profile` and `try_different_cell`. The solver does not
 return a wave for an inland cell.
 
@@ -155,11 +159,12 @@ water, not a wave that reaches a beach.
 
 On the same day, cells at the shore near Waikiki, Bondi Beach and Nazare
 (from `/v1/locate` by name), with `n_offshore_cells: 64`, all gave the
-land-locked rejection. At Bondi and Nazare the offshore end cell had 0 m depth.
+land-locked rejection. At Bondi and Nazare the offshore end cell had
+0 m depth.
 
-This request shows the 422 rejection with its details. On
-7 November 2026 its profile had 44 cells, not 64. The offshore end cell had
-0 m depth, and 32 % of the cells were more than 1 m deep:
+This request shows the 422 rejection with its details. On 7 November
+2026 its profile had 44 cells, not 64. The offshore end cell had 0 m
+depth, and 32 % of the cells were more than 1 m deep:
 
 ```sh
 curl -s https://emem.dev/v1/wave_solve \
@@ -191,8 +196,8 @@ it only among the kept samples. When it finds none, the α term uses
 applied.
 
 This is not a learned model. The coefficients come from the
-agricultural NDVI literature, and no training changes them. The response states them in
-`predictor_coefficients` and `honesty_note`. You can compute the same
+agricultural NDVI literature, and no training changes them. The
+response states them in `predictor_coefficients` and `honesty_note`. You can compute the same
 value again from the `history_values` in the response. The route name
 is historical.
 
@@ -213,6 +218,8 @@ curl -s https://emem.dev/v1/jepa_predict \
 ```
 
 A larger lookback keeps more samples, so the solver has more samples in
-which to find `lag_12`. It uses `lag_12` only when a sample is within one
-tslot of that point. At Mount Fuji on
-7 November 2026, `"lookback_months": 13` still gave `lag_12_used` false.
+which to find `lag_12`. It uses `lag_12` only when a sample is within
+one tslot of that point. At Mount Fuji on 7 November 2026,
+`"lookback_months": 13` kept 13 samples and still gave `lag_12_used`
+false. The latest sample was tslot 20754, so the target was 20742. The
+nearest kept sample was 20744, two tslots away.
