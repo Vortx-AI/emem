@@ -2750,7 +2750,7 @@ pub async fn band_cube(req: BandCubeReq, s: &AppState) -> Result<JsonValue, ApiE
             "derivation_fact": format!("emem:fact:{centre_cell}:{derivation_cid}"),
         },
         "docs": "https://emem.dev/reference#token-cube",
-        "members_note": "each member carries an emem:raster: token you can resolve independently or batch through resolve_many",
+        "members_note": "each member carries an emem:raster: token; resolve it with POST /v1/raster/resolve, or cite 2 to 64 of them as one emem:rasterset: token with POST /v1/raster_bundle. /v1/memory_token/resolve_many takes emem:fact: tokens only",
         "receipt": receipt,
     }))
 }
@@ -2948,7 +2948,7 @@ pub async fn cube_resolve(req: CubeResolveReq, s: &AppState) -> Result<JsonValue
         "derivation": body,
         "member_tokens": member_tokens,
         "docs": "https://emem.dev/reference#token-cube",
-        "members_note": "resolve each raster_token with emem_raster_resolve, or batch them with resolve_many; each artifact is at GET /v1/artifacts/{artifact_cid}, immutable",
+        "members_note": "resolve each raster_token with emem_raster_resolve (POST /v1/raster/resolve); /v1/memory_token/resolve_many takes emem:fact: tokens only. Each artifact is at GET /v1/artifacts/{artifact_cid}, immutable",
         "receipt": receipt,
         "offline_verify_at": "/verify",
     }))

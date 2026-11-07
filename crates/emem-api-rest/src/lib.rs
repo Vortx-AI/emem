@@ -39991,6 +39991,32 @@ struct MemoryTokenResolveResp {
 /// [`resolve_one_token`] can accept it in degraded mode (U1) rather than
 /// fail closed with no recovery path. Deliberately strict: exactly the
 /// shape a full-width fact CID has, so it can never swallow a typo'd token.
+/// Token kinds that carry several 52-character cids. Without this check,
+/// [`recover_fact_cid`] takes the first one (an aoi_cid or bundle_cid, not a
+/// fact) and the caller gets a `cid_not_found` that sends it to `/v1/fetch`.
+const NON_FACT_TOKEN_RESOLVERS: &[(&str, &str)] = &[
+    ("emem:raster:", "POST /v1/raster/resolve"),
+    ("emem:cube:", "POST /v1/cube/resolve"),
+    ("emem:rasterset:", "POST /v1/raster_bundle/resolve"),
+    ("emem:bundle:", "GET /v1/memory_bundle/{token}"),
+    ("memb:", "GET /v1/memory_bundle/{token}"),
+    ("emem:entity:", "GET /v1/entity/{id}"),
+    ("meme:", "GET /v1/entity/{id}"),
+    (
+        "emem:tree:",
+        "GET /v1/tree/{file_cid} or POST /v1/tree/path",
+    ),
+    ("emem:trace:", "POST /v1/trace_resolve"),
+];
+
+fn non_fact_token_resolver(token: &str) -> Option<(&'static str, &'static str)> {
+    let t = token.trim();
+    NON_FACT_TOKEN_RESOLVERS
+        .iter()
+        .find(|(prefix, _)| t.starts_with(prefix))
+        .map(|(prefix, resolver)| (prefix.trim_end_matches(':'), *resolver))
+}
+
 fn recover_fact_cid(token: &str) -> Option<(String, &'static str)> {
     let t = token.trim().to_ascii_lowercase();
     let is_c = |b: u8| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b);
@@ -40236,6 +40262,18 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
     // costs a fifth of the loop. The cell is left empty and taken from the
     // signed body below; the cell-binding check is skipped because a bare cid
     // asserts no location to contradict.
+    if let Some((kind, resolver)) = non_fact_token_resolver(token) {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "this is an `{kind}` token, not an `emem:fact:` token; resolve it with {resolver}"
+                ),
+                details: Some(json!({ "token_kind": kind, "resolver": resolver })),
+            },
+        ));
+    }
     let mut degraded = false;
     let mut degraded_how = "";
     let (cell, cid, descriptor) = match parse_fact_token(token) {
@@ -65591,6 +65629,32 @@ fn coverage_page<'a>(
 #[cfg(test)]
 mod reported_bug_tests {
     use super::*;
+
+    /// A raster token holds two 52-character cids. The fact resolver took the
+    /// first (the aoi_cid) and answered `cid_not_found` with a hint to fetch.
+    #[test]
+    fn the_fact_resolver_names_the_resolver_for_other_token_kinds() {
+        let cid = "a".repeat(52);
+        let raster = format!("emem:raster:{cid}:s2.B04:20651:{cid}");
+        assert!(recover_fact_cid(&raster).is_some());
+        assert_eq!(
+            non_fact_token_resolver(&raster),
+            Some(("emem:raster", "POST /v1/raster/resolve"))
+        );
+        assert_eq!(
+            non_fact_token_resolver(&format!(" emem:cube:{cid}:s2.B04:1..2:{cid}")),
+            Some(("emem:cube", "POST /v1/cube/resolve"))
+        );
+        assert_eq!(
+            non_fact_token_resolver(&format!("emem:rasterset:{cid}:{cid}")).map(|k| k.0),
+            Some("emem:rasterset")
+        );
+        assert_eq!(
+            non_fact_token_resolver(&format!("emem:fact:defi.zb592.nUkO.zEzE:{cid}")),
+            None
+        );
+        assert_eq!(non_fact_token_resolver(&cid), None);
+    }
 
     /// temporal_route took the absolute age, so a fact signed after
     /// `query_time` scored as a fresh observation at that time.
