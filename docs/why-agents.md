@@ -118,8 +118,9 @@ One cell and one band is the teaching version. `POST /v1/eudr_dds` takes
 the plots as GeoJSON points or polygons. For each plot it reads the
 forest baseline, the Hansen loss year and a TMF cross-check. It returns a
 draft statement with a verdict per plot, the fact ids behind each
-verdict and a `verdict_support` grade. While a plot needs review, the
-responder does not offer the statement for signature. [EUDR DDS and visual
+verdict and a `verdict_support` grade. While a plot needs review,
+`statement_of_compliance_signable` is `false` and
+`statement_of_compliance_held_because` gives the reasons. [EUDR DDS and visual
 evidence](./eudr.md) shows the full call.
 
 ## Where emem sits next to what you already run

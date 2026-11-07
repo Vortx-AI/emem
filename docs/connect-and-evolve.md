@@ -44,17 +44,19 @@ An edge also carries `confidence`, `signer`, `signed_at` and an optional
 
 Send the fact CID as `subj`. The example fact is the JRC 2020 forest flag
 (`jrc_gfc2020.forest_2020`, value 0) at cell `defi.zb441.zd21e.zd3ee`.
+A recall of that cell and band returned this CID on 7 November 2026. The
+responder signed the fact on 28 September 2026 from the JRC V4 tile.
 
 ```json
 {"name": "emem_edges_recall",
- "arguments": {"subj": "l7hm437whbei33v37ntoxydt572ac7ldkopotvuu67idpdu5nxcq",
+ "arguments": {"subj": "ygcje35skz5dmiyzs5xt3oayakjpizemnpkvnpqvasnwa53qntza",
                "pred": "disagrees_with"}}
 ```
 
 ```bash
 curl -s -X POST https://emem.dev/v1/edges/recall \
   -H 'content-type: application/json' \
-  -d '{"subj":"l7hm437whbei33v37ntoxydt572ac7ldkopotvuu67idpdu5nxcq",
+  -d '{"subj":"ygcje35skz5dmiyzs5xt3oayakjpizemnpkvnpqvasnwa53qntza",
        "pred":"disagrees_with"}' \
   | jq '{direction, edges: (.edges|length), hint: .agent_hint}'
 ```
@@ -77,13 +79,13 @@ disagree with it, supersede it or relate to it in another way.
 
 ```json
 {"name": "emem_edges_recall",
- "arguments": {"obj": "l7hm437whbei33v37ntoxydt572ac7ldkopotvuu67idpdu5nxcq"}}
+ "arguments": {"obj": "ygcje35skz5dmiyzs5xt3oayakjpizemnpkvnpqvasnwa53qntza"}}
 ```
 
 ```bash
 curl -s -X POST https://emem.dev/v1/edges/recall \
   -H 'content-type: application/json' \
-  -d '{"obj":"l7hm437whbei33v37ntoxydt572ac7ldkopotvuu67idpdu5nxcq"}' \
+  -d '{"obj":"ygcje35skz5dmiyzs5xt3oayakjpizemnpkvnpqvasnwa53qntza"}' \
   | jq '{direction, edges: (.edges|length), subjs}'
 ```
 
