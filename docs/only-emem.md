@@ -123,11 +123,18 @@ read answers that question directly.
 
 Only one key can write under `/memories/by_attester/<pubkey8>/`. `<pubkey8>`
 is the first 8 characters of the base32 public key. A write from any other
-key gets 403 `memory_namespace_violation`. Outside `by_attester/`, the first
+key gets HTTP 403. The answer has `code` `invalid_argument` and
+`details.code` `memory_namespace_violation`. Outside `by_attester/`, the first
 key that makes a path owns it. No key can change an old note that has no
 recorded attester, and this includes the operator's key. Since 2.4.4, a
 file under `by_attester/` answers to the full key that wrote it, not only
 to the 8-character prefix.
+
+The prefix `/memories/.well-known/` refuses API writes from every key,
+also the responder's key. The operator puts files there out of band. Thus
+nobody can take a well-known name first. A write there gets the same 403
+with `details.reason` `reserved_namespace`
+(`enforce_open_namespace_owner` in `crates/emem-api-rest/src/lib.rs`).
 
 The signature covers the `emem.memory_write.v2` preimage
 (`crates/emem-primitives/src/memory_acl.rs`):

@@ -329,7 +329,7 @@ contract and what each tier protects.
 | Refusal | Code |
 |---|---|
 | A write with no signature | 401. The answer tells you how to sign. |
-| A write outside your namespace | 403 `memory_namespace_violation` |
+| A write outside your namespace | 403, `details.code` `memory_namespace_violation` |
 | More than 240 writes per minute from one attester (limit on 7 November 2026) | 429 `rate_limited`, with `details.retry_after_s` |
 
 [`/v1/limits`](https://emem.dev/v1/limits) keeps enforced limits apart from
@@ -403,7 +403,9 @@ cell64 grid did not change. See [CHANGELOG.md](../CHANGELOG.md).
   read isolation for each caller, and the roadmap has none. emem isolates
   writes only. Under `/memories/by_attester/<pubkey8>/`, the path names the
   owner. Elsewhere, the first attester that creates a path owns it. A legacy
-  record with no recorded author refuses writes from every key.
+  record with no recorded author refuses writes from every key. The prefix
+  `/memories/.well-known/` refuses API writes from every key. The operator
+  puts files there out of band.
 - A seal protects an entry from other callers, not from the operator. The
   key of a `vault` entry comes from the identity of this responder, so the
   operator can read it. If the operator must not read your data, encrypt it
