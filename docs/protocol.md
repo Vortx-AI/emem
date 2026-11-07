@@ -119,7 +119,7 @@ address.
 
 A Cell64 is a 64-bit integer that addresses a quantised lat/lng bucket on
 the WGS-84 ellipsoid. The wire form is four base-65,536 digits joined by
-dots, for example `dedi.zaf00.bafi.baba`. Hashes and comparisons use the
+dots, for example `defi.zb400.bafi.baba`. Hashes and comparisons use the
 integer form. Facts and receipts contain the dotted text form.
 
 ![address algebra: cell + band + tslot → canonical CBOR → blake3 → 52-character base32 CID](/docs/diagrams/09-address-algebra.svg)
@@ -190,7 +190,7 @@ Constants (geo.rs:55-104):
 `GEO_LNG_MAX=(1<<22)-1=4_194_303`,
 `GEO_RES=21` (resolution tag),
 `GEO_BASE=0xab` (aperture marker),
-`GEO_PREFIX = (1 << 60) | (21 << 52) | (0xab << 44) = 0x1150_ab00_0000_0000`.
+`GEO_PREFIX = (1 << 60) | (21 << 52) | (0xab << 44) = 0x115a_b000_0000_0000`.
 
 The encoder applies these rules in this order:
 
@@ -232,12 +232,12 @@ Apply `cell_from_latlng`:
 1. `lat_q = round(0.5 × 2_097_151) = 1_048_576` (round-half-away-from-zero).
 2. `lng_q = round(0.5 × 4_194_303) = 2_097_152`.
 3. `path = (1_048_576 << 22) | 2_097_152 = 0x0000_0400_0020_0000`.
-4. `raw = GEO_PREFIX | path = 0x1150_ab00_0000_0000 | 0x0000_0400_0020_0000
-   = 0x1150_af00_0020_0000`.
+4. `raw = GEO_PREFIX | path = 0x115a_b000_0000_0000 | 0x0000_0400_0020_0000
+   = 0x115a_b400_0020_0000`.
 
 The four 16-bit lanes are
-`d0=0x1150 (4432)`,
-`d1=0xaf00 (44800)`,
+`d0=0x115a (4442)`,
+`d1=0xb400 (46080)`,
 `d2=0x0020 (32)`,
 `d3=0x0000 (0)`.
 
@@ -245,16 +245,19 @@ Index `i` in the structured-bigram region (0..44,099) decomposes as
 `i = c1·2100 + v1·210 + c2·10 + v2` from `alphabet.rs`. Indices ≥
 44,100 fall into the synthetic `z<hex4>` region.
 
-- `d0 = 4432 = 2·2100 + 1·210 + 2·10 + 2` → `d e d i` → **`dedi`**.
-- `d1 = 44800` ≥ 44,100 → `"z" + "af00"` → **`zaf00`**.
+- `d0 = 4442 = 2·2100 + 1·210 + 3·10 + 2` → `d e f i` → **`defi`**.
+- `d1 = 46080` ≥ 44,100 → `"z" + "b400"` → **`zb400`**.
 - `d2 = 32 = 0 + 0 + 3·10 + 2` → `b a f i` → **`bafi`**.
 - `d3 = 0` → `b a b a` → **`baba`**.
 
 Cell64 for `(lat=0.0, lng=0.0)` is
 
 ```
-dedi.zaf00.bafi.baba
+defi.zb400.bafi.baba
 ```
+
+On 7 November 2026, `POST /v1/locate` on emem.dev with
+`{"lat":0.0,"lng":0.0}` returned this cell64.
 
 ### 1.5 Decode rule (cell64 → lat/lng)
 
@@ -268,33 +271,30 @@ dedi.zaf00.bafi.baba
 4. Convert with `lat_deg = (lat_q/GEO_LAT_MAX)·180 - 90` and
    `lng_deg = (lng_q/GEO_LNG_MAX)·360 - 180`.
 
- The bucket bbox extends `±half_lat / ±half_lng` from the centre. The
+The bucket bbox extends `±half_lat / ±half_lng` from the centre. The
 decoder clips the latitude of the bbox to `[-90, 90]`.
 
 ### 1.6 Round-trip and edge cases
 
-The tests in `geo.rs:357-700` pin the contract.
+The tests in `geo.rs:357-700` pin the contract. The polar clamp is a rule
+in the encoder (`geo.rs:141-145`), not a test.
 
-- **Sub-quantum collision** (geo.rs:444-450): two queries 9 µ° apart
-  (~1 m) MUST produce the same cell: the cell's grain, not a bug.
-- **12 m apart distinguishes** (geo.rs:433-442): two queries
-  `1.08e-4°` apart (~12 m) MUST produce different cells.
-- **Antimeridian** (geo.rs:424-431): `lng = 179.99` round-trips;
-  `lng = -181` wraps to `+179`.
-- **Polar clamp** (geo.rs:141-142): `lat = 95` clamps to `90`.
-- **Square at equator** (geo.rs:453-476): bucket extent is 8 to 12 m on
-  both axes; lat and lng agree to within 5%.
-- **Dateline** (geo.rs:495-506): `lng = +180`, `lng = -180` and
-  `lng = 179.99999999` give one cell.
-- **Poles** (geo.rs:508-526): at `lat = 90` the longitudes `0`, `137.5`
-  and `-42.7` give one cell. The same is true at `lat = -90`. The two
-  pole cells are different.
+| Case | Required result | Test in `geo.rs` |
+|---|---|---|
+| Two points 9e-6° apart (about 1 m) | The same cell. This is the grain of the cell, not a bug. | `cells_collide_under_1_metre` (444-448) |
+| Two points 1.08e-4° apart (about 12 m) | Different cells | `cells_distinguish_12_metre_neighbors` (433-439) |
+| `lng = 179.99` | Round-trips | `roundtrip_antimeridian` (424-426) |
+| `lng = -181` | Wraps to `+179` | Encoder rule 3 in [§1.2](#12-encoding-rule-latlng--cell) |
+| `lat = 95` | Clamps to `90` | Encoder rule 2 in [§1.2](#12-encoding-rule-latlng--cell) |
+| Bucket at the equator | 8 to 12 m on each axis; the two axes agree to within 5% | `buckets_are_square_at_equator` (453-471) |
+| `lng = +180`, `-180` and `179.99999999` | One cell | `dateline_collapses_to_single_cell` (495-501) |
+| `lat = 90` with `lng` of `0`, `137.5` and `-42.7` | One cell. The same is true at `lat = -90`. The two pole cells are different. | `poles_collapse_lng_to_zero` (508-521) |
 
 ### 1.7 Legacy 16-bit grid: rejected
 
 Pre-0.0.3 emem used a `GEO_RES = 12` (16-bit-per-axis, ~305 m) grid.
-The current codec does **not** decode that encoding. The test at
-`geo.rs:478-493` makes a legacy-shaped raw word. It confirms that
+The current codec does **not** decode that encoding. The test
+`legacy_16bit_grid_rejected` (`geo.rs:478-487`) makes a legacy-shaped raw word. It confirms that
 `latlng_from_cell64` returns `Err(CodecError::NotGeoCell)`. The
 resolution field changed (12 → 21) and `GEO_PREFIX_MASK` keys on it.
 So legacy strings fail closed; they do not put a fact hundreds of
@@ -329,22 +329,31 @@ inputs clamp to `Tslot(0)`.
 ### 2.2 Tempo class
 
 Defined in `tslot.rs:23-43` (the enum) and `tslot.rs:49-62`
-(`slot_seconds`). Seven variants:
+(`slot_seconds`). The enum has seven variants. The table shows where each variant is in use on 7 November 2026. The
+"registry" column counts the band families in
+`crates/emem-core/data/bands-v0.json` that declare the variant. The
+"materializer" column names bands whose `MaterializerMeta` in
+`crates/emem-api-rest/src/lib.rs` uses it. `GET /v1/data_availability`
+reports that tempo for each band.
 
-| Variant | Serde name | `slot_seconds()` | Cadence | Sample bands |
-|---------|------------|------------------|---------|--------------|
-| `Static` | `static` | 0 | never changes | DEM, Köppen, lcv-1 |
-| `Slow` | `slow` | 31_536_000 | 365 d | Tessera (2017..2024 vintages + `multi_year` 1024-D + `bin128`), soil |
-| `Composite16Day` | `composite_16day` | 1_382_400 | 16 d | MODIS MOD13Q1 NDVI composites |
-| `Composite8Day` | `composite_8day` | 691_200 | 8 d | MODIS LST, ET, GPP and LAI composites |
-| `Medium` | `medium` | 2_592_000 | 30 d | NDVI composites |
-| `Fast` | `fast` | 86_400 | 1 d | raw S2 NDVI |
-| `UltraFast` | `ultra_fast` | 3_600 | 1 h | weather, traffic |
+| Variant | Serde name | `slot_seconds()` | Cadence | Registry band families | Materializer examples |
+|---------|------------|------------------|---------|------------------------|-----------------------|
+| `Static` | `static` | 0 | never changes | 12, for example `dem`, `koppen`, `admin` | `copdem30m.elevation_mean`, `koppen`, `terraclimate.*` |
+| `Slow` | `slow` | 31_536_000 | 365 d | 19, for example `geotessera`, `soilgrids`, `landcover` | `geotessera` vintages, `overture.*` |
+| `Composite16Day` | `composite_16day` | 1_382_400 | 16 d | 0 | `modis.ndvi_mean` |
+| `Composite8Day` | `composite_8day` | 691_200 | 8 d | 0 | `modis.lst_day_8day`, `modis.et_8day`, `modis.gpp_8day`, `modis.lai_8day` |
+| `Medium` | `medium` | 2_592_000 | 30 d | 2: `climate`, `terraclimate` | `modis.burned_area_monthly` |
+| `Fast` | `fast` | 86_400 | 1 d | 10, for example `sentinel2_raw`, `indices`, `air_quality` | Sentinel-2 bands and indices, `sentinel1_raw`, `power.*` |
+| `UltraFast` | `ultra_fast` | 3_600 | 1 h | 0 | `weather.*`, `cams.*`, `era5.*`, `marine.*` |
 
-The two composite variants are in the code. On 6 November 2026 no band
-family in `crates/emem-core/data/bands-v0.json` declares them. The
-responder uses them when it materialises the MODIS composite readings
-(`crates/emem-api-rest/src/lib.rs`, search `Composite16Day`).
+The two columns can disagree. For example, the `terraclimate` family is
+`medium` in the registry, but `MaterializerMeta` gives `terraclimate.*`
+bands `Static`. The doc comments on the enum in `tslot.rs` name older
+sample bands. Use the table, not those comments.
+
+`/v1/data_availability` writes the tempo without the underscore, for
+example `composite16day` and `ultrafast`. A fact does not carry its
+tempo. `bands-v0.json` uses the serde names in the table.
 
 `Static` returns `Tslot(0)` regardless of input; the slot is
 meaningless for a band that never refreshes. `to_unix_start` is the
@@ -461,8 +470,12 @@ A change to any field of the fact changes its CBOR bytes and therefore its
 FactCid. The round-trip test at `crates/emem-fact/tests/round_trip.rs`
 (CBOR → decode → re-encode → byte-equal) pins this.
 
-The same recipe constructs the other newtypes from `cid.rs:25-34`:
-`RegistryCid`, `SchemaCid`, `ReasonCid`, `BatchCid`, `CoverageCid`.
+`cid.rs:25-38` declares seven more string newtypes in the same way:
+`RegistryCid`, `SchemaCid`, `ReasonCid`, `BatchCid`, `CoverageCid`,
+`EdgeCid` and `StateCid`. The newtype fixes only the Rust type. The code
+that makes each value chooses the hash input and the length. For
+example, a `reason_cid` hashes the reason text and keeps 16 bytes
+([§5.3](#53-negativefact)).
 
 ### 3.3 Manifest CID
 
@@ -601,7 +614,7 @@ Worked example (Fast-tempo NDVI composite over a single Sentinel-2 capture):
 ```jsonc
 {
   "kind": "primary",
-  "cell": "dedi.zaf00.bafi.baba",
+  "cell": "defi.zb400.bafi.baba",
   "band": "indices.ndvi",
   "tslot": 19797,
   "value": 0.42, "confidence": 0.95,
@@ -665,7 +678,7 @@ The example below shows the shape only. It is not a stored fact, and
 ```jsonc
 {
   "kind": "derivative",
-  "cell": "dedi.zaf00.bafi.baba",
+  "cell": "defi.zb400.bafi.baba",
   "band": "indices.ndvi",
   "tslot_window": [665, 667],
   "op": "mean",
@@ -1602,7 +1615,9 @@ Given a current-state recall receipt (no scope, `as_of`, edges, or
   example is illustrative)
 - `served_at = "2026-05-08T11:22:33Z"`
 - `primitive = "emem.recall"` (every emitted primitive name carries the `emem.` namespace; `recall` in `crates/emem-primitives/src/recall.rs` calls `sign_receipt_with_edges("emem.recall", …)`)
-- `cells = ["dedi.zaf00.bafi.baba", "dedi.zaf00.bafi.babe"]`
+- `cells = ["dedi.zaf00.bafi.baba", "dedi.zaf00.bafi.babe"]` (the
+  signer hashes these strings as bytes and does not decode them; they
+  are not geo cells, so `latlng_from_cell64` refuses them)
 - `fact_cids = ["bn7cabcdefghij1234567890ab"]` (a real `fact_cid` has 52
   characters; this short value is also illustrative)
 
