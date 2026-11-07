@@ -489,12 +489,13 @@ each dependency is valid for this location at this time.
 For one step, this ships today. A `POST /v1/recall` with a band list
 (`ensure`) returns a receipt. Add `"include": ["freshness", "provenance"]`
 and each fact also carries its `provenance_class` and a `freshness` block
-with the Q(dt) score. Both are outside the signed preimage. On 7 November
-2026, a recall of `cams.pm25` at the Mount Fuji cell `defi.zb592.nUkO.zEzE`
-returned nine facts, all of class `model_output`. The recall fetched the
-newest one, signed at 08:16:59Z, because the cell had no current value.
-That fact had `q` 0.953. The eight older facts had `q` 0.0 and
-`stale: true`.
+with the Q(dt) score. Both are outside the signed preimage. At 09:02 UTC
+on 7 November 2026, a recall of `cams.pm25` at the Mount Fuji cell
+`defi.zb592.nUkO.zEzE` returned nine facts. The `class` field of each
+`provenance_class` block was `model_output`. The newest fact, signed at
+08:16:59Z, had `q` 0.83. The eight older facts had `q` 0.0 and
+`stale: true`. The `q` value of a fact falls as the fact gets older, so
+your numbers can be different.
 
 Over a discovered chain of several steps, `prove` is planner work, in the
 gap list. At each step it must ask a trust question ("can I trust this
