@@ -545,8 +545,16 @@ the status:
 The rate limit is a token bucket for each key. Unsigned writes share one
 bucket. The defaults are 240 writes a minute with a burst of 60. The
 operator changes them with `EMEM_WRITE_RATE_PER_MIN` and
-`EMEM_WRITE_RATE_BURST`. The responder stores nothing for a refused
-write, so send it again after `retry_after_s` seconds.
+`EMEM_WRITE_RATE_BURST`, and `EMEM_WRITE_RATE_LIMIT=off` turns the limit
+off. The responder stores nothing for a refused write, so send it again
+after `retry_after_s` seconds.
+
+The same bucket also counts the signed writes of that key to
+`/v1/attest`, `/v1/attest_cbor`, `/v1/attest_traced`, `/v1/edges` and
+`/v1/log/witness`. Thus a burst of edges
+can slow the next note. `GET /.well-known/mcp.json` shows the values
+that apply, under `security_posture.write_rate_limit`. On 7 November
+2026, `emem.dev` showed `enabled: true`, 240 a minute and a burst of 60.
 
 A `rename` also fails when `new_path` already holds a file, or when the
 two paths are the same. The responder refuses to rename a `vault` entry,
