@@ -30,7 +30,7 @@ That responder has its own temporary data directory and its own key.
 The script does not touch emem.dev or a real identity, and it deletes everything on exit.
 
 On 7 November 2026 we ran `run.sh` end to end with `ememdev` 2.4.4 and an `emem-server` built from commit `49443d9a`.
-It took 1.5 seconds and printed this (the `<pubkey8>` changes on each run):
+Two runs took 1.5 and 2.1 seconds. Both printed this (the `<pubkey8>` changes on each run):
 
 ```text
 ==> boot a throwaway responder (own data dir, own key)
