@@ -11,12 +11,15 @@
    trace_verify must still admit the trace.
 3. Fetches the CBOR bytes of the facts in wire-forms.webp and the
    emem-one-byte film again; they must equal the saved files byte for byte.
-4. Gets the current signed tree head and a consistency proof from the head
+4. Resolves the descriptor token saved for citation-cost.webp; it must give
+   the same fact id, cell and value as the saved resolve.
+5. Gets the current signed tree head and a consistency proof from the head
    in log-proof.webp to it, and checks both offline with the plugin's
    verify_log.py.
 
 Read-only calls, about one per token plus three for what-crosses, two for
-the CBOR bytes and two for the log, with a 0.5 s pause between calls. Standard library only. Exit 0 when every check passed.
+the CBOR bytes, one for the descriptor token and two for the log, with a 0.5 s
+pause between calls. Standard library only. Exit 0 when every check passed.
 """
 from __future__ import annotations
 
@@ -38,6 +41,7 @@ SAVED_CBOR = [
     ("banvya7hgenuowjggkgguezvltxtefp6jgihocwkgcbddyvqv6bq", ROOT / "docs/media/stills/src/data/wire/fact.cbor"),
     ("qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq", ROOT / "docs/media/films/src/data/one-byte/fact-live.cbor"),
 ]
+COST_RESOLVE = ROOT / "docs/media/stills/src/data/cost/resolve.json"
 VERIFY_LOG = ROOT / "plugins/emem/skills/emem-transparency-log/scripts/verify_log.py"
 BASE = "https://emem.dev"
 TOKEN = re.compile(r"emem:(?:fact|bundle):[a-z0-9]+(?:\.[A-Za-z0-9]+)*(?::[a-z2-7]{52})?")
@@ -150,6 +154,19 @@ def check_bytes():
     return ok
 
 
+def check_descriptor():
+    """Resolve the descriptor token of citation-cost.webp again and compare with the saved resolve."""
+    saved = json.loads(COST_RESOLVE.read_text())
+    try:
+        live = call("/v1/memory_token/resolve", {"token": saved["token"]})
+    except Exception as e:  # noqa: BLE001
+        print(f"ERROR   descriptor: {e}")
+        return False
+    same = all(live.get(k) == saved[k] for k in ("fact_cid", "cell", "value", "cell_matches"))
+    print(f"descr   {'ok  ' if same else 'DIFF'} {saved['token'][:48]}...  value {live.get('value')}")
+    return same
+
+
 def check_log(out):
     first = json.loads(LOG_HEAD.read_text())["sth"]["tree_size"]
     now = call("/v1/log/sth")
@@ -172,6 +189,7 @@ def main():
     ok = check_tokens()
     ok = check_crosses() and ok
     ok = check_bytes() and ok
+    ok = check_descriptor() and ok
     ok = check_log(out) and ok
     return 0 if ok else 1
 
