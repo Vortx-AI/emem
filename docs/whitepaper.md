@@ -151,6 +151,11 @@ The paper's contributions, stated once:
 *Figure 1: one binary, signed end to end. The same handlers answer MCP
 and REST, reads need no auth, and every write is logged.*
 
+On a phone screen, [architecture.svg](/docs/media/diagrams/architecture.svg)
+shows the same binary in one column, from live reads on 7 November 2026.
+It follows one call through seven steps: call, find in the store, fetch
+on a miss, hash, sign, log and answer.
+
 ### 1.1 Drift has two directions
 
 Everything above describes drift in language: the reference decays while
@@ -544,6 +549,11 @@ silently misplacing a fact by hundreds of metres.
 *Figure 4: the four wire forms and their sizes. The cell, the tslot
 and the CID together address one fact.*
 
+[address.svg](/docs/media/diagrams/address.svg) applies the cell form to
+one place, Mount Fuji, from live `locate` reads. It shows the four parts,
+the nine neighbourhood cells, and a cell 8,766 km away that keeps the
+first two parts. A shared prefix does not always mean near.
+
 The string form is four base-65,536 bigrams joined by `.`, drawn from a
 65,536-entry alphabet (`crates/emem-codec/src/alphabet.rs:48`); four
 16-bit digits are exactly the 64 bits of the address. Bigram widths vary,
@@ -661,6 +671,10 @@ receiver checks arithmetic, not reputation.
 *Figure 5: the trust plane. What a responder signs, and how anyone
 re-checks it without trusting the server; the `/verify` page recomputes
 these steps in the browser.*
+
+![One live recall receipt at Mount Fuji, 3539.04 m, checked offline on 7 November 2026. Eight fields make a 328-byte preimage. Its BLAKE3 digest verifies with Ed25519 against the key from /.well-known/emem.json: VALID. Change served_at by one character and the digest changes: INVALID. A valid check shows which key signed these fact ids, not that the value is true.](/docs/media/diagrams/receipt-check.svg)
+*Figure 5 applied to one live receipt, checked offline with the
+`verify.py` script of the `emem-verify-receipt` skill.*
 
 ### 6.1 One rule
 
