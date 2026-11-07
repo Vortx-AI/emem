@@ -147,7 +147,17 @@ If both checks return `true`, the full loop works.
   `emem_memory_token_resolve`. Connect an MCP client to `https://emem.dev/mcp`. The [agent guide](../agents.md)
   shows each tool.
 - `/v1/recall` accepts `as_of_tslot` and `as_of_signed_at`. The first selects the time on the ground. The second
-  selects what emem had signed by a given time. Use them to see what emem knew when you made a decision.
+  selects what emem had signed by a given time. Use them to see what emem knew when you made a decision. This
+  call asks for what emem had signed by 1 August 2026. It returns the 16 July fact from step 3:
+
+  ```bash
+  curl -s -X POST https://emem.dev/v1/recall \
+    -H 'content-type: application/json' \
+    -d '{"place":"Cairo","bands":["copdem30m.elevation_mean"],"as_of_signed_at":"2026-08-01T00:00:00Z"}' \
+    | jq -c '[.facts[] | {fact_cid, signed_at}]'
+  # [{"fact_cid":"zxxbyowj2vlhyvgcj55brc47aoubvnibo7ydck4q2vn32uqcp3oa","signed_at":"2026-07-16T10:47:40Z"}]
+  ```
+
 - When a reading changes between visits, `POST /v1/change_attribution {"cell": ...}` returns evidence for each term
   (environment, sensor, geometry, encoder, noise) with the fact ids. It does not split the change into amounts per
   term. `split` is `null`, and `attribution_note` says why. The numeric split is roadmap.
