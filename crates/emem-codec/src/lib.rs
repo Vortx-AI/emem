@@ -9,8 +9,9 @@
 //! | vec64   | 1792D fp16 vector → 12-byte blake3 prefix, base-32 | ≤ 3 tokens   |
 //! | cid64   | 32-byte fact CID → 8-byte prefix, base-32          | ≤ 3 tokens   |
 //!
-//! The cell64 alphabet (65,536 BPE-friendly bigrams) is loaded from
-//! `data/cell64-alphabet-v0.bin`. Generation lives in `tools/measure_alphabet.py`.
+//! The cell64 alphabet (65,536 BPE-friendly bigrams) is built in code by
+//! `alphabet.rs` on first use; no data file is read. `tools/measure_alphabet.py`
+//! is a historical plan and its output is not used.
 
 #![forbid(unsafe_code)]
 

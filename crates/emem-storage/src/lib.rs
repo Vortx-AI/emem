@@ -3157,10 +3157,10 @@ mod trace_gate_tests {
     ///
     /// Why it matters beyond the code: the substrate registry declares five
     /// profiles on `entity.cid` (a codebase, a table, a model checkpoint, an
-    /// execution trace, deep space) and holds every one at `candidate`,
-    /// because `AddressSpace::has_write_path` says only `geo.cell64` can key
-    /// a fact. That was true when it was written. This asserts what is true
-    /// now, so the claim moves on evidence rather than on optimism.
+    /// execution trace, deep space) and holds every one at `candidate`.
+    /// `AddressSpace::has_write_path` once said only `geo.cell64` could key
+    /// a fact. This test is the evidence that let it admit `entity.cid` too.
+    /// Those profiles stay at `candidate` because they declare no bands.
     #[tokio::test]
     async fn a_signed_fact_can_be_keyed_to_an_object_rather_than_a_place() {
         let storage = ephemeral();
