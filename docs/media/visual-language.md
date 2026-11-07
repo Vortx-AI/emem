@@ -104,6 +104,7 @@ pages, so the PRs can merge without a conflict. The description of PR #34 gives 
 | `films/emem-note-write.mp4` | How does a refused note write become an accepted one? | `memory.md` | `films/src/emem-note-write.html` |
 | `films/emem-ndvi-season.mp4` | What does one signed `field_series` answer say, scene by scene? | `agents.md` | `films/src/emem-ndvi-season.html`, data from `season_data.py` |
 | `films/emem-log-climb.mp4` | How do 22 hashes prove one entry in a log of 3,248,898? | `whitepaper.md` section 8.4 | `films/src/emem-log-climb.html`, data from `log_climb_data.py` |
+| `films/emem-one-byte.mp4` | If one bit of a fact changes, does its id change? | `whitepaper.md` section 5 | `films/src/emem-one-byte.html`, data from `one_byte_data.py` |
 | `stills/recall-one-cell.webp` | What does one recall return at one cell? | `agents.md`, `whitepaper.md` under Figure 6 | `stills/src/recall_cell.py` |
 | `stills/change-ledger.webp` | When a number moves at one cell, what does emem say about why? | `whitepaper.md` under Figure 2 | `stills/src/change_ledger.py`, read-only resolves from `fetch_change.py` |
 | `stills/similar-places.webp` | Which places look like Dubai from orbit? | `agents.md` | `stills/src/similar_places.py` |

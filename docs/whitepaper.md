@@ -642,6 +642,18 @@ discipline around it, stated in the encoder's own header
 byte-identical CBOR for the same fact*. Without that, a content address
 is a per-implementation opinion.
 
+[![Film poster. A grid of 743 squares, one for each byte of the Mount Fuji elevation fact. The band name, the cell64 and the 4 value bytes are in colour, and one value byte is red. A card shows the value bytes 45 5d 30 ad change to 45 5d 30 ac, and 3539.0422 m change to 3539.0420 m.](media/films/emem-one-byte-poster.webp)](media/films/emem-one-byte.mp4)
+
+*Silent, 33 seconds. Select the picture to play the MP4, or get the
+[WebM](media/films/emem-one-byte.webm). The film shows the 743 bytes of
+the Mount Fuji elevation fact. BLAKE3 of all the bytes gives its id,
+`qejpz7cg…`. We changed one bit of the 4-byte value offline: 3539.0422 m
+becomes 3539.0420 m, and both round to 3539.04 m. The changed bytes hash
+to `26zhvwvf…`, and 49 of the 52 characters differ. On emem.dev the old
+id returns the same 743 bytes, and the new id returns 404
+`cid_not_found`. Live reads on 7 November 2026 at 15:06 UTC. The source
+is in [media/films/src/](media/films/src/one_byte_data.py).*
+
 Two rules deliver it, and both are narrower than "canonical CBOR"
 implies.
 
