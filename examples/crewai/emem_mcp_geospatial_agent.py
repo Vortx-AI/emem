@@ -1,7 +1,10 @@
-"""CrewAI + emem MCP example — EUDR Article 2(4) verdict at Manaus.
+"""CrewAI + emem MCP example: EUDR Article 2(4) verdict at Manaus.
 
-Connects a CrewAI Agent to the emem MCP server over Streamable HTTP,
-auto-discovers all tools, and runs a single-task crew that asks:
+Connects a CrewAI Agent to the emem MCP server over Streamable HTTP and
+loads the tools that MCPServerAdapter gets. /mcp/full sends its tools in
+pages, and the adapter reads only the first page (12 tools on
+7 November 2026, with emem_eudr_dds). Then it runs a single-task crew
+that asks:
 "Is the point at Manaus (Brazil) deforested under EUDR Article 2(4)?"
 
 The agent dispatches emem_eudr_dds, inspects the per-cell verdict
