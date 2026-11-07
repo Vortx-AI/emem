@@ -2272,9 +2272,11 @@ the v1 attestation rule (§6), and 0 for older ones.
 `C` is the leaf: the 32 bytes of the `fact_cid`. Both rules use the same
 tree shape. An odd layer pairs its last node with itself. Version 1
 separates leaves from nodes with the `0x00` and `0x01` prefixes, so a leaf
-cannot pass as a node. A version 1 verifier must also refuse a batch with
-a duplicate leaf (`has_adjacent_duplicate`). Without that check,
-`root([A,B,C])` equals `root([A,B,C,C])`.
+cannot pass as a node. A version 1 verifier that holds the whole batch
+(the attestation, §6) must also refuse a batch with a duplicate leaf
+(`has_adjacent_duplicate`). Without that check, `root([A,B,C])` equals
+`root([A,B,C,C])`. A receipt proof alone does not show the other leaves,
+so this check needs the attestation.
 
 On 6 November 2026, a live `POST /v1/recall` receipt from emem.dev carried
 `version: 1`, `leaf_count: 1` and an empty `path`. Its root was
@@ -2348,6 +2350,53 @@ recorded sibling for that node at that layer is the node itself.
 `verify_merkle_path` needs no special case for this. The last index is
 even, so `acc := b3(acc || acc)`.
 Test: `odd_cardinality_last_leaf_self_pairs`.
+
+### 8.5 Fold a live proof by hand
+
+The quick start script `verify.py` checks the signature only. It does
+not fold `merkle_proof`. This script does the fold for both versions.
+It uses the BLAKE3 code that ships with the plugin, so it needs no
+package. Save it as `fold_proof.py` in the root of your clone:
+
+```python
+import base64, json, sys
+sys.path.insert(0, "plugins/emem/skills/emem-verify-receipt/scripts")
+from emem_crypto import blake3
+
+r = json.load(open(sys.argv[1]))["receipt"]
+p = r["merkle_proof"]
+cid = r["fact_cids"][0]
+leaf = base64.b32decode(cid.upper() + "=" * (-len(cid) % 8))
+v1 = p.get("version", 0) == 1
+
+def node(a, b):
+    return blake3((b"\x01" if v1 else b"") + a + b).digest()
+
+acc = blake3(b"\x00" + leaf).digest() if v1 else blake3(leaf + leaf).digest()
+idx = p["leaf_index"]
+for s in p["path"]:
+    s = bytes(s)
+    acc = node(acc, s) if idx % 2 == 0 else node(s, acc)
+    idx //= 2
+print("MATCH" if acc == bytes(p["root"]) else "MISMATCH", "version", p.get("version", 0))
+```
+
+Run it on the `recall.json` file from the quick start:
+
+```sh
+python3 fold_proof.py recall.json
+```
+
+On 7 November 2026, a live elevation recall printed `MATCH version 1`.
+That proof had `leaf_count: 1` and an empty `path`, as in §8.3. A copy
+with one changed character in `fact_cids[0]` printed `MISMATCH`. The
+same fold also matched every leaf of random trees of 1 to 7 leaves,
+built with the layer rule of `merkle_root_and_paths` and
+`merkle_root_and_paths_v1`.
+
+A `MATCH` shows that the fact is in the batch whose root the signature
+covers. The signature check from the quick start is still necessary,
+because v2 binds `merkle_proof` into the signed digest (§7.3.1).
 
 ---
 
