@@ -86,8 +86,22 @@ Each plot carries a `verdict_support` block. It grades the inputs by a fixed rul
 
 A value between the two columns gives `moderate`.
 The block lists each limit in `limits`, with `severity` `weakens` or `qualifies`.
-Two more cases add a `qualifies` limit. One is a plot with one point sample.
-The other is a plot within 30 degrees of the equator where TMF read no cell.
+Three more cases add a `qualifies` limit:
+
+- a plot with one point sample
+- a plot smaller than 0.5 ha
+- a plot within 30 degrees of the equator where TMF read no cell.
+
+A `qualifies` limit gives `moderate` at best.
+Thus a plot with one sample, or a plot under 0.5 ha, never gets `strong`.
+The responder counts a GeoJSON Point as 0.01 ha, so a Point plot gets both limits.
+
+The sample spacing is the square root of the plot area divided by the cell count.
+A `bbox` plot of 4 ha or less gets one sample, so its spacing is the square root of the box area.
+Above 2 ha, that spacing is more than 141 m.
+The level is then `weak`, and the responder holds the statement.
+For a `bbox` plot of more than 2 ha, send the plot as a polygon.
+A polygon plot gets about 110 cells per hectare.
 
 The responder holds the statement back when one of these is true:
 
