@@ -53,7 +53,14 @@ npx tsx emem_mcp_geospatial_agent.ts
 
 ## Test status
 
-We did not run this script. Node.js is not on our test host.
+We ran the script on 7 November 2026 with Node.js 24.19.0 and npm 11.17.0.
+`npm install` resolved the versions above. npm warned that the install
+scripts of `esbuild` and `protobufjs` did not run. The script ran without
+them. We used a dummy OpenAI key, so the run stopped at the OpenAI error
+`Incorrect API key provided`. Before that error, `MCPClient` connected to
+emem and loaded the tools. `tsc --strict --noEmit` gave no errors.
+
+We did not see the agent answer, because that needs a real OpenAI key.
 
 We called `emem_hunt` with the same arguments over MCP on 7 November 2026. It
 returned 8 hotspots with the algorithm `algal_bloom_chlorophyll_ndci@1`. The first hotspot was cell `defi.zb5de.rAsI.wEfA`, with
@@ -72,8 +79,11 @@ a hunt samples and ranks cells.
   in 8 or 9 pages. The count changed with server updates. The first page
   had 12 or 13 tools. `MCPClient` in `@mastra/mcp`
   0.10.12 calls `tools/list` once and does not send the next cursor. So the
-  agent gets only the first page. `emem_hunt` was on that page. A tool on a
-  later page does not get to the agent.
+  agent gets only the first page. On 7 November 2026, `mcp.getTools()`
+  returned 12 tools, and `emem_hunt` was one of them. A tool on a later page
+  does not get to the agent.
+- `MCPClient` puts the server name before each tool name. With the server
+  name `emem`, the agent sees `emem_emem_hunt`, not `emem_hunt`.
 - Any AI SDK provider that Mastra supports can drive the agent. Change the
   `openai(...)` import to `@ai-sdk/anthropic`, `@ai-sdk/google` or another
   provider.

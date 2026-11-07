@@ -37,7 +37,7 @@ On `/mcp/full`, send the `nextCursor` value from each page to get the next page.
 The server cuts the pages by size, at about 45,000 bytes each. The number of pages can change when tool descriptions change.
 Some MCP clients read only the first page. On 7 November 2026 the LangChain and Agno adapters read every page. That was 8 or 9 pages on that date, because the count changed with server updates.
 The LlamaIndex, AutoGen, Semantic Kernel and CrewAI adapters read only page 1 (12 or 13 tools). See the examples in [`examples/`](examples/).
-The source of `@mastra/mcp` 0.10.12 also reads only page 1. We did not run the Mastra example, because Node is not on our test host.
+`@mastra/mcp` 0.10.12 also reads only page 1. On 7 November 2026 it loaded 12 tools from `/mcp/full`.
 
 The two endpoints differ only in the list. You can call any of the 116 by name at either endpoint.
 If a tool is not in your list, it is still on the server. Call `emem_tools` to search the other tools or to get the schema of one tool.
