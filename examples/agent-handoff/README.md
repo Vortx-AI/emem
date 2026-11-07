@@ -127,7 +127,8 @@ The script prints each step and stops with an error if a check fails.
 
   On 7 November 2026 we ran this block with `https://emem.dev/mcp` and the public note path above.
   It printed `citmouad4wp4gbcvharhifvsnm`.
-  We did not run it inside `run.sh` on a local responder.
+  We also pasted it into `run.sh` after the `signature_valid` check.
+  Then we ran the script on a local responder. It printed the `file_cid` of the new note, `nmfkkvepfsgvrs4oinqzqkhcny`.
 
 - On the hosted node, anyone can read `/memories/by_attester/`. Only the attester can write there.
   So every agent can read a checkpoint on emem.dev. It is not private.
