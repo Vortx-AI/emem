@@ -70,7 +70,8 @@ It links no emem crate, and no other crate depends on it.
 
 On 7 November 2026, `POST https://emem.dev/v1/memory_contradictions` with
 `{"min_severity":0.3,"limit":8}` returned 8 contradictions. It scanned
-44,702 keys. The band in the first result was
+about 44,700 keys (44,705 in the last check). This count grows with
+the corpus. The band in the first result was
 `overture.transportation.road_length_m`. The response had
 `scan_truncated: true` and a `resume_after` key, so it was a partial view.
 The agent does not send `resume_after`. Each pass reads only the first
