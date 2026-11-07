@@ -281,15 +281,21 @@ The state that a session inherits still lacks part of one operator, the
 derivative. Two states of one cell show what changed.
 `change_attribution@1` ships the evidence for why it changed:
 
-- the observed change,
-- the sources that each visit used,
+- the observed change (the Tessera embedding change and the NDVI, NBR
+  and NDWI deltas),
+- the sources that each visit used, and whether they match,
 - the encoder pinning,
-- the scene class of each visit.
+- the scene class (`s2.scl`) of each visit.
 
-Each item has its fact cids. emem stores the result as a derived fact
-with its own token. The number does not ship: how much of the change
-comes from the world, and how much from the instrument, the registration
-or the encoder. That split is on the
+Each item has its fact cids. The ledger says that no registration error
+estimate exists in this build. emem stores the ledger as a derived fact
+under the responder key, with its own `emem:fact:` token. A recall does
+not return it; you reach it through its token. Each call to
+`POST /v1/change_attribution` stores one such fact.
+
+The number does not ship: how much of the change comes from the world,
+and how much from the instrument, the registration or the encoder. The
+response field `split` is null. That split is on the
 [roadmap](./roadmap.md#change-attribution-why-did-this-places-readout-move).
 It will be one more derived, signed object over parent facts in this
 graph.
@@ -309,21 +315,25 @@ is a planner that compares cost, for example "the least costly valid
 path to a navigation surface at this cell". Together they make `ensure`
 work on a graph, not only on one band.
 
-Coordination has the same shape. A thousand agents in one region do not
-synchronise through messages. They share immutable, content-addressed
-artifacts and the dependency rules between them. When two writers
-disagree, the contradiction score is the conflict rule. The aim is that
-no agent reasons the same thing twice. If an artifact is deterministic
-and already exists, a later agent resolves it by name and checks it by
-hash. It does not spend tokens to derive it again.
+Coordination has the same shape. The design aim is that many agents in
+one region do not synchronise through messages. They share immutable,
+content-addressed artifacts and the dependency rules between them. When
+two writers disagree, the contradiction score is the conflict rule. The
+aim is that no agent reasons the same thing twice. If an artifact is
+deterministic and already exists, a later agent resolves it by name and
+checks it by hash. It does not spend tokens to derive it again.
 
 Memory for long-horizon agents is one application of this substrate. It
 is not the definition of the substrate. If a different class of system
 replaces the agents of today, durable and verifiable state about the
-physical world keeps its value. The same rule admits the next
-substrates: fixed sensors, drones, robot fleets, machines and government
-registries. Each is a written profile over the same path (attest,
-recall, cite, verify), with location as the first key.
+physical world keeps its value. Other sources use the same path (attest,
+recall, cite, verify), with location as the first key. The registry
+`crates/emem-core/data/substrates-v0.json` lists 18 profiles. Only
+`earth.satellite.v0` is active. The other 17 have the status
+`candidate`, for example `fixed.sensor.v1`, `aerial.drone.v1`,
+`robot.fleet.v1` and `industrial.machine.v1`. A candidate profile
+gives device makers a fixed target to build against. It does not open
+ingest.
 
 ### The smallest object
 
