@@ -25,9 +25,10 @@ npm install
 
 `package.json` sets the versions: `@mastra/core` and `@mastra/mcp` `^0.10.0`,
 `@ai-sdk/openai` `^1.0.0`, and `tsx`. Do not install the packages by name
-without versions. On 6 November 2026 npm gave `@mastra/core` 1.82.0 and
-`@mastra/mcp` 2.8.0 as the latest versions, and we did not test the script
-with them.
+without versions. On 7 November 2026 these ranges resolved on npm to
+`@mastra/core` 0.10.15, `@mastra/mcp` 0.10.12 and `@ai-sdk/openai` 1.3.24.
+The latest versions were `@mastra/core` 1.82.0 and `@mastra/mcp` 2.8.0. We
+did not test the script with them.
 
 ## Run
 
@@ -54,10 +55,12 @@ npx tsx emem_mcp_geospatial_agent.ts
 
 We did not run this script. Node.js is not on our test host.
 
-We called `emem_hunt` with the same arguments over MCP on 6 November 2026. It
-returned hotspots with the algorithm `algal_bloom_chlorophyll_ndci@1`. The
-first hotspot was cell `defi.zb5de.rAsI.wEfA`, with gate band `indices.ndwi`
-at 0.537. Each hotspot had a `fact_cid` and a `facts_url`.
+We called `emem_hunt` with the same arguments over MCP on 7 November 2026. It
+returned 8 hotspots with the algorithm `algal_bloom_chlorophyll_ndci@1`. The first hotspot was cell `defi.zb5de.rAsI.wEfA`, with
+primary band `indices.ndvi` at -0.216 and gate band `indices.ndwi` at 0.537.
+Each hotspot had a `fact_cid` and a `facts_url`. The `facts_url` is a GET
+on `/v1/recall`, which accepts only POST, so it returns 405. To read the
+facts, send `POST /v1/recall` with the `cell64`.
 
 A hunt ranks cells by the primary band of the algorithm only. It does not
 compute the full formula. See [Hunt use cases](../hunt-use-cases.md) for how
@@ -66,8 +69,10 @@ a hunt samples and ranks cells.
 ## Notes
 
 - `/mcp/full` sends its tools in pages. On 7 November 2026 it had 116 tools
-  in 8 pages. `emem_hunt` was on the first page. We did not check if
-  `MCPClient` reads all the pages.
+  in 8 pages, and the first page had 13 tools. `MCPClient` in `@mastra/mcp`
+  0.10.12 calls `tools/list` once and does not send the next cursor. So the
+  agent gets only the first page. `emem_hunt` was on that page. A tool on a
+  later page does not get to the agent.
 - Any AI SDK provider that Mastra supports can drive the agent. Change the
   `openai(...)` import to `@ai-sdk/anthropic`, `@ai-sdk/google` or another
   provider.
