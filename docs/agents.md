@@ -1175,8 +1175,11 @@ walkthrough is in [Connect and evolve](connect-and-evolve.md).
 Point a hosted MCP client at `https://emem.dev/mcp`. The transport is
 Streamable HTTP, MCP 2025-11-25. `initialize` also accepts 2025-06-18,
 2025-03-26 and 2024-11-05. For a version that is not on this list, the
-server answers with 2025-11-25. A self-hosted node listens on port 5051 by
-default. Set `EMEM_BIND` to change it. Reads need no key.
+server answers with 2025-11-25. The server also speaks the stateless
+revision 2026-07-28, which has no `initialize`. For that revision, send
+`server/discover` with the header `MCP-Protocol-Version: 2026-07-28`. On
+7 November 2026 its `supportedVersions` listed all five versions. A
+self-hosted node listens on port 5051 by default. Set `EMEM_BIND` to change it. Reads need no key.
 
 | Client | Config |
 |---|---|
