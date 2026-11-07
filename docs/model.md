@@ -138,7 +138,7 @@ machine checks is open work for all of them.
 | Property | Statement | Mechanism |
 |---|---|---|
 | Immutability | no operation rewrites an observation; a change is a new observation that `supersedes` the old one on the transaction-time axis | content addressing (a changed byte gives a different `cid`); supersede edges; bi-temporal reads replay the old state |
-| Determinism | the encoding is canonical: equal values give equal bytes, and equal bytes give equal names | canonical CBOR and BLAKE3; golden-vector tests pin the Rust and JS encoders to each other |
+| Determinism | the encoding is canonical: equal values give equal bytes, and equal bytes give equal names | canonical CBOR and BLAKE3; a CI test checks the browser verifier against vectors from the Rust signer (`scripts/verify_core_test.cjs`) |
 | Reproducibility | a name resolves to byte-identical bytes on any responder that holds it. You can also compute `direct_sensor` and `deterministic_index` observations again from their cited raw source | content addressing; provenance classes; the `deterministic: true` recall filter |
 | Verifiability | any signed answer verifies offline with only the public key of the responder | the receipt preimage (see below). An RFC 6962 transparency log (`/v1/log/*`) that outside witnesses co-sign. `/verify` in the browser. The Python samples in [agents](./agents.md) run against production and print VALID |
 | Composability | signed sets and named objects are first-class | `emem:bundle:` (N observations, one signed envelope); `emem:entity:` (one object identity over many observations) |
@@ -225,7 +225,8 @@ Hermetic does not always mean bit-identical. The difference is
 accumulation:
 
 - An operation with no accumulation gives the same bits again. Examples
-  are a difference, a ratio and a tree of 2-ary selections.
+  are a difference (`delta`) and a classification, which is a tree of
+  2-ary selections.
 - A reduction over many inputs does not. The order of the sum is a
   detail that nobody signed.
 
