@@ -13,8 +13,10 @@ endpoint that does it. Open work stays in its own section. The
 ## In short
 
 - emem stores observations, called facts. One fact is one value for one
-  cell, one band and one time. A cell is a square of about 10 m. A band
-  is a kind of measurement, for example `indices.ndvi`.
+  cell, one band and one time. A cell is about 9.55 m from north to
+  south. It is narrower from east to west away from the equator: 7.79 m
+  at Mount Fuji. The `spatial_basis` block of a recall gives both edges.
+  A band is a kind of measurement, for example `indices.ndvi`.
 - The responder signs each fact. The responder is the server that
   answers: emem.dev or your own node.
 - The id of a fact is the hash of its bytes. The same bytes have
