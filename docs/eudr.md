@@ -184,6 +184,26 @@ curl -s -o scene.png -D - \
   | grep -iE '^x-emem-scene-(datetime|cloud-cover)'
 ```
 
+### Values in each year entry
+
+The block reads the first cells of the plot sample, 8 by default (see [Time budget](#time-budget)).
+Each entry in `years[]` gives statistics over those cells, not one value for the plot.
+
+| Field | What it holds |
+|---|---|
+| `ndvi_median`, `ndvi_p10`, `ndvi_p90` | Median, 10th and 90th percentile of NDVI over the cells with a number |
+| `ndvi_delta_vs_2020` | `ndvi_median` minus the 2020 `ndvi_median` |
+| `s1_vv_db_median` | Median VV backscatter in dB over the cells with a number |
+| `s1_vv_delta_db_vs_2020` | `s1_vv_db_median` minus the 2020 value |
+| `n_cells_ndvi_ok`, `n_cells_s1_ok` | Cells that gave a number |
+| `n_cells_ndvi_errors`, `n_cells_s1_errors` | Cells that gave an error or ran out of time, with no fact |
+| `ndvi_fact_cids`, `s1_fact_cids` | Every fact the read stored, including absence facts |
+
+A cell with a signed absence (no usable pixel) is in `ndvi_fact_cids`.
+It is not in `n_cells_ndvi_ok` or in `n_cells_ndvi_errors`.
+Thus the two counts can add up to less than the number of cells.
+A median is `null` when no cell gave a number for that year.
+
 ### Dates to cite in a statement
 
 The block has one entry for each year in `years`.
