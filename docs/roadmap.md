@@ -1341,8 +1341,8 @@ change it.
   tagged preimage stream, the bi-temporal read predicate and the change
   decomposition.
 - Six figures with captions.
-- A reference list of 26 entries. The authors checked each arXiv
-  identifier against the arXiv API before they added it.
+- A reference list of 26 entries. The collaboration log records that
+  the authors checked each arXiv identifier against the arXiv API.
 - An evaluation section from [benchmarks.md](benchmarks.md). It keeps the
   split between sample results and full results.
 - A threat model: malicious sender, malicious responder, network attacker
@@ -1360,7 +1360,7 @@ layouts it points to v2 sections 3 and 6.
 | Memory passport | Ships for one responder. No profile exists yet to move bundles between vendors. |
 | Typed identity kinds | Not built. `kind` is free text. |
 | Signed state for A2A work | A2A endpoint and signed card ship. Card attestations do not exist yet. |
-| Open evaluation | Single-node results ship. Scaling and comparison results do not exist yet. |
+| Open evaluation | Single-node results ship. Results for more nodes and comparisons do not exist yet. |
 | A second substrate | Not built. Earth observation over cell64 is the only one. |
 | Cell build graph | One step ships. Multi-step signed derivations do not exist yet. |
 | Re-runnable derivations | Not built. The responder records `code_cid` but does not run it. |
@@ -1501,8 +1501,9 @@ with a list of bands is a one-step build.
 Open items:
 
 - Derivations with more than one step, as signed objects. An example is
-  facts, then gaussians, then meshes, then navigation surfaces. The
-  worlds bakes are prototypes of the first step.
+  facts, then gaussians, then meshes, then navigation surfaces. The 3D
+  scenes in [The worlds](#the-worlds-denser-live-and-portable-3d-scenes)
+  are prototypes of the first step.
 - A lineage graph that one call can walk.
 - A target language, so that a cell builds like a Bazel or Nix package
   and other trust domains can check the build.
@@ -1535,9 +1536,9 @@ result has the type derivative and names its attester. A trust policy
 decides which keys it admits, and the response states the policy. By
 default it admits keys that an organisation vouched for. `/v1/ask` and
 `/v1/locate` point to vouched derivations inside the place in the
-`research_nearby` field. So
-an agent at the same place can cite a peer's derivation and not compute
-it again. `recall` never returns a derivation.
+`research_nearby` field. So an agent at the same place can cite a
+peer's derivation and not compute it again. `recall` never returns a
+derivation.
 
 The open item is a reverse-lineage index: "what depends on this parent
 `fact_cid`". When an upstream source changes, the index shows which
@@ -1618,8 +1619,8 @@ Two parts do not exist yet:
 
 #### A world that moves forward in time: not built
 
-Nothing makes a world move forward. `/v1/jepa_predict` is a closed-form NDVI AR(2) model for one cell and one month
-(see [Inference](developers/inference.md)). The learned dynamics head that emem served before did not do better
+Nothing makes a world move forward. `/v1/jepa_predict` is a closed-form NDVI AR(2) model for one cell and one step
+ahead (see [Inference](developers/inference.md)). The learned dynamics head that emem served before did not do better
 than persistence on real NDVI (skill -0.064), and emem removed it.
 
 The design: a predictor with real skill makes a sequence of scene frames. Each frame is a signed forecast. It
