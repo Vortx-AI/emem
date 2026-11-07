@@ -34,6 +34,13 @@ PMTiles range reads.
 ![emem architecture. Open-data sources (STAC and COG) feed one responder binary on the first miss. MCP and REST clients reach the same handlers, such as recall, find_similar, verify and hunt. The responder reads its manifests (bands, algorithms, sources, schema) and appends every write to a signed log with a Merkle root per batch.](/docs/diagrams/01-architecture.svg)
 *The whole stack in one figure. The ASCII variant below is the same shape, terminal-friendly.*
 
+On a phone, the figure above is hard to read. The figure below shows the
+same binary in one column. It follows one call through seven steps: call,
+look up, fetch on a miss, hash, sign, log and answer. Its numbers come from
+live reads of emem.dev on 7 November 2026 at 12:22 UTC.
+
+<img src="../media/diagrams/architecture.svg" alt="What answers when an agent calls emem.dev, from live reads on 7 November 2026 at 12:22 UTC. REST (183 paths under /v1) and MCP (116 tools) reach the same handlers in one Rust binary, emem-server 2.4.4. It looks up a redb fact store, fetches from 46 registered open-data sources on a miss, hashes canonical CBOR with BLAKE3 into a fact id, signs with one Ed25519 key, and appends to an RFC 6962 log of 3,250,469 entries. Anyone checks the receipt offline with the public key at /.well-known/emem.json." width="480">
+
 ## Process topology
 
 ```
