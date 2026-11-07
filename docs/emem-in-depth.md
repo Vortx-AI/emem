@@ -21,20 +21,20 @@ from the bytes of the record. If the value changes, the address changes. So a
 reference cannot start to mean something else without notice.
 
 When it happened. A record carries the time that the world was in that state.
-The log carries the time that the record was written. A correction is a new
+The log carries the time that emem wrote the record. A correction is a new
 record, not an edit. So a reading from March still reads as a March reading
 after a June correction. emem revises nothing in place. A deletion
 unpublishes the record and records that it did. [What only emem
 does](only-emem.md#read-what-was-true-or-what-emem-knew-on-a-date)
 shows the query "what did we believe on date X".
 
-How much it is worth. Every record says how it was made. A sensor read it, a
+How much it is worth. Every record says where its value came from. A sensor read it, a
 formula recomputed it from a cited source, a model produced it, or a person
-typed it. The record keeps these four kinds apart. A confirmed absence is
-signed, and you can cite it. An unknown has its own type and never shows as a
+typed it. The record keeps these four kinds apart. emem signs a confirmed
+absence, and you can cite it. An unknown has its own type and never shows as a
 value. A refusal names its reason.
 
-The record is shared in this sense. Two agents can run different models at
+Agents share the record in this sense. Two agents can run different models at
 different companies, with no reason to trust each other. They resolve the
 same reference to the same bytes. Each one checks the bytes alone, with no
 account, and without a call to emem.

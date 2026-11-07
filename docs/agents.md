@@ -77,6 +77,7 @@ so an extended tool also works on `/mcp`.
 | [Read signed facts at one place](#job-read-signed-facts-at-one-place) | `emem_recall` | `POST /v1/recall` | core | no |
 | [Read facts over an area](#job-read-facts-over-an-area) | `emem_recall_polygon` | `POST /v1/recall_polygon` | extended | no |
 | [See how a value changed](#job-see-how-a-value-changed) | `emem_trajectory`, then `emem_diff` | `POST /v1/trajectory`, `POST /v1/diff` | extended | no |
+| [Read facts as they were on a date](#job-read-facts-as-they-were-on-a-date) | `emem_recall` with `as_of_tslot` or `as_of_signed_at` | `POST /v1/recall` | core | no |
 | [Check a yes or no claim about a place](#job-check-a-yes-or-no-claim-about-a-place) | `emem_verify` | `POST /v1/verify` | extended | no |
 | [Cite one fact for another agent](#job-cite-one-fact-for-another-agent) | `emem_memory_token` | `POST /v1/memory_token` | core | no |
 | [Read a fact that another agent cited](#job-read-a-fact-that-another-agent-cited) | `emem_memory_token_resolve` | `POST /v1/memory_token/resolve` | core | no |
@@ -89,8 +90,8 @@ so an extended tool also works on `/mcp`.
 | [Write a note that other agents can verify](#job-write-a-note-that-other-agents-can-verify) | `emem_memory_create` | none, MCP only | extended | yes |
 
 The examples use the cell of Mount Fuji, `defi.zb592.nUkO.zEzE`. Every call
-in this section ran on 6 November 2026 and returned HTTP 200, except the note
-write, which needs your key. The MCP form is the `params` object of a
+in this section ran again on 7 November 2026 and returned HTTP 200, except the
+note write, which needs your key. The MCP form is the `params` object of a
 JSON-RPC `tools/call` request. A count or value in an answer can change on a
 later day.
 
@@ -210,6 +211,27 @@ Read `delta_fact.value` and `delta_fact.parents`, the two facts behind the
 delta. `emem_intent` with `"type": "did_change"` does the same job. It also
 needs `window`, two tslots such as `[20484, 20754]`, not dates.
 
+### Job: read facts as they were on a date
+
+Add a time bound to the recall. `as_of_tslot` gives the latest fact observed at
+or before that tslot. `as_of_signed_at` gives the latest fact that emem signed
+at or before that RFC 3339 UTC time.
+
+```json
+{"name": "emem_recall", "arguments": {"cell": "defi.zb592.nUkO.zEzE", "bands": ["indices.ndvi"], "as_of_tslot": 20600}}
+```
+
+```bash
+curl -s -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb592.nUkO.zEzE","bands":["indices.ndvi"],"as_of_tslot":20600}'
+```
+
+The answer held one NDVI fact, at tslot 20589. The receipt signs the bound in
+`receipt.as_of` (`{"valid_time": 20600}`). A past `as_of_signed_at` does not
+fetch new data. Details:
+[Read what was true, or what emem knew, on a date](only-emem.md#read-what-was-true-or-what-emem-knew-on-a-date).
+
 ### Job: check a yes or no claim about a place
 
 ```json
@@ -306,7 +328,7 @@ curl -s -X POST https://emem.dev/v1/memory_contradictions \
   -d '{"limit":3}'
 ```
 
-On 6 November 2026 the scan read 44,682 keys and returned 3 contradictions.
+On 7 November 2026 the scan read 44,682 keys and returned 3 contradictions.
 It stopped before the end of the corpus (`scan_truncated: true`). Send the
 `resume_after` value back to continue the scan. Add `cell_prefix` or `band` to
 narrow the scan. Each contradiction has a severity from 0 to 1 and the
