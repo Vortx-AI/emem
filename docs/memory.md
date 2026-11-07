@@ -945,9 +945,9 @@ it across two responses. In `lexical` mode, `model_loaded` is `false`
 and `query_embedding_dim` is 0.
 
 On 7 November 2026, the query `NDVI drop after harvest` with `k` 2 on
-emem.dev gave `via` `lance_chunks`, `corpus_size` 5,427 and
+emem.dev gave `via` `lance_chunks`, `corpus_size` 5,437 and
 similarities 0.719 and 0.713. The same query in `lexical` mode gave
-`via` `bm25_lexical` and similarities 1.0 and 0.986.
+`via` `bm25_lexical` and similarities 1.0 and 0.987.
 
 ### Indexes
 
@@ -964,7 +964,7 @@ of the two windows.
 
 Search uses the chunk dataset after its first full load. Until then it
 uses the file dataset. On 7 November 2026, `GET /v1/memory_search/stats`
-on emem.dev gave 5,427 files and 116,432 chunk rows, with the model
+on emem.dev gave 5,437 files and 116,550 chunk rows, with the model
 loaded.
 
 Both datasets have this schema:
@@ -1006,10 +1006,16 @@ all rows. The name `lance_scan` replaced `lance_ann`, because no
 approximate index exists here. The `find_similar` cell-embedding
 datasets do have `vector_idx`.
 
-In `dense` mode, the snippet is a window of 200 characters, with
-`[...]` at each end that the responder cut. The responder selects the
-window by word match, not by a new embedding. In `lexical` mode, the
-snippet is the first 200 characters of the note.
+In `dense` mode, a note of 200 characters or fewer is its own snippet.
+For a longer note, the responder cuts the note into chunks and counts
+the query words in each chunk. It takes the chunk with the best count
+per length. The snippet is the middle 200 characters of that chunk, or the whole
+chunk when it is shorter, with `[...]` before and after it. The responder selects the chunk by
+word match, not by a new embedding. In `lexical` mode, the snippet is
+the first 200 characters of the note, with no `[...]`.
+
+On 7 November 2026, both `dense` snippets in the example above were
+212 characters: 200 from the note and 12 for the two markers.
 
 If the BGE model is not in `$EMEM_DATA/models/`, a `dense` query returns
 503 with code `internal`. It never returns random vectors. `lexical`
