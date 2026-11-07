@@ -104,6 +104,11 @@ what each endpoint accepted on 7 November 2026.
 When a place name has more than one match, `locate` returns `selected.is_high_confidence: false`, and `ask` returns
 `status: needs_location`. Then give a more specific name, or send `lat` and `lng`.
 
+Two phrasings of one place can resolve to two cells. After you locate a place, hand on the `cell64` or the
+`emem:fact:` token, not the name.
+
+![Five phrasings of Mount Fuji sent to locate on 7 November 2026 gave four cells. "Mount Fuji" and "mount fuji" gave defi.zb592.nUkO.zEzE, elevation 3539.04 m. "Fujisan" gave the Wikidata point 390 m away, 3766.73 m. The coordinates 35.3606, 138.7274 gave the next cell, 10 m from that point, 3768.41 m. "Fuji-san, Japan" gave a shrine 13.3 km away, 871.37 m, with disambiguation_required true. A map shows the points. The emem:fact: token for the first cell resolves to the same signed bytes for any agent. All four receipts check valid offline.](media/stills/one-place-many-names.webp)
+
 The authority for every field is [`/openapi.json`](https://emem.dev/openapi.json). Over MCP, call a tool by its name.
 Do not make a REST path from a tool name.
 
