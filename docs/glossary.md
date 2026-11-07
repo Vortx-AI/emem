@@ -52,12 +52,12 @@ term for one thing.
 
 | Term | Definition | Full definition |
 |---|---|---|
-| note | A Markdown file that an agent writes and signs. Notes are public, except a note of kind `vault`, which is stored encrypted. | [Memory](memory.md) |
+| note | A Markdown file that an agent writes and signs. Notes are public, except a note of kind `vault`, which is stored encrypted. The operator can still read a `vault` note. | [Memory](memory.md) |
 | namespace | The folder for your notes: `/memories/by_attester/<first 8 characters of your public key>/`. Only your key can write there. | [Memory](memory.md) |
 | fact plane, note plane | The two layers of emem. Facts come only from emem's own readers, enrolled devices and keys that the operator lists. Any key can write notes. Each plane has its own trust rules. | [Intro, "Two layers"](intro.md#two-layers), [Federation](federation.md) |
 | supersede | Mark your own older note as replaced by a newer note. The old bytes stay readable, and readers see `superseded_by`. | [Memory](memory.md) |
 | derive | Record a value that you computed from signed facts, signed with your key. For a pure operation (`delta`, `mean`, `sum`) emem computes it again before it records it. | [Protocol, section 5.2](protocol.md#52-derivativefact) |
 | `ulp_gap` | The distance, in steps of the last float digit, between emem's new calculation and your value. 0 means the bits are the same. | [README](https://github.com/Vortx-AI/emem/blob/main/README.md#memory-that-changes-without-losing-its-history) |
-| memory kinds | Labels for a note from the CoALA agent-memory taxonomy: `episodic` (events), `semantic` (facts), `procedural` (methods), `resource` (the default). emem adds two more: `core` (a persona block, listed first) and `vault` (a sealed entry, stored encrypted). | [Memory](memory.md) |
+| memory kinds | Labels for a note from the CoALA agent-memory taxonomy: `episodic` (events), `semantic` (facts), `procedural` (methods), `resource` (the default). emem adds two more: `core` (a persona block, listed first) and `vault` (a sealed entry, stored encrypted, that the operator can still read). | [Memory](memory.md) |
 | A2A | The agent-to-agent protocol. The agent card lists 18 main tools as A2A skills. `/v1/a2a/skills` matches all 116 tools. It returns 25 by default; add `?limit=200` to get all of them (7 November 2026). | [`/.well-known/agent-card.json`](https://emem.dev/.well-known/agent-card.json), [`/v1/a2a/skills`](https://emem.dev/v1/a2a/skills) |
 | SSE | Server-Sent Events: an HTTP stream of new writes. It does not replay old events. | [Memory](memory.md) |
