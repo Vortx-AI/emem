@@ -1509,16 +1509,94 @@ that turns these parts into a procurement-grade record of what an agent
 knew, and when. Provenance standards that cover only content do not
 record this.
 
-### The worlds: making the proof denser, live, and portable
+### The worlds: denser, live and portable 3D scenes
 
-- **The responder URL in baked provenance.** Done. A bake fetches from a fast local node but the sidecar now records the public responder the artifacts are served from, so the re-check recipe points somewhere a reader can actually reach. The signing key is unchanged, so every receipt still verifies. See `--public-responder` in `examples/3d-worlds/make_splats.py`, wired through `scripts/bake_worlds.sh`.
-- **Provenance-preserving densification.** The exporter now does this. `python3 examples/3d-worlds/make_splats.py --densify F` subdivides each grid quad and writes `emem.splat_provenance.v2`, in which every splat is labelled `measured` (its own `fact_cid`) or `derived` (its up to four source cells, their `fact_cids`, and bilinear weights that sum to 1), so a derived continuous value is exactly re-derivable as `sum_i weight_i * source_i` and every source stays signature-checkable. Categorical bands (a loss year, a class code) are inherited from the nearest signed cell rather than averaged, and a node on an original cell stays that exact signed cell, so densifying never invents a value or drops a measured fact. `--check-derived` re-verifies a whole sidecar offline. The live `/worlds` viewer now densifies in lockstep with the exporter (the `splat-math.js` and Python paths are pinned to 1e-6 by a golden fixture), with a detail control and a pick panel that resolves any derived splat to its signed sources. Still open: carrying the same labelling into a standard splat container (next item).
-- **A world that rolls forward.** Open. No predictor with real skill runs here: the learned dynamics head emem once served lost to persistence and is retired, so this item is a design, not a capability. Applied across a whole baked world, a predictor with real skill becomes a sequence of scene frames, each one a signed forecast that says it is a forecast, carrying the model id and the lags it read. A generated frame nobody has to take on faith. Rolling forward also wants a subscription surface, a token that resolves to the current value and says when it changed, instead of a caller polling recall in a loop; open, filed from the agent channel.
-- **Riding the splat standard.** Open. The worlds emit a bespoke 32-byte splat plus a PLY. As gaussian splatting consolidates on glTF and compressed transport formats, emem's provenance should ride inside the standard as a custom block, so any viewer renders the geometry and only emem-aware clients light up the click-to-verify layer.
-- **Planet scale.** Open. The cell ids are already hierarchical, so a world can become a tile pyramid: coarse gaussians far out, finer tiles baked on demand as a camera or an agent drills in, cached the way recalls already are.
-- **Generative where the memory is empty.** A first cut is live, the rest is the furthest-out item here. Where no fact exists, generate a plausible value from the embedding field and its neighbours, but stamp it with its own class of id, its model, its conditioning cells, and a confidence, so an agent can ask for measured cells only, or measured plus inferred, and always know which is which. The dense worlds at [`/splats`](https://emem.dev/splats) show the shape of it: every splat is labelled `measured`, `interpolated`, or `synthesized`, the measured trust root stays ed25519-signed, and the invented layers peel back off, so a viewer can drop to grounded-only in one step. Open is generalising that labelling beyond a splat scene to arbitrary bands, and giving each generated value the same signed envelope a measured fact gets. Grounded where grounded, generative where not, and labelled either way.
+A world is a 3D Gaussian splat scene. Each splat comes from signed facts. The exporter is
+[`examples/3d-worlds/make_splats.py`](https://github.com/Vortx-AI/emem/blob/main/examples/3d-worlds/make_splats.py).
+The site shows worlds at [`/worlds`](https://emem.dev/worlds) and [`/splats`](https://emem.dev/splats).
 
-Near-term protocol work is tracked in [issues](https://github.com/Vortx-AI/emem/issues); the reasoning behind the sequencing is in the [whitepaper](https://doi.org/10.5281/zenodo.20706893).
+| Item | Status on 7 November 2026 |
+|---|---|
+| Public responder URL in the provenance file | Ships |
+| Densification that keeps provenance | Ships in the exporter and in `/worlds` |
+| Labels for measured, interpolated and synthesized splats | Ships for the `/splats` scenes only |
+| A world that moves forward in time | Not built |
+| Provenance inside a standard splat format | Not built |
+| Planet-scale tile pyramid | Not built |
+
+#### Public responder URL in the provenance file: ships
+
+A bake can fetch from a fast local node. `--public-responder` writes the public URL into the provenance
+sidecar and the re-check recipe. Thus a reader can get to the node that the recipe names. The signing key does not
+change, so every receipt still verifies. `scripts/bake_worlds.sh` passes the flag. Its default is
+`https://emem.dev`, and `EMEM_PUBLIC_RESPONDER` changes it.
+
+#### Densification that keeps provenance: ships
+
+`make_splats.py --densify F` divides each grid quad into F by F parts. For example, `F=3` turns a 32 by 32 grid
+into 94 by 94. The default `F=1` writes only measured splats (schema v1). With `F` of 2 or more, the exporter
+writes schema `emem.splat_provenance.v2`. Each splat in it has one of two labels:
+
+| Label | What the sidecar records |
+|---|---|
+| `measured` | The `fact_cid` of its signed cell |
+| `derived` | Up to four source cells, their `fact_cid` values, and bilinear weights with a sum of 1 |
+
+A continuous band on a derived splat is `sum_i weight_i * source_i`. A categorical band, such as a loss year or a
+class code, comes from the nearest signed cell. The exporter does not average it. A node on an original cell keeps
+the value of that signed cell. `--check-derived <sidecar.json>` checks every derived splat again, offline.
+
+The `/worlds` viewer densifies with the same math. `splat-math.js` and the Python exporter must agree within
+1e-6 on `examples/3d-worlds/test/golden-scene.json`. To run that check, use this command. On 7 November 2026 it
+printed `selftest ok: 1213 checks`.
+
+```sh
+python3 examples/3d-worlds/make_splats.py --selftest
+```
+
+The viewer has a detail control. Its pick panel shows the signed source cells of a derived splat.
+
+#### Labels for measured, interpolated and synthesized splats: ships for `/splats` only
+
+The `/splats` scenes put each splat in one of three classes: `measured`, `interpolated` or `synthesized`. The
+measured splats keep their Ed25519-signed facts. The viewer marks synthesized splats as invented and lets you
+remove them. On 7 November 2026, `/splats` sent a reader to the Haridwar world
+(`/splats/viewer/temporal.html?world=../world_haridwar/`).
+
+The scene files for `/splats` are not in the repository. A node serves them from `EMEM_SPLATS_DIR` (default
+`$EMEM_DATA/splats-site`); see [Operating](operators/operating.md#identity-discovery-and-logs).
+
+Two parts do not exist yet:
+
+- The labels apply to a splat scene only. A recall of a band does not give generated values.
+- A generated value does not get the signed envelope that a measured fact gets. That envelope would name the
+  model, the cells it used and a confidence. Then an agent could ask for measured cells only.
+
+#### A world that moves forward in time: not built
+
+Nothing makes a world move forward. `/v1/jepa_predict` is a closed-form NDVI AR(2) model for one cell and one month
+(see [Inference](developers/inference.md)). The learned dynamics head that emem served before did not do better
+than persistence on real NDVI (skill -0.064), and emem removed it.
+
+The design: a predictor with real skill makes a sequence of scene frames. Each frame is a signed forecast. It
+says that it is a forecast, and it names the model id and the lags it read.
+
+This item also needs a subscription surface. That is a token that resolves to the current value and says when the
+value changed. Today a caller must call recall again and again. An agent asked for this in the agent channel.
+
+#### Provenance inside a standard splat format: not built
+
+The exporter writes a PLY file and a 32-byte-per-splat `.splat` file. The provenance is in a separate JSON sidecar.
+The plan is to put the provenance in a custom block of a standard container, such as glTF. Then any viewer shows
+the geometry, and a viewer that knows emem also shows the verify layer.
+
+#### Planet-scale tile pyramid: not built
+
+Cell ids are hierarchical, so a world can become a tile pyramid. Far tiles would use coarse splats. A node would
+bake finer tiles when a camera or an agent comes near, and cache them as it caches recalls.
+
+Near-term protocol work is in the [issues](https://github.com/Vortx-AI/emem/issues). The
+[whitepaper](https://doi.org/10.5281/zenodo.20706893) gives the reasons for the order.
 
 ## A2A interoperability
 

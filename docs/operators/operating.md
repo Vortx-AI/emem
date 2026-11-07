@@ -220,6 +220,7 @@ upstreams and background work. Each default comes from the code.
 | `EMEM_TOPIC_THRESHOLD` | `0.35` | The cosine threshold for a topic match in `/v1/ask`. |
 | `EMEM_DEMOS_DIR` | `var/demos`, from the working directory | The directory that `/v1/demos` serves. |
 | `EMEM_WORLDS_DIR` | `var/worlds`, from the working directory | The directory that `/v1/worlds` serves. The image starts in `/`, so set an absolute path there. |
+| `EMEM_SPLATS_DIR` | `$EMEM_DATA/splats-site` | The static files that `/splats/` serves. The repository does not include them. If the directory is empty, `/splats/` gives 404. |
 | `RUST_LOG` | `info` | The log filter, for example `info,emem_storage=debug,rustls_acme=info`. |
 
 The binary reads more variables than these tables show. To list them, search the code for `env::var("EMEM_`.
@@ -240,6 +241,7 @@ $EMEM_DATA/
 ├── geocoder.sled/          the /v1/locate cache
 ├── tile_store/             local copies of static forest rasters
 ├── models/                 optional model files
+├── splats-site/            the files that /splats/ serves, when you add them
 ├── acme.cache/             TLS certificates
 ├── warm_priority.json      the warmer's list, when you put it here
 └── warm_state.json         the time of the last warmer pass
