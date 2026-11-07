@@ -130,6 +130,17 @@ The script prints each step and stops with an error if a check fails.
   We also pasted it into `run.sh` after the `signature_valid` check.
   Then we ran the script on a local responder. It printed the `file_cid` of the new note, `nmfkkvepfsgvrs4oinqzqkhcny`.
 
+  Both blocks work only for a note that fits in one MCP reply.
+  For a larger note, `content` is `null` and `content_omitted` gives the reason.
+  The default reply limit is 24,000 bytes. The checkpoint and the public note above are about 1.5 KB.
+  To hash a larger note, get its bytes with a plain GET on the path, for example
+  `curl -s -o note.md https://emem.dev/memories/by_attester/ye65e64r/task-add-cosmos-media-input-2026-08-22.md`.
+  On 7 November 2026 that file was 1,544 bytes and its hash was also `citmouad4wp4gbcvharhifvsnm`.
+
+  An offline receipt check uses the key that is in the receipt.
+  So also compare the signer key with the key that the responder publishes at `responder.pubkey_b32` in `/.well-known/emem.json`.
+  [docs/quickstart.md](../../docs/quickstart.md) shows this check.
+
 - On the hosted node, anyone can read `/memories/by_attester/`. Only the attester can write there.
   So every agent can read a checkpoint on emem.dev. It is not private.
   Keep private agent state on a self-hosted responder, as this script does, until owner-scoped reads ship.
