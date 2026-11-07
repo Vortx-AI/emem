@@ -1655,11 +1655,12 @@ The batch tree and the log tree are different trees with different rules:
 
 ### 7.3.1 A receipt is byte-for-byte or nothing
 
-The v2 binding has a cost worth stating plainly, because integrators
-meet it as a bug report rather than as a design note.
+In short: keep the receipt exactly as the responder sent it. If you
+change, drop or re-encode a signed field, the signature fails, even when
+the data is true. Integrators usually see this as a bug report.
 
-Since v2 covers the proof, and v1 already covered every other field
-listed in §7.1, **no signed field can change and still verify.** The
+v1 covers every field listed in §7.1 except the proof, and v2 also
+covers the proof. So **no signed field can change and still verify.** The
 fields that the table above marks "Not signed" (`intent`, `cost`,
 `responder_key_epoch`, the top-level `schema_cid` and `registry_cid`,
 and the two base32 copies) can change without a signature failure. Do
@@ -1701,8 +1702,9 @@ It never returns `valid: true` for such a receipt. A body changed in any
 other place also fails the restored rebuild. So this check is not a way
 back to the v1 downgrade.
 `crates/emem-attest/src/lib.rs::restoring_a_proof_rescues_only_an_untouched_body`
-pins that. An offline verifier holds no recorded proof and cannot make
-the distinction at all; `web/verify.html` says so rather than guessing.
+pins that. An offline verifier holds no recorded proof, so it cannot
+tell the two cases apart. `web/verify.html` reports only that the
+signature does not match the digest. It does not call the receipt forged.
 
 ### 7.4 Offline verification (Python)
 
@@ -1866,10 +1868,11 @@ python3 plugins/emem/skills/emem-verify-receipt/scripts/verify.py recall.json
 It prints `VALID` or `INVALID`, then the digest it rebuilt.
 
 Legacy receipts (`preimage_version` absent or `0`) instead use the v0
-pipe rule from §7.1; `POST /v1/verify_receipt` handles both versions and
-is the reference verifier. A verifier that can reproduce this preimage
-and run ed25519 verify is the entire trust-rebinding path; no other call
-to the responder is necessary.
+pipe rule from §7.1. `POST /v1/verify_receipt` handles all versions and
+is the reference verifier. To check a receipt, you need only this
+preimage, the Ed25519 check and the key in the receipt. You do not need
+another call to the responder. Compare that key with the published key
+once ([Check your first receipt](#check-your-first-receipt), step 3).
 
 <a id="75-capability-binding-for-memory-writes"></a>
 
@@ -1894,27 +1897,7 @@ attester_preimage = blake3(
 attester_sig = ed25519_sign(caller_signing_key, attester_preimage)
 ```
 
-`base` is the `file_cid` now at `path`, or the literal `absent` when
-the path holds nothing, so a create of a new path signs `absent`. It makes
-each signature name the version it replaces, so nobody can replay a signature
-from the public ledger later. The v1 preimage is the same without
-`.v2` and without `|| "|" || base`. Since 2026-11-05 the responder refuses
-a write signed with it for every verb (`reason: v1_retired`); notes signed with v1
-before then still verify when read.
-
-`memory_view` returns an `authorship` block that says which version the
-author signed. It has `preimage_version` (1 or 2), `base`, and
-`preimage_version_source`:
-
-| `preimage_version_source` | Meaning |
-|---|---|
-| `recorded_at_write` | the write stored the version |
-| `reverified_at_read` | an older row; the responder checked v2 with `base = absent`, then v1 |
-| `unknown` | neither version verifies |
-
-Verify against the stated version. Do not try both.
-
-where:
+Where:
 
 - `verb ∈ {create, str_replace, insert, delete, rename, supersede}`
 - `path` is the canonical memory path beginning with `/memories/`, the
@@ -1935,6 +1918,26 @@ The body is the *content*, never the JSON envelope the caller POSTs.
 For the edit verbs, the caller must apply the edit locally and hash the
 result. Then the signature commits to the file that the responder will
 store, not to the patch that made it.
+
+`base` is the `file_cid` now at `path`, or the literal `absent` when
+the path holds nothing, so a create of a new path signs `absent`. It makes
+each signature name the version it replaces, so nobody can replay a signature
+from the public ledger later. The v1 preimage is the same without
+`.v2` and without `|| "|" || base`. Since 2026-11-05 the responder refuses
+a write signed with it for every verb (`reason: v1_retired`); notes signed with v1
+before then still verify when read.
+
+`memory_view` returns an `authorship` block that says which version the
+author signed. It has `preimage_version` (1 or 2), `base`, and
+`preimage_version_source`:
+
+| `preimage_version_source` | Meaning |
+|---|---|
+| `recorded_at_write` | the write stored the version |
+| `reverified_at_read` | an older row; the responder checked v2 with `base = absent`, then v1 |
+| `unknown` | neither version verifies |
+
+Verify against the stated version. Do not try both.
 
 `rename` binds both ends of the move with one signature: the
 destination is the preimage's `path`, the source is its `body_hash`.
