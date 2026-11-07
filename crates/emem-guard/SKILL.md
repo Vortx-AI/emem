@@ -1,32 +1,32 @@
 ---
 name: selfhost-emem-guard
-description: Stand up an emem-guard verdict server, verify it against the conformance checks, and point any agent at it. Use when asked to self-host emem-guard, add a grounding gate to an agent on any model or framework, wire a checkpoint into Claude Code or Claude Enterprise or MCP, or run a signed allow/deny server for physical-world claims.
+description: Stand up an emem-guard verdict server, check it with the conformance suite, and point any agent at it. Use it to self-host emem-guard or to add a grounding gate to an agent on any model or framework. Also use it to wire a checkpoint into Claude Code, Claude Enterprise or MCP. Or use it to run a signed allow/deny server for physical-world claims.
 ---
 
 # Self-host emem-guard
 
-You are the operator. This procedure is written to be run by an agent with a
-shell, unattended, in one session. Every step is a command you can execute and
-a check you can evaluate. If a step cannot be run verbatim, that is a defect in
-this file: report it rather than improvising around it.
+You are the operator. An agent with a shell can follow this procedure
+unattended, in one session. Each step gives a command to run and a check to
+make. If you cannot run a step exactly as written, this file has a defect.
+Report the defect. Do not improvise around it.
 
 ## What you are building
 
-Four diagrams, if the shape helps before the commands do:
-[nine doors, one decision](https://emem.dev/docs/diagrams/40-guard-checkpoints.svg),
-[one verdict, in order](https://emem.dev/docs/diagrams/41-guard-verdict-path.svg),
-[the chassis your DLP runs on](https://emem.dev/docs/diagrams/42-guard-dlp-chassis.svg),
-[three deployments](https://emem.dev/docs/diagrams/43-guard-deployments.svg).
+Four diagrams show the shape before the commands do:
 
+- [nine checkpoints, one decision](https://emem.dev/docs/diagrams/40-guard-checkpoints.svg)
+- [one verdict, in order](https://emem.dev/docs/diagrams/41-guard-verdict-path.svg)
+- [the chassis your DLP runs on](https://emem.dev/docs/diagrams/42-guard-dlp-chassis.svg)
+- [three deployments](https://emem.dev/docs/diagrams/43-guard-deployments.svg)
 
-A server that answers one question: should this prompt proceed, given the
-claims it makes about the physical world. It returns allow or deny, signs the
-verdict, and appends it to a log before answering, so the decision can be
-verified later by someone who does not trust you.
+The server answers one question: can this prompt continue, given the claims it
+makes about the physical world? It returns allow or deny and signs the verdict.
+It appends the verdict to a log before it answers. Someone who does not trust
+you can then verify the decision later.
 
 It is not a DLP scanner. It does not classify content. It checks whether the
-`emem:` citations in a transcript still verify, and optionally whether
-measurable claims about places carry a citation at all.
+`emem:` citations in a transcript still verify. As an option, it also checks
+whether measurable claims about places carry a citation at all.
 
 ## Before you start
 
@@ -35,11 +35,11 @@ You need:
 - Rust 1.91 or newer (`rustc --version`).
 - Nothing else to run it locally.
 
-For the Anthropic Enterprise checkpoint specifically you also need a publicly
-reachable HTTPS URL on port 443 with a certificate that validates against the
-public CA trust store, because that platform refuses private, loopback and
-carrier-grade NAT ranges at connect time and does not follow redirects. The
-open routes have no such requirement: localhost is fine.
+The Anthropic Enterprise checkpoint needs more. It needs a public HTTPS URL on
+port 443, with a certificate that the public CA trust store accepts. That
+platform refuses private, loopback and carrier-grade NAT addresses when it
+connects, and it does not follow redirects. The open routes have no such
+requirement: localhost is fine.
 
 You do NOT need an emem account, an API key, or network access to emem.dev.
 
@@ -51,8 +51,8 @@ cd emem
 cargo build --release -p emem-guard
 ```
 
-Check: the build exits 0. If it fails on `ort-sys` or a GPU crate, you have
-built the wrong package; `-p emem-guard` pulls no inference dependencies.
+Check: the build exits 0. If it fails on `ort-sys` or a GPU crate, you built
+the wrong package. `-p emem-guard` pulls no inference dependencies.
 
 ## Step 2: run the tests before you trust it
 
@@ -60,13 +60,15 @@ built the wrong package; `-p emem-guard` pulls no inference dependencies.
 cargo test --release -p emem-guard
 ```
 
-Check: every test passes; there are 136 of them. These are not smoke tests. They include the two
-signature-verification mistakes the platform documentation singles out as the
-most common (hashing a re-encoded body, and decoding the secret with a
-URL-safe alphabet), and they fail loudly if either is reintroduced.
+Check: every test passes. The crate source holds 143 tests (counted on
+7 November 2026: 123 `#[test]` and 20 `#[tokio::test]`, none ignored).
+These are not smoke tests. The platform documentation names two common
+signature-verification mistakes: a hash over a re-encoded body, and a secret
+decoded with a URL-safe alphabet. Tests cover both and fail if either comes
+back.
 
 Do not skip this step because the build succeeded. A guard that compiles and
-mis-verifies signatures accepts requests from anyone.
+verifies signatures incorrectly accepts requests from anyone.
 
 ## Step 3: start it
 
@@ -74,19 +76,20 @@ mis-verifies signatures accepts requests from anyone.
 ./target/release/emem-guard --data ./var/guard
 ```
 
-It generates a node key at 0600 on first run, opens a log, and serves. The
-startup banner tells you the one thing that matters most:
+On the first run it makes a node key with mode 0600, opens a log, and starts
+to serve. The default listen address is `127.0.0.1:8080`. The startup banner
+tells you the most important fact:
 
 ```
-resolve  null
-         no responder configured: citations are not verified, only logged.
+  resolve  null
+           no responder configured: citations are not verified, only logged.
 ```
 
-A bare node signs and logs every verdict and verifies no citation, because it
-holds no corpus. That is honest behaviour, not a broken install, and it is
-still half the product: the signed, append-only record of every decision.
+A bare node holds no corpus. It signs and logs every verdict, but it verifies
+no citation. This is correct behaviour, not a broken install. The node still
+keeps a signed, append-only record of every decision.
 
-To make it verify, point it at a responder that holds facts:
+To make it verify citations, point it at a responder that holds facts:
 
 ```bash
 ./target/release/emem-guard --responder https://emem.dev
@@ -100,31 +103,33 @@ Check: `http://localhost:8080/health` reports `"verifies_citations": true`.
 curl -s http://localhost:8080/.well-known/emem-guard.json
 ```
 
-Every route, every deny code, every remedy, the reason grammar, and which
-rules are on. You do not need to read the rest of this file to integrate; you
-need to read that document. It is served by the node itself so it cannot drift
-from the binary.
+This document lists every route, deny code and remedy, the reason grammar, and
+the rules that are on. To integrate, read that document; you do not need the
+rest of this file. The node itself serves the document, so it always matches
+the binary.
 
 ## Step 5: pick your checkpoint
 
-A checkpoint is any place your system pauses and asks whether to proceed. The
-node serves nine, all reaching the same engine. **Two are vendor-specific and
-seven belong to nobody**, which is deliberate: a gate reachable only through
-one company's product is a gate for that company's customers.
+A checkpoint is any place where your system stops and asks whether to continue.
+The node serves nine verdict routes, and all of them use the same engine.
+`POST /verdict/native` is a second name for `POST /verdict`. Two
+are specific to one vendor and seven belong to nobody. That is deliberate: a
+gate that only one company's product can reach is a gate for that company's
+customers only.
 
 | Route | Speaks to |
 |---|---|
 | `POST /verdict` | any agent, any model, any framework. The native shape. |
-| `POST /verdict/mcp` | any MCP host or proxy, gating a tool call or a tool result |
-| `POST /verdict/openai` | anything holding an OpenAI-shaped client |
+| `POST /verdict/native` | the same handler as `POST /verdict`, under an explicit name |
+| `POST /verdict/mcp` | any MCP host or proxy that gates a tool call or a tool result |
+| `POST /verdict/openai` | anything that holds an OpenAI-shaped client |
 | `POST /verdict/cloudevent` | CloudEvents 1.0 producers, Knative, Dapr, Argo Events |
 | `POST /verdict/policy` | OPA-compatible clients, Envoy external authorisation |
-| `POST /verdict/batch` | many transcripts at once, for scanning an archive |
+| `POST /verdict/batch` | many transcripts at once, to scan an archive |
 | `POST /verdict/anthropic-hook` | claude.ai, Cowork and Claude Code inside a Claude Enterprise org |
 | `POST /verdict/claude-code` | agents on the Platform API, Bedrock and Vertex, which Inference hooks cannot see |
 
-The simplest possible integration, which works from anything that can make an
-HTTP request:
+The simplest integration works from anything that can send an HTTP request:
 
 ```http
 POST /verdict HTTP/1.1
@@ -136,11 +141,11 @@ Content-Type: application/json
 
 Check: HTTP 200 and a JSON body with `action`, `checked` and `leaf`.
 
-### Gating MCP tool calls
+### Gate MCP tool calls
 
-The most portable option, because MCP is an open protocol with many
-independent hosts. Put a proxy between your host and its servers, and before
-dispatching `tools/call`:
+MCP is an open protocol with many independent hosts, so this option works in
+the most places. Put a proxy between your host and its servers. Before the
+proxy dispatches `tools/call`, it sends this:
 
 ```http
 POST /verdict/mcp HTTP/1.1
@@ -151,28 +156,28 @@ Content-Type: application/json
  "params":{"name":"read_file","arguments":{"path":"notes.md"}}}
 ```
 
-On `allow: false` the response carries `result`, already shaped as a
-`CallToolResult` with `isError` set. Return it instead of running the tool and
-the model sees the denial and the remedy in the place it already reads errors.
+On `allow: false` the response carries `result`, already in the shape of a
+`CallToolResult` with `isError` set. Return it instead of running the tool.
+The model then sees the denial and the remedy where it already reads errors.
 Your proxy does not need to know the reason grammar.
 
-You can also gate the other direction, which is the one most systems miss.
-Send `params.result` instead of `params.arguments` and a fabricated citation is
-caught as it enters the context, rather than a turn later once the model has
-already reasoned on it.
+You can also gate the other direction, which most systems miss. Send
+`params.result` instead of `params.arguments`. The guard then catches a
+fabricated citation when it enters the context. Without this, you catch it one
+turn later, after the model has already reasoned on it.
 
-## Step 6: verify the failure semantics yourself
+## Step 6: verify the failure behaviour yourself
 
-This is the step most integrations get wrong, so check it rather than assume
-it.
+Most integrations get this step wrong. Check it. Do not assume it.
 
-A webhook failure is **not** a deny. If your server returns a non-200, times
-out, or sends an unparseable body, a platform applies your organisation's
-failure-handling setting instead of your verdict. Under "allow the request"
-that means the prompt reaches the model uninspected.
+A webhook failure is **not** a deny. Your server can return a non-200, time
+out, or send a body that does not parse. In each case the platform applies
+your organisation's failure-handling setting instead of your verdict. If that
+setting is "allow the request", the prompt goes to the model without a check.
 
-So: your server must answer 200 with a well-formed verdict in every case,
-including ones it does not understand. Confirm your deployment does:
+So your server must answer 200 with a well-formed verdict in every case. This
+includes requests that it does not understand. Confirm that your deployment
+does this:
 
 ```http
 POST /verdict/anthropic-hook HTTP/1.1
@@ -182,13 +187,12 @@ Content-Type: application/json
 {"type":"some_event_type_that_does_not_exist_yet","request_id":"probe"}
 ```
 
-Check: HTTP 200 and `{"action":"allow"}`. If you get a 4xx or 5xx, your
-deployment will trip the circuit breaker under real traffic and stop enforcing
-entirely.
+Check: HTTP 200 and `{"action":"allow"}`. A 4xx or 5xx means that real traffic
+will trip the circuit breaker, and then the deployment stops enforcing.
 
-## Step 7: understand what it will and will not block
+## Step 7: know what it blocks and what it does not
 
-Read this before you enable enforcement, because the defaults are deliberate.
+Read this before you turn on enforcement. The defaults are deliberate.
 
 On by default:
 
@@ -200,36 +204,38 @@ On by default:
 
 Off by default:
 
-- `geo_restriction`: needs your own cell64 zone list, supplied with
-  `--restrict-cell`. Exact match only, never a geocode, because a fuzzy
-  resolution that lands on the wrong place is a confident block of innocent
-  work.
-- `claim_gating`: see the next step. It denies on the ABSENCE of a citation.
+- `geo_restriction`: needs your own list of cell64 zones, given with
+  `--restrict-cell`. It uses exact match only, never a geocode. A fuzzy
+  resolution that lands on the wrong place would block innocent work with
+  confidence.
+- `claim_gating`: see the next step. It denies when a citation is ABSENT.
 
 Never a denial, whatever you configure:
 
-- A token this node has not cached. It is indistinguishable from a token
-  minted by another responder, and blocking on it would deny honest agents for
-  citing something you have not seen.
+- A token that this node has not cached. The node cannot tell it apart from a
+  token that another responder minted. A block on it would deny honest agents
+  because they cite something you have not seen.
 
 ## Step 8: measure claim gating before you enforce it
 
-`claim_gating` is the only rule that fires on something missing rather than
-something failed. It denies a sentence that asserts a measurable quantity
+`claim_gating` is the only rule that fires on something missing, not on
+something that failed. It denies a sentence that states a measurable quantity
 about a place or a time when the transcript cites nothing at all.
 
-Do not turn it straight on. Run it in shadow, where every rule is evaluated,
-signed and logged, and nobody is blocked:
+Do not turn it on directly. First run it in shadow mode. In shadow mode the
+node evaluates, signs and logs every rule, but it blocks nothing:
 
 ```bash
 ./target/release/emem-guard --claim-gating --shadow --data ./var/guard
 ```
 
-Send it a week of your own traffic. Then read the answer off disk:
+Send it a week of your own traffic. Then read the result from disk:
 
 ```bash
 ./target/release/emem-guard --report --data ./var/guard
 ```
+
+The report looks like this (example values, not a measurement):
 
 ```
 verdicts           4210
@@ -240,27 +246,29 @@ by code            enforced / observed
   CLAIM_UNGROUNDED        0 / 37
 ```
 
-`would have blocked` is the number you are deciding on. It comes from the same
-append-only file an auditor reads, not from a counter in memory, so the figure
-you quote internally and the figure an outsider can verify are the same figure.
-The same numbers are served live at `GET /log/report`.
+`would have blocked` is the number you decide on. It comes from the same
+append-only file that an auditor reads, not from a counter in memory. So the
+figure you quote internally is the figure an outsider can verify. The node also
+serves the same numbers live at `GET /log/report`.
 
-When the rate is one you accept, drop `--shadow`.
+When you accept the rate, remove `--shadow`.
 
-For reference, the detector fires on 3 sentences in 8739 across this
-repository's own documentation, two of which are its own positive test
-fixtures. That is one input, not a licence: your traffic
-is not our changelog, which is exactly why you measure it where it will run.
+For reference, on 6 August 2026 the detector fired on 3 of 8739 sentences in
+this repository's own documentation (source: `src/claim.rs`). Two of the three
+are the crate's own positive test fixtures. That is one input, not a licence.
+Your traffic is different from this documentation, so measure the rate where
+the gate will run.
 
 ## Step 9: plug in your own detection
 
-emem-guard checks grounding and will never be good at content detection. That
-race is thousands of patterns maintained by hundreds of engineers, and winning
-it would add nothing here. What this node has that no detection engine ships is
-the half after the verdict: a signed, hash-chained, offline-checkable record.
+emem-guard checks grounding. It does not detect content. The one built-in
+module, `secret-patterns`, finds only fixed-prefix credential shapes (AWS,
+GitHub, Google) and PEM private-key headers. It is a reference module, not a
+DLP product. What the node adds is a
+signed, hash-chained record of each verdict that anyone can check offline.
 
-So bring your own. A module's verdicts get signed and logged exactly like a
-native one.
+So bring your own detector. The node signs and logs a module's verdicts in the
+same way as a native verdict.
 
 ```bash
 ./target/release/emem-guard \
@@ -274,23 +282,24 @@ curl -s http://localhost:8080/modules
 
 Each entry in `modules` carries `id`, `latency_class`, `can_block` and `observed`.
 
-Two declarations decide where a module is allowed to run, and **neither is
-taken on trust**.
+Two declarations decide where a module can run. The node does **not** take
+either declaration on trust.
 
-**Latency.** A module declaring `slow` never runs on the enforcing path at all.
-It is evaluated, signed and logged, and cannot block. A module declaring `fast`
-that exceeds 50 ms three times is demoted to shadow by the registry and stays
-there, which shows up as `"demoted": true` at `/modules`. That is measured, not
-promised: a module that misses the deadline is not slow, it is a transport
-failure, and a transport failure hands the decision to your failure policy and
-trips the breaker that stops enforcement for everything.
+Latency: a module that declares `slow` never runs on the enforcing path. The
+node evaluates, signs and logs it, but it cannot block. A module that declares
+`fast` gets a 50 ms budget. After three overruns the registry demotes it to
+shadow, and it stays there. `/modules` then shows `"demoted": true`. The node
+measures this; it does not believe the declaration. A module that misses the
+deadline causes a transport failure. A transport failure gives the decision to
+your failure policy. It also trips the breaker that stops all enforcement.
 
-**Data.** A module declaring `digests_only` is handed an empty transcript. Not
-asked politely: given a different slice, so it cannot read text. Add
-`--modules-no-text` and every module gets an empty transcript regardless of what
-it declared, for a relay where text may not cross a boundary.
+Data: a module that declares `digests_only` gets an empty transcript. The node
+does not ask it to ignore the text. It gives the module a different slice, so
+the module cannot read text. Add `--modules-no-text` to give every module an
+empty transcript, whatever it declared. Use this for a relay where text must
+not cross a boundary.
 
-### Writing one
+### Write a module
 
 ```rust
 use emem_guard::{
@@ -334,26 +343,25 @@ impl PolicyModule for MyModule {
 }
 ```
 
-Three rules, and the first two are enforced by the type rather than by review:
+Three rules apply. The type system enforces the first two, not a reviewer:
 
-- **An abstain is never a block.** If your sidecar is down or you could not
-  decide, return `ModuleVerdict::abstain`. Turning your outage into a denied
-  request would make every operator running you strictly less reliable for
-  having added a control.
-- **The log never carries what you matched.** `ModuleVerdict::deny` hashes the
-  evidence at the constructor, so you cannot leak it by accident. Keep it out of
-  your `reason` string too; that goes to the operator log.
-- **Declare honestly, because it is measured.** Declaring `fast` and being slow
-  gets you demoted, not trusted.
+- An abstain is never a block. If your sidecar is down, or your module cannot
+  decide, return `ModuleVerdict::abstain`. If your outage denied requests,
+  every operator who added your control would have a less reliable system.
+- The log never carries what you matched. `ModuleVerdict::deny` hashes the
+  evidence in the constructor, so you cannot leak it by accident. Also keep it
+  out of your `reason` string, because that string goes to the operator log.
+- Declare honestly, because the node measures it. A module that declares
+  `fast` and runs slow gets demoted, not trusted.
 
-`ModuleManifest::sealed()` fills `build_hash` from the declaration it covers.
-The registry refuses a manifest whose hash does not match, so a module cannot be
-edited after review to claim a different latency class than the one it was
-reviewed under.
+`ModuleManifest::sealed()` fills `build_hash` from the declaration that it
+covers. The registry refuses a manifest whose hash does not match. So nobody
+can edit a module after review to claim a different latency class.
 
-### Shipping a module nobody here compiled
+### Ship a module that nobody here compiled
 
-Publish the manifest signed, and the operator decides whether your key counts.
+Publish the manifest with a signature. The operator decides whether your key
+counts.
 
 ```json
 {
@@ -366,9 +374,9 @@ Publish the manifest signed, and the operator decides whether your key counts.
 }
 ```
 
-The preimage is domain-separated over the DECLARED hash, not over a
-re-serialisation of the JSON, so you and the verifier cannot disagree about
-field order:
+The preimage is domain-separated and covers the DECLARED hash. It does not
+cover a re-serialisation of the JSON. So you and the verifier cannot disagree
+about field order:
 
 ```
 0x00 || len("emem.guard.module_manifest.v1") || "emem.guard.module_manifest.v1"
@@ -376,54 +384,59 @@ field order:
 ```
 
 ```bash
-emem-guard --signed-module your-engine.json --trust-publisher <your key>
+./target/release/emem-guard --signed-module your-engine.json --trust-publisher <your key>
 ```
 
-Three ways it is refused, and each says which: a signature that does not
-verify, a publisher the operator has not listed, and a signed manifest paired
-with a different binary. **Nothing loads without a key the operator typed.** A
-valid signature from a stranger is still a stranger.
+The node refuses a signed module in three cases, and it names the case:
+
+- the signature does not verify,
+- the operator has not listed the publisher,
+- the signed manifest does not match the binary.
+
+**Nothing loads without a key that the operator typed.** A valid signature from
+a stranger is still a stranger.
 
 ### If your engine is closed source
 
-It does not have to link against this binary. Run it listening on a unix
-socket and speak one line of JSON each way:
+Your engine does not have to link against this binary. Run it on a unix socket
+and send one line of JSON each way:
 
 ```bash
-emem-guard --module sidecar:/run/your-engine.sock
+./target/release/emem-guard --module sidecar:/run/your-engine.sock
 ```
 
-Request in, response out, byte-identical to what the webhook module posts, so
-you implement one shape and can be reached over either transport:
+The request and the response are byte-identical to what the webhook module
+posts. You write one shape, and the node can reach it over either transport:
 
 ```json
 {"text_digest":"<hex>","texts":["..."],"token_count":0,"claim_count":0}
 {"outcome":"deny","reason":"policy 12","confidence":0.8}
 ```
 
-A socket rather than a process we spawn, because process lifecycle means
-restart policy, zombie reaping and a crash loop that becomes the operator's
-incident. A missing socket is an abstain. A socket that accepts the write and
-never answers is also an abstain, bounded by your declared budget.
+The node connects to a socket. It does not spawn a process, because a process
+brings restart policy, zombie reaping and crash loops for the operator to
+handle. A missing socket counts as an abstain. A socket that accepts the write
+and never answers is also an abstain, after your declared budget runs out.
 
-### What this does to your verdicts
+### What modules change in your verdicts
 
-The registry's config digest enters the verdict preimage, so every signed record
-names the exact module set that produced it. Change which modules are loaded, or
-just their order, and the digest moves. Without that, an operator could swap
-detectors and the same signed record would describe two different evaluations.
+The config digest of the registry goes into the verdict preimage. So every
+signed record names the exact module set that produced it. If you change the
+loaded modules, or only their order, the digest changes. Without this, an
+operator could swap detectors, and one signed record could describe two
+different evaluations.
 
 A module denial carries the code `POLICY_MODULE` and your declared `fix`. The
-reason line does not grow a field for the module id, because that grammar is
-fixed and agents parse it; the id, the version and the evidence digest reach the
-caller through the native route and the log.
+reason line does not get a field for the module id, because the grammar is
+fixed and agents parse it. The caller gets the id, the version and the evidence
+digest through the native route and the log.
 
 ## Step 10: raise the body limit
 
-Transcripts are sent untruncated, up to 10 MB. Several common defaults are far
-smaller: nginx `client_max_body_size` is 1 MB, and Express `express.json()` is
-100 kB. A rejected body counts as a webhook failure, so under allow-on-failure
-an oversized prompt reaches the model uninspected.
+Checkpoints send transcripts without truncation, up to 10 MB. Several common
+defaults are much smaller: nginx `client_max_body_size` is 1 MB, and Express
+`express.json()` is 100 kB. A rejected body counts as a webhook failure. Under
+allow-on-failure, an oversized prompt then goes to the model without a check.
 
 If you are behind nginx:
 
@@ -431,21 +444,21 @@ If you are behind nginx:
 client_max_body_size 10m;
 ```
 
-Check: post a 9 MB body and confirm you still get a verdict rather than a 413.
+Check: post a 9 MB body and confirm that you get a verdict, not a 413.
 
 ## Step 11: prove a verdict to someone who does not trust you
 
-Every verdict names a log leaf. Fetch it and check it yourself:
+Every verdict names a log leaf. Get it and check it yourself:
 
 ```bash
 curl -s http://localhost:8080/log/entry/leaf_0
 ```
 
-You get the record, the ed25519 signature over its preimage, the public key
-that signed, and the chain link to the entry before. Verify the signature with
-any ed25519 implementation over `blake3`-free, length-prefixed segments
-documented in `/.well-known/emem-guard.json`. Nothing in that check involves
-asking the node whether it is telling the truth.
+You get the record, the Ed25519 signature over its preimage, the public key
+that signed, and the chain link to the entry before. The preimage is a list of
+length-prefixed segments, documented in `/.well-known/emem-guard.json`. The
+signature covers those bytes directly, not a BLAKE3 hash of them. Any Ed25519
+library can check it. The check does not ask the node anything.
 
 Then check the whole file:
 
@@ -460,61 +473,74 @@ broken chain   []
 intact         true
 ```
 
-Signatures alone prove each verdict is genuine. The chain is what proves none
-were removed: delete a line and every remaining signature still verifies, but
-the chain breaks at the seam and `intact` goes false with a non-zero exit.
+Signatures alone prove that each verdict is genuine. The chain proves that
+nobody removed a verdict. If you delete a line, every remaining signature still
+verifies. But the chain breaks at that point, `intact` becomes false, and the
+command exits with 1.
 
-`GET /log/head` publishes the head so a witness or a mirror can pin it, and
+`GET /log/head` publishes the head, so a witness or a mirror can pin it.
 `GET /log/entries?start=0` lets anyone mirror the log without your help.
 
-## Step 12: the vendor checkpoints, if you want them
+## Step 12: set up the vendor checkpoints, if you want them
 
-### Alerting on unverified allows
+### Alert on unverified allows
 
-A request whose signature does not verify still gets a 200 with an allow, for
-the reason in step 6: refusing would be a transport failure, which blocks
-nothing and counts against the breaker. That is right, and it is also the one
-condition where the guard answers without knowing who asked.
+A request whose signature does not verify still gets a 200 with an allow. The
+reason is in step 6: a refusal would be a transport failure. That blocks
+nothing and counts against the breaker. This behaviour is correct. It is also
+the one case where the guard answers without knowing who asked.
 
-It is logged at a distinct, greppable marker so you can alert on it without
-parsing every allow off disk:
+The node logs this case with a distinct marker that grep can find. You can
+alert on it without parsing every allow from disk:
 
 ```
 emem-guard: UNVERIFIED_ALLOW inbound signature not verified: <why>
 ```
 
-Sustained `UNVERIFIED_ALLOW` is either a misconfigured secret or somebody else
-talking to your endpoint. Both deserve a page.
+A steady flow of `UNVERIFIED_ALLOW` means a wrong secret or a stranger who
+talks to your endpoint. Both need a page.
 
-For Claude Enterprise Inference hooks, an administrator sets your HTTPS URL in
+### Claude Enterprise Inference hooks
+
+An administrator sets your HTTPS URL in
 the organisation configuration and presses Test connection. The test sends a
-synthetic prompt with `source.application` of `config-test` and reports the
-verdict you returned.
+synthetic prompt with `source.application` set to `config-test`. It reports the
+verdict that you returned.
 
 The first connection test arrives **unsigned**, because the signing secret does
 not exist until the first save. Accept unsigned requests until your
-administrator confirms the secret exists, then add `--require-signature`.
+administrator confirms that the secret exists. Then add `--require-signature`.
 
-For Claude Code, the client posts hook input and you block by returning **2xx
-with a deny decision in the body**. A non-2xx is non-blocking. This is the
-inverse of the usual HTTP intuition.
+### Claude Code client hooks
 
-## Step 13: rotation
+The Claude Code client posts hook input to `POST /verdict/claude-code`. To block, return **2xx with a
+deny decision in the body**. A non-2xx response does not block. This is the
+opposite of what most HTTP clients expect.
 
-Secret rotation is an immediate cutover on the platform side, but requests
-signed with the previous secret keep arriving for about a minute, plus anything
-already in flight. Pass `--secret` twice during the switchover. A server
-holding one secret drops those stragglers, and a dropped request is a webhook
+## Step 13: rotate the secret
+
+On the platform side, secret rotation is an immediate cutover. But requests
+signed with the previous secret keep arriving for about a minute, plus any
+request already in flight. Pass `--secret` twice during the switch. A server
+with one secret drops those late requests, and a dropped request is a webhook
 failure.
+
+```bash
+./target/release/emem-guard --secret <old secret> --secret <new secret> --require-signature
+```
+
+When the late requests stop, restart with only the new secret.
 
 ## Step 14: run the conformance suite before you point anything at it
 
-Every step above checks one thing you just did. This checks the DEPLOYMENT, over
-the wire, exactly as a checkpoint would reach it.
+Each step above checks one thing that you did. The conformance suite checks the
+DEPLOYMENT, over the wire, in the same way a checkpoint reaches it.
 
 ```bash
 ./target/release/emem-guard --conformance https://your-node
 ```
+
+Part of the output looks like this:
 
 ```
   pass  reachable                                   0 ms  GET /health answered
@@ -525,80 +551,85 @@ the wire, exactly as a checkpoint would reach it.
 12 of 12 checks passed. This deployment can be relied on by a checkpoint.
 ```
 
-Twelve checks, non-zero exit on any failure, and each failure prints what
-breaks in production rather than restating itself. It runs against a URL
-because everything it looks for lives between the code and the deployment: a
-proxy that rejects a 9 MB body, a terminator that adds 400 ms, a node that
-answers 502 while its own tests are green.
+The suite runs twelve checks (`CHECKS` in `src/conformance.rs`) and exits
+non-zero on any failure. Each failure says what breaks in production. The
+suite runs against a URL because it looks for problems between the code and
+the deployment. Examples: a proxy that rejects a 9 MB body, a terminator that
+adds 400 ms, or a node that answers 502 while its own tests pass.
 
-It is not decoration. Its first run against this project's own server found a
-9 MB body returning 413, because axum applies a 2 MB default that wins over the
-10 MB layer that was configured. The docs said 10 MB, the comment said 10 MB,
-the layer said 10 MB, and the socket said 413. Under a fail-open policy that
-turns every oversized transcript into an uninspected request.
+The suite has found real defects. Its first run against this project's own
+server got a 413 for a 9 MB body. axum applies a 2 MB default, and that
+default overrode the configured 10 MB layer. The docs, the comment and the
+layer all said 10 MB, but the socket returned 413. Under a fail-open policy,
+every oversized transcript would then go to the model without a check.
 
-Do not point a checkpoint at a node that has not passed this.
+Do not point a checkpoint at a node that has not passed this suite.
 
 ## What "done" looks like
 
-- `cargo test --release -p emem-guard` is green.
+- `cargo test --release -p emem-guard` passes.
 - `/health` reports whether this node verifies citations, and you know which
   answer you have.
 - An unknown event type returns 200 with an allow.
-- A 9 MB body returns a verdict rather than a 413.
+- A 9 MB body returns a verdict, not a 413.
 - A tampered token in a transcript produces a deny whose reason parses as
   `EMEM-GUARD DENY <CODE> token=<token> fix=<fix> leaf=<leaf>`.
-- The leaf that denial names fetches from `/log/entry/<leaf>` and its signature
-  verifies against the key in the entry.
+- You can get the leaf that the denial names from `/log/entry/<leaf>`, and its
+  signature verifies against the key in the entry.
 - `emem-guard --audit` exits 0.
 - `emem-guard --conformance <your-url>` exits 0.
 
 ## The reason grammar, for agents
 
-Denials are machine-first on purpose. The line your agent receives is:
+Denials are machine-first on purpose. The line that your agent receives is:
 
 ```
 EMEM-GUARD DENY PROV_SIG token=emem:fact:cell:cid fix=refresh_token leaf=leaf_01HX
 ```
 
-`fix` is the actionable part:
+`fix` tells the agent what to do. It has six values (`Fix` in `src/policy.rs`):
 
-- `refresh_token`: re-resolve the token and retry.
-- `remove_reference`: the citation cannot be made to verify; drop it.
-- `contact_admin`: a person restricted this, not the evidence.
-- `cite_observation`: resolve the observation through emem and cite the token.
+| `fix` | What the agent does |
+|---|---|
+| `refresh_token` | Resolve the token again and retry. |
+| `remove_reference` | The citation cannot verify. Remove it. |
+| `contact_admin` | A person restricted this, not the evidence. Ask an administrator. |
+| `redact_and_retry` | A detection module matched one span. Remove that content and retry. |
+| `cite_observation` | Resolve the observation through emem and cite the token. |
+| `correct_value` | The prose disagrees with the cited fact. Restate the figure as the fact reports it. |
 
-`leaf` is the log entry, which you can fetch and verify without asking the
-server that issued it.
+`leaf` is the log entry. You can get it and verify it without asking the server
+that issued it.
 
-The grammar is fixed and will not grow fields, because agents parse it. When a
-denial has more to say, the native route says it: `POST /verdict` returns
-`code`, `fix`, `token` and `leaf` already split out, plus `claim` naming the
-sentence, the magnitude and the emem band that would have answered it.
+The grammar is fixed and will not get more fields, because agents parse it.
+When a denial has more to say, the native route says it. `POST /verdict`
+returns `code`, `fix`, `token` and `leaf` as separate fields. It also returns
+`claim`, which names the sentence, the size of the quantity and the emem band that would
+have answered it.
 
-An agent that reads `fix` and acts on it starts carrying valid tokens. That is
-the point of the gate.
+An agent that reads `fix` and acts on it starts to carry valid tokens. That is
+the purpose of the gate.
 
-## Using the shared corpus without hosting it
+## Use the shared corpus without hosting it
 
-Your node holds whatever you give it. To check citations against the public
-corpus as well, point it at a responder:
+Your node holds what you give it. To also check citations against the public
+corpus, point it at a responder:
 
 ```bash
 ./target/release/emem-guard --responder https://emem.dev
 ```
 
-Your verdicts stay yours: they are signed with your key, written to your log,
-and never leave your machine. The responder is asked one thing, whether a fact
-cid resolves, and it is asked under a hard timeout that the verdict deadline
-cannot exceed.
+Your verdicts stay yours. Your key signs them, your log stores them, and they
+never leave your machine. The node asks the responder one thing: whether a
+fact cid resolves. It asks under a hard timeout that cannot exceed the verdict
+deadline.
 
-If you only want to consult a verdict rather than enforce one, emem.dev serves
-the same engine at `POST /v1/guard/verdict`, advisory and blocking nothing.
-That is the fastest way to see what this does before you build anything.
+To see an advisory verdict without enforcement, use emem.dev. It serves the
+same engine at `POST /v1/guard/verdict`, and that route blocks nothing. This is
+the fastest way to see what the guard does before you build anything.
 
 ## If you get stuck
 
 Report the step number and the exact command output. Do not work around a
-failing check: every check here exists because skipping it produces a server
-that appears to enforce and does not.
+failing check. Each check exists because a server that skips it appears to
+enforce and does not.

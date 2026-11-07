@@ -1,75 +1,54 @@
 # emem for ChatGPT
 
-**emem is shared, verifiable memory for AI agents.** Two agents that share no
-model, no vendor and no trust can cite the same signed fact and each check it
-alone. Ask a model the same thing twice and you get two answers; ask emem twice
-and the same signed bytes come back, with a receipt you can verify without
-trusting the responder that sent it.
+This folder holds the ChatGPT app for emem: the listing text, the tool list,
+the privacy page and the submission files. The app connects ChatGPT to the
+public emem MCP server at `https://emem.dev/mcp`. Reads need no key, no
+account and no signup.
 
-Earth is what fills that memory today, because satellites and sensors already
-measure the world and their output can be recomputed from the cited source. It
-is the substrate, not the subject.
+emem is shared, verifiable memory for AI agents. Each place has one address,
+and each observation is one signed fact. A user gets a measurement with an
+ed25519 receipt, and anyone can check that receipt offline. Earth observation
+data fills this memory today.
 
-No key. No account. No signup.
+| You are | Read |
+|---|---|
+| A ChatGPT user | [Use the app](#use-the-app) |
+| A developer who wants the same tools in another MCP client | [Try the endpoint](#try-the-endpoint) |
+| A Custom GPT builder | [Custom GPT Actions](#custom-gpt-actions) |
+| An OpenAI reviewer | [submission.md](submission.md), [app.md](app.md), [privacy.md](privacy.md) |
 
+## What ships and what does not
+
+| Item | State on 7 November 2026 |
+|---|---|
+| MCP endpoint `https://emem.dev/mcp` | Live. Serves 18 tools. |
+| Action schema `https://emem.dev/openapi.action.json` | Live. OpenAPI 3.1.0, 38 paths. |
+| Listing in the ChatGPT app directory | Depends on OpenAI review. This repository records no approval. |
+
+## Try the endpoint
+
+This command lists the 18 tools that `/mcp` serves. It needs only `curl`
+and `python3`.
+
+```sh
+curl -s -X POST https://emem.dev/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2025-11-25' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+  | python3 -c 'import json,sys; [print(t["name"]) for t in json.load(sys.stdin)["result"]["tools"]]'
 ```
-https://emem.dev/mcp
+
+The first lines of output on 7 November 2026:
+
+```text
+emem_entity
+emem_locate
+emem_recall
+emem_memory_token
 ```
 
-## What a user can ask
-
-- What is the elevation here, and what is the evidence?
-- Has this site flooded, and how would I check that claim?
-- Has surface water or vegetation changed between these two dates?
-- Find places that resemble this one.
-- Give me a citation I can hand to another agent and they can resolve.
-
-## How it works
-
-The app connects to emem's public MCP endpoint over Streamable HTTP. When a
-question names a real place, ChatGPT calls emem to resolve the place to one
-canonical address, read the signed facts there, and return a short citation
-token that resolves anywhere to the byte-identical signed value.
-
-The token is the part that matters. It is about 50 characters, it survives
-summarisation and a model swap, and `emem_memory_token_resolve` returns the
-same bytes in another session or in another agent's session.
-
-## Tools
-
-The app exposes the **18 tools** that `https://emem.dev/mcp` advertises, listed
-with their inputs and their MCP annotations in [tools.md](tools.md), which is
-GENERATED from the catalogue the responder actually serves. Nine are strictly
-read-only. The other nine can add state: `emem_ask`, `emem_recall`,
-`emem_find_similar`, `emem_intent` and `emem_memory_bundle` materialise and sign
-new facts on a cold cell, as do `search` and `fetch`, which project `emem_recall`
-under the names a ChatGPT connector looks up, and `emem_entity` and `emem_entity_link` mint or bind
-an identity in the shared address space.
-
-Those last two are the only writes here, and they are **gated**: without a valid
-ed25519 attester block they refuse with a 403 naming the missing field. A
-ChatGPT user holds no such key, so in this app they decline rather than write.
-Nothing a user sends is ever stored; what materialises is derived from public
-Earth-observation sources.
-
-## Example prompts
-
-- What signed facts are available for South Mumbai?
-- Is Helsinki-Vantaa Airport low-lying?
-- What evidence supports that answer, and can I verify it offline?
-- Compare vegetation at this field between 2023 and 2025.
-- Find places similar to Lake Erie.
-
-## Setup
-
-### For users
-
-Once published to the ChatGPT app directory: Settings, Apps, find **emem**,
-enable it. Then ask a question that names a real place.
-
-### For developers testing now
-
-Point any MCP client at the same endpoint:
+To use the tools from an MCP client, add this server entry:
 
 ```json
 {
@@ -82,18 +61,94 @@ Point any MCP client at the same endpoint:
 }
 ```
 
+## Use the app
+
+After OpenAI approves the listing, open Settings, then Apps. Find **emem**
+and turn it on. Then ask a question that names a real place.
+
+Questions the app can answer:
+
+- What is the elevation here, and what is the evidence?
+- Has this site flooded, and how can I check that claim?
+- Did surface water or vegetation change between these two dates?
+- Which places look like this one?
+- Give me a citation that another agent can resolve.
+
+Example prompts:
+
+- What signed facts are available for South Mumbai?
+- Is Helsinki-Vantaa Airport low-lying?
+- What evidence supports that answer, and can I verify it offline?
+- Compare vegetation at this field between 2023 and 2025.
+- Find places similar to Lake Erie.
+
+## How the app answers
+
+The app talks to the MCP server over Streamable HTTP. When a question names a
+real place, ChatGPT calls emem to do three things:
+
+1. Resolve the place to one canonical address.
+2. Read the signed facts at that address.
+3. Return a short citation token for each fact.
+
+The token is about 83 characters long. It stays the same through a summary or
+a model change. `emem_memory_token_resolve` returns the same signed bytes for
+it in any session, for any agent.
+
+## Tools
+
+[tools.md](tools.md) lists the 18 tools with their inputs and MCP annotations.
+`scripts/gen_chatgpt_bundle.py` writes that file from the live catalogue.
+Do not edit it by hand.
+
+The live annotations on 7 November 2026 put the tools in three groups:
+
+| Group | Tools | What they change |
+|---|---|---|
+| Read-only (9) | `emem_locate`, `emem_memory_token`, `emem_memory_token_resolve`, `emem_verify_receipt`, `emem_memory_contradictions`, `emem_guard_verdict`, `emem_tools`, `emem_echo_verify`, `emem_entity_resolve` | Nothing. |
+| Can sign new facts (7) | `emem_ask`, `emem_recall`, `emem_find_similar`, `emem_intent`, `emem_memory_bundle`, `search`, `fetch` | On a cold cell, they fetch public Earth observation data and sign new facts. |
+| Gated writes (2) | `emem_entity`, `emem_entity_link` | They mint or bind an identity in the shared address space. |
+
+`search` and `fetch` call `emem_recall` under the two names that a ChatGPT
+connector looks for.
+
+The two gated writes need an ed25519 attester block from a key at tier T3.
+Without one, the REST route refuses with HTTP 403 and returns the digest to
+sign. Over MCP, the same refusal comes back as a tool error.
+A ChatGPT user has no such key, so in this app these tools refuse. The ladder
+of tiers is at `https://emem.dev/v1/enlist`.
+
+No tool stores what a user sends. New facts come only from public Earth
+observation sources.
+
+Note: the text at the top of [tools.md](tools.md) says that no write verb is
+exposed. That is not correct for `emem_entity` and `emem_entity_link`. The
+generator script writes that sentence, so the fix belongs in the script.
+
+## Custom GPT Actions
+
 For Custom GPT Actions instead of MCP, import
-[`https://emem.dev/openapi.action.json`](https://emem.dev/openapi.action.json).
-Import that one and not `/openapi.json`: the full document carries every route
-this responder serves and is far past what a Custom GPT can hold.
+`https://emem.dev/openapi.action.json`. Do not import `/openapi.json`.
+That file has every route of the server, which is too large for a Custom GPT.
+On 7 November 2026 the action schema was 126,810 bytes and the full file was
+405,695 bytes.
+
+## Files in this folder
+
+| File | Contents |
+|---|---|
+| [app.md](app.md) | Listing text: name, descriptions, category, transport, authentication |
+| [submission.md](submission.md) | Notes for the OpenAI reviewer, and the domain check steps |
+| [chatgpt-app-submission.json](chatgpt-app-submission.json) | Submission data, checked by [submission.schema.json](submission.schema.json) |
+| [tools.md](tools.md) | The 18 tools, generated from the live catalogue |
+| [tool-annotations.md](tool-annotations.md) | Why each tool has its MCP annotations |
+| [privacy.md](privacy.md) | What the app sends and what the server keeps |
 
 ## Links
 
 - Homepage: https://emem.dev
 - Repository: https://github.com/Vortx-AI/emem
-- MCP endpoint: https://emem.dev/mcp
-- Action schema: https://emem.dev/openapi.action.json
 - Agent card (A2A): https://emem.dev/.well-known/agent-card.json
-- Verify any answer: https://emem.dev/verify
+- Verify an answer: https://emem.dev/verify
 - Privacy: [privacy.md](privacy.md) and https://emem.dev/privacy
 - Support: https://emem.dev/support, avijeet@vortx.ai

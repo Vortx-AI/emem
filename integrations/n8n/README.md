@@ -1,56 +1,106 @@
 # n8n-nodes-emem
 
-n8n community node for [emem](https://emem.dev) -- shared memory for AI agents. One address per fact, one signature you check. No key to read.
+An n8n community node that calls one [emem](https://emem.dev) MCP tool per
+input item. Use it when an n8n workflow must read signed Earth-observation
+facts. Examples are the elevation or the surface-water record at a place. Reads
+need no key and no account.
 
-## Install
+Nobody has published the package yet. On 7 November 2026, the npm registry
+returns 404 for `n8n-nodes-emem`, so the **Settings > Community Nodes** search does
+not find it. You must build it from this folder. The steps to publish are in
+[Status](#status).
 
-In your n8n instance, go to **Settings > Community Nodes** and search for `n8n-nodes-emem`, then click **Install**.
+## Try the request first
 
-Or install manually:
+The node sends one JSON-RPC `tools/call` request to
+`https://emem.dev/mcp/full`. This `curl` command sends the same request with
+the same header. It ran on 7 November 2026 and returned the Mumbai cell
+`defi.zb4d8.zcdac.zf45b`.
 
 ```bash
-npm install n8n-nodes-emem
+curl -s -X POST https://emem.dev/mcp/full \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
+       "params":{"name":"emem_locate","arguments":{"place":"Mumbai, India"}}}'
 ```
 
-## What it does
+## Build and run the node locally
 
-This node calls emem's MCP tools via its public Streamable HTTP endpoint (`emem.dev/mcp/full`). 116 tools available, no API key or account required for reads. Every fact returned carries an ed25519 receipt you can verify offline against the responder's published key.
+These commands use the scripts in `package.json`. We did not run them,
+because the host has no Node.js. `npm run dev` comes from `@n8n/node-cli`. It
+starts a local n8n with this node loaded.
 
-See the full documentation at [emem.dev/agents.md](https://emem.dev/agents.md) and the [GitHub repository](https://github.com/Vortx-AI/emem).
+```bash
+cd integrations/n8n
+npm install
+npm run build
+npm run dev
+```
 
-## Usage
+## Use the node
 
-1. Add the **emem** node to your workflow
-2. Select a tool from the dropdown (e.g. `emem_locate`, `emem_recall`, `emem_ask`)
-3. Set the parameters as JSON (e.g. `{"place": "Bengaluru"}`)
-4. Run the workflow
+1. Add the **emem** node to your workflow.
+2. In **Tool**, select a tool, for example `emem_locate`.
+3. In **Parameters (JSON)**, type the tool arguments as a JSON object.
+4. Run the workflow.
 
-For tools not in the preset dropdown, select "Custom Tool" and type the exact tool name. The full tool list is at [emem.dev/mcp](https://emem.dev/mcp).
+The **Tool** list has nine tools: `emem_locate`, `emem_recall`, `emem_ask`,
+`emem_verify_receipt`, `emem_memory_token`, `emem_entity`,
+`emem_guard_verdict`, `emem_find_similar` and `emem_memory_contradictions`.
+For a different tool, select **Custom Tool** and type its exact name.
+`tools/list` on `/mcp/full` returned 116 tools on 7 November 2026, in 9 pages
+of different sizes. Follow `nextCursor` to get the next page. The schemas are at [emem.dev/mcp](https://emem.dev/mcp).
+The hint text in the node gives an older tool count.
 
-## Example
+## Read the output
 
-Locate a place and get its canonical cell64 address:
+The node reads the first text block of the MCP result and parses it as JSON.
+If the text is not JSON, the output has one field, `raw_text`. Read facts
+carry an Ed25519 receipt. To check a receipt in your browser, paste it at
+[emem.dev/verify](https://emem.dev/verify). That page loads the published key
+from emem.dev. For a check with no network, use `verify_receipt_offline` from
+the [Python client](../../sdks/emem-py/README.md). The server cuts a large result to
+fit a size budget. The `_emem_truncation` field then names the omitted fields
+and the REST route that returns them in full.
 
-- **Tool**: `emem_locate`
-- **Parameters**: `{"place": "Mumbai, India"}`
+An unknown tool name does not stop the workflow. The server sends HTTP 200
+with a JSON-RPC `error` object and no result. The node outputs that whole
+response as a normal item. On 7 November 2026, the tool name `emem_nope` gave
+code `-32602` and a message that starts with "Unknown tool: emem_nope". Add an **IF** node
+that checks the `error` field when your tool name comes from data.
 
-Recall signed facts at a location:
+## Examples
 
-- **Tool**: `emem_recall`
-- **Parameters**: `{"place": "Mumbai, India", "bands": ["copdem30m.elevation_mean"]}`
+Each pair below ran on 7 November 2026 with the node's exact request.
 
-Ask a plain-language question:
+| Tool | Parameters | Result on 7 November 2026 |
+|---|---|---|
+| `emem_locate` | `{"place": "Mumbai, India"}` | cell64 `defi.zb4d8.zcdac.zf45b` |
+| `emem_recall` | `{"place": "Mumbai, India", "bands": ["copdem30m.elevation_mean"]}` | one signed elevation fact with its `memory_token` |
+| `emem_ask` | `{"q": "Has this place flooded historically?", "place": "Mumbai, India"}` | surface-water recurrence 0 percent, flood history class 0 |
 
-- **Tool**: `emem_ask`
-- **Parameters**: `{"q": "Has this place flooded historically?", "place": "Mumbai, India"}`
+## Status
 
-## Links
+The listing plan is in
+[docs/registries/integration-targets.md](../../docs/registries/integration-targets.md).
+On 7 November 2026 it gives this node the status "not started".
+n8n sets two conditions for a verified node:
 
-- emem: https://emem.dev
-- GitHub: https://github.com/Vortx-AI/emem
-- Agent handbook: https://emem.dev/agents.md
-- Privacy: https://emem.dev/privacy
+- A GitHub Action must publish it with a provenance statement. n8n refuses a
+  node published from a laptop.
+- The package licence must be MIT. `package.json` says Apache-2.0 now.
+
+The `repository` URL in `package.json`,
+`https://github.com/Vortx-AI/n8n-nodes-emem`, returns 404 on
+7 November 2026.
+
+## Read more
+
+- Agent guide: [emem.dev/agents.md](https://emem.dev/agents.md)
+- Source: [github.com/Vortx-AI/emem](https://github.com/Vortx-AI/emem)
+- Privacy: [emem.dev/privacy](https://emem.dev/privacy)
 
 ## License
 
-Apache-2.0
+Apache-2.0, as `package.json` says. See [Status](#status) for the MIT
+condition.
