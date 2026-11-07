@@ -549,8 +549,8 @@ The validator rejects two schemes with the same name. An empty
 `{tile_id}`, `{bbox_csv}`, `{lat_center}` and `{lon_center}`. Values in the
 caller's `vars` override the built-in values.
 
-[Data sources](developers/data-sources.md) lists which schemes have a connector and which
-do not.
+[Data sources](developers/data-sources.md) lists which schemes have a connector
+and which do not.
 
 ## emem-topics (topics-v0.json)
 

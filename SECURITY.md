@@ -10,7 +10,9 @@ covers the protocol code and the hosted instance. See also
 [Privacy](/privacy) and [Terms](/terms).
 
 For the trust model itself (what a receipt proves, the transparency log,
-witnesses), read [docs/security.md](https://github.com/Vortx-AI/emem/blob/main/docs/security.md) and the
+witnesses), read
+[docs/security.md](https://github.com/Vortx-AI/emem/blob/main/docs/security.md)
+and the
 [threat model](https://github.com/Vortx-AI/emem/blob/main/docs/security/threat-model.md).
 
 ## Report a vulnerability
@@ -99,11 +101,10 @@ Out of scope:
 - Bugs in cargo dependencies. Report these upstream, then link the CVE or
   the issue here.
 - The upstream open-data providers and their correctness, availability
-  and security. These include Open-Meteo, MET Norway, GMRT, Copernicus DEM, JRC GSW,
-  Hansen GFC, ESA WorldCover, OSM, Overture, NASA, USGS and others. emem
-  signs their payloads under the responder identity, so each fetch is
-  auditable. We do not control their security. Report their issues to
-  those projects.
+  and security. These include Open-Meteo, MET Norway, GMRT, Copernicus DEM, JRC
+  GSW, Hansen GFC, ESA WorldCover, OSM, Overture, NASA, USGS and others. emem
+  signs their payloads under the responder identity, so each fetch is auditable.
+  We do not control their security. Report their issues to those projects.
 
 ## Protections in place
 

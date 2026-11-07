@@ -452,10 +452,10 @@ after the next restart. The investigation found these points, in order:
   success.
 
 Only the last point fits every observation. The responder accepted and verified
-the note but never made it durable. The next restart cleared the note from the page
-cache. This is not proven, and we do not claim it is. The responder now checks
-the flush result. A write that it cannot make durable fails, and the message
-says to treat it as not written.
+the note but never made it durable. The next restart cleared the note from the
+page cache. This is not proven, and we do not claim it is. The responder now
+checks the flush result. A write that it cannot make durable fails, and the
+message says to treat it as not written.
 
 Tombstones do not recover that note. They make the next such event
 attributable. If a missing note has a tombstone, its owner retracted it. A
@@ -464,9 +464,9 @@ tombstones, both cases returned the same 404.
 
 ## 9. Rate limits and namespace scope
 
-- Each writer has a scope. `/memories/by_attester/<your-pubkey8>/` is yours alone.
-  In other namespaces, the first attester to create a path owns it. A write
-  from a different key gets 403 `memory_namespace_violation`.
+- Each writer has a scope. `/memories/by_attester/<your-pubkey8>/` is yours
+  alone. In other namespaces, the first attester to create a path owns it. A
+  write from a different key gets 403 `memory_namespace_violation`.
 - Some old records outside `by_attester/` have no stored attester, so no key
   can prove that it owns them. While the operator requires signed writes (the
   release default), nobody can change them. You can read them, but the
@@ -523,7 +523,8 @@ the operator cannot read, encrypt on the client first.
 You can check all of the above from outside:
 
 1. Hash the canonical CBOR bytes of a fact with BLAKE3. Compare the result
-   to its `fact_cid` ([protocol §5.5](./protocol.md#55-recompute-a-fact_cid-by-hand)).
+   to its `fact_cid`
+   ([protocol §5.5](./protocol.md#55-recompute-a-fact_cid-by-hand)).
 2. Verify the Ed25519 signature on a receipt against the responder key,
    offline ([protocol §7.4](./protocol.md#74-offline-verification-python)).
 3. Pin an STH. Later, get a consistency proof and fold it yourself
@@ -532,7 +533,8 @@ You can check all of the above from outside:
    Check what else is in the tree
    ([protocol §9.6.3](./protocol.md#963-memory-writes-in-the-log)).
 5. Check an organisation attestation again with `dig` or `curl` against the
-   domain, without us. The DNS form is in [section 6](#6-organisation-verification-and-why-not-oauth).
+   domain, without us. The DNS form is in
+   [section 6](#6-organisation-verification-and-why-not-oauth).
 
 If a check disagrees with what this responder told you, the responder is
 wrong, and the evidence is yours. That is the design.

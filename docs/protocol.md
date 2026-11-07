@@ -223,11 +223,10 @@ error for an input out of range or not finite, and does not clamp.
 
 ### 1.3 Text form: 4 bigrams + dots
 
-Defined in `crates/emem-codec/src/cell64.rs:14-24`. The code splits the 64-bit integer
-into four 16-bit lanes (`d0=raw>>48`, `d1=raw>>32`,
-`d2=raw>>16`, `d3=raw`, each masked to 16 bits) and each lane indexes
-a 65,536-entry alphabet built deterministically in
-`crates/emem-codec/src/alphabet.rs:22-46`:
+Defined in `crates/emem-codec/src/cell64.rs:14-24`. The code splits the 64-bit
+integer into four 16-bit lanes (`d0=raw>>48`, `d1=raw>>32`, `d2=raw>>16`,
+`d3=raw`, each masked to 16 bits) and each lane indexes a 65,536-entry alphabet
+built deterministically in `crates/emem-codec/src/alphabet.rs:22-46`:
 
 - Consonants: `b c d f g h j k l m n p q r s t v w x y z` (21).
 - Vowels: `a e i o u A E I O U` (10).
@@ -310,12 +309,12 @@ longitude wrap are rules in the encoder (`geo.rs:141-150`), not tests.
 
 Pre-0.0.3 emem used a `GEO_RES = 12` (16-bit-per-axis, ~305 m) grid.
 The current codec does **not** decode that encoding. The test
-`legacy_16bit_grid_rejected` (`geo.rs:478-487`) makes a legacy-shaped raw word. It confirms that
-`latlng_from_cell64` returns `Err(CodecError::NotGeoCell)`. The
-resolution field changed (12 → 21) and `GEO_PREFIX_MASK` keys on it.
-So legacy strings fail closed; they do not put a fact hundreds of
-metres from its true place. A responder or client MUST NOT serve, accept,
-or quietly upgrade legacy cell64 strings.
+`legacy_16bit_grid_rejected` (`geo.rs:478-487`) makes a legacy-shaped raw word.
+It confirms that `latlng_from_cell64` returns `Err(CodecError::NotGeoCell)`. The
+resolution field changed (12 → 21) and `GEO_PREFIX_MASK` keys on it. So legacy
+strings fail closed; they do not put a fact hundreds of metres from its true
+place. A responder or client MUST NOT serve, accept, or quietly upgrade legacy
+cell64 strings.
 
 ---
 
@@ -345,14 +344,14 @@ inputs clamp to `Tslot(0)`.
 ### 2.2 Tempo class
 
 Defined in `tslot.rs:23-43` (the enum) and `tslot.rs:49-62`
-(`slot_seconds`). The enum has seven variants. The table shows where each variant is in use on 7 November 2026. The
-"registry" column counts the entries of the `bands` list in
-`crates/emem-core/data/bands-v0.json` that declare the variant. The list
-has 43 entries. Each entry has a `key`. The `family` field is a different,
-larger group (13 values), and the table does not count it. The
+(`slot_seconds`). The enum has seven variants. The table shows where each
+variant is in use on 7 November 2026. The "registry" column counts the entries
+of the `bands` list in `crates/emem-core/data/bands-v0.json` that declare the
+variant. The list has 43 entries. Each entry has a `key`. The `family` field is
+a different, larger group (13 values), and the table does not count it. The
 "materializer" column names bands whose `MaterializerMeta` in
-`crates/emem-api-rest/src/lib.rs` uses it. `GET /v1/data_availability`
-reports that tempo for each band.
+`crates/emem-api-rest/src/lib.rs` uses it. `GET /v1/data_availability` reports
+that tempo for each band.
 
 | Variant | Serde name | `slot_seconds()` | Cadence | Registry entries (`key`) | Materializer examples |
 |---------|------------|------------------|---------|------------------------|-----------------------|
@@ -430,8 +429,8 @@ A CID is the name of a block of bytes. A hash of the bytes makes the
 name, so the same bytes always get the same CID. If one byte
 changes, the CID changes. A `fact_cid` is the CID of one fact.
 
-Facts and manifests use BLAKE3 over canonical CBOR. The text form of the hash bytes is
-`data_encoding::BASE32_NOPAD`, in lowercase. Three lengths are in use:
+Facts and manifests use BLAKE3 over canonical CBOR. The text form of the hash
+bytes is `data_encoding::BASE32_NOPAD`, in lowercase. Three lengths are in use:
 
 | Form | Bytes | Chars | Source | Use |
 |------|-------|-------|--------|-----|
@@ -440,8 +439,8 @@ Facts and manifests use BLAKE3 over canonical CBOR. The text form of the hash by
 | `FactCid`, manifest CID | 32 | 52 | `crates/emem-cache/src/sled_hot.rs:813-820` (`fact_cid_of`), `crates/emem-core/src/manifest.rs:111-119` | durable storage and signing |
 
 `fact_cid_of` hashes the fact's CBOR bytes once and keeps all 32 bytes.
-A `cid64` is the first 8 bytes of a 32-byte CID like this one. An `entity_cid` and a
-`bundle_cid` are not prefixes of any fact CID. Each hashes its own text
+A `cid64` is the first 8 bytes of a 32-byte CID like this one. An `entity_cid`
+and a `bundle_cid` are not prefixes of any fact CID. Each hashes its own text
 preimage (`emem.entity.v1|...` or `emem.memory_bundle.v1|...`) and keeps the
 first 16 bytes.
 
@@ -1610,14 +1609,16 @@ drift from the wire. If it and this page disagree, trust the endpoint.
 
 #### Legacy v0 receipts
 
-Receipts with `preimage_version` absent or `0` use the pre-cutover untagged pipe rule
+Receipts with `preimage_version` absent or `0` use the pre-cutover untagged
+pipe rule
 `blake3(request_id|served_at|[scope|][as_of|][edges|][manifest|]primitive|cell,*|cid,*)`;
-`POST /v1/verify_receipt` still verifies those, but no responder emits
-v0 anymore.
+`POST /v1/verify_receipt` still verifies those, but no responder emits v0
+anymore.
 
 #### What the preimage does not cover
 
-The segments above are the complete signed surface. These items are not in the preimage:
+The segments above are the complete signed surface.
+These items are not in the preimage:
 
 - The caller's free-text `place` or `q` string. A wrong-place geocode
   gives a clean signature for the wrong cell64. The trust chain attests
@@ -1655,13 +1656,13 @@ the bound in two ways: directly through `as_of_hex`, and through the
 #### Each responder makes its own fact identity
 
 Each `Primary`, `Absence`
-(`NegativeFact`) and `Derivative` fact body includes `signed_at`, the ISO 8601 wall clock
-at materialisation time. `signed_at` is part of the canonical CBOR that
-gives `fact_cid`. So two responders that materialise the same
-`(cell, band, tslot)` from byte-identical upstream pixels make
-**different `fact_cid`s**. This is intentional: each responder signs
-under its own identity. To ask "does any responder have this
-observation", join on `(cell, band, tslot)`, not on `fact_cid`.
+(`NegativeFact`) and `Derivative` fact body includes `signed_at`, the ISO 8601
+wall clock at materialisation time. `signed_at` is part of the canonical CBOR
+that gives `fact_cid`. So two responders that materialise the same `(cell, band,
+tslot)` from byte-identical upstream pixels make **different `fact_cid`s**. This
+is intentional: each responder signs under its own identity. To ask "does any
+responder have this observation", join on `(cell, band, tslot)`, not on
+`fact_cid`.
 
 #### Fan-out endpoints sign each cell separately
 
@@ -1678,7 +1679,9 @@ Given a current-state recall receipt (no scope, `as_of`, edges, or
 - `request_id = "01HZX0K9V3"` (ULID, 26 chars in practice; this short
   example is illustrative)
 - `served_at = "2026-05-08T11:22:33Z"`
-- `primitive = "emem.recall"` (every emitted primitive name carries the `emem.` namespace; `recall` in `crates/emem-primitives/src/recall.rs` calls `sign_receipt_with_edges("emem.recall", …)`)
+- `primitive = "emem.recall"` (every emitted primitive name carries the `emem.`
+  namespace; `recall` in `crates/emem-primitives/src/recall.rs` calls
+  `sign_receipt_with_edges("emem.recall", …)`)
 - `cells = ["dedi.zaf00.bafi.baba", "dedi.zaf00.bafi.babe"]` (the
   signer hashes these strings as bytes and does not decode them; they
   are not geo cells, so `latlng_from_cell64` refuses them)
@@ -2834,10 +2837,10 @@ the key is independent of the responder. You decide that in step 5.
    STH of §9.6.1.1. The row has the two fields that the consistency
    script reads, `tree_size` and `root_b32`.
 5. Identify who holds the key. For an `org_vouched` row, read
-   `vouched_by_domain`, then get `https://<domain>/.well-known/emem-agents.json`.
-   The key must be in `agents[].key`. Read `organisation` in the same
-   document. Then decide if that organisation is independent of the
-   operator of the responder.
+   `vouched_by_domain`, then get
+   `https://<domain>/.well-known/emem-agents.json`. The key must be in
+   `agents[].key`. Read `organisation` in the same document. Then decide if that
+   organisation is independent of the operator of the responder.
 
 Save the step 1 answer as `witnesses.json`. Save this script as
 `check_witness.py`. It needs Python 3 and the `blake3` and `pynacl`

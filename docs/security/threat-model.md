@@ -139,16 +139,15 @@ The sections below give the details and the tests for each row.
   14 September 2026. They rank below any attributed row and carry a label. An
   operator can assert the true ones again under the responder key to remove
   the label.
-- A dispute does not lower a rank. This is by design. The responder shows a dispute
-  but does not subtract it. One hostile key must not be able to demote a
+- A dispute does not lower a rank. This is by design. The responder shows a
+  dispute but does not subtract it. One hostile key must not be able to demote a
   binding that ten honest keys made. The next step is a score that counts
-  asserts minus disputes, once per key. It needs a written Sybil analysis
-  first.
+  asserts minus disputes, once per key. It needs a written Sybil analysis first.
 - T3 means "callable at a declared endpoint". One such key is still one
   vote in the shared space. A count of independent keys raises the cost of an
   attack from one key to N endpoints. It does not make the cost infinite.
-  T4 and T5 are the real limit. On 7 November 2026 (07:30 UTC) the responder computed T4 on
-  demand and did not compute T5. In `GET /v1/enlist`, the field
+  T4 and T5 are the real limit. On 7 November 2026 (07:30 UTC) the responder
+  computed T4 on demand and did not compute T5. In `GET /v1/enlist`, the field
   `computed_here.T5_corroborated` is `false`.
 - The boot panic (`PathAndQuery::from_static`, right after the ACME
   cached-cert event) did not have a backtrace. The production unit
