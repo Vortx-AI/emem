@@ -1035,7 +1035,8 @@ with `fact_cid`. No key and no responder code is necessary.
 6. Compare the result with `fact_cid`. They must be equal.
 
 This script does steps 2 to 6 for a primary fact, an absence or a
-derivative. It needs Python 3 and the `blake3` package (`pip install blake3`).
+derivative. Save it as `recompute_fact_cid.py`. It needs Python 3 and
+the `blake3` package (`pip install blake3`).
 
 ```python
 import base64, json, struct, sys
@@ -1232,9 +1233,10 @@ ed25519_sign( blake3( batch_root || registry_cid_bytes || schema_cid_bytes ) )
 ```
 
 `registry_cid_bytes` and `schema_cid_bytes` are the **string bytes**
-(UTF-8 of the lowercase base32 CID), not the raw hash bytes. This is
-what the v0 branch of `verify_attestation`
-(`crates/emem-storage/src/lib.rs:2212-2230`) passes to BLAKE3:
+(UTF-8 of the lowercase base32 CID), not the raw hash bytes. The v0
+branch of `verify_attestation` (`crates/emem-storage/src/lib.rs`)
+passes these bytes to BLAKE3. The code below is a short form of that
+branch and the signature check after it:
 
 ```rust
 let mut h = Hasher::new();
@@ -1261,7 +1263,11 @@ leaf and a node:
 | Hash a node | `blake3(0x01 ‖ left ‖ right)` | `blake3(left ‖ right)` |
 | Odd layer | the last element pairs with itself | the last element pairs with itself |
 | Duplicate leaves | the verifier refuses the batch | not checked |
-| Code (`crates/emem-attest/src/lib.rs`) | lines 738-764, 798-810 | lines 17-23, 71-99 |
+| Code (`crates/emem-attest/src/lib.rs`) | `promote_leaf_v1`, `node_v1`, `merkle_root_v1`, `fold_to_root_v1` | `merkle_root`, `self_hashed_layer`, `fold_to_root` |
+
+The leaf of a fact is the BLAKE3 digest of the same CBOR bytes that
+give its `fact_cid` (§5.5). So a fact leaf is the 32 raw bytes that
+`fact_cid` encodes in base32.
 
 The topology is the same in both rules, so a verifier still checks a
 path by index (§8).
@@ -1297,9 +1303,13 @@ The tree below uses the v0 rule. For 4 facts with sorted CBOR hashes
 
 ### 6.2 Verify-on-write
 
-`crates/emem-storage/src/lib.rs:2150-2232` (`verify_fact_subjects`,
-`verify_attestation`). Storage checks every attestation **before** it
-stores it. There is no bypass:
+In plain words: storage proves that the signer signed exactly these
+facts. Then it checks that the signer may write them. It does both
+before it stores anything.
+
+`put_attestation` in `crates/emem-storage/src/lib.rs` calls
+`verify_attestation` first, and `verify_attestation` calls
+`verify_fact_subjects`. No write path skips these steps:
 
 1. Each fact subject must be a cell64 or an `emem:entity:` identity.
 2. CBOR-encode each fact and take `blake3(bytes)` as its leaf. Add the
@@ -1308,20 +1318,30 @@ stores it. There is no bypass:
 4. If `preimage_version >= 1`, refuse adjacent duplicate leaves.
 5. The root (`merkle_root_v1` for v1, `merkle_root` for v0) must equal
    `att.batch_root`.
-6. Get `VerifyingKey::from_bytes(&att.attester.0)`.
+6. Decode `attester` as an Ed25519 public key
+   (`VerifyingKey::from_bytes`).
 7. `verify_strict` must accept the signature over the message of the
    rule for this version (v1 preimage, or the v0 hash).
+8. If the batch has a primary fact or an absence, the fact-plane
+   policy must admit the attester (`FactPlanePolicy::admits`). It
+   admits the responder's own key, an enrolled device and a key in
+   `EMEM_FACT_PLANE_WRITERS`. `EMEM_FACT_PLANE_OPEN=1` admits every
+   key. A batch of derivative facts only skips this step.
 
-If a check fails, storage refuses the write with
-`StorageError::AttestationInvalid`. The HTTP layer maps it to an error
-code from `crates/emem-core/src/error.rs`
-(`crates/emem-storage/src/lib.rs:779-785`):
+If one of steps 1 to 7 fails, storage refuses the write with
+`StorageError::AttestationInvalid`. The `From<StorageError>` mapping in
+the same file gives the error code (`crates/emem-core/src/error.rs`):
 
 | Failed check | Error code | HTTP |
 |---|---|---|
 | Step 1 (subject in no address space) | `unaddressable_subject` | 400 |
 | An enrolled device writes a subject outside its profile's address space (`put_attestation_gated`) | `unaddressable_subject` | 400 |
 | Steps 2 to 7 (duplicate leaf, root mismatch, bad key, bad signature) | `bad_signature` | 422 |
+| Step 8 (key not allowed on the fact plane) | `level_too_low` | 403 |
+
+The step 8 message starts with `fact_plane_closed:`. It tells the
+caller to use `POST /v1/derive` (§5.2) for a value of its own. See
+`docs/errors.md` for the full refusal.
 
 ---
 
