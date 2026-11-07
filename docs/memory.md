@@ -1279,11 +1279,28 @@ authors. For this reason the responder keeps the record of each write
 by path in `memory_file_meta_by_path`. The record by `file_cid` is for
 readers that have only the CID.
 
-The multi-attester index (`emem.multi_attester_index`, value CBOR
-`Vec<FactCid>`) has the key `cell`, a zero byte, `band`, a zero byte,
-then `tslot` as 8 big-endian bytes. Release 2.4.0 moves it into
-`facts.redb` with the fact index. Until the copy to redb is complete,
-the responder writes both stores and the scan reads sled.
+The multi-attester index (`emem.multi_attester_index`) has the key
+`cell`, a zero byte, `band`, a zero byte, then `tslot` as 8 big-endian
+bytes. The value is a CBOR list of fact CID strings, with no
+duplicates. The contradiction scan and the `as_of_signed_at` filter
+read this list. A derived fact has no canonical key, so it is not in
+the index.
+
+Release 2.4.0 moves this index into a redb table of the same name,
+next to the fact index. The move has two stages:
+
+| Stage | Writes go to | The contradiction scan reads | The `as_of_signed_at` filter reads |
+|---|---|---|---|
+| Copy to redb not complete | redb and sled | sled | sled |
+| Copy to redb complete | redb only | redb | sled |
+
+The responder sees the end of the copy from a `backfill_done` marker
+in the redb `emem.meta` table. In the second stage, the
+`as_of_signed_at` filter still sees the current fact at each key. But
+its history list does not contain facts written after the copy ended.
+This is the code on 7 November 2026 (`history_many` in
+`crates/emem-storage/src/lib.rs`). With `EMEM_HOT_BACKEND=sled`, the
+responder does not open redb, and sled holds everything.
 
 The responder never deletes a blob. `emem_memory_delete` removes the
 path from the index and writes a tombstone. `memory_file_blobs` keeps
