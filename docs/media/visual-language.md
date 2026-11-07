@@ -111,7 +111,11 @@ On 7 November 2026 at about 11:30 UTC, new live reads gave the same numbers as f
 | `similar-places.webp` | `POST /v1/find_similar`, key Dubai, k 8 | Same 7 scores, 0.81 to 0.77 |
 | `ndvi-two-seasons.webp` | `POST /v1/memory_token/resolve` on the series token | Same 17 clear scenes, 8 left out, 2200 pixels |
 | `guard-check.webp` | `POST /v1/memory_token/resolve` on the cited fact | Same elevation, 1069.01 m |
-| `ask-trail.webp` | `POST /v1/ask`, NDVI in Central Park | Same answer, 0.79, and the same 3 fact ids |
+| `ask-trail.webp` | `POST /v1/ask`, q `what is the NDVI in Central Park, New York?`, read at 12:01 UTC | Same answer, 0.79, and the same 3 fact ids |
+
+The `ask-trail.webp` result depends on the exact `q` string. At 12:01 UTC the shorter
+`what is the NDVI in Central Park?` resolved to a different place label and cell. It gave NDVI 0.75 and 1 fact
+id.
 
 Values that come from weather or new scenes can change after this date. Run the `fetch_*.py` script again
 before you reuse a number.
