@@ -80,8 +80,8 @@ def saved_numbers():
 
 def check_alt_numbers():
     saved = saved_numbers()
-    embed = re.compile(r"!\[([^\]]*)\]\([^)]*media/stills/([a-z0-9-]+)\.webp\)"
-                       r"|<img[^>]*src=\"[^\"]*media/stills/([a-z0-9-]+)\.webp\"[^>]*alt=\"([^\"]*)\"")
+    embed = re.compile(r"!\[([^\]]*)\]\((?:[^)]*/)?stills/([a-z0-9-]+)\.webp\)"
+                       r"|<img[^>]*src=\"(?:[^\"]*/)?stills/([a-z0-9-]+)\.webp\"[^>]*alt=\"([^\"]*)\"")
     # The lookarounds skip digits inside a hex digest or a base32 id.
     number = re.compile(r"(?<![0-9A-Za-z])(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)(?![0-9A-Za-z])")
     count = 0
@@ -114,7 +114,7 @@ def check_durations():
         out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                               "-of", "csv=p=0", str(path)], capture_output=True, text=True, check=True)
         length[path.stem] = round(float(out.stdout))
-    film = re.compile(r"media/films/([a-z0-9-]+?)\.(?:mp4|webm)")
+    film = re.compile(r"(?<![a-z0-9-])films/([a-z0-9-]+?)\.(?:mp4|webm)")
     seconds = re.compile(r"(\d+) seconds")
     for md, text in doc_pages():
         for para in re.split(r"\n\s*\n", text):

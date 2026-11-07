@@ -1,6 +1,7 @@
 # Visual language for emem media
 
 Use these rules for every diagram, still and film in `docs/media/`. Then a reader sees one system across the pages.
+[README.md](README.md) shows eleven of these pictures in the order of the story, from a place name to a check.
 
 ## One question per image
 
