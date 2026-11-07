@@ -175,7 +175,7 @@ On 7 November 2026, a request at the Mount Fuji cell `defi.zb592.nUkO.zEzE` with
 ```sh
 curl -s -o scene.png -D - \
   "https://emem.dev/v1/cells/defi.zb592.nUkO.zEzE/scene.png?datetime=2025-06-11T00%3A00%3A00Z/2025-07-21T00%3A00%3A00Z&max_cloud=20" \
-  | grep -i '^x-emem-scene-\(datetime\|cloud-cover\)'
+  | grep -iE '^x-emem-scene-(datetime|cloud-cover)'
 ```
 
 ### Verdict thresholds

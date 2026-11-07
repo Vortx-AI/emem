@@ -194,8 +194,7 @@ The live rewrite path is real code. Without a key, nothing runs it.
 
 ## Dry-run, end to end
 
-These commands need a local Rust build. This page did not run them on
-6 November 2026.
+These commands need a local Rust build. This page did not run these commands.
 
 ```bash
 # Start a responder:

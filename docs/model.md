@@ -465,10 +465,11 @@ The gap list, in order of priority:
    values. Then gaussians, meshes and route graphs become first-class
    signed observations with canonical encodings. This extends the fact
    model. It does not add a parallel object system. It must come before
-   signed derivation over more than one step. One artifact type ships
+   signed derivation over more than one step. Raster artifacts ship
    outside the fact model. `POST /v1/band_raster` and `POST /v1/band_cube`
    sign a derivation record for a grid of pixels. They return an
-   `emem:raster:` or `emem:cube:` token. The pixels stay in a store that
+   `emem:raster:` or `emem:cube:` token. `POST /v1/raster_bundle` signs a
+   set of raster tokens and returns an `emem:rasterset:` token. The pixels stay in a store that
    can evict them. The record keeps what a reader needs to rebuild them.
 7. Derivation discovery and the `prove(goal)` contract. For each cell
    and goal, learn which declared rules apply and which chain costs

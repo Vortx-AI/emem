@@ -2,8 +2,8 @@
 
 *We ran every call on this page against `https://emem.dev` on 6 November
 2026. The `production truth` workflow runs `scripts/example_check.py` every
-hour, and that script runs these calls again. If one stops working, the
-workflow fails.*
+hour, and that script runs these calls again, except the call with a
+placeholder. If one stops working, the workflow fails.*
 
 A robot knows its own coordinates. It does not know what is true at those
 coordinates. Examples are the slope it will grade, the wind it will spray into,
@@ -35,8 +35,8 @@ The response tells you what it could not fetch.
 
 ## A street robot and an autonomous vehicle
 
-Both machines have the same question at a junction. What is in front of me now,
-and is that a measurement or a guess?
+Both machines have the same need at a junction. They must know what is in front
+of them now, and if that is a measurement or a guess.
 
 ```bash
 curl -s -X POST https://emem.dev/v1/perception/at \
@@ -54,11 +54,13 @@ not the default. The two modes give different evidence:
 
 The receipt commits to the stored clip. Anyone who has the clip can run the
 detector again and get your number. A machine that must defend a decision later
-needs this second mode.
+needs this second mode. On 29 October 2026, clip mode took no more time than
+the live frame. It took 0.8 s, 0.85 s, 0.88 s and 3.1 s at four London
+cameras, and the live-frame call took 2.9 s.
 
 On 6 November 2026, the call above took 1.2 s and counted 3 cars and 7 people.
 The perception routes have a 120 s time limit (`EMEM_PERCEPTION_TIMEOUT_S`,
-clamped to 40..600). All other routes have a 40 s limit. Past the limit, the
+clamped to 40..600). Most other routes have a 40 s limit. Past the limit, the
 server returns a typed 504. The limit is high because clip detection runs on a
 shared GPU, and a busy GPU can make a call slow.
 
@@ -165,7 +167,8 @@ curl -s -X POST https://emem.dev/v1/terrain \
 ```
 
 The response has `centre_elevation_m`, a `slope` block, `ruggedness` and
-`topo_position`. Each block gives the cell size and the fact ids that it used.
+`topo_position`. The `slope` block gives the cell size. The top-level
+`input_fact_cids` lists the fact ids that the response used.
 On 6 November 2026, this cell had a slope of 7.0 degrees (12.3 percent),
 computed with the Horn 1981 method.
 
