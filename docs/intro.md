@@ -120,7 +120,8 @@ serves these pages. There is no separate docs host.
 
 - `GET /openapi.json`: the full REST surface. [/docs/api/](/docs/api/) shows it in ReDoc.
 - `POST /mcp` with `tools/list`: the 18 core tools, about 77 KB of descriptors. `POST /mcp/full` lists all 116 tools
-  (18 core and 98 extended), about 350 KB, in pages of 13: follow `nextCursor`. `{"tier":"core"|"extended"|"all"}`
+  (18 core and 98 extended), about 350 KB, in pages of different sizes (9 pages on 7 November 2026). Follow
+  `nextCursor` to get the next page. `{"tier":"core"|"extended"|"all"}`
   changes the list. `tools/call` runs each of the 116 tools by name on both endpoints.
 - `emem_tools` gives a map of the tools. In its MCP `_meta`, each tool declares one `dev.emem/shape`: the form of the
   answer, for example `scalar`, `raster` or `proof`. It also declares any number of `dev.emem/bundles`: the jobs, for
