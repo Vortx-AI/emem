@@ -60382,12 +60382,17 @@ async fn materialize_wri_gdm_band(
             // Not built is not "no driver here": an Absence would read as a
             // statement about the cell.
             let _ = (&url, &signed_at);
-            Err(format!(
-                "no materializer wired for {band} at this responder: {reason}. The per-cell sampler awaits a range-readable mirror that supports the LZW + 8 samples-per-pixel encoding."
-            ))
+            Err(wri_gdm_not_wired_message(band, &reason))
         }
         Err(e) => Err(format!("wri_gdm.driver_class fetch failed: {e}")),
     }
+}
+
+/// The connector's reason already names the fix (`EMEM_WRI_GDM_CACHE`). The
+/// shared COG sampler reads the file's LZW, 8-samples-per-pixel layout, so
+/// adding "awaits a sampler" here would send an operator the wrong way.
+fn wri_gdm_not_wired_message(band: &str, reason: &str) -> String {
+    format!("no materializer wired for {band} at this responder: {reason}")
 }
 
 // ---------------- RADD SAR-alerts materializer ----------------
@@ -108512,6 +108517,32 @@ mod absence_reason_store_tests {
             cid.as_str()
         );
         assert_eq!(reason_text_in(&t, "absent"), None);
+    }
+}
+
+#[cfg(test)]
+mod wri_gdm_message_tests {
+    use super::*;
+
+    /// The error an operator reads must name the one setting that turns the
+    /// band on, and must not send them to wait for a sampler that already
+    /// exists.
+    #[tokio::test]
+    async fn the_not_wired_error_names_the_cache_and_no_missing_sampler() {
+        if std::env::var_os("EMEM_WRI_GDM_CACHE").is_some() {
+            return;
+        }
+        let cli = reqwest::Client::new();
+        let reason = match emem_fetch::wri_gdm_drivers::fetch_driver_class(&cli, -3.0, -60.5).await
+        {
+            Err(emem_fetch::wri_gdm_drivers::WriGdmError::NotImplemented { reason }) => reason,
+            other => panic!("expected NotImplemented without a cache, got {other:?}"),
+        };
+        let msg = wri_gdm_not_wired_message("wri_gdm.driver_class", &reason);
+        assert!(msg.contains("EMEM_WRI_GDM_CACHE"), "{msg}");
+        assert!(msg.contains("wri_gdm.driver_class"), "{msg}");
+        assert!(!msg.contains("awaits"), "{msg}");
+        assert!(!msg.contains("range-readable mirror"), "{msg}");
     }
 }
 
