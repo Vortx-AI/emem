@@ -71,6 +71,7 @@ COMPUTED = {
     "experiment-chain": {"10154"},  # experiment_chain.py: len(record.cbor)
     "one-place-many-names": {"13.3"},  # one_place.py: metres() from the first to the fifth locate point
     "what-crosses": {"13870"},  # what_crosses.py: sum of event_count over the 4 trace segments
+    "wired-bands": {"1981"},  # wired_bands.py: year() of NASA POWER history_available_from_unix
 }
 
 

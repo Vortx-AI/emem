@@ -170,8 +170,8 @@ h1{{font-size:42px;line-height:1.2;margin:0 0 10px}}
 
 <div class="foot">Windows are what the responder declares. A read inside a window can still return a signed absence,
 for example under cloud or over the sea. Sizes are the input pixels in the code
-(<span class="mono">band_input_resolution_m</span>); emem stores each value on its own 10 m cell. The agent card
-counts {AGENT_CARD_WIRED}: two <span class="mono">opera_dist</span> names are wired but missing from this list.</div>
+(<span class="mono">band_input_resolution_m</span>); emem stores each value on its own 10 m cell.
+<span class="mono">GET /v1/agent_card</span> counts {AGENT_CARD_WIRED} (<span class="mono">band_taxonomy.materializer_wired.count</span>): two <span class="mono">opera_dist</span> names are wired but missing from this list.</div>
 </div>"""
 
 out = Path(sys.argv[1]).resolve()
