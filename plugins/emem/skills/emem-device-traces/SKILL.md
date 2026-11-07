@@ -127,10 +127,21 @@ The report names each failed check, for example `chain_broken`,
 Enrolment evidence (`emem.platform_attestation.v0`) is one endorser
 signature, checked against a registered anchor. emem does not yet
 parse certificate chains, TPM quotes, measurement matches or fresh
-nonces. `POST /v1/enroll_verify` tells why it refuses a piece of
-evidence. For refused evidence it also returns an `emem:attestation:`
-token. emem computes that token but does not store it, so the token
-does not resolve.
+nonces. `POST /v1/enroll_verify` checks a piece of evidence and does
+not store it. It returns HTTP 200 for any JSON body.
+
+| Evidence | Answer |
+|---|---|
+| Parses as `emem.platform_attestation.v0` | `verdict`, a `report` with the reasons, `attestation_cid` and an `emem:attestation:` token. emem does not store the evidence, so the token does not resolve. |
+| Does not parse, or names an unknown platform | `verdict: "reject"` and an `error` string. No token. |
+
+```sh
+curl -s -X POST https://emem.dev/v1/enroll_verify -H 'content-type: application/json' \
+  -d '{"platform":"nvidia.jetson-orin","attestation":{"schema":"emem.platform_attestation.v0"}}'
+```
+
+On 7 November 2026 this returned `verdict: "reject"` with the error
+``missing field `eat_profile` ``.
 
 ## Step 4: read the registries
 
