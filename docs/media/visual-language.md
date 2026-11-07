@@ -114,7 +114,7 @@ pages, so the PRs can merge without a conflict. The description of PR #34 gives 
 | `stills/field-outlines.webp` | Which fields in one farm box turned green first, and can I check it? | `agents.md` | `stills/src/field_outlines.py`, live reads from `fetch_fields.py` |
 | `stills/contradictions.webp` | Two signed facts at one address disagree: which one does a read return, and why? | `intro.md` | `stills/src/contradictions.py`, live reads from `fetch_contradictions.py` |
 | `stills/trajectory.webp` | What does a trajectory return, and what does an empty one mean? | `robots.md`: embed asked of the memory stream (PR #31 rewrites the page) | `stills/src/trajectory.py`, live reads from `fetch_trajectory.py` |
-| `stills/one-token-hero.webp`, `stills/one-token-hero-phone.webp` | What is emem, shown with one live fact? | `intro.md` (a `<picture>` element); README line 36 in the proposal | `stills/src/hero.py`, saved reads in `stills/src/data/log/` and `stills/src/data/hero/` |
+| `stills/one-token-hero.webp`, `stills/one-token-hero-phone.webp` | What is emem, shown with one live fact? | `intro.md` (a `<picture>` element); `whitepaper.md` after Figure 3; README line 36 in the proposal | `stills/src/hero.py`, saved reads in `stills/src/data/log/` and `stills/src/data/hero/` |
 | `stills/one-place-many-names.webp` | Do two names for one place give the same cell? | `start-here.md` | `stills/src/one_place.py`, live reads from `fetch_one_place.py` |
 
 Each film also has a WebM copy and a `-poster.webp` file with the same name. The `fetch_*.py` scripts in

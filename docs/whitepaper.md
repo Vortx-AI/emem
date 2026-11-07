@@ -385,6 +385,14 @@ a field and a field over time.
 receipt; the token is the one-line citation; the receiver resolves it to
 the identical bytes and verifies the receipt offline.*
 
+<picture>
+<source media="(max-width: 700px)" srcset="media/stills/one-token-hero-phone.webp">
+<img src="media/stills/one-token-hero.webp" alt="Live reads of emem.dev on 7 November 2026, in three steps. 1: the name Mount Fuji resolves to the cell defi.zb592.nUkO.zEzE, ringed on a Sentinel-2 image of the summit crater from 12 December 2025. 2: emem signs one fact there: copdem30m.elevation_mean 3,539.04 m, read from a Copernicus GLO-30 DEM tile, fact id qejpz7cg...bplq, signed 28 September 2026. 3: another agent gets the 83-character emem:fact token. Resolve gives the same fact id and value. The receipt signature is valid offline. Log entry 2,463,431 of 3,248,898 proves with 22 hashes. One changed character of the fact id fails. Contains modified Copernicus Sentinel data 2025.">
+</picture>
+
+*Figure 3 applied to one live fact at Mount Fuji. On 7 November 2026
+the token resolved to the same fact id and the same value, 3,539.04 m.*
+
 | Token | Shape | Dereferences to |
 |---|---|---|
 | `emem:fact:<cell64>:<fact_cid>` | 4 segments | the byte-identical signed fact (§3.2) |
