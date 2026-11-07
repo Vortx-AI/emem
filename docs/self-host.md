@@ -13,7 +13,7 @@ A node is one binary, `emem-server`. It serves REST and MCP on one port.
 ## Run the public image
 
 The image is `ghcr.io/vortx-ai/emem:latest`. It has builds for `linux/amd64` and `linux/arm64` (registry checked on
-6 November 2026).
+7 November 2026).
 
 ```bash
 docker run --rm -p 5051:5051 -v emem-data:/var/emem ghcr.io/vortx-ai/emem:latest
@@ -32,7 +32,7 @@ curl -sX POST http://localhost:5051/v1/locate \
 the `cell64` of the place. `/health` also reports corpus statistics and can be slower. The node needs no key and no
 account. On the first recall of a cell, it reads the open archives, signs the values and stores them.
 
-On 6 November 2026 the host that wrote this page had no Docker. A registry query found the image manifest, and
+On 7 November 2026 the host that wrote this page had no Docker. A registry query found the image manifest, and
 the two requests ran against `https://emem.dev`, which runs the same image. The image facts below come from
 [`Dockerfile`](https://github.com/Vortx-AI/emem/blob/main/Dockerfile).
 
@@ -129,7 +129,7 @@ full build and test workflow.
 
 ## Environment variables
 
-Each default below comes from the code on 6 November 2026.
+Each default below comes from the code on 7 November 2026.
 
 | Variable | Default | What it does |
 |---|---|---|
