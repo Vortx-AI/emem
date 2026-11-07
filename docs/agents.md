@@ -672,7 +672,9 @@ curl -s -X POST https://emem.dev/v1/guard/verdict \
 
 `action` was `allow`, and the one citation had `state` `verified`. On 7
 November 2026 the same text with "4000 m" returned `action` `deny`, `code`
-`PROV_VALUE` and `fix` `correct_value`. The signed value is 3539.04 m. Branch
+`PROV_VALUE` and `fix` `correct_value`. The signed value is 3539.04 m. In
+that deny, the citation `state` stays `verified`: the signature is good, but
+the number next to it is wrong. Both responses carry `advisory` `true`. Branch
 on `fix`, not on `reason`. The verdict is advice. It blocks nothing. Details:
 [Check your own draft before you send it](#check-your-own-draft-before-you-send-it).
 
