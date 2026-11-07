@@ -17,9 +17,10 @@ public key from the receipt.
 
 ## Install
 
-Run this in this directory:
+Start from the root of the repository:
 
 ```bash
+cd examples/mastra
 npm install
 ```
 
@@ -31,6 +32,8 @@ The latest versions were `@mastra/core` 1.82.0 and `@mastra/mcp` 2.8.0. We
 did not test the script with them.
 
 ## Run
+
+Run these commands in `examples/mastra`.
 
 ```bash
 export OPENAI_API_KEY="sk-..."

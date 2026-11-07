@@ -141,6 +141,7 @@ loader splits it in half and sends it again.
 [`make_splats.py`](make_splats.py) uses only the Python standard library. It
 does the same fetch and the same gaussian math, then writes files you can
 share. The presets are `canyon`, `interlaken`, `semantic` and `carbon`.
+Run all the commands in this section in `examples/3d-worlds`.
 
 ```bash
 cd examples/3d-worlds

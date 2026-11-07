@@ -24,9 +24,11 @@ The `mcp` extra installs `mcp` and `fastmcp`. `MCPTools` needs both.
 
 ## Run
 
+Run these commands from the root of the repository.
+
 ```bash
 export OPENAI_API_KEY="sk-..."
-python emem_mcp_geospatial_agent.py
+python examples/agno/emem_mcp_geospatial_agent.py
 ```
 
 To use a different emem node, set `EMEM_MCP_URL`. The default is

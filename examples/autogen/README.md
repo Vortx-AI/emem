@@ -26,9 +26,11 @@ Keep `mcp<2`. On 7 November 2026, `autogen-ext` 0.7.5 did not import with
 
 ## Run
 
+Run these commands from the root of the repository.
+
 ```bash
 export OPENAI_API_KEY="sk-..."
-python emem_mcp_geospatial_agent.py
+python examples/autogen/emem_mcp_geospatial_agent.py
 ```
 
 To use a different emem node, set `EMEM_MCP_URL`. The default is
