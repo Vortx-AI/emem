@@ -26,6 +26,7 @@ All state is under `EMEM_DATA`. See [What is in the data directory](#what-is-in-
 
 ```bash
 docker run -d --name emem --restart unless-stopped \
+    --stop-timeout 60 \
     -p 5051:5051 \
     -v emem-data:/var/emem \
     ghcr.io/vortx-ai/emem:v2.4.4
@@ -33,6 +34,11 @@ docker run -d --name emem --restart unless-stopped \
 
 The image sets `EMEM_DATA=/var/emem`. The entry point sets `EMEM_BIND` to `0.0.0.0:${PORT:-5051}` when you do not
 set it.
+
+`docker stop` waits 10 seconds by default, then kills the process. At stop, the node closes `facts.redb` within
+`EMEM_STOP_GRACE_S`, default 60 seconds. A kill during that close marks the file for recovery, and the next start
+can take many minutes. `--stop-timeout 60` makes the container wait the same 60 seconds. If you change one value,
+change the other.
 
 ### Image tags
 
@@ -140,6 +146,24 @@ reverse proxy.
 
 The node keeps certificates in `$EMEM_DATA/acme.cache/`. Port 443 must be open to the internet, because TLS-ALPN-01
 connects to it.
+
+In the image, the plain listener does not move to loopback when you turn on TLS. The entry point always sets
+`EMEM_BIND`, so add `-e EMEM_BIND=127.0.0.1:5051`. This example needs a domain that points to the host. It did not
+run for this page, because the test host has no public domain.
+
+```bash
+docker run -d --name emem --restart unless-stopped \
+    --stop-timeout 60 \
+    -p 443:443 \
+    -v emem-data:/var/emem \
+    -e EMEM_TLS_DOMAINS=node.example.com \
+    -e EMEM_TLS_CONTACT=mailto:ops@example.com \
+    -e EMEM_BIND=127.0.0.1:5051 \
+    ghcr.io/vortx-ai/emem:v2.4.4
+```
+
+The image health check connects to `127.0.0.1` on the port in `EMEM_BIND`, so it still works. See also
+[Self-host, Turn on TLS](../self-host.md#turn-on-tls).
 
 ## Content-Security-Policy
 
@@ -436,6 +460,7 @@ first, then Photon, then Nominatim. If Photon is down, set `EMEM_PHOTON_BASE` to
 
 ```bash
 journalctl --user -u emem-server | grep -i acme
+docker logs emem 2>&1 | grep -i acme        # for the container
 ```
 
 The usual causes: the internet cannot reach port 443, `EMEM_TLS_CONTACT` is wrong, or you hit the Let's Encrypt rate
@@ -456,6 +481,22 @@ limit. Use `EMEM_TLS_STAGING=1` while you test.
 2. Pull the new image, or build the new binary, and restart.
 3. Get `/v1/manifests` again and compare it with `pre.json`.
 4. Find each changed CID in [CHANGELOG.md](https://github.com/Vortx-AI/emem/blob/main/CHANGELOG.md) for that release.
+
+For the container, a restart does not change the image. Remove the container and start a new one on the same volume.
+Replace `<new-tag>` with the release tag or digest.
+
+```bash
+curl -sS http://127.0.0.1:5051/v1/manifests > pre.json
+docker pull ghcr.io/vortx-ai/emem:<new-tag>
+docker stop -t 60 emem && docker rm emem
+docker run -d --name emem --restart unless-stopped --stop-timeout 60 \
+    -p 5051:5051 -v emem-data:/var/emem ghcr.io/vortx-ai/emem:<new-tag>
+curl -sS http://127.0.0.1:5051/v1/manifests > post.json
+diff <(jq -S . pre.json) <(jq -S . post.json)
+```
+
+`/v1/manifests` has no time fields. Two reads from emem.dev on 7 November 2026 gave the same bytes. So each line
+that `diff` shows is a registry change.
 
 The schema CID pins the byte layout of a fact. Old facts keep their old `schema_cid`, `bands_cid` and
 `sources_cid`, so they verify after an upgrade.
