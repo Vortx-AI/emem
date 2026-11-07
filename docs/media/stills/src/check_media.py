@@ -12,8 +12,9 @@ Run from the repository root:  python3 docs/media/stills/src/check_media.py
 5. README_MEDIA_PROPOSAL.md: each stated byte size equals the file size, each
    named file exists, and each swap row names the image that README.md shows
    on that line today.
-6. Each <img> tag in docs/ parses with html.parser and has only known
-   attributes, so a double quote inside alt text cannot cut it short.
+6. Each page in docs/ parses with html.parser as a whole. The parser sees
+   every <img> tag on the page, and each tag has only known attributes, so a
+   double quote inside alt text cannot cut it short.
 7. Light and dark pages: each still and poster is opaque, its corners are the
    background #0d1117, and its width is a known one (1080, or 1800 with a
    -phone copy; posters 720 or 1080). Each diagram has a 640 wide view box,
@@ -160,21 +161,30 @@ IMG_ATTRS = {"src", "alt", "width", "height"}
 class ImgAttrs(HTMLParser):
     def __init__(self):
         super().__init__()
-        self.unknown = []
+        self.imgs = []
 
     def handle_starttag(self, tag, attrs):
         if tag == "img":
-            self.unknown += [k for k, _ in attrs if k not in IMG_ATTRS]
+            self.imgs.append((self.getpos()[0], [k for k, _ in attrs if k not in IMG_ATTRS]))
+
+    handle_startendtag = handle_starttag
 
 
 def check_img_tags():
+    # Parse the whole page, not one regex match per tag: a ">" inside alt text
+    # would cut a per-tag match short and hide the tag from the parser.
     for md, text in doc_pages():
-        for m in re.finditer(r"<img\b[^\n]*?>", text):
-            parser = ImgAttrs()
-            parser.feed(m.group(0))
-            if parser.unknown:
-                line = text[: m.start()].count("\n") + 1
-                fails.append(f"img: {md.relative_to(ROOT)}:{line} unknown attributes {parser.unknown[:3]}, "
+        parser = ImgAttrs()
+        parser.feed(text)
+        parser.close()
+        rel = md.relative_to(ROOT)
+        expected = len(re.findall(r"<img\b", text))
+        if len(parser.imgs) != expected:
+            fails.append(f"img: {rel} has {expected} <img tags but the parser saw {len(parser.imgs)}; "
+                         "an unclosed quote or tag?")
+        for line, unknown in parser.imgs:
+            if unknown:
+                fails.append(f"img: {rel}:{line} unknown attributes {unknown[:3]}, "
                              "a double quote in alt text? Use single quotes or &quot;")
 
 

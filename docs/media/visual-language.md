@@ -64,7 +64,7 @@ Do not use colour as the only signal. Write the word too, for example `valid` or
 - Render frame by frame from an HTML page with `window.film.seek(t)`. Do not record a screen. The pages and the
   renderer are in [films/src/](films/src/). Run `python film.py --help` there for the commands.
 - Ship an MP4 (H.264) and a WebM (VP9), each 2 MB or less, and a WebP poster of 300 KB or less.
-  The films are 1080 by 960 px. A poster is 1080 or 720 px wide. A phone shows both at the same size.
+  The films are 1080 by 960 px. A poster is 1080 or 720 px wide. On a phone, a 720 px poster and a 1080 px poster both fill the screen width.
 - On a docs page, show the poster and link it to the MP4. Give the WebM link next to it.
   When a still of the same data is directly above, give text links only, so the page does not show the
   same picture twice. `agents.md` does this for `emem-ndvi-season.mp4`.
