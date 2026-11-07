@@ -917,9 +917,9 @@ The Python package has a CLI, `ememdev`, with three commands: `whoami`,
 is `~/.emem/agent_ed25519.pem`, or `$EMEM_HOME/agent_ed25519.pem`
 (`sdks/emem-py/src/ememdev/identity.py`).
 
-Why the publish workflows check the artefact: PyPI releases 0.0.9, 0.1.0
-and 1.0.0 of `ememdev` are about 2.4 KB each and contain no Python
-module. A root-anchored `/src/` line in `.gitignore` was re-anchored by
+Why the publish workflows check the artefact: the PyPI wheels of
+`ememdev` 0.0.9, 0.1.0 and 1.0.0 are about 2.4 KB each and contain no
+Python module. The 1.1.0 wheel is 25 KB. A root-anchored `/src/` line in `.gitignore` was re-anchored by
 the build backend to the SDK directory. Each wheel built clean and empty.
 CI tested the source tree, not the wheel, so it stayed green. PyPI
 versions are immutable, so later versions supersede the empty ones.
@@ -953,9 +953,11 @@ the SDK, because the bridge already works.
 Ships:
 
 - The `robot.fleet.v1` profile in `crates/emem-core/data/substrates-v0.json`.
-- The `emem.os_trace.v1` record in `emem-trace`. It defines what a robot
-  must capture before the responder admits its writes: syscalls, scheduler, memory,
-  sensor bus, energy, thermal and on-device inference.
+  It lists seven trace layers that a robot must capture before the
+  responder admits its writes: `syscall`, `scheduler`, `memory`,
+  `sensor_bus`, `energy`, `thermal` and `inference`.
+- The `emem.os_trace.v1` record in `emem-trace`. It carries those layers
+  in chained trace segments, and the device signs the whole record.
 - A two-vendor HTTP example in `examples/fleet-memory/`.
 
 Not built: the edge encoder that makes trace windows on the robot,
