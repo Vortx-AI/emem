@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 816" width="640" height="816" role="img" aria-labelledby="t d">
   <title id="t">From a place to a fact that another agent checks</title>
-  <desc id="d">Six steps from top to bottom. 1 Place: the name Mount Fuji. locate gives 2 Cell: defi.zb592.nUkO.zEzE, one square of about 10 m. recall gives 3 Fact: copdem30m.elevation_mean equals 3539.04 m, with a fact_cid that is the BLAKE3 hash of its canonical CBOR bytes. 4 Receipt: the responder signs a hash of its answer with Ed25519. 5 Token: emem:fact plus the cell and the fact_cid, one line of text. 6 Another agent resolves the token to the same signed bytes and checks the receipt offline. A signature shows who signed, not that the value is true. Values from emem.dev on 6 November 2026.</desc>
+  <desc id="d">Six steps from top to bottom. 1 Place: the name Mount Fuji. locate gives 2 Cell: defi.zb592.nUkO.zEzE, one square of about 10 m. recall gives 3 Fact: copdem30m.elevation_mean equals 3539.04 m, with a fact_cid that is the BLAKE3 hash of its canonical CBOR bytes. 4 Receipt: the responder signs a hash of its answer with Ed25519. 5 Token: emem:fact plus the cell and the fact_cid, one line of text. 6 Another agent resolves the token to the same signed bytes and checks the receipt offline. A signature shows who signed, not that the value is true. Values from emem.dev on 7 November 2026.</desc>
   <defs>
     <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
       <path d="M0 0 L10 5 L0 10 z" fill="#8b949e"/>
@@ -92,5 +92,5 @@
   <text class="sans txt" x="76" y="732">checks the receipt offline with the responder's public key.</text>
 
   <text class="sans txt" x="24" y="774">A signature shows who signed. It does not show that the value is true.</text>
-  <text class="sans verb" x="24" y="796">Values from emem.dev on 6 November 2026.</text>
+  <text class="sans verb" x="24" y="796">Values from emem.dev on 7 November 2026.</text>
 </svg>
