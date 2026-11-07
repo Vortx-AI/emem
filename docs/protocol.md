@@ -2938,9 +2938,17 @@ as `log_entry_hash_b32`. Deletes from before this feature have no entry.
 `GET /v1/log/inclusion?entry_hash=` also accepts the content hash of a
 note (blake3 of its bytes) and then answers
 `matched: "memory_note_content"`. Writes from before this feature have
-no entry. If the log append fails, the server logs the failure and the
-write or delete still stands, without an entry. An entry added now would record the time of logging, not the
-time of writing.
+no entry. If the log append fails, the server logs the failure. The
+write or delete stays, without an entry. The server does not add the
+entry later, because a late entry would record the time of logging, not
+the time of writing.
+
+`GET /v1/log/entries` takes a half-open range `start` (default 0) and
+`end`. One call returns 256 entries at most (`max_per_call`). If `end`
+is not more than `start`, the call returns 400 `invalid_argument`. Each
+response gives `end_exclusive`: resume the next call from there.
+`truncated: true` means that the cap or the end of the log cut the
+range short. A responder without a durable log returns 501 `internal`.
 
 `GET /v1/log/entries?summary=1` serves one light row per entry, not its
 bytes:
