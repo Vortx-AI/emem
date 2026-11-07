@@ -514,11 +514,13 @@ You can check all of the above from outside:
 
 1. Hash the canonical CBOR bytes of a fact with BLAKE3. Compare the result
    to its `fact_cid` ([protocol §5.5](./protocol.md#55-recompute-a-fact_cid-by-hand)).
-2. Verify the Ed25519 signature against the attester key, offline
-   ([protocol §7.4](./protocol.md#74-offline-verification-python)).
+2. Verify the Ed25519 signature on a receipt against the responder key,
+   offline ([protocol §7.4](./protocol.md#74-offline-verification-python)).
 3. Pin an STH. Later, get a consistency proof and fold it yourself
    ([protocol §9.6.1.1](./protocol.md#9611-check-a-consistency-proof-by-hand)).
-4. Read `/v1/log/entries` and check what else is in the tree.
+4. Read a range of log entries with `GET /v1/log/entries?start=<n>&end=<m>`.
+   Check what else is in the tree
+   ([protocol §9.6.3](./protocol.md#963-memory-writes-in-the-log)).
 5. Check an organisation attestation again with `dig` or `curl` against the
    domain, without us. The DNS form is in [section 6](#6-organisation-verification-and-why-not-oauth).
 
@@ -572,13 +574,18 @@ curl -s 'https://emem.dev/v1/log/consistency?first=<old tree_size>&second=<new t
 python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py consistency sth.json new_sth.json consistency.json
 ```
 
-On 7 November 2026 at 07:24 UTC all four checks gave `VALID` against
+On 7 November 2026 at 08:11 UTC all four checks gave `VALID` against
 emem.dev. The four checks are the receipt, the inclusion proof, the link
 from `sth.json` to `inclusion.json` and the later consistency proof. The
-receipt was from a recall at Mount Fuji and named 369 facts. Its inclusion
-proof was for leaf 2,788,378 at `tree_size` 3,247,646, with 22 hashes. Both
-heads had that size, so the link proof had 0 hashes. The later proof went
-from size 3,247,646 to 3,247,649, with 13 hashes.
+receipt was from the elevation recall in
+[Check your first receipt](./protocol.md#check-your-first-receipt) and named
+1 fact. Its inclusion proof was for leaf 2,463,431 at `tree_size`
+3,248,307, with 22 hashes. Both heads had that size, so the link proof had
+0 hashes. The later proof went from size 3,248,307 to 3,248,309, with 12
+hashes.
+
+The leaf can be much older than the head. A recall that finds a stored
+fact gives the `log_entry_hash` of the signed batch that first stored it.
 
 The scripts do not check the link from the log entry to the receipt's
 Merkle root. That is step 7 of
