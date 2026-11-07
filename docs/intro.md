@@ -25,7 +25,8 @@ one byte changes, the hash changes.
 
 On 6 November 2026 the registries held 115 wired bands in 43 cube slots, 46 sources and 172 algorithms that combine
 bands. The counts come from [`/v1/manifests`](https://emem.dev/v1/manifests) and
-[`/v1/algorithms`](https://emem.dev/v1/algorithms).
+[`/v1/algorithms`](https://emem.dev/v1/algorithms). On 7 November 2026, emem had no reader for five of those
+sources: `dynamic_world.v1`, `openet.30m.daily`, `tropomi.s5p.ch4`, `tropomi.s5p.no2` and `viirs.dnb.monthly`.
 
 emem needs no corpus loaded in advance. When you ask about a new cell, emem reads the public archive, signs the
 value, stores it and returns it. So each cell on Earth can give a signed answer from the first request.
@@ -102,7 +103,10 @@ serves these pages. There is no separate docs host.
   and hazards as facts, shared across fleets. Satellites, drones and fixed sensors sign at the source.
 - Earth observation is the first data source, not the limit. Each class of contributor is a profile in
   [`/v1/substrates`](https://emem.dev/v1/substrates), with its rule for what it can write and its address space.
-  On 6 November 2026 there were 18 profiles. One, `earth.satellite.v0`, was active. [The memory model](model.md)
+  The address space `geo.cell64` names a place. The address space `entity.cid` names a subject that is not a place,
+  for example a telescope target, a file at a commit or a model checkpoint. On 7 November 2026 there were 18
+  profiles: 12 on `geo.cell64` and 6 on `entity.cid`. One, `earth.satellite.v0`, was active. The registry does not
+  load a profile with an unknown address space, or an active profile with no bands. [The memory model](model.md)
   gives the formal definitions.
 - Content ids are the same on each responder. A `fact_cid` is 52 base32 characters, the full 32-byte BLAKE3 hash of
   the canonical CBOR. Bundle and entity ids are shorter, 26 characters. `emem:fact:<cell64>:<fact_cid>` names one
