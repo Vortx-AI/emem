@@ -73,8 +73,14 @@ verdict = verify_receipt_offline(json.load(open("fact.json"))["receipt"])
 print(verdict.ok, verdict.why)
 ```
 
-The check uses the public key in the receipt. To be sure that emem signed it, compare that key with the key in
-[`/.well-known/emem.json`](https://emem.dev/.well-known/emem.json). You can also paste a token into
+The check uses the public key in the receipt, `receipt.responder_pubkey_b32`. To be sure that emem signed it, compare that key with the field
+`responder.pubkey_b32` in [`/.well-known/emem.json`](https://emem.dev/.well-known/emem.json):
+
+```bash
+curl -sS https://emem.dev/.well-known/emem.json | jq -r .responder.pubkey_b32
+```
+
+On 7 November 2026 the key started with `777er3yi`. You can also paste a token into
 [emem.dev/verify](https://emem.dev/verify).
 
 ## Use the right field name
@@ -108,7 +114,8 @@ Do not make a REST path from a tool name.
 
 - A signature tells you who signed. It does not tell you that the value is correct.
 - A place name gives one cell of about 10 m. For an area, use the area tools.
-- The first read of a new place can take tens of seconds, because emem reads the public archive first.
+- The first read of a new place is slower, because emem reads the public archive first. On 7 November 2026 a
+  first read took 0.6 to 1.7 s, and a repeat read took less than 0.1 s.
 - Notes are public, and the log keeps them. Do not write a secret in a note.
 
 The full list is in the [README](https://github.com/Vortx-AI/emem/blob/main/README.md#what-the-checks-do-not-prove).
