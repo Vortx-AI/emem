@@ -175,15 +175,15 @@ curl -s -X POST https://emem.dev/v1/ask \
   -d '{"q":"how is the vegetation doing around Manaus?"}' \
   | jq '{answer, shown: .band_observations_summary.bands_shown, cited: (.receipt.fact_cids|length)}'
 # answer starts "At Manaus, Amazonas, Brazil, in the one cell that name resolves to:
-# greenness (NDVI) 0.51 ...". On 7 November 2026: "shown": 12, "cited": 747
+# greenness (NDVI) 0.51 ...". On 7 November 2026: "shown": 12, "cited": 763
 ```
 
 `ask` sends a plain-language question to the correct path. It returns an
 answer and the ids of the facts it read. The answer gives the age of each
 reading. The answer shows 12 bands that match the question
-(`band_observations_summary.bands_shown`). The receipt cites every fact held at
-the cell, 747 on 7 November 2026. This count grows as the cell gets new
-facts. Each entry in `band_observations_summary.bands` has its own
+(`band_observations_summary.bands_shown`). The receipt cites every fact
+held at the cell, 763 at 07:55 UTC on 7 November 2026. This count grows
+as the cell gets new facts. Each entry in `band_observations_summary.bands` has its own
 `fact_cid`.
 
 Over MCP, `emem_tools` searches the full tool list when the tool you need is
