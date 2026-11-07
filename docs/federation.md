@@ -383,7 +383,7 @@ does not read the entries. `geo.qa` asked for this, because from
 2026-11-06 its node logs reads about a partner's private area.
 
 In September `/v1/log/inclusion` ignored `tree_size`, so the
-first draft failed every proof against the older root. On 6 November 2026 the
+first draft failed every proof against the older root. On 7 November 2026 the
 route used `tree_size` and refused an unknown argument with 400.
 
 Two bugs appeared before the job shipped. Every node operator will write
@@ -586,7 +586,7 @@ what a reader needs to check those facts:
 - `/.well-known/emem.json` with a `federation` block that names the nodes it
   witnesses.
 
-On 6 November 2026 emem.dev published everything on this list. It is still
+On 7 November 2026 emem.dev published everything on this list. It is still
 not a resolver for other nodes, because read federation (§4a) is not built.
 The role exists so that the bar is ready before someone needs it.
 
@@ -872,7 +872,7 @@ The ranking is by what each item buys the four-node network per unit of
 change. Nothing here touches the fact plane, the token scheme or the
 preimages.
 
-| # | Item | State on 6 November 2026 |
+| # | Item | State on 7 November 2026 |
 |---|---|---|
 | 1 | Audit sampling in the witness job (`audit_custody` in `scripts/witness_peers.py`) | done 2026-09-02 |
 | 2 | Enforce the ladder on `SharedEntitySpace` | on at emem.dev (`EMEM_ENLISTMENT_ENFORCE=1`); item 3 was the correctness fix that let its own agents write |
