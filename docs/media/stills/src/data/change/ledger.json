@@ -1,0 +1,492 @@
+{
+ "token": "emem:fact:defi.zb493.zezo.zcb35:ssd2ueqbvtnpfya4qhy6fsl4bamj5qap3mm5ll4vkirmwsd2m5jq",
+ "canonical_token": "emem:fact:defi.zb493.zezo.zcb35:ssd2ueqbvtnpfya4qhy6fsl4bamj5qap3mm5ll4vkirmwsd2m5jq",
+ "cell": "defi.zb493.zezo.zcb35",
+ "fact_cid": "ssd2ueqbvtnpfya4qhy6fsl4bamj5qap3mm5ll4vkirmwsd2m5jq",
+ "value": {
+  "attribution_note": "ledger_not_split: this response attributes by EVIDENCE, not by magnitude. Splitting a specific delta into environment, sensor, geometry, encoder, and noise terms needs a calibrated cross-encoder, cross-sensor stability model this responder does not have; inventing per-term magnitudes from uncalibrated evidence would fabricate exactly the confusion the decomposition exists to prevent. Read the per-term evidence and its fact cids; the numeric split is roadmap work.",
+  "decomposition": "\u0394z = \u0394_env + \u0394_sensor + \u0394_geo + \u0394_encoder + \u03b5",
+  "observed": {
+   "embedding": {
+    "change": 0.09646081924438477,
+    "covered_vintages": 8,
+    "encoder": "geotessera.multi_year",
+    "fact_cid": "m3ylrkp6h7ieh2t2tilfdjfbo6iafusnmc5dhb2z52k7klh6oygq"
+   }
+  },
+  "schema": "emem.change_attribution.v1",
+  "split": null,
+  "terms": {
+   "encoder": {
+    "changed": false,
+    "evidence": "both vintages are slices of one signed multi-year fact, so one recipe produced both; an encoder change cannot hide inside this comparison",
+    "pinned_by": {
+     "fact_cid": "m3ylrkp6h7ieh2t2tilfdjfbo6iafusnmc5dhb2z52k7klh6oygq",
+     "fn_key": "geotessera_multi_year@2"
+    }
+   },
+   "env": {
+    "estimated": false,
+    "evidence": [
+     {
+      "band": "indices.ndvi",
+      "delta": 0.05327911079226566,
+      "fact_cids": [
+       "4hv4vo6tfnkewrdc6exs2rt634na3elpnnaq2pxsebmqa6mw3voa",
+       "nrfhgokg67nxfdrpr7cosfstfir45obrfurk2s6qbhgnyzrtwata"
+      ],
+      "tslot_now": 20755,
+      "tslot_prev": 20740,
+      "value_now": 0.8323313293253172,
+      "value_prev": 0.7790522185330515
+     },
+     {
+      "band": "indices.nbr",
+      "delta": 0.02953854631138253,
+      "fact_cids": [
+       "dxnmmaekehq52o7jmenxpdrs2nwxjpq3nctpedufc4oqf5uzkwya",
+       "iwczfyocoagsneqpn7svlk42xy7gmp3qvywbx6ru7bl4asvoufbq"
+      ],
+      "tslot_now": 20755,
+      "tslot_prev": 20740,
+      "value_now": 0.6259632483698874,
+      "value_prev": 0.5964247020585048
+     },
+     {
+      "band": "indices.ndwi",
+      "delta": 0.01724774421585129,
+      "fact_cids": [
+       "vrphp5hhe2k4ic3m6ud253s2yjlfyks3bd4fquuvj6oicvpc4teq",
+       "s4atg7dpd7tkjpt6eqywx2hzrte5l3uwzsot6veqoqnr7f22gbqq"
+      ],
+      "tslot_now": 20755,
+      "tslot_prev": 20740,
+      "value_now": -0.7219083490269931,
+      "value_prev": -0.7391560932428444
+     }
+    ],
+    "evidence_absent": [],
+    "note": "label-free index pairs with raw deltas; the estimators a future split would read, reported rather than weighed"
+   },
+   "geo": {
+    "estimated": false,
+    "note": "no registration-residual surface exists in this build; the term is declared not estimated rather than silently folded into env"
+   },
+   "noise": {
+    "band": "s2.scl",
+    "class_changed": false,
+    "class_now": 4.0,
+    "class_prev": 4.0,
+    "fact_cids": [
+     "tdadmxtz37udebc7brj2sfi6ikzuvhdoovwe2iu2klwpuezk47ha",
+     "3yodqvogzu33hwueqhk5ryinvl5aigqltb45zcwoai5l4ayhhiua"
+    ],
+    "note": "S2 scene-classification class per visit; a class flip (e.g. clear to cloud/shadow) is noise evidence for every optical delta above"
+   },
+   "sensor": {
+    "estimated": false,
+    "note": "what each visit was observed through, per band; a changed observation path is on the record, its contribution to the delta is not computed",
+    "records": [
+     {
+      "band": "indices.ndvi",
+      "same_observation_path": false,
+      "sources_now": [
+       "sentinel_s2_l2a:https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/29/S2B_MSIL2A_20261029T050929_N0513_R019_T43PGQ_20261029T105708.SAFE/GRANULE/L2A_T43PGQ_A050381_20261029T052235/IMG_DATA/R10m/T43PGQ_20261029T050929_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/29/S2B_MSIL2A_20261029T050929_N0513_R019_T43PGQ_20261029T105708.SAFE/GRANULE/L2A_T43PGQ_A050381_20261029T052235/IMG_DATA/R10m/T43PGQ_20261029T050929_B04_10m.tif"
+      ],
+      "sources_prev": [
+       "sentinel_s2_l2a:https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/14/S2C_MSIL2A_20261014T050751_N0513_R019_T43PGQ_20261014T100514.SAFE/GRANULE/L2A_T43PGQ_A011000_20261014T051742/IMG_DATA/R10m/T43PGQ_20261014T050751_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/14/S2C_MSIL2A_20261014T050751_N0513_R019_T43PGQ_20261014T100514.SAFE/GRANULE/L2A_T43PGQ_A011000_20261014T051742/IMG_DATA/R10m/T43PGQ_20261014T050751_B04_10m.tif"
+      ]
+     },
+     {
+      "band": "indices.nbr",
+      "same_observation_path": false,
+      "sources_now": [
+       "sentinel_s2_l2a:https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/29/S2B_MSIL2A_20261029T050929_N0513_R019_T43PGQ_20261029T105708.SAFE/GRANULE/L2A_T43PGQ_A050381_20261029T052235/IMG_DATA/R10m/T43PGQ_20261029T050929_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/29/S2B_MSIL2A_20261029T050929_N0513_R019_T43PGQ_20261029T105708.SAFE/GRANULE/L2A_T43PGQ_A050381_20261029T052235/IMG_DATA/R20m/T43PGQ_20261029T050929_B12_20m.tif"
+      ],
+      "sources_prev": [
+       "sentinel_s2_l2a:https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/14/S2C_MSIL2A_20261014T050751_N0513_R019_T43PGQ_20261014T100514.SAFE/GRANULE/L2A_T43PGQ_A011000_20261014T051742/IMG_DATA/R10m/T43PGQ_20261014T050751_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/14/S2C_MSIL2A_20261014T050751_N0513_R019_T43PGQ_20261014T100514.SAFE/GRANULE/L2A_T43PGQ_A011000_20261014T051742/IMG_DATA/R20m/T43PGQ_20261014T050751_B12_20m.tif"
+      ]
+     },
+     {
+      "band": "indices.ndwi",
+      "same_observation_path": false,
+      "sources_now": [
+       "sentinel_s2_l2a:https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/29/S2B_MSIL2A_20261029T050929_N0513_R019_T43PGQ_20261029T105708.SAFE/GRANULE/L2A_T43PGQ_A050381_20261029T052235/IMG_DATA/R10m/T43PGQ_20261029T050929_B03_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/29/S2B_MSIL2A_20261029T050929_N0513_R019_T43PGQ_20261029T105708.SAFE/GRANULE/L2A_T43PGQ_A050381_20261029T052235/IMG_DATA/R10m/T43PGQ_20261029T050929_B08_10m.tif"
+      ],
+      "sources_prev": [
+       "sentinel_s2_l2a:https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/14/S2C_MSIL2A_20261014T050751_N0513_R019_T43PGQ_20261014T100514.SAFE/GRANULE/L2A_T43PGQ_A011000_20261014T051742/IMG_DATA/R10m/T43PGQ_20261014T050751_B03_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/14/S2C_MSIL2A_20261014T050751_N0513_R019_T43PGQ_20261014T100514.SAFE/GRANULE/L2A_T43PGQ_A011000_20261014T051742/IMG_DATA/R10m/T43PGQ_20261014T050751_B08_10m.tif"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "unit": null,
+ "band": "change_attribution.ledger",
+ "kind": "derivative",
+ "fact": {
+  "band": "change_attribution.ledger",
+  "cell": "defi.zb493.zezo.zcb35",
+  "confidence": 1.0,
+  "derivation": {
+   "fn_key": "change_attribution@1"
+  },
+  "kind": "derivative",
+  "op": "attribution_ledger",
+  "parents": [
+   "m3ylrkp6h7ieh2t2tilfdjfbo6iafusnmc5dhb2z52k7klh6oygq",
+   "4hv4vo6tfnkewrdc6exs2rt634na3elpnnaq2pxsebmqa6mw3voa",
+   "nrfhgokg67nxfdrpr7cosfstfir45obrfurk2s6qbhgnyzrtwata",
+   "dxnmmaekehq52o7jmenxpdrs2nwxjpq3nctpedufc4oqf5uzkwya",
+   "iwczfyocoagsneqpn7svlk42xy7gmp3qvywbx6ru7bl4asvoufbq",
+   "vrphp5hhe2k4ic3m6ud253s2yjlfyks3bd4fquuvj6oicvpc4teq",
+   "s4atg7dpd7tkjpt6eqywx2hzrte5l3uwzsot6veqoqnr7f22gbqq",
+   "tdadmxtz37udebc7brj2sfi6ikzuvhdoovwe2iu2klwpuezk47ha",
+   "3yodqvogzu33hwueqhk5ryinvl5aigqltb45zcwoai5l4ayhhiua"
+  ],
+  "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+  "signed_at": "2026-11-07T00:12:11Z",
+  "signer": [
+   255,
+   254,
+   72,
+   239,
+   8,
+   57,
+   144,
+   88,
+   50,
+   189,
+   59,
+   5,
+   171,
+   89,
+   152,
+   150,
+   76,
+   49,
+   228,
+   100,
+   142,
+   79,
+   43,
+   250,
+   36,
+   191,
+   48,
+   224,
+   42,
+   206,
+   101,
+   84
+  ],
+  "tslot_window": [
+   20740,
+   20755
+  ],
+  "value": {
+   "attribution_note": "ledger_not_split: this response attributes by EVIDENCE, not by magnitude. Splitting a specific delta into environment, sensor, geometry, encoder, and noise terms needs a calibrated cross-encoder, cross-sensor stability model this responder does not have; inventing per-term magnitudes from uncalibrated evidence would fabricate exactly the confusion the decomposition exists to prevent. Read the per-term evidence and its fact cids; the numeric split is roadmap work.",
+   "decomposition": "\u0394z = \u0394_env + \u0394_sensor + \u0394_geo + \u0394_encoder + \u03b5",
+   "observed": {
+    "embedding": {
+     "change": 0.09646081924438477,
+     "covered_vintages": 8,
+     "encoder": "geotessera.multi_year",
+     "fact_cid": "m3ylrkp6h7ieh2t2tilfdjfbo6iafusnmc5dhb2z52k7klh6oygq"
+    }
+   },
+   "schema": "emem.change_attribution.v1",
+   "split": null,
+   "terms": {
+    "encoder": {
+     "changed": false,
+     "evidence": "both vintages are slices of one signed multi-year fact, so one recipe produced both; an encoder change cannot hide inside this comparison",
+     "pinned_by": {
+      "fact_cid": "m3ylrkp6h7ieh2t2tilfdjfbo6iafusnmc5dhb2z52k7klh6oygq",
+      "fn_key": "geotessera_multi_year@2"
+     }
+    },
+    "env": {
+     "estimated": false,
+     "evidence": [
+      {
+       "band": "indices.ndvi",
+       "delta": 0.05327911079226566,
+       "fact_cids": [
+        "4hv4vo6tfnkewrdc6exs2rt634na3elpnnaq2pxsebmqa6mw3voa",
+        "nrfhgokg67nxfdrpr7cosfstfir45obrfurk2s6qbhgnyzrtwata"
+       ],
+       "tslot_now": 20755,
+       "tslot_prev": 20740,
+       "value_now": 0.8323313293253172,
+       "value_prev": 0.7790522185330515
+      },
+      {
+       "band": "indices.nbr",
+       "delta": 0.02953854631138253,
+       "fact_cids": [
+        "dxnmmaekehq52o7jmenxpdrs2nwxjpq3nctpedufc4oqf5uzkwya",
+        "iwczfyocoagsneqpn7svlk42xy7gmp3qvywbx6ru7bl4asvoufbq"
+       ],
+       "tslot_now": 20755,
+       "tslot_prev": 20740,
+       "value_now": 0.6259632483698874,
+       "value_prev": 0.5964247020585048
+      },
+      {
+       "band": "indices.ndwi",
+       "delta": 0.01724774421585129,
+       "fact_cids": [
+        "vrphp5hhe2k4ic3m6ud253s2yjlfyks3bd4fquuvj6oicvpc4teq",
+        "s4atg7dpd7tkjpt6eqywx2hzrte5l3uwzsot6veqoqnr7f22gbqq"
+       ],
+       "tslot_now": 20755,
+       "tslot_prev": 20740,
+       "value_now": -0.7219083490269931,
+       "value_prev": -0.7391560932428444
+      }
+     ],
+     "evidence_absent": [],
+     "note": "label-free index pairs with raw deltas; the estimators a future split would read, reported rather than weighed"
+    },
+    "geo": {
+     "estimated": false,
+     "note": "no registration-residual surface exists in this build; the term is declared not estimated rather than silently folded into env"
+    },
+    "noise": {
+     "band": "s2.scl",
+     "class_changed": false,
+     "class_now": 4.0,
+     "class_prev": 4.0,
+     "fact_cids": [
+      "tdadmxtz37udebc7brj2sfi6ikzuvhdoovwe2iu2klwpuezk47ha",
+      "3yodqvogzu33hwueqhk5ryinvl5aigqltb45zcwoai5l4ayhhiua"
+     ],
+     "note": "S2 scene-classification class per visit; a class flip (e.g. clear to cloud/shadow) is noise evidence for every optical delta above"
+    },
+    "sensor": {
+     "estimated": false,
+     "note": "what each visit was observed through, per band; a changed observation path is on the record, its contribution to the delta is not computed",
+     "records": [
+      {
+       "band": "indices.ndvi",
+       "same_observation_path": false,
+       "sources_now": [
+        "sentinel_s2_l2a:https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/29/S2B_MSIL2A_20261029T050929_N0513_R019_T43PGQ_20261029T105708.SAFE/GRANULE/L2A_T43PGQ_A050381_20261029T052235/IMG_DATA/R10m/T43PGQ_20261029T050929_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/29/S2B_MSIL2A_20261029T050929_N0513_R019_T43PGQ_20261029T105708.SAFE/GRANULE/L2A_T43PGQ_A050381_20261029T052235/IMG_DATA/R10m/T43PGQ_20261029T050929_B04_10m.tif"
+       ],
+       "sources_prev": [
+        "sentinel_s2_l2a:https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/14/S2C_MSIL2A_20261014T050751_N0513_R019_T43PGQ_20261014T100514.SAFE/GRANULE/L2A_T43PGQ_A011000_20261014T051742/IMG_DATA/R10m/T43PGQ_20261014T050751_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/14/S2C_MSIL2A_20261014T050751_N0513_R019_T43PGQ_20261014T100514.SAFE/GRANULE/L2A_T43PGQ_A011000_20261014T051742/IMG_DATA/R10m/T43PGQ_20261014T050751_B04_10m.tif"
+       ]
+      },
+      {
+       "band": "indices.nbr",
+       "same_observation_path": false,
+       "sources_now": [
+        "sentinel_s2_l2a:https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/29/S2B_MSIL2A_20261029T050929_N0513_R019_T43PGQ_20261029T105708.SAFE/GRANULE/L2A_T43PGQ_A050381_20261029T052235/IMG_DATA/R10m/T43PGQ_20261029T050929_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/29/S2B_MSIL2A_20261029T050929_N0513_R019_T43PGQ_20261029T105708.SAFE/GRANULE/L2A_T43PGQ_A050381_20261029T052235/IMG_DATA/R20m/T43PGQ_20261029T050929_B12_20m.tif"
+       ],
+       "sources_prev": [
+        "sentinel_s2_l2a:https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/14/S2C_MSIL2A_20261014T050751_N0513_R019_T43PGQ_20261014T100514.SAFE/GRANULE/L2A_T43PGQ_A011000_20261014T051742/IMG_DATA/R10m/T43PGQ_20261014T050751_B08_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/14/S2C_MSIL2A_20261014T050751_N0513_R019_T43PGQ_20261014T100514.SAFE/GRANULE/L2A_T43PGQ_A011000_20261014T051742/IMG_DATA/R20m/T43PGQ_20261014T050751_B12_20m.tif"
+       ]
+      },
+      {
+       "band": "indices.ndwi",
+       "same_observation_path": false,
+       "sources_now": [
+        "sentinel_s2_l2a:https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/29/S2B_MSIL2A_20261029T050929_N0513_R019_T43PGQ_20261029T105708.SAFE/GRANULE/L2A_T43PGQ_A050381_20261029T052235/IMG_DATA/R10m/T43PGQ_20261029T050929_B03_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/29/S2B_MSIL2A_20261029T050929_N0513_R019_T43PGQ_20261029T105708.SAFE/GRANULE/L2A_T43PGQ_A050381_20261029T052235/IMG_DATA/R10m/T43PGQ_20261029T050929_B08_10m.tif"
+       ],
+       "sources_prev": [
+        "sentinel_s2_l2a:https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/14/S2C_MSIL2A_20261014T050751_N0513_R019_T43PGQ_20261014T100514.SAFE/GRANULE/L2A_T43PGQ_A011000_20261014T051742/IMG_DATA/R10m/T43PGQ_20261014T050751_B03_10m.tif ; https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/43/P/GQ/2026/10/14/S2C_MSIL2A_20261014T050751_N0513_R019_T43PGQ_20261014T100514.SAFE/GRANULE/L2A_T43PGQ_A011000_20261014T051742/IMG_DATA/R10m/T43PGQ_20261014T050751_B08_10m.tif"
+       ]
+      }
+     ]
+    }
+   }
+  }
+ },
+ "resolved": true,
+ "cell_matches": true,
+ "fact_url": "https://emem.dev/v1/facts/ssd2ueqbvtnpfya4qhy6fsl4bamj5qap3mm5ll4vkirmwsd2m5jq",
+ "signer_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+ "provenance": {
+  "applies_to": "derivation",
+  "band_class": "unclassified",
+  "class": "model_output",
+  "declared_by_attester": "model_output",
+  "note": "This responder did NOT re-run this derivation, so `class` is only what the attester declared. `band_class` describes how values in this band are normally produced and says nothing about this caller's arithmetic. Recomputation requires a pinned `code_cid` and a tier-1 pure op (delta, mean, sum).",
+  "responder_recomputed": false
+ },
+ "receipt": {
+  "request_id": "01M6V7NTFB4VZZXRRHW4DWTJ1X",
+  "served_at": "2026-11-07T14:47:51Z",
+  "primitive": "emem.memory_token_resolve",
+  "cells": [
+   "defi.zb493.zezo.zcb35"
+  ],
+  "fact_cids": [
+   "ssd2ueqbvtnpfya4qhy6fsl4bamj5qap3mm5ll4vkirmwsd2m5jq"
+  ],
+  "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+  "merkle_proof": {
+   "leaf_index": 0,
+   "path": [],
+   "root": [
+    65,
+    134,
+    104,
+    5,
+    82,
+    8,
+    136,
+    17,
+    249,
+    68,
+    7,
+    24,
+    23,
+    232,
+    109,
+    127,
+    170,
+    210,
+    132,
+    97,
+    9,
+    52,
+    253,
+    35,
+    75,
+    228,
+    68,
+    20,
+    146,
+    55,
+    202,
+    144
+   ],
+   "version": 1,
+   "fact_cid": "ssd2ueqbvtnpfya4qhy6fsl4bamj5qap3mm5ll4vkirmwsd2m5jq",
+   "leaf_count": 1,
+   "log_entry_hash": "ifywpyj2xjrhrml4v4krtg32x6olujbndxhfeylrlqqwwvlmzd6a"
+  },
+  "responder_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+  "signature_b32": "ts7rleafbns4xbmyjip5hjroeoje4ngusmojkzjawyqat7shusyfcsghg3vk35uhuygj4hejnywqyouwbosbwkbxebdzvjadlin4abq",
+  "responder": [
+   255,
+   254,
+   72,
+   239,
+   8,
+   57,
+   144,
+   88,
+   50,
+   189,
+   59,
+   5,
+   171,
+   89,
+   152,
+   150,
+   76,
+   49,
+   228,
+   100,
+   142,
+   79,
+   43,
+   250,
+   36,
+   191,
+   48,
+   224,
+   42,
+   206,
+   101,
+   84
+  ],
+  "responder_key_epoch": 0,
+  "signature": [
+   156,
+   191,
+   21,
+   144,
+   5,
+   11,
+   101,
+   203,
+   133,
+   152,
+   74,
+   31,
+   211,
+   166,
+   46,
+   35,
+   146,
+   78,
+   52,
+   212,
+   147,
+   28,
+   149,
+   101,
+   32,
+   182,
+   32,
+   9,
+   254,
+   71,
+   164,
+   176,
+   81,
+   72,
+   199,
+   54,
+   234,
+   173,
+   246,
+   135,
+   166,
+   12,
+   158,
+   28,
+   137,
+   110,
+   45,
+   12,
+   58,
+   150,
+   11,
+   164,
+   27,
+   40,
+   55,
+   32,
+   71,
+   154,
+   164,
+   3,
+   90,
+   27,
+   192,
+   6
+  ],
+  "source_versions": {
+   "bands_cid": "mesoyti3qcs22pftcq27ljwcf3ifktnkqid4euqxyskhea5rpgra",
+   "registry_cid": "3pbqnyninz6xqll2ynjlh4djlppcp2mdcdmzeq4otebnli5ndzaa",
+   "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+   "sources_cid": "xu646y24wvuegd33m2mrpasxefqgdq3ow5ploezijer6trzuwe3a"
+  },
+  "registry_cid": "3pbqnyninz6xqll2ynjlh4djlppcp2mdcdmzeq4otebnli5ndzaa",
+  "cost": {
+   "credits": 0,
+   "latency_p50_ms": 1,
+   "latency_p99_ms": 20,
+   "source_freshness_s": null,
+   "was_cached": true,
+   "latency_samples": 321955
+  },
+  "preimage_version": 2
+ },
+ "offline_verify_at": "/verify"
+}
