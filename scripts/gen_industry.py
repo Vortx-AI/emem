@@ -254,7 +254,7 @@ SCENES = {
 "17-urban-planning": dict(industry="urban planning & permits", seed=17,
     tagline="a permit a citizen can audit on their phone",
     bands=[("surface_water.recurrence", "3 %"), ("copdem30m.elevation_mean", "5 m"),
-           ("esa_worldcover.lc_2021", "urban"), ("indices.ndvi", "0.18"),
+           ("esa_worldcover.lc_2021", "built"), ("indices.ndvi", "0.18"),
            ("population", "3,400 /km²")],
     receipt="PERMIT RECEIPT",
     consumers=[("planner", "the conditions"), ("citizen", "verifies offline"),
