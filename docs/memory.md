@@ -1133,7 +1133,7 @@ it across two responses. In `lexical` mode, `model_loaded` is `false`
 and `query_embedding_dim` is 0.
 
 On 7 November 2026, the query `NDVI drop after harvest` with `k` 2 on
-emem.dev gave `via` `lance_chunks`, `corpus_size` 5,437 and
+emem.dev gave `via` `lance_chunks`, `corpus_size` 5,444 and
 similarities 0.719 and 0.713. The same query in `lexical` mode gave
 `via` `bm25_lexical` and similarities 1.0 and 0.987. The second
 lexical hit had no `attester_pubkey_b32` field. With `mode` `LEXICAL`,
@@ -1154,7 +1154,7 @@ of the two windows.
 
 Search uses the chunk dataset after its first full load. Until then it
 uses the file dataset. On 7 November 2026, `GET /v1/memory_search/stats`
-on emem.dev gave 5,437 files and 116,550 chunk rows, with the model
+on emem.dev gave 5,444 files and 116,605 chunk rows, with the model
 loaded.
 
 Both datasets have this schema:
