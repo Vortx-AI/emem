@@ -61,6 +61,43 @@ These parts of the model do not ship today:
 - derivations with more than one step as signed objects,
 - machine-checked proofs of the properties.
 
+### Try it: one read and one check
+
+These two calls need no key and write nothing. Both ran on 7 November
+2026. The cell `defi.zb592.nUkO.zEzE` is near Mount Fuji.
+
+Ask what emem knew about PM2.5 there on 1 October 2026:
+
+```sh
+curl -s -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb592.nUkO.zEzE","bands":["cams.pm25"],
+       "as_of_signed_at":"2026-10-01T00:00:00Z"}' \
+  | jq '.facts[] | {band, value, unit, signed_at, fact_cid}'
+```
+
+The call gave one fact: `value` 4.9, `unit` `ug/m^3`, `signed_at`
+`2026-09-28T11:05:40Z`. Send `as_of_signed_at` in UTC with a `Z`
+suffix.
+
+Send the receipt of the same read back to the responder to check it:
+
+```sh
+curl -s -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb592.nUkO.zEzE","bands":["cams.pm25"],
+       "as_of_signed_at":"2026-10-01T00:00:00Z"}' \
+  | jq '{receipt}' \
+  | curl -s -X POST https://emem.dev/v1/verify_receipt \
+      -H 'content-type: application/json' -d @- \
+  | jq '{valid, signature_valid, merkle_proof_valid, as_of_bound}'
+```
+
+All four fields were `true`. `as_of_bound` means the time filter is
+part of the signed bytes. To check without the responder, use the
+[emem-verify-receipt](../plugins/emem/skills/emem-verify-receipt/)
+skill.
+
 ## The formal model
 
 ### The observation
