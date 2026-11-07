@@ -1465,8 +1465,11 @@ What the substrate gives you:
   and what it does not claim.
 - [protocol.md](protocol.md): the cell64, cid64 and tslot bit layouts.
 - [errors.md](errors.md): each typed error code, with
-  `memory_attestation_invalid`, `memory_namespace_violation`,
-  `invalid_temporal_bound` and `invalid_signed_at_format`.
+  `memory_attestation_invalid` and `memory_namespace_violation`. The two
+  time-filter refusals are not codes of their own. They arrive as 400
+  `invalid_argument`, and the message starts with
+  `invalid_temporal_bound:` or `invalid_signed_at_format:` (see
+  [Time filters on reads](#time-filters-on-reads-bi-temporal)).
 - `/v1/verify_receipt`: POST `{receipt}` back. The response gives
   `valid`, `signature_valid`, `merkle_proof_valid`, `primitive`,
   `preimage_blake3_hex`, `signer_pubkey_b32` and other fields.
