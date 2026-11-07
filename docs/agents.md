@@ -179,6 +179,14 @@ curl -s -X POST https://emem.dev/v1/ask \
 
 Read `routed_to`, `answer`, `fact_cids` and `receipt`. Ask gives the current
 value. For a change, use [See how a value changed](#job-see-how-a-value-changed).
+
+Do not copy the MCP `accept` header to this REST call. If the `accept` header
+contains `text/event-stream`, `/v1/ask` sends a stream of server-sent events,
+not one JSON object. On 7 November 2026, this question gave 6 events. Their
+`stage` values were `located`, `routed`, `recalled`, `splat`, `scored` and
+`answer`. The `detail` of the `answer` event is the same JSON that a plain
+call returns. A failed ask ends with a `failed` stage. The JSON answer lists
+the four main stages, `located` to `scored`, in `reasoning.steps`.
 Details: [Questions about the corpus, not about a place](#questions-about-the-corpus-not-about-a-place).
 
 ### Job: turn a place name into an address
