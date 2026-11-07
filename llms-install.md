@@ -22,12 +22,15 @@ You do not need an API key, an account or a local command. Reads are anonymous.
 
 The server has two endpoints:
 
-| Endpoint | Tools listed | Size of the tool list (6 November 2026) |
+| Endpoint | Tools listed | Size of the tool list (7 November 2026) |
 |---|---|---|
-| `https://emem.dev/mcp` | 18, the core loop | 76,812 bytes, one page |
-| `https://emem.dev/mcp/full` | all 116 | 354,069 bytes, 8 pages of 11 to 22 tools |
+| `https://emem.dev/mcp` | 18, the core loop | 76,818 bytes, one page |
+| `https://emem.dev/mcp/full` | all 116 | 354,716 bytes, 9 pages of 2 to 20 tools |
 
 On `/mcp/full`, send the `nextCursor` value from each page to get the next page.
+The server cuts the pages by size, at about 45,000 bytes each. The number of pages can change when tool descriptions change.
+Some MCP clients read only the first page. On 7 November 2026 the LangChain and Agno adapters read all 9 pages.
+The LlamaIndex, AutoGen, Semantic Kernel and CrewAI adapters read only page 1 (12 tools). See the examples in [`examples/`](examples/).
 
 The two endpoints differ only in the list. You can call any of the 116 by name at either endpoint.
 If a tool is not in your list, it is still on the server. Call `emem_tools` to search the other tools or to get the schema of one tool.

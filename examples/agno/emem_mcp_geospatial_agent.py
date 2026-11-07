@@ -5,7 +5,7 @@ all tools, and runs an Agno Agent that checks Helsinki Airport for
 elevation and surface-water/flood signals.
 
 Install:
-    pip install agno openai
+    pip install 'agno[mcp]' openai
 
 Usage:
     export OPENAI_API_KEY="sk-..."

@@ -41,6 +41,11 @@ async def main() -> None:
         description="Shared, verifiable Earth memory — signed facts for any place on Earth",
         url=EMEM_MCP_URL,
     ) as emem_plugin:
+        # Semantic Kernel cannot load a parameter whose JSON Schema type is a
+        # list. emem_echo_verify.claimed_value is ["string", "number"], and
+        # this agent does not need that tool.
+        if hasattr(emem_plugin, "emem_echo_verify"):
+            delattr(emem_plugin, "emem_echo_verify")
         kernel.add_plugin(emem_plugin)
 
         execution_settings = OpenAIChatPromptExecutionSettings(

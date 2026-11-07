@@ -6,7 +6,7 @@
 // each hotspot with its cell64, NDVI/NDWI values, and fact_cid.
 //
 // Install:
-//   npm install @mastra/core @mastra/mcp @ai-sdk/openai
+//   npm install   (in this directory; package.json pins the versions)
 //
 // Run:
 //   export OPENAI_API_KEY="sk-..."

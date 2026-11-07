@@ -5,7 +5,7 @@ Streamable HTTP and runs a multi-step verification chain for South Mumbai:
 resolve the place, recall elevation, then verify the receipt/fact CID.
 
 Install:
-    pip install autogen-agentchat autogen-ext[openai,mcp]
+    pip install autogen-agentchat 'autogen-ext[openai,mcp]' 'mcp<2'
 
 Usage:
     export OPENAI_API_KEY="sk-..."
