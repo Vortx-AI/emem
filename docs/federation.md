@@ -28,8 +28,8 @@ Today emem is one process. The `emem-server` binary writes to one embedded
 
 The first limit is one writer. Every cold write goes through one `sled`
 instance and one log. Two changes lowered the cost: the log append moved off
-the async worker (group fsync in `spawn_blocking`), and per-write index
-flushes were merged. The order of writes still comes from one writer. On
+the async worker (group fsync in `spawn_blocking`), and the store now merges
+per-write index flushes. The order of writes still comes from one writer. On
 2026-06-02, about 96 materialise tasks ran at the same time (16 cells by 6
 bands on one EUDR plot). They saturated `sled` and the HTTP client, and
 `/v1/recall` stopped for every cell. The fix that day was a concurrency cap.
@@ -73,9 +73,8 @@ model already gives that.
   makes the responder derive the fact again. The same loop works for a
   trigger from a peer.
 
-The model is a content-addressed CRDT. Facts merge by id. A conflict is
-recorded (multi-attester rows and `disagrees_with` edges), not settled by a
-vote. That lets independent nodes converge without consensus.
+The model is a content-addressed CRDT. Facts merge by id. The store records a
+conflict (multi-attester rows and `disagrees_with` edges). No vote settles it. That lets independent nodes converge without consensus.
 
 ## 3. End state
 
@@ -130,14 +129,14 @@ that information.
 What remains true: prefix ranges still split the space into disjoint sets. So
 N prefix owners still give N parallel single writers, which was the main
 benefit. What is no longer true: a prefix range is not a patch of land. Any
-argument about local upstream fetches, tile reuse or warm caches must be
-derived again or dropped.
+argument about local upstream fetches, tile reuse or warm caches needs a new
+derivation, or you drop it.
 
 - Each node owns one or more `cell64` prefix ranges. A write for a cell goes
   to its owner, or the receiving node forwards it there. N owners give N
   parallel writers.
 - The Merkle log splits per owner range. Each range has its own append-only
-  log with one writer, and each log can be snapshotted and replayed alone.
+  log with one writer. An operator can snapshot and replay each log alone.
   Inclusion proofs become per-shard proofs plus a shard directory (§4d).
 - Reads stay global through §4a. Any node resolves any id from the owner or a
   cached copy, and verifies it offline.
@@ -177,14 +176,14 @@ A flagged peer's facts land as a separate attester. Their disagreements then
 show in contradiction scoring and do not overwrite local facts.
 
 There is no global lock, no cross-node transaction and no leader. Nodes
-converge by content address. A conflict is recorded, not voted on.
+converge by content address. Each node records a conflict. No node votes on it.
 
 ### 5a. Enlistment: who may write, and what they proved
 
 Federation makes the write question more important. One responder's bad
 entity binding becomes the bad binding of every peer. So the property that
 must survive scale-out is this: a third party that trusts neither node can
-check who was entitled to write.
+check who had the right to write.
 
 The objection that forced this design is correct, and its answer is not
 "add OAuth". It is from `NousResearch/hermes-agent#79583`, closed 2026-08-25:
@@ -198,16 +197,16 @@ Signed provenance mitigates attribution, not injected-instruction risk.
 ```
 
 The second sentence matters most. A signature says who wrote a thing. It does
-not stop a reader from obeying it. It does not say the writer was entitled to
+not stop a reader from obeying it. It does not say the writer had the right to
 write there. Anyone can make an Ed25519 key, so a signature is the minimum,
 not the bar.
 
-Reads are never gated, at any tier, on any surface. A reader cannot poison
+No tier and no surface gates a read. A reader cannot poison
 anything. A read gate would cost the main property of the substrate and add
 no security. There is no account, no bearer token that grants anything, and
 no payment in the ladder.
 
-Writes are gated on reach, never on identity. The question is how far a write
+The gate on a write depends on its reach, never on identity. The question is how far a write
 reaches, and what the writer proved in proportion to that reach. The live
 ladder at `GET /v1/enlist` on 6 November 2026:
 
@@ -227,7 +226,7 @@ Derivations and edges take no address. They stay open at T1.
 
 A tier records which check passed. It is never a score. `trust:
 caller_decides` stays true. No tier says that a party is trustworthy. Each
-tier says what was verified and what a peer may conclude from it.
+tier says what the responder checked and what a peer may conclude from it.
 
 #### Why DNS and `.well-known`, not OAuth
 
@@ -262,7 +261,8 @@ The ladder, the checks and the gate are live. Enforcement is off by default
 in the code. `EMEM_ENLISTMENT_ENFORCE=1` turns it on, and emem.dev sets it
 (`deploy/systemd/emem-server.service`). `entity` and `entity_link` accepted
 anonymous writes from the day they shipped. Enforcement in one deploy would
-break every peer at once. Shadow mode records who would be refused and why.
+break every peer at once. Shadow mode records which writes the gate would
+refuse, and why.
 It returns that verdict to the caller in the response, not only to a log, so
 a writer learns before enforcement starts.
 
@@ -292,7 +292,7 @@ the verify step it adds.
 
 ## 7. Non-goals (for now)
 
-- No consensus protocol. Facts merge by id and disagreements are recorded. A
+- No consensus protocol. Facts merge by id, and nodes record disagreements. A
   BFT or Raft layer would contradict "trust the signature, not the server".
 - No global deletion guarantee. One node cannot remove content-addressed,
   replicated data from its peers. Deletion and redaction across a federation
@@ -305,7 +305,7 @@ the verify step it adds.
 | Question | What is missing |
 |---|---|
 | Prefix-ownership rebalancing | a hand-off protocol for a node that joins or leaves during a write. Also a rule for the time when two nodes both think they own a range |
-| Public key distribution and rotation | `key_epoch` allows rotation; how peers learn which keys to trust is not designed |
+| Public key distribution and rotation | `key_epoch` allows rotation. No design says yet how peers learn which keys to trust |
 | Per-shard Merkle proofs | under §4b a client needs the right shard's proof and a shard directory it can trust |
 | GDPR and redaction across replicas | probably a signed tombstone plus a refusal to serve, not true deletion |
 
@@ -377,7 +377,7 @@ In September `/v1/log/inclusion` ignored `tree_size`, so the
 first draft failed every proof against the older root. On 6 November 2026 the
 route used `tree_size` and refused an unknown argument with 400.
 
-Two bugs showed up before the job shipped. Every node operator will write
+Two bugs appeared before the job shipped. Every node operator will write
 this job once, so this page records them.
 
 - A verifier written from memory of RFC 6962 had the spine-advance parity
@@ -387,7 +387,7 @@ this job once, so this page records them.
   entry in place keeps its size and changes its root. The first draft
   co-signed that without a root comparison. The job now refuses a same-size,
   different-root head as a rewrite. A dry run never moves the pin, because
-  the pin records what was co-signed, not what was looked at.
+  the pin records what the job co-signed, not what it read.
 
 What witnessing buys: a node cannot show two histories to two peers unless
 one peer holds a signed head that fails a consistency proof. That is the
@@ -429,9 +429,9 @@ the other `independent_*` fields. They leave out `self_witness_pubkey_b32`.
 runs it every 30 minutes. It exits 2 on a stale peer and 3 when no peer
 witnesses at all. The repairs differ, so the exit codes differ.
 
-### 8b. What we take from web3, and what we refuse
+### 8b. What emem takes from web3, and what it refuses
 
-We take the real advances, and emem already has them:
+emem takes the real advances, and it already has them:
 
 - content addressing, so an id is a fingerprint and any node may serve it;
 - key-based identity with no accounts;
@@ -439,15 +439,15 @@ We take the real advances, and emem already has them:
 - gossiped transparency logs, which come from Certificate Transparency, not
   from a blockchain.
 
-We refuse these, each for a stated reason:
+emem refuses these, each for a stated reason:
 
 - No token and no incentive layer. A token makes "who may write" a market,
   and that creates the sybil pressure it must then defend against. Nothing
   here is scarce. The expensive resource is upstream fetches, and each node
   already limits them.
 - No global consensus, no chain, no validator set. This is a
-  content-addressed CRDT: facts merge by id, and a conflict is recorded, not
-  voted on. Consensus forces one answer where two attesters can both be
+  content-addressed CRDT: facts merge by id, and nodes record a conflict
+  and do not vote on it. Consensus forces one answer where two attesters can both be
   right. That disagreement is the signal `memory_contradictions` surfaces.
   There is no leader, so there is nothing to capture.
 - No on-chain anchoring as a dependency. A node may anchor a tree head on any
@@ -481,7 +481,7 @@ has made a choice. A network that made that choice for the reader would be
 the thing this design avoids.
 
 The honest limit: this makes poisoning attributable and visible, not
-impossible. A reader that ignores provenance can still be poisoned. No
+impossible. An attacker can still poison a reader that ignores provenance. No
 protocol fixes that.
 
 ### 8d. Order of work
@@ -528,13 +528,13 @@ protocol fixes that.
    so the existing contradiction scoring works without change.
 5. Routing (§4d). Last, and only if read federation is not enough.
 
-Write sharding (§4b) stays where §4b leaves it. Its premise was false, and the
-plan must be derived again before anyone builds it.
+Write sharding (§4b) stays where §4b leaves it. Its premise was false, so someone
+must derive the plan again before anyone builds it.
 
 ### 8e. What each new node must publish before it counts as joined
 
-There are two roles. The first version of this section had one role, and our
-only peer failed it. `geo.qa` is a private deployment. Its `/emem/health`,
+There are two roles. The first version of this section had one role, and the
+only peer of emem.dev failed it. `geo.qa` is a private deployment. Its `/emem/health`,
 `/emem/.well-known/emem.json` and `/emem/openapi.json` answer 401, so nobody
 can read its four registry CIDs. The old rule called it "not joined". That was
 wrong: it is a good witness and has co-signed this log since September. A
@@ -553,21 +553,21 @@ credentials:
 That is the whole list. It is short on purpose. Witnessing is the one job
 that gets stronger the less the witness holds. A bar that demands a corpus
 keeps out the parties whose independence is worth most. `geo.qa` meets this
-bar and is joined as a witness.
+bar and has joined as a witness.
 
 A resolver also asks readers to fetch facts from it. It must also publish
 what a reader needs to check those facts:
 
 - the four registry CIDs (`algorithms_cid`, `bands_cid`, `schema_cid`,
   `sources_cid`), with no credential, because a fact means nothing without
-  the registries it was signed against;
+  the registries its signature binds;
 - `/openapi.json`, so a reader can list its surface;
 - `/.well-known/emem.json` with a `federation` block that names the nodes it
   witnesses.
 
 On 6 November 2026 emem.dev published everything on this list. It is still
 not a resolver for other nodes, because read federation (§4a) is not built.
-The role exists so the bar is written before someone needs it.
+The role exists so that the bar is ready before someone needs it.
 
 #### Check a node against this bar
 
@@ -602,13 +602,13 @@ is an illustration, not the live network. On 7 November 2026,
 `federation.peers` in `https://emem.dev/.well-known/emem.json` listed one
 peer (`https://geo.qa/emem`), and no node resolves facts from another node.*
 
-## 9. What the DePIN and open-protocol peers built that we did not
+## 9. What DePIN and open-protocol networks built that emem has not
 
 Read §8b first: no token, no chain, no consensus. This section covers what
 physical-infrastructure (DePIN) networks and federated protocols learned
 that needs none of those, and where emem is behind them. The "emem today"
-claims were checked against the code on 2026-09-02, and the status notes
-again on 6 November 2026. Each peer claim comes from a document in the
+claims match the code on 2026-09-02. The status notes match it on
+6 November 2026. Each peer claim comes from a document in the
 references at the end.
 
 ### 9a. DePIN with the token removed
@@ -678,7 +678,8 @@ This page records a decision: reads are free at every tier, on every node,
 and a self-hosted node never sees a price. Sybil pressure is real on two
 surfaces: `SharedEntitySpace` (T3) and `FactPlane` (T4). Behind a flag that
 ships off, the public node may answer those in the x402 shape. The URL of
-the settlement service would come from the environment. None of this is built. The smaller step
+the settlement service would come from the environment. None of this is
+built. The smaller step
 came first: emem.dev enforces the ladder. On 2026-09-02 that showed that
 enforcement without vouching locks out the operator's own agents, which all
 read T1. The vouching document (§9c.3) turns enforcement into a policy and
