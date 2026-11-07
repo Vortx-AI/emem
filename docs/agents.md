@@ -106,10 +106,15 @@ curl -s -X POST https://emem.dev/mcp \
 ```
 
 The tool answer is a JSON string in `result.content[0].text`. An MCP answer
-has a size limit. On 7 November 2026, emem.dev cut answers at 12,000 bytes.
-The code default is 24,000 bytes (`EMEM_MCP_RESPONSE_BUDGET_BYTES`). A cut
-answer has an `_emem_truncation` block. It names each omitted field and the
-call that gives the rest. The REST route has no size limit.
+has a size limit of 24,000 bytes by default (`EMEM_MCP_RESPONSE_BUDGET_BYTES`).
+The limit covers the text and `structuredContent` together. Thus a tool that
+also sends `structuredContent` has less room for its text. A cut answer has
+an `_emem_truncation` block. It names each omitted field and the call that
+gives the rest. The REST route has no size limit.
+
+On 7 November 2026, emem.dev used the 24,000-byte default. Of the job calls
+below, emem.dev cut only the locate answer for Mount Fuji. Its text had 7,570
+bytes, and its `structuredContent` had 8,028 bytes.
 
 ### Job: find the right tool
 
@@ -194,7 +199,10 @@ curl -s -X POST https://emem.dev/v1/recall_polygon \
 
 The call sampled 4 cells in an area of 13.4 km². Read `cells_sampled`,
 `coverage_fraction` and `is_exhaustive` before you state an area total. You can
-also send `bbox` or `polygon_geojson` instead of `place`.
+also send `bbox` or `polygon_geojson` instead of `place`. Over MCP, the
+4-cell answer was 17,703 bytes. With `"max_cells": 16`, the MCP answer
+omitted `by_cell`, which holds the facts and the receipt of each cell. For more than a few cells, use
+the REST call.
 
 ### Job: see how a value changed
 
@@ -491,24 +499,29 @@ verb is an existing route.
 | `cite` and `resolve` | `POST /v1/memory_token`, `POST /v1/memory_token/resolve` |
 | `evolve` | `POST /v1/attest`. A new fact gets a `supersedes` edge. emem deletes nothing. |
 
-Two filters and one time axis apply to reads:
+Recall takes two filters. `deterministic: true` keeps only facts that anyone
+can compute again from the cited raw source. `provenance: [...]` selects
+provenance classes by name, for example
+`["direct_sensor", "deterministic_index"]`. The other classes are
+`estimator`, `attested_execution`, `model_output`, `human_curated` and
+`unclassified`.
 
-- `deterministic: true` on recall keeps only facts that anyone can compute
-  again from the cited raw source. `provenance: [...]` selects classes by
-  name, for example `["direct_sensor", "deterministic_index"]`.
+- Each class has a `caution` string in its `provenance` block. It names how
+  the class can fail.
+- `attested_execution` is a device reading. You trust it through the
+  device's verified execution trace and platform attestation, not through a
+  new computation.
 - The filter runs before the responder signs the receipt. The receipt covers
   only the facts that come back. The filter does not change
   `bands_already_attested_at_cell`.
-- The other classes are `estimator`, `attested_execution`, `model_output`,
-  `human_curated` and `unclassified`. Each has a `caution` string in its
-  `provenance` block that names how it can fail. `attested_execution` is a
-  device reading. You trust it through the device's verified execution trace
-  and platform attestation, not through a new computation.
-- Every read primitive takes two time bounds. `as_of_tslot` gives the latest
-  fact observed at or before the bound. `as_of_signed_at` gives the latest
-  fact signed at or before the bound. If you set both, both apply. The receipt
-  then has an `as_of` block, so an auditor can replay the query later and get
-  the same bytes.
+
+Six read primitives take a time bound: recall, `recall_polygon`,
+`query_region`, `trajectory`, `find_similar` and `memory_bundle`. Each takes
+two bounds. `as_of_tslot` gives the latest fact observed at or before the
+bound. `as_of_signed_at` gives the latest fact signed at or before the bound.
+If you set both, both apply. The receipt then has an `as_of` block, so an
+auditor can replay the query later and get the same bytes. `edges/recall`
+takes `as_of_tslot` only. `diff`, `compare` and `verify` take no time bound.
 
 ### Routes for operations from other memory libraries
 
@@ -817,7 +830,7 @@ marks an optional field.
 
 | Path | Body |
 |---|---|
-| `/v1/recall` | `{cell, bands?, tslot?, deterministic?}` |
+| `/v1/recall` | `{cell, bands?, tslot?, as_of_tslot?, as_of_signed_at?, deterministic?, provenance?, include?}` |
 | `/v1/recall_many` | `{cells, bands?}`, at most 256 cells |
 | `/v1/recall_polygon` | `{place?, polygon_bbox?, polygon_geojson?, bands?, max_cells?, include?}` |
 | `/v1/grid` | `{center, bands, n?, half_km?, budget_ms?}` |
