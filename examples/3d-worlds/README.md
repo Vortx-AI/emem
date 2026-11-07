@@ -156,11 +156,12 @@ python3 make_splats.py --preset carbon --out out/rondonia
 On 7 November 2026 between 13:50 and 19:21 UTC this run took about 2 s to
 14 s, and all 1,024 cells returned a biomass fact. Two runs at 19:21 UTC
 gave 3,988 facts. Runs at 17:40 UTC gave 3,847, and runs at 14:13 UTC gave
-3,421. A cell with no biomass fact
-gives no splat. Each run makes the responder fetch more cells, so the splat
-count and the fact count go up on repeat runs. The splat count stops at
-1,024. Runs earlier that day gave 498, 606 and 898 splats, and took up to
-20 s.
+3,421. A cell with no biomass fact gives no splat. Each run makes the
+responder fetch more cells, so the splat count and the fact count usually
+go up on repeat runs. One run can give a few fewer facts than the run
+before: at 19:30 UTC one run gave 3,986 and the next gave 3,988. The splat
+count stops at 1,024. Runs earlier that day gave 498, 606 and 898 splats,
+and took up to 20 s.
 
 The command writes four files:
 
