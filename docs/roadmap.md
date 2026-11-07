@@ -623,7 +623,8 @@ address.
 
 An earlier version of this section said that entity keys need a major
 version. Its reason was a change to the canonical index, the preimage and
-the storage key. That was wrong on all three points. The change is a minor.
+the storage key. That was wrong on all three points. Entity keys need only a minor
+version.
 
 #### Address spaces in the substrate registry
 
@@ -697,8 +698,9 @@ output bound inside a verified trace. The verifier names each failure it
 finds.
 
 The Earth substrate keeps its own rule, `archive_recomputable`: anyone
-can recompute a fact from free public archives. It is also the planned
-drift anchor, so device claims will be contradiction-scored against it.
+can recompute a fact from free public archives. The plan is to use Earth
+facts as the drift anchor: emem would score device claims against them
+for contradictions. That wiring is not built.
 The design and the wiring steps are in `docs/plans/encoder-substrates.md`.
 
 What ships for devices:
@@ -750,7 +752,7 @@ source, resolve to the same bytes anywhere, and verify offline. Device
 observations also carry the execution evidence that their profile
 requires.
 
-### Tenancy: closing the memory layer before scaling ingest
+### Tenancy: close the memory layer before ingest grows
 
 Bulk ingest and a per-tenant enterprise layer need a closed memory layer
 first. If any caller can write to shared memory, any caller can poison it.
@@ -811,12 +813,13 @@ it.
 ### The supply side: filling the corpus
 
 Demand and supply need different work. On the demand side, agents read
-and cite emem through MCP, REST and OpenAPI. That surface is enough;
-the remaining work is ergonomics. The supply side is the bottleneck: the
-observations of the world must become signed facts.
+and cite emem through MCP, REST and OpenAPI. That surface is enough, and
+the remaining work there is ease of use. The supply side is the
+bottleneck: observations of the world must become signed facts.
 
-Facts materialize lazily, one place at a time, from slow upstreams. So a
-few bands have deep coverage and the tail is empty (see
+emem makes a fact only when a caller first asks for it. It does this one
+place at a time, from slow upstreams. So a few bands have deep coverage
+and most bands have little (see
 [The corpus is small and uneven](#the-corpus-is-small-and-uneven)). A
 cold place can use all of the per-source timeout and return a `skipped`
 note in place of a value.
@@ -848,9 +851,9 @@ Three limits apply:
 
 So a tokenised row gives tamper evidence, ingestion provenance and a
 citation that other agents can resolve. It does not give ground truth.
-One engine takes a tabular geo source and gives signed facts. Postgres
-comes first, then Snowflake. CSV and Parquet (which cover Excel exports)
-are a mode of the same engine.
+The plan is one engine that takes a tabular geo source and gives signed
+facts. Postgres would come first, then Snowflake. CSV and Parquet (which
+cover Excel exports) would be a mode of the same engine.
 
 #### Scheduled densification: ships
 
