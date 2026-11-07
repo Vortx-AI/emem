@@ -299,7 +299,7 @@ ememdev whoami      # makes ~/.emem/agent_ed25519.pem on first use; keep this fi
 # {"pubkey_b32": "...", "pubkey_short": "<pubkey8>", "namespace_root": "/memories/by_attester/<pubkey8>"}
 
 NOTE="Mount Fuji: Copernicus DEM elevation 3539 m at the cell locate picked."
-P="/memories/by_attester/<pubkey8>/runbook.md"
+P="/memories/by_attester/$(ememdev whoami | jq -r .pubkey_short)/runbook.md"
 # Sign the v2 digest. --base absent says that nothing is at the path yet.
 ememdev sign --verb create --base absent --path "$P" --body "$NOTE" > attester.json
 
