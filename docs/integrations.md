@@ -380,9 +380,26 @@ Inputs:
 - `cell` is a `cell64` or a place name. The geocoder resolves a name, and `resolved_from` says which layer answered.
 - `materialize: true` fetches every empty slot. On an empty cell that is about 30 upstream calls. To fill only some
   slots, call `/v1/recall` with a short `bands` list.
+- `families` limits the cube to some band families, such as `["vegetation"]`. The other slots stay zero. An unknown
+  family name gives no error. It only matches no band. On 7 November 2026, `["vegetation"]` at Colaba gave 4
+  `missing` slots and 37 `filtered_out` slots.
 - `view: "encoder"` reads one vector band. emem.dev has retired its foundation encoders (Tessera, Clay, Prithvi,
   Galileo). Facts that they signed still read and verify, but emem.dev makes no new ones. A cell with no such fact answers
   404 and says so.
+
+Each `coverage[]` entry has one `status`. The values come from `BandCoverage` in
+`crates/emem-api-rest/src/lib.rs`:
+
+| `status` | Meaning |
+|---|---|
+| `primary` | A signed fact filled the slot. |
+| `scalar_filled` | A signed scalar fact filled a slot that is 1 value wide. |
+| `dim_mismatch` | The fact has a different length from the slot. The slot holds the first values of the fact. |
+| `non_vector` | The fact value is not a list of numbers. The slot stays zero. |
+| `absence` | A signed absence covers the slot. Do not fetch it again. |
+| `missing` | The responder has no fact and no absence for the slot. It can be cold, or have no connector. |
+| `filtered_out` | The `families` input left the slot out. |
+| `placeholder` | The registry keeps the slot for later, with no connector. It shows only with `include_reserved: true`. |
 
 | Use | What the vector does |
 |---|---|
