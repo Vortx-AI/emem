@@ -14,7 +14,7 @@ There are three layers of codes:
 
 The live catalogue is `GET /v1/errors` (schema `emem.errors.v1`). It lists the
 27 protocol codes with their MCP numbers, meanings and recovery steps. We
-checked this page against that endpoint and against the code on 6 November
+checked this page against that endpoint and against the code on 7 November
 2026. When this page and the live endpoint disagree, trust the live endpoint.
 
 ## The error envelope
@@ -68,29 +68,29 @@ discriminant, negated.
 
 | Code | MCP | Meaning | First thing to try |
 |---|---|---|---|
-| `invalid_cell` | -27 | The cell64 string did not parse. A string with a `.` in it is not geocoded as a place, so a mistyped cell is refused rather than sent somewhere random. | Re-derive it with `POST /v1/locate`. |
+| `invalid_cell` | -27 | The cell64 string did not parse. The responder does not geocode a string with a `.` in it as a place. So it refuses a mistyped cell and does not send it somewhere random. | Re-derive it with `POST /v1/locate`. |
 | `invalid_resolution` | -1 | Resolution out of range. | Use the cell64 `/v1/locate` returns; see `/v1/grid_info`. |
 | `tslot_mismatch` | -2 | The tslot does not sit on the band's tempo grid. | Read the band's `tempo` in `/v1/bands`. |
-| `band_not_in_registry` | -3 | The band key is not in the active manifest. For a band family, `details.did_you_mean` names its wired keys. | `GET /v1/bands`. Band keys are namespaced: `copdem30m.elevation_mean`, not `elevation_mean`. |
-| `function_not_in_registry` | -4 | A derivation `fn_key` is not registered. | `GET /v1/functions`. |
+| `band_not_in_registry` | -3 | The band key is not in the active manifest. For a band family, `details.did_you_mean` names its wired keys. | `GET /v1/bands`. Band keys have a namespace: `copdem30m.elevation_mean`, not `elevation_mean`. |
+| `function_not_in_registry` | -4 | No registry entry matches the derivation `fn_key`. | `GET /v1/functions`. |
 | `source_scheme_unknown` | -5 | `source.scheme` is not in `/v1/sources`. | `GET /v1/sources`. |
-| `cid_not_found` | -6 | Nothing is stored under that content id here. Memory reads say whether a tombstone exists, so "never written" and "written then removed" are told apart. | Check the cid came from this responder (`responder_pubkey_b32` against `/health`). |
+| `cid_not_found` | -6 | This responder holds nothing under that content id. Memory reads say whether a tombstone exists. So you can tell "never written" from "written then removed". | Check the cid came from this responder (`responder_pubkey_b32` against `/health`). |
 | `no_geocoder_match` | -7 | Every geocoder answered and none knows the place (HTTP 404). Or the name was too ambiguous to pick one: HTTP 400 with `details.code: ambiguous_place`. | Add a region or country, or pass `lat` and `lng`. |
-| `registry_cid_unknown` | -8 | The bound `registry_cid` is not recognised. | `GET /v1/manifests`. |
-| `schema_cid_unknown` | -9 | The fact's `schema_cid` is not loaded. | `GET /v1/manifests`. |
+| `registry_cid_unknown` | -8 | The responder does not know the bound `registry_cid`. | `GET /v1/manifests`. |
+| `schema_cid_unknown` | -9 | The responder has not loaded the fact's `schema_cid`. | `GET /v1/manifests`. |
 | `privacy_refused` | -10 | The band's `privacy_class` blocks this query at this resolution. | Query a coarser cell; see `privacy_class` in `/v1/bands`. |
 | `level_too_low` | -11 | The operation needs a higher tier. The fact plane refuses any attestation from a key that is not the responder's materialiser, an enrolled device, or an operator-listed writer. | `GET /v1/enlist` for what each tier can write. |
-| `attester_revoked` | -12 | The attester key is revoked. | Sign with a current key. |
-| `unauthorized` | -13 | Missing or invalid attester signature on a write. | Re-sign; the refusal says what was expected. |
+| `attester_revoked` | -12 | The operator revoked the attester key. | Sign with a current key. |
+| `unauthorized` | -13 | A write has no attester signature, or the signature is not valid. | Sign again. The refusal says what the responder expected. |
 | `claim_undecidable` | -14 | The claim cannot resolve to true or false (a missing value, NaN, a type mismatch). | Recall the fact and check its value and type. |
 | `bad_signature` | -15 | An ed25519 signature did not verify. | For receipts, `/v1/verify_receipt` returns `preimage_blake3_hex` to compare with your own. For writes, see the tables below. |
-| `unaddressable_subject` | -16 | A fact's subject is neither a cell64 nor an `emem:entity:` identity, so the write is refused before the log. Your signature is not the problem. | Send a cell64 or an entity id as the subject. |
-| `bad_merkle_proof` | -17 | An inclusion proof is malformed or does not reach its root. | Rebuild it from the canonical leaf order; check `leaf_index`. |
+| `unaddressable_subject` | -16 | A fact's subject is neither a cell64 nor an `emem:entity:` identity. The responder refuses the write before the log. Your signature is not the problem. | Send a cell64 or an entity id as the subject. |
+| `bad_merkle_proof` | -17 | An inclusion proof has a bad shape, or it does not reach its root. | Rebuild it from the canonical leaf order; check `leaf_index`. |
 | `canonical_encoding_divergence` | -18 | The CBOR sent is not deterministic per RFC 8949 section 4.2.1. | Encode with sorted map keys and shortest-form integers. |
-| `source_fetch_failed` | -19 | An upstream fetch failed at the transport (non-2xx, DNS, timeout, bad JSON) before any answer was reached. On a place lookup this means the geocoder is down, not that the place is absent. | Retry with backoff. |
+| `source_fetch_failed` | -19 | An upstream fetch failed at the transport (non-2xx, DNS, timeout, bad JSON) before the upstream gave an answer. On a place lookup this means the geocoder is down, not that the place is absent. | Retry with backoff. |
 | `source_format_mismatch` | -20 | The fetched bytes do not match the declared format. | Report it; the provider may have changed format. |
-| `compute_timeout` | -21 | A derivation ran past its deadline. | Send a smaller input, or retry: a band read cut off by the 14 s dispatch cap keeps running and a retry often answers warm. |
-| `compute_quota_exceeded` | -22 | A per-key, per-day compute quota was hit. | Throttle; the windows are published at `/v1/limits`. |
+| `compute_timeout` | -21 | A derivation ran past its deadline. | Send a smaller input, or retry. A band read that passes the 14 s dispatch cap keeps running. A retry often finds the value ready. |
+| `compute_quota_exceeded` | -22 | You used all of a per-key, per-day compute quota. | Slow down. `/v1/limits` publishes the windows. |
 | `rate_limited` | -23 | Too many requests. Per IP the default is 600 per minute with a burst of 120. Memory writes also have a per-attester backstop (`details.code: write_rate_limited`). | Honour `Retry-After` (seconds) or `details.retry_after_s`. |
 | `cache_error` | -24 | The responder's store returned an internal error. | Retry once. |
 | `invalid_argument` | -25 | A field is syntactically valid but semantically wrong, or the body did not match the route's schema (`details.deserializer_error` names the field). Also the top-level code for most route refusals below. | Read `message` and `details`; the request shape is in `/openapi.json`. |
@@ -116,7 +116,7 @@ verifies for this write, the encoding rules and a worked example.
 | `details.code` | Top-level `code` | HTTP | Meaning |
 |---|---|---|---|
 | `memory_attestation_required` | `invalid_argument` | 401 | The write has no `attester` block. emem.dev refuses unsigned writes. |
-| `memory_attestation_invalid` | `bad_signature` | 401 | The key is malformed (`reason: bad_pubkey`) or the signature does not verify (`reason: bad_signature`). The message names the expected digest. Every verb verifies only the v2 preimage, `emem.memory_write.v2\|verb\|path\|body_hash\|base`. A v1 signature is refused with `reason: v1_retired` (since 2026-11-05). |
+| `memory_attestation_invalid` | `bad_signature` | 401 | The key has a bad shape (`reason: bad_pubkey`) or the signature does not verify (`reason: bad_signature`). The message names the expected digest. Every verb verifies only the v2 preimage, `emem.memory_write.v2\|verb\|path\|body_hash\|base`. The responder refuses a v1 signature with `reason: v1_retired` (since 2026-11-05). |
 | `memory_namespace_violation` | `invalid_argument` | 403 | The path is in the `/memories/by_attester/<pubkey8>/` namespace of another key, or another key owns it, or it is under the reserved `/memories/.well-known/` prefix. |
 | `write_rate_limited` | `rate_limited` | 429 | The per-attester write backstop tripped. The defaults are 240 writes per minute with a burst of 60. |
 | `vault_immutable` | `invalid_argument` | 409 | You sent an in-place edit to a sealed vault entry. Create the entry again instead. |
@@ -148,7 +148,7 @@ refusal names itself in `details.code`.
 | `derive_parent_unresolved` | `cid_not_found` | 404 | This responder does not hold that parent fact. Recall it here first, or send the derivation to the responder that holds it. |
 | `derive_parent_cell_mismatch` | `invalid_argument` | 409 | The token names a cell that is not the cell of the signed fact. The message gives the correct token. |
 | `derive_attestation_required` | `invalid_argument` | 401 | The body has no `attester` block. `details.how_to_sign` carries the digest to sign. |
-| `derive_attestation_invalid` | `bad_signature` | 401 | The key is malformed (`reason: bad_pubkey`) or the signature does not verify (`reason: bad_signature`). The message names the expected digest. |
+| `derive_attestation_invalid` | `bad_signature` | 401 | The key has a bad shape (`reason: bad_pubkey`) or the signature does not verify (`reason: bad_signature`). The message names the expected digest. |
 
 ## Other route codes
 
