@@ -139,7 +139,8 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/verify_log.py" inclusion bad_inc.json
 ```
 
 On 7 November 2026 this printed `inclusion INVALID leaf_index=12346`
-after a valid `sth` line, and exited with 1. A changed `tree_size` in a head also gave `INVALID`.
+after a valid `sth` line, and exited with 1.
+A changed `tree_size` in a head also gave `INVALID`.
 
 ## Step 3: prove that a memory note is in the log
 

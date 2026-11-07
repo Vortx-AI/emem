@@ -5,7 +5,8 @@
 These recipes are for AI agents that build on emem. emem is a shared,
 verifiable memory for AI agents. It gives each place and object one
 citable identity, so different models reason from the same object and
-not from different descriptions. Signed Earth observation is the base.
+not from different descriptions. This is referential drift. Signed
+Earth observation is the base.
 Each recipe combines two or three `/v1/*` calls into one useful step.
 
 This page is the short cookbook. The same procedures also ship as a
@@ -20,8 +21,8 @@ depends on its reach (`GET /v1/enlist`). Each response that serves facts
 carries an Ed25519 receipt over a deterministic preimage. Verify it
 offline with the responder key from `/.well-known/emem.json`.
 
-Each fact has a content address and a signature. Thus any conformant
-responder returns the same bytes for the same content id, and any client
+Each fact has a content address and a signature. Thus each responder
+that holds a content id returns the same bytes for it, and any client
 can verify the receipt offline. emem is a protocol, not a single endpoint.
 
 ## Quick reference
@@ -100,8 +101,9 @@ print("cite:", fact["memory_token"])
 
 The MCP reply puts the result JSON as text in `result.content[0].text`.
 It keeps that text below 12,000 bytes. If `facts[]` is longer, the text
-has an `_emem_truncation` block. That block gives the first omitted
-index and the call that returns the rest.
+has an `_emem_truncation` block. The kept facts are the oldest, and
+the text can omit `current_by_band`. For the latest reading, send the same
+arguments to `POST /v1/recall`. That route has no size limit.
 
 ```json
 { "jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -174,7 +176,7 @@ receipt with its proof removed fails the signature check.
 ### python (fully offline)
 
 The script needs `httpx`, `cbor2`, `blake3` and `cryptography`. It
-refuses receipts that have a `scope` or `edge_cids` segment. Send those
+refuses receipts that have a `scope`, `as_of` or `edge_cids` segment. Send those
 to `POST /v1/verify_receipt`. On 7 November 2026 it printed `True` for a
 live recall receipt.
 
@@ -203,7 +205,8 @@ def sub(domain, segs):
 def verify(receipt, pubkey_b32):
     pv = receipt["preimage_version"]
     assert pv in (1, 2), "legacy receipt: use POST /v1/verify_receipt"
-    assert not (receipt.get("scope") or receipt.get("edge_cids")), "use POST /v1/verify_receipt"
+    assert not (receipt.get("scope") or receipt.get("as_of") or receipt.get("edge_cids")), \
+        "use POST /v1/verify_receipt"
     segs = [(0x01, receipt["request_id"].encode()), (0x02, receipt["served_at"].encode())]
     if receipt.get("source_versions"):
         cbor = cbor2.dumps(dict(sorted(receipt["source_versions"].items())))
@@ -242,8 +245,9 @@ it needs only Python and the files next to it.
 ### Browser (what `/verify` does)
 
 `https://emem.dev/verify` checks a receipt signature and the author of a
-signed message in your browser. It does not send them to a server. It
-uses a bundled copy of `@noble/hashes` 1.5.0 and `@noble/curves` 1.6.0
+signed message. The page gets the fact and the receipt from the
+responder. It checks the hash, the signature and the author in your
+browser. It uses a bundled copy of `@noble/hashes` 1.5.0 and `@noble/curves` 1.6.0
 (`/emem-verify-core.js`). Paste a fact CID, an `emem:` token or a
 `/memories/` path.
 
@@ -534,8 +538,9 @@ co-sign. On 7 November 2026 it was 1, for a tree of 3,245,134 entries.
 `POST /v1/heat_solve` runs an explicit finite-difference heat equation
 (`heat_equation_2d@1`). Its input is the MODIS land-surface temperature
 (`modis.lst_day_8day`) on the 3 x 3 cells around the cell. It returns the
-forecast for the centre cell. It also returns the 9 input fact cids and
-the algorithms and bands manifest cids. With these, a peer can run the
+forecast for the centre cell. It also returns the input fact cids, up to 9. A
+neighbour with no fact uses the centre value and has no cid. It also
+returns the algorithms and bands manifest cids. With these, a peer can run the
 solve again and get the same bits.
 
 ```sh
@@ -669,16 +674,16 @@ Use it as the caption of the scene.
 again (`address_holds`). The same inputs give the same token. Thus two
 renders of one explainer show which step changed.
 
-On 7 November 2026 this question gave five states: `located`, `routed`,
-`recalled`, `composed` and `scored`. The first state resolved with
-`address_holds: true`.
-
 ```sh
 BASE=https://emem.dev
 curl -sf -X POST $BASE/v1/ask -H 'content-type: application/json' \
   -d '{"question":"how green is the farmland near Ludhiana?"}' \
   | jq '{answer, scenes: [.reasoning.states[] | {stage, says, at_ms, state}]}'
 ```
+
+On 7 November 2026 this question gave five states: `located`, `routed`,
+`recalled`, `composed` and `scored`. The first state resolved with
+`address_holds: true`.
 
 ---
 

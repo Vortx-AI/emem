@@ -12,7 +12,7 @@ description: Returns the top-K places most similar to a seed place by cosine ove
 | You get | Up to `k` neighbour cells, each with a cosine `score`, a place label and a coordinate. You also get a signed `receipt` and an `interpretation` block. If the seed has no stored vector, you get `cid_not_found`. |
 | Calls | `emem_locate`, then `emem_find_similar`. Over REST: `POST /v1/locate`, then `POST /v1/find_similar`. |
 
-> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Where a step says so, they also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. Its commands read no environment variable, key or credential. The only local files that they read are files that an earlier step saved from `https://emem.dev`.
+> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. Its commands read no environment variable, key or credential. The only local files that they read are files that an earlier step saved from `https://emem.dev`.
 
 The skill runs a nearest-neighbour search over a stored 128-D
 embedding of surface texture. The embedding comes from Sentinel-1 SAR

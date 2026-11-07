@@ -267,8 +267,8 @@ top-level `code` is more general: `invalid_argument` for the 400 and the 409,
 and `cid_not_found` for the 404 (`crates/emem-api-rest/src/lib.rs`,
 `derive_core`). The server checks the provenance class and
 the parents before the signature. Thus an unsigned body shows these
-errors and writes nothing. On 7 November 2026 both errors came back
-this way.
+errors and writes nothing. On 7 November 2026, `derive_parent_unresolved` and
+`derive_parent_cell_mismatch` came back this way.
 
 A derive is idempotent for one key and one body. If a call times out,
 send the same signed body again. You get the same token, with

@@ -12,7 +12,7 @@ description: Checks a draft before you send it. Finds every emem citation in the
 | You get | `allow` or `deny`, a reason code, a `fix`, and one state for each citation. |
 | Calls | `emem_guard_verdict` (MCP). Or `POST /v1/guard/verdict`. |
 
-> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Where a step says so, they also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. The commands read no environment variable, key or credential. They read only local files that an earlier step saved from `https://emem.dev`.
+> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. The commands read no environment variable, key or credential. They read only local files that an earlier step saved from `https://emem.dev`.
 
 The citations in a draft were correct when you wrote them. This call
 checks that they still resolve. It checks that the number next to each
@@ -109,7 +109,8 @@ Thus you must check the band yourself. Resolve the token with
 sentence names, and its cell must be the place.
 
 Claim gating finds fewer claims than a reader does. A sentence is a
-claim only when it has a number with a unit and an anchor. The anchor
+claim only when it has an anchor and a number. The number needs a
+unit, or it must be a named index value such as NDVI 0.45. The anchor
 is an ISO date, coordinates, a year, or a word such as "in", "at" or
 "near" before a capitalised word (`crates/emem-guard/src/claim.rs`).
 Results on 7 November 2026, with `claim_gating: true` and no citation:
@@ -118,6 +119,7 @@ Results on 7 November 2026, with `claim_gating: true` and no citation:
 |---|---|
 | `The temperature in Bengaluru is 35 degC.` | `deny`, `CLAIM_UNGROUNDED`, with `source_band` `weather.temperature_2m` |
 | `Elevation in Leh is 3500 m.` | `deny`, `CLAIM_UNGROUNDED`, with `source_band` `copdem30m.elevation_mean` |
+| `NDVI in Bengaluru is 0.45.` | `deny`, `CLAIM_UNGROUNDED`, with the claim `NDVI 0.45` and `source_band` `indices.ndvi` |
 | `Bengaluru air temperature is 35 degC.` | `allow`. The place is not after "in", so the sentence has no anchor. |
 
 Also, one citation that resolves turns off claim gating for the whole

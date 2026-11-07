@@ -206,14 +206,16 @@ leaf value alone. The `file_cid` is the first 16 bytes of
 publishes nothing. Send `{"index": <i>, "leaves": [...]}` with base32
 leaf hashes, or `{"index": <i>, "chunks": [...]}` with
 `url`, `offset`, `length` and `hash` for each row. This command sends
-two leaves from `row.json` of step 3:
+two leaves from `row.json` of step 3, in the order of row 3's audit
+path:
 
 ```sh
-jq -c '{index: 0, leaves: [.leaf_b32, .path[0].hash_b32]}' row.json | curl -s -X POST https://emem.dev/v1/tree/path -H 'content-type: application/json' -d @-
+jq -c '{index: 1, leaves: [.path[0].hash_b32, .leaf_b32]}' row.json | curl -s -X POST https://emem.dev/v1/tree/path -H 'content-type: application/json' -d @-
 ```
 
 On 7 November 2026 it returned `leaves: 2`, one path step with
-`side: "right"`, and `root_b32`. A `hash` that is not base32 of 32
+`side: "left"`, and a `root_b32`. That root is the node above row 3 in
+the published tree. A `hash` that is not base32 of 32
 bytes gives `400 invalid_argument`.
 
 ## Pitfalls

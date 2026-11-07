@@ -52,7 +52,7 @@ The table shows the status on GitHub on 7 November 2026, 01:25 UTC.
 | iamtekson/awesome-geospatial-data-sources | PR #10 | Merged | 2026-08-19 |
 | Shubhamsaboo/awesome-llm-apps | PR #819 | Closed. The maintainer wants a full runnable demo, not a link. | 2026-05-18 |
 | Shubhamsaboo/awesome-llm-apps | PR #821 | Closed, declined on 2026-05-21. See the reason below. | 2026-08-22 |
-| browser-use/browser-use | PR #4852 | Closed by the stale bot on 2026-07-18, after the review passed. You can reopen it. | 2026-08-22 |
+| browser-use/browser-use | PR #4852 | Closed by the stale bot on 2026-07-18, after the review passed. Nobody answered the stale warning in 14 days. Reopen or resubmit it, and watch it. | 2026-08-22 |
 | langchain-ai/langchain-mcp-adapters | Issue #511 | Closed as "not planned" on 2026-06-10, with no comment | 2026-06-10 |
 | crewAIInc/crewAI | none | Closed, the maintainer declined | |
 | mastra-ai/mastra | none | Closed, the maintainer declined | |
@@ -69,7 +69,7 @@ The table shows the status on GitHub on 7 November 2026, 01:25 UTC.
 | cline/mcp-marketplace | Issue #1605 | Open, no maintainer comment | 2026-08-19 |
 
 Check this table against the live PR pages before you act on it.
-The July sweep found four wrong rows out of seven, in both directions.
+The sweep on 10 August 2026 found four wrong rows out of seven, in both directions.
 The table hid two merges (#6532 and #201) and two closures (#4852 and #821).
 The 7 November check found two more: a maintainer closed #511 and another merged #10.
 An open PR with no activity is not a rejection. It is a queue that nobody reads.
@@ -92,7 +92,7 @@ A script that calls one endpoint and prints the answer reads as an advertisement
 
 ## Targets for emem-guard (2.1.0)
 
-All the venues above are geospatial lists or MCP catalogues.
+The venues above are geospatial lists, MCP catalogues and agent frameworks.
 That is the right place for a memory protocol, but not for a verdict server.
 [docs/registries/guard-2.1.0-listings.md](docs/registries/guard-2.1.0-listings.md) lists the targets for `emem-guard`.
 For each target, that document checked the README and CONTRIBUTING for the section, entry format and submission method.
@@ -102,7 +102,7 @@ Three points in that document change what this agent does:
 
 - Do not submit to hesreallyhim/awesome-claude-code from an agent. Its CONTRIBUTING forbids PRs and the `gh` CLI. It asks for recommendations from humans. Avijeet files it through the web issue form.
 - Do not submit to bh-rat/awesome-mcp-enterprise. It needs two of four enterprise-readiness proofs. The emem-guard README says that nobody has used emem-guard on a live organisation yet.
-- rust-unofficial/awesome-rust accepts emem now. An earlier reading said it did not. The bar is 50 GitHub stars, or 2000 crates.io downloads, or an equal measure. A crates.io listing is optional, and applications count. emem had 52 stars, so a session filed the submission.
+- emem now meets the bar of rust-unofficial/awesome-rust. An earlier reading said it did not. The bar is 50 GitHub stars, or 2000 crates.io downloads, or an equal measure. A crates.io listing is optional, and applications count. emem had 52 stars, so a session filed the submission.
 
 Ten submissions started, with one sibling session for each target repository.
 They cover MCP security, AI security, Claude Code security, A2A, MCP catalogues, Rust and geospatial.

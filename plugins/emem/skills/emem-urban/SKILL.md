@@ -32,7 +32,7 @@ coverage.
 | `indices.ndbi` | ratio, -1 to 1 | One 10 m Sentinel-2 pixel, (B11 - B08) / (B11 + B08). | Sentinel-2 L2A. The scene id is in `derivation.args`. | Read `surface_class`. A pixel flagged as cloud shadow or water is not built-up evidence. |
 | `esa_worldcover.lc_2021` | class | One 10 m pixel. | ESA WorldCover v200, 2021 | Class 50 is built-up. |
 | `surface_water.recurrence` | percent | One 30 m pixel. | JRC Global Surface Water, 1984 to 2021 | Covers 60 N to 60 S only. |
-| `nightlights.dmsp_ols_avg_dn` | DN, 0 to 63 | DMSP-OLS stable lights. | DMSP-OLS V4, 1992 to 2013 | Retired on emem.dev. Stored facts still recall and verify. A cell with no stored fact gets a `materialize_notes` entry with `band_retired_at_this_responder`. Saturates at 63 in a city core. There is no VIIRS band. |
+| `nightlights.dmsp_ols_avg_dn` | DN, 0 to 63 | DMSP-OLS stable lights. | DMSP-OLS V4, 1992 to 2013 | Retired in this code, because the upstream moved behind a login. Stored facts still recall and verify. A cell with no stored fact gets a `materialize_notes` entry with `band_retired_at_this_responder`. Saturates at 63 in a city core. There is no VIIRS band. |
 
 emem.dev does not serve the GHSL built-surface bands. A request for
 `ghsl.built_surface_m2` returns HTTP 400 with `band_not_in_registry`.
@@ -59,7 +59,7 @@ returned these values on 7 November 2026 at 01:04 UTC:
 |---|---|---|
 | `esa_worldcover.lc_2021` | 50 | Built-up. |
 | `indices.ndbi` | 0.024 (24 August 2026), -0.109 (28 October 2026) | Two scenes. `surface_class` flags the first as cloud shadow and the second as water. Neither is built-up evidence. |
-| `nightlights.dmsp_ols_avg_dn` | 63 | A stored fact. emem.dev retired the band, so it makes no new fact. Saturated. Data year 2013, satellite F18. |
+| `nightlights.dmsp_ols_avg_dn` | 63 | A stored fact. The code retires the band, so it makes no new fact. Saturated. Data year 2013, satellite F18. |
 | `population` | 16403 people_per_km2 | The 1 km pixel, data year 2020. |
 | `overture.places.count` | 2 | Release `2026-09-23.1`. |
 | `overture.buildings.count` | 0 | Release `2026-09-23.1`. |
