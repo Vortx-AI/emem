@@ -183,7 +183,7 @@
   <div class="grid">
 
     <figure id="01"><a href="/docs/diagrams/01-architecture.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/01-architecture.svg" aria-label="One responder binary serves MCP and REST from the same handlers. On the first miss it fetches STAC and COG data. 41 of its 46 registered sources have a reader. It signs each fact and appends it to a BLAKE3-chained log. Each batch gets a Merkle root."><img src="/docs/diagrams/01-architecture.svg" alt="One responder binary serves MCP and REST from the same handlers. On the first miss it fetches STAC and COG data. 41 of its 46 registered sources have a reader. It signs each fact and appends it to a BLAKE3-chained log. Each batch gets a Merkle root." loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/01-architecture.svg" aria-label="One responder binary serves MCP and REST from the same handlers. Reads need no auth. On the first miss it fetches STAC and COG data. On 7 November 2026, 41 of its 46 registered sources had a reader. It signs each fact and appends it to a BLAKE3-chained log. Each batch gets a Merkle root. Manifests list the bands, algorithms, sources and schema."><img src="/docs/diagrams/01-architecture.svg" alt="One responder binary serves MCP and REST from the same handlers. Reads need no auth. On the first miss it fetches STAC and COG data. On 7 November 2026, 41 of its 46 registered sources had a reader. It signs each fact and appends it to a BLAKE3-chained log. Each batch gets a Merkle root. Manifests list the bands, algorithms, sources and schema." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">01 / 10 · ARCHITECTURE</div>
         <h2>the simple architecture</h2>
@@ -192,7 +192,7 @@
     </a></figure>
 
     <figure id="02"><a href="/docs/diagrams/02-data-flow.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/02-data-flow.svg" aria-label="A range request reads an open pixel. A stateless connector turns it into a fact. Canonical CBOR encodes the fact, and BLAKE3 gives the content id of the signed fact."><img src="/docs/diagrams/02-data-flow.svg" alt="A range request reads an open pixel. A stateless connector turns it into a fact. Canonical CBOR encodes the fact, and BLAKE3 gives the content id of the signed fact." loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/02-data-flow.svg" aria-label="A range request reads an open pixel. A stateless connector turns it into a fact. Canonical CBOR encodes the fact, and BLAKE3 gives the content id of the signed fact. The same bytes give the same content id on every machine."><img src="/docs/diagrams/02-data-flow.svg" alt="A range request reads an open pixel. A stateless connector turns it into a fact. Canonical CBOR encodes the fact, and BLAKE3 gives the content id of the signed fact. The same bytes give the same content id on every machine." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">02 / 10 · DATA FLOW</div>
         <h2>how data moves</h2>
@@ -201,7 +201,7 @@
     </a></figure>
 
     <figure id="03"><a href="/docs/diagrams/03-anatomy-of-a-request.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/03-anatomy-of-a-request.svg" aria-label="A recall in five steps. A place name such as Denver goes through locate to a cell64. A cache miss starts a fetch of the upstream COG tile. An Ed25519 signature returns a receipt with the fact_cid."><img src="/docs/diagrams/03-anatomy-of-a-request.svg" alt="A recall in five steps. A place name such as Denver goes through locate to a cell64. A cache miss starts a fetch of the upstream COG tile. An Ed25519 signature returns a receipt with the fact_cid." loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/03-anatomy-of-a-request.svg" aria-label="A recall in five steps. A place name such as Denver goes through locate to a cell64. A cache miss starts a fetch of the upstream COG tile. An Ed25519 signature returns a receipt with the fact_cid. On 7 November 2026 a first read took 0.6 to 1.7 s, and a warm read took under 0.1 s."><img src="/docs/diagrams/03-anatomy-of-a-request.svg" alt="A recall in five steps. A place name such as Denver goes through locate to a cell64. A cache miss starts a fetch of the upstream COG tile. An Ed25519 signature returns a receipt with the fact_cid. On 7 November 2026 a first read took 0.6 to 1.7 s, and a warm read took under 0.1 s." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">03 / 10 · REQUEST</div>
         <h2>anatomy of a recall</h2>
@@ -210,7 +210,7 @@
     </a></figure>
 
     <figure id="04"><a href="/docs/diagrams/04-agent-loop.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/04-agent-loop.svg" aria-label="A loop of five steps: the agent asks, recalls a signed fact, cites its fact_cid, acts, and writes a signed note in its own namespace."><img src="/docs/diagrams/04-agent-loop.svg" alt="A loop of five steps: the agent asks, recalls a signed fact, cites its fact_cid, acts, and writes a signed note in its own namespace." loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/04-agent-loop.svg" aria-label="A loop of five steps: the agent asks, recalls a signed fact, cites its fact_cid, acts, and writes a signed note in its own namespace. The next agent can check a claim that cites a fact_cid."><img src="/docs/diagrams/04-agent-loop.svg" alt="A loop of five steps: the agent asks, recalls a signed fact, cites its fact_cid, acts, and writes a signed note in its own namespace. The next agent can check a claim that cites a fact_cid." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">04 / 10 · AGENT LOOP</div>
         <h2>how an agent uses emem</h2>
@@ -237,7 +237,7 @@
     </a></figure>
 
     <figure id="07"><a href="/docs/diagrams/07-cite-economy.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/07-cite-economy.svg" aria-label="A cycle in four steps. An attester signs a fact. An agent reads it. The registry counts the read for the signer. The leaderboard ranks signers by score. Recall results do not change."><img src="/docs/diagrams/07-cite-economy.svg" alt="A cycle in four steps. An attester signs a fact. An agent reads it. The registry counts the read for the signer. The leaderboard ranks signers by score. Recall results do not change." loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/07-cite-economy.svg" aria-label="A cycle in four steps. An attester signs a fact. An agent reads it. The registry counts the read for the signer. The leaderboard ranks signers by score at /v1/contributors. Citations do not change what recall returns."><img src="/docs/diagrams/07-cite-economy.svg" alt="A cycle in four steps. An attester signs a fact. An agent reads it. The registry counts the read for the signer. The leaderboard ranks signers by score at /v1/contributors. Citations do not change what recall returns." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">07 / 10 · ECONOMICS</div>
         <h2>the cite-economy</h2>
@@ -246,7 +246,7 @@
     </a></figure>
 
     <figure id="08"><a href="/docs/diagrams/08-decentralised.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/08-decentralised.svg" aria-label="Eight illustrative responders, each with its own key, resolve one content id to the same bytes. A client verifies offline."><img src="/docs/diagrams/08-decentralised.svg" alt="Eight illustrative responders, each with its own key, resolve one content id to the same bytes. A client verifies offline." loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/08-decentralised.svg" aria-label="Eight illustrative responders, each with its own key, resolve one content id to the same bytes. A client verifies offline. On 7 November 2026 emem.dev had one peer."><img src="/docs/diagrams/08-decentralised.svg" alt="Eight illustrative responders, each with its own key, resolve one content id to the same bytes. A client verifies offline. On 7 November 2026 emem.dev had one peer." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">08 / 10 · TOPOLOGY</div>
         <h2>the decentralised way</h2>
@@ -255,7 +255,7 @@
     </a></figure>
 
     <figure id="09"><a href="/docs/diagrams/09-address-algebra.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/09-address-algebra.svg" aria-label="A table of four wire forms: cell64 (64 bits, four bigrams), tslot (64 bits, base32 leb128), cid (32-byte BLAKE3, base32) and vec (1792-D fp16). The grid is about 9.55 m at the equator."><img src="/docs/diagrams/09-address-algebra.svg" alt="A table of four wire forms: cell64 (64 bits, four bigrams), tslot (64 bits, base32 leb128), cid (32-byte BLAKE3, base32) and vec (1792-D fp16). The grid is about 9.55 m at the equator." loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/09-address-algebra.svg" aria-label="A table of four wire forms: cell64 (64 bits, four bigrams), tslot (64 bits, base32 leb128), cid (32-byte BLAKE3, base32) and vec (1792-D fp16). The grid is about 9.55 m at the equator. Adjacent cells share a string prefix."><img src="/docs/diagrams/09-address-algebra.svg" alt="A table of four wire forms: cell64 (64 bits, four bigrams), tslot (64 bits, base32 leb128), cid (32-byte BLAKE3, base32) and vec (1792-D fp16). The grid is about 9.55 m at the equator. Adjacent cells share a string prefix." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">09 / 10 · ALGEBRA</div>
         <h2>address algebra</h2>
