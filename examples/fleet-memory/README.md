@@ -52,9 +52,9 @@ offline verify    : VALID (recomputed locally, no trust in the responder)
 Done. A third fleet can run robot B's half with the same three tokens.
 ```
 
-The run took less than 1 second on 7 November 2026, because every fact was
-already signed. A cell with no stored facts takes longer: the responder
-fetches and signs the bands first.
+On 7 November 2026, four runs took 0.33 to 4.7 seconds. Every fact was
+already signed, so the time was network time. A cell with no stored facts
+takes longer, because the responder fetches and signs the bands first.
 
 The words `already named` and `already linked` mean that `resolve` found
 records from an earlier signed run. The script did not write them.
