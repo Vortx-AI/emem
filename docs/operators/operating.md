@@ -322,7 +322,7 @@ Copy `identity.secret.b32` first. Without it, the node makes a new key. Agents t
 | `GET /v1/materializers` | The registered materializers, in pages of 20. `pagination.total` is the count. |
 | `GET /v1/data_availability` | The time range that each band covers. |
 | `GET /v1/manifests` | The active registry CIDs and the entry count of each registry. |
-| `GET /v1/agent_stats` | Tool calls by agent platform. |
+| `GET /v1/agent_stats` | Requests and errors by client family (`by_family`), calls by tool (`by_tool`), status classes and latency. |
 | `GET /v1/demos` | Saved demo runs. |
 
 Check the node:
