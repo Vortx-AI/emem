@@ -130,8 +130,8 @@ An MCP answer has a size limit of 24,000 bytes by default
 
 | Field | What it tells you |
 |---|---|
-| `omitted_fields` | Each field that the answer left out, with a stub that has `_omitted: true`. The field itself stays in the answer with the value `null`. The list stops at 32 fields; `omitted_fields_total` then gives the full count. |
-| `budget_bytes` | The share of one copy, text or `structuredContent`. Thus it can show 12,000 or less. |
+| `omitted_fields` | One entry for each field that the answer left out. An entry has the `field` name and a `stub` with `_kind`, `_keys` and `_omitted: true`. The field stays in the answer with the value `null`. The list stops at 32 fields; `omitted_fields_total` then gives the full count. |
+| `budget_bytes` | The room for one copy, the text or `structuredContent`. It starts at half the limit and gets smaller until both copies fit. With the default limit it can show 12,000 or less. |
 | `fetch` | Often, the call that returns the rest. It can be `null`, or drop some arguments. |
 | `reason` | One sentence that says what to do next. It changes with `fetch` and with paging. |
 | `next` | When present, a list of calls, each a `verb` and a `noun`. |
