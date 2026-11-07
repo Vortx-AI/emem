@@ -76,8 +76,8 @@ Shipped in `crates/emem-api-rest/src/lib.rs` (search `reshaped_segment`).
 When the signature fails, the verifier finds the inclusion proof that this
 responder recorded for the first fact in `fact_cids`. It rebuilds the v2
 preimage with that proof. If the signature then verifies, something reshaped
-the receipt after signing, and `reason` is `receipt_reshaped_after_signing`. The changed
-segment is `preimage_version` when the receipt no longer says v2. Otherwise
+the receipt after the responder signed it, and `reason` is
+`receipt_reshaped_after_signing`. The changed segment is `preimage_version` when the receipt no longer says v2. Otherwise
 it is `merkle_proof`.
 
 Limits of this check:

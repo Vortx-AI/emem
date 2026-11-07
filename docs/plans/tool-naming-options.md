@@ -158,7 +158,7 @@ That supports the two assumptions. It does not prove them.
 | Lift the two 4.2 tools to 4.6; the floor becomes 4.4 | 4.134 | +0.075 |
 
 The result is the same as in August. The minimum tool score is 40 percent
-of the 70 percent part. Naming is one quarter of the 30 percent part.
+of the 70 percent part. The naming score is one quarter of the 30 percent part.
 So the rubric punishes one weak tool more than an untidy naming scheme.
 
 ## Recommendation in detail
