@@ -14,6 +14,11 @@ TRACES NT.
 The JSON Schema is at
 [`/v1/schemas/eudr_dds.json`](https://emem.dev/v1/schemas/eudr_dds.json) (schema id
 `emem.eudr_dds.v1`).
+The schema does not list every field in the response.
+On 7 November 2026 it did not list `loss_year_histogram`, `tmf_cross_check`,
+`sampled_polygon_fraction`, `degradation_disclaimer` or `regulation_status_note`.
+The schema does not set `additionalProperties`, so these extra fields pass validation.
+The visual `verdict` enum is different: see [Verdict thresholds](#verdict-thresholds).
 
 ## Per-cell verdict
 
@@ -133,6 +138,10 @@ The block carries its own `verdict`:
 | `indeterminate_no_baseline` | The plot has no 2020 baseline data; the block does not pass it silently |
 | `incomplete` | The visual time budget ran out before the timeline was complete |
 
+The schema enum for this `verdict` lists only the first three values.
+On 7 November 2026 it did not list `incomplete`, but the endpoint can return it.
+If you validate responses against the schema, allow `incomplete` in your validator.
+
 ### Receipts
 
 Each annual NDVI and S1 backscatter value is a signed Primary fact under the responder's
@@ -203,6 +212,6 @@ The deferral does not change the cut-off that the verdict uses.
 
 - `GET /v1/algorithms/eudr_compliance@1`: input bands, formula, accuracy notes
 - `GET /v1/algorithms/eudr_dds@1`: algorithm card for the polygon step
-- `GET /v1/schemas/eudr_dds.json`: full JSON Schema (draft 2020-12)
+- `GET /v1/schemas/eudr_dds.json`: JSON Schema (draft 2020-12); it does not list every response field
 - `GET /v1/cells/{cell64}/scene.png`: true-colour Sentinel-2 RGB chip
 - `GET /v1/cells/{cell64}/scene.rgb`: raw 256×256×3 byte stream that the client draws itself
