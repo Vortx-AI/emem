@@ -152,9 +152,10 @@ curl -sS -X POST https://emem.dev/mcp -H 'content-type: application/json' -d @si
 ```
 
 Send the body exactly as the script wrote it. A change to `path` or
-`file_text` changes the digest. The result holds `ok`, `path`,
-`file_cid`, `attester_pubkey_b32`, `signed_at` and the responder's
-`receipt`.
+`file_text` changes the digest. The result holds `ok`, `verb`, `path`,
+`file_cid`, `memory_kind`, `attester_pubkey_b32`, `size_bytes`,
+`signed_at`, `responder_pubkey_b32` and the responder's `receipt`.
+Keep the `file_cid`. Your next edit of this note uses it as `base`.
 
 If the result says `memory_attestation_invalid`, the message names the
 digest the server expected. Compare it with yours. These are the usual
