@@ -2384,16 +2384,18 @@ plot. `statement_of_compliance_held_because` lists each cause:
 
 On 7 November 2026 the example plot gave the outcome `pass` in
 `due_diligence_statement.verdict`, but the responder held the statement
-for `verdict_support_weak`. The point is 0.01 ha, and
-all its cells are within 2 points of the 10 % canopy threshold. Its cell
-had the label `not_in_scope`: JRC showed no forest there in 2020.
+for `verdict_support_weak`. The point is 0.01 ha and has one cell. That
+cell is within 2 points of the 10 % canopy threshold. Its label was
+`not_in_scope`: JRC showed no forest there in 2020.
 
 The response puts one item for each plot in `per_plot_results`. Each item
 has `verdict`, `verdict_support` and `per_cell_rows_cid`.
 `per_cell_rows_cid` is the BLAKE3 hex of one line for each sampled cell, in
-the form
-`<cell>|<verdict>|<fact_cids joined by ,>\n`. The responder stores the
-facts of each sampled cell, so each fact CID resolves.
+the form `<cell>|<verdict>|<fact_cids joined by ,>\n`. In this line,
+`<verdict>` is the number in the `verdict` field of the row, not its
+`label`. On 7 November 2026 the example row had `verdict` 3 and `label`
+`not_in_scope` (`eudr_rows_cid`, `lib.rs`). The responder stores the facts
+of each sampled cell, so each fact CID resolves.
 
 - `per_cell_detail: "rows"` (the default) puts the rows in
   `per_cell_verdicts` of each plot. `"anchor"` leaves out the rows and keeps
