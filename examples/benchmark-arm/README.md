@@ -183,8 +183,8 @@ The scorecard of that agent listed "no independent re-scoring" as an open gap,
 and emem asked for this scorer.
 
 You need the navigatable_worlds directory. It holds `runs/` and
-`benchmark/PROVENANCE.json`. It is not in this repository. Without a path, the script
-uses `/home/ubuntu/navigatable_worlds`.
+`benchmark/PROVENANCE.json`. It is not in this repository. Without a path,
+the script uses `/home/ubuntu/navigatable_worlds`.
 
 ```sh
 python3 examples/benchmark-arm/differential_scorer.py /path/to/navigatable_worlds
@@ -226,9 +226,9 @@ three times too high (0.086 against 0.026).
 ## The inversion scorer
 
 `score_inversion.py` tests if agreement between two models is evidence that
-they are right. Under compression it is not. The script lets
-you check this finding yourself. Like the differential scorer, it needs a run
-file from the navigatable_worlds directory.
+they are right. Under compression it is not. The script lets you check this
+finding yourself. Like the differential scorer, it needs a run file from the
+navigatable_worlds directory.
 
 ```sh
 python3 examples/benchmark-arm/score_inversion.py /path/to/navigatable_worlds/runs/pressure_lahaul_v2.json

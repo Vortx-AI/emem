@@ -100,7 +100,7 @@ responder does not hold.
 
 ## About `expected_output.txt`
 
-The file is a real run of `python3 run.py` and `python3 run.py --probe`, taken on
+The file is a real run of the first two commands in "Run it", taken on
 7 November 2026. Your run will not match it line for line. NDVI, weather and
 cloud cover are live readings that change, and their fact ids change with them.
 Elevation, surface-water recurrence and the `cell64` stay the same.
