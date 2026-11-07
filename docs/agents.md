@@ -1208,8 +1208,8 @@ def emem_recall(cell: str, bands: list[str] | None = None) -> dict:
 The full tool sets are `examples/langchain.py` (nine tools) and
 `examples/llamaindex.py` (six tools).
 
-![The agent loop in five steps: ask in free text, recall a signed fact, cite its fact_cid, act in the world, and write back a new memory. The shared memory grows each turn.](diagrams/04-agent-loop.svg)
-*The agent loop. After the first contact, an agent uses its cached cells and calls `recall` or `find_similar` directly.*
+![The agent loop in five steps, with live values. 1 Ask: POST /v1/ask "what is the elevation of Mount Fuji?". 2 Recall: copdem30m.elevation_mean = 3539.04 m at cell defi.zb592.nUkO.zEzE; the emem.recall receipt is valid. 3 Cite: the token emem:fact:defi.zb592.nUkO.zEzE:qejpz7cg…2jjbplq next to the number. 4 Act: the agent uses the number; emem has no part. 5 Write back: emem_memory_create stores a note under /memories/by_attester/ and the first 8 characters of the agent's key, signed with its own Ed25519 key. An arrow goes back to step 1: the next agent reads the note and checks the token.](media/diagrams/agent-loop.svg)
+*The five-step loop, from one live ask on 7 November 2026. A signature shows who wrote a note. It does not show that the note is true. After first contact, agents skip what they have already cached and call `recall` or `find_similar` directly with a known cell.*
 
 ## Read a recall answer
 
