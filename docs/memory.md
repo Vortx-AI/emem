@@ -388,7 +388,10 @@ offline. This makes every past signature public. For this reason the
 preimage includes `base`, the version that the write replaces. When the
 path moves on, a signature copied from the log no longer verifies. When
 two agents edit one path, the second gets a refusal and loses no update
-silently.
+silently. That refusal is `memory_attestation_invalid` with
+`reason: bad_signature`, because the second agent signed over the old
+`base`. Read the note again, apply your edit to the new text, and sign
+the new digest.
 
 The older v1 preimage was
 `blake3("emem.memory_write|" + verb + "|" + path + "|" + body_hash)`.
@@ -429,6 +432,17 @@ case:
 | No attester, and the write needs one | `memory_attestation_required` |
 | The signature does not verify, or the key is not valid | `memory_attestation_invalid`; the message names the digest the responder expected |
 | Wrong namespace, wrong owner or reserved prefix | `memory_namespace_violation` |
+| The key sent too many writes in a short time | `write_rate_limited`, with `retry_after_s` |
+
+The rate limit is a token bucket for each key. Unsigned writes share one
+bucket. The defaults are 240 writes a minute with a burst of 60. The
+operator changes them with `EMEM_WRITE_RATE_PER_MIN` and
+`EMEM_WRITE_RATE_BURST`. The responder stores nothing for a refused
+write, so send it again after `retry_after_s` seconds.
+
+A `rename` also fails when `new_path` already holds a file, or when the
+two paths are the same. The responder refuses to rename a `vault` entry,
+because its seal binds the path. Make it again at the new path.
 
 By default, nobody can write to bare `/memories/...` without a
 signature. A release build with no env variable set refuses every
@@ -457,6 +471,10 @@ For a bare write it is `[path]`. A read of the note returns an
 `base`, `body_hash_hex` and `preimage_version`. With it, a third party
 can check the author offline. That party must also compare
 `body_hash_hex` with blake3 of the content it received.
+`signed_path` is the path at write time. After a rename it differs from
+the path you read, and the check uses `signed_path`. When the block has
+`caller_signed: false`, the responder holds no caller signature. Then the
+`attester_pubkey_b32` on the note is a claim of the responder only.
 
 ## Reading, superseding and deleting
 
