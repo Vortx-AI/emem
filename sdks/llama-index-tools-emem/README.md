@@ -94,7 +94,7 @@ because the receipt is new each time.
 |---|---|---|
 | `recall("Mount Fuji", bands=["copdem30m.elevation_mean"])` | about 6,500 | about 2,300 |
 | `locate("Bengaluru")` | about 153,400 | about 3,800 |
-| `recall("Bengaluru")`, bands omitted (574 facts) | about 1,861,000 | about 159,500 |
+| `recall("Bengaluru")`, bands omitted (584 facts) | about 1,892,000 | about 162,200 |
 
 The tools make these cuts:
 
@@ -110,15 +110,15 @@ The tools make these cuts:
   (`emem:fact:<cell>:<fact_cid>`) already contains them. A descriptor token
   does not contain the cell, so that fact keeps the `cell` field.
 
-The tools do not cut the receipt. At Bengaluru it had about 34,000
+The tools do not cut the receipt. At Bengaluru it had about 34,500
 characters. From receipt preimage version 2, the signature covers the inclusion proof. A receipt with a
 field removed thus gives `signature_valid: false`, and honest data looks forged.
 
 ## Name the bands you need
 
 If you omit `bands`, `recall` returns every fact the responder holds at the
-cell. At Bengaluru on 7 November 2026 that was 574 facts, and the tool result
-was about 159,500 characters. Call `locate` first, then select bands from
+cell. At Bengaluru on 7 November 2026 that was 584 facts, and the tool result
+was about 162,200 characters. Call `locate` first, then select bands from
 `bands_available_here`.
 
 ## What a valid signature proves
@@ -151,4 +151,4 @@ On 7 November 2026, against emem.dev, 40 tests passed and 3 live-contract
 tests failed. Two `locate` fixtures name the topics `foundation_embedding`
 and `nightlights`, which emem.dev no longer sends. The third test expects a
 bands-omitted recall at Bengaluru to stay under 40,000 characters. It was
-about 159,500.
+about 162,200.
