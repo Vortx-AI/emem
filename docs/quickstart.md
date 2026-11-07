@@ -237,9 +237,8 @@ The third way is the browser. Paste the receipt, or the `emem:fact:` token of th
 [`/emem-verify-core.js`](https://emem.dev/emem-verify-core.js), which bundles `@noble/hashes` blake3 and
 `@noble/curves` ed25519. It checks the hash and the signature in your browser.
 
-Send the full receipt, with no changes.
-When the receipt has `preimage_version: 2`, the signature also covers the inclusion proof.
-If you remove or rebuild a field, a correct receipt shows as tampered.
+Send the full receipt, with no changes. When the receipt has `preimage_version: 2`, the signature also covers the
+inclusion proof. If you remove or rebuild a field, a correct receipt shows as tampered.
 
 ## Cite one fact with a memory token
 
@@ -301,7 +300,7 @@ pip install "ememdev[signing]"
 ememdev whoami      # makes ~/.emem/agent_ed25519.pem on first use; keep this file
 # {"pubkey_b32": "...", "pubkey_short": "<pubkey8>", "namespace_root": "/memories/by_attester/<pubkey8>"}
 
-NOTE="Mount Fuji: Copernicus DEM elevation 3539 m at the cell locate picked."
+NOTE="Mount Fuji: Copernicus DEM elevation 3539 m at the cell that locate picked."
 P="/memories/by_attester/$(ememdev whoami | jq -r .pubkey_short)/runbook.md"
 # Sign the v2 digest. --base absent says that nothing is at the path yet.
 ememdev sign --verb create --base absent --path "$P" --body "$NOTE" > attester.json
@@ -314,13 +313,12 @@ jq -n --arg p "$P" --arg t "$NOTE" --slurpfile a attester.json \
   | jq '.result.content[0].text | fromjson | {path, file_cid}'
 ```
 
-Do not use `ememdev write` from 2.4.4. It signs the retired v1 digest.
-The code on `main` refuses that digest for every verb since commit `23fa7fd6` (5 November 2026),
-with `reason: "v1_retired"`. The `memory_write` entry of `/v1/verifier_spec` still says the responder
-accepts v1 for `create`. That text is out of date.
-On 7 November 2026 we ran these commands against a local node built from commit `49443d9a`, not
-against emem.dev. The `sign` command and the `curl` request stored the note. `ememdev write` got the
-`v1_retired` refusal.
+Do not use `ememdev write` from 2.4.4. It signs the retired v1 digest. The code on `main` refuses that digest for
+every verb since commit `23fa7fd6` (5 November 2026), with `reason: "v1_retired"`. The `memory_write` entry of
+`/v1/verifier_spec` still says the responder accepts v1 for `create`. That text is out of date.
+
+On 7 November 2026 we ran these commands against a local node built from commit `49443d9a`, not against emem.dev.
+The `sign` command and the `curl` request stored the note. `ememdev write` got the `v1_retired` refusal.
 
 Only the key that wrote a note can supersede it or delete it. Thus, test with a key that you keep.
 [Memory substrate](./memory.md) gives the wire format, the verbs and the signing preimage.
