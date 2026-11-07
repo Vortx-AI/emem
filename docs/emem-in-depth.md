@@ -392,8 +392,11 @@ cell64 grid did not change. See [CHANGELOG.md](../CHANGELOG.md).
   This makes a split view detectable. It does nothing else. Reads do not
   resolve across nodes. On 7 November 2026
   [`/v1/log/witnesses`](https://emem.dev/v1/log/witnesses) named one
-  independent operator, `eudr.dev`. Its last co-signature was 49 entries
-  behind the head, so `head_is_independently_witnessed` was `false`.
+  independent operator, `eudr.dev`. At 10:17 UTC its last co-signature was
+  106 entries behind the head
+  (`freshest_independent_operator_entries_behind`). So
+  `head_is_independently_witnessed` was `false`. The lag changes with each
+  write.
 - The corpus is small. On 7 November 2026 `GET /v1/coverage` reported
   `total_cells` 2,424. The first read of a new place can take tens of
   seconds.
