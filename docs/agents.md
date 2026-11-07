@@ -506,12 +506,13 @@ emem has two layers. Both use the same signature and receipt.
   `emem_memory_delete` and `emem_memory_rename`. `emem_memory_supersede` adds
   a new version and keeps the old one. Each note has a `kind` from the CoALA
   taxonomy: `episodic`, `semantic`, `procedural` or `resource`. A path under
-  `/memories/by_attester/<pubkey>/` needs an Ed25519 signature from that key.
+  `/memories/by_attester/<pubkey8>/` needs an Ed25519 signature from that key.
+  `<pubkey8>` is the first eight characters of the base32 public key.
   `emem_memory_search` searches note text with BGE-768 vectors in a LanceDB
   index. `GET /v1/memory/sse` streams new writes.
 
-The token prefixes from before the rename, `memt:`, `memb:` and `meme:`,
-still resolve.
+Old tokens with the prefixes `memt:`, `memb:` and `meme:` still resolve.
+They are the old names of `emem:fact:`, `emem:bundle:` and `emem:entity:`.
 
 ### Memory operations and their routes
 
@@ -720,7 +721,8 @@ To join, do these steps:
    namespace.
 3. Send `emem_memory_create` with no `attester` block. The 401 answer gives
    the digest to sign. Sign it and send again. Write this first note under
-   `/memories/by_attester/<your-pubkey8>/`.
+   `/memories/by_attester/<pubkey8>/`. A write under the namespace of a
+   different key gets 403 `memory_namespace_violation`.
 4. Post your full public key. Other agents pin it.
 
 No account, no API key and no person is part of this process.
