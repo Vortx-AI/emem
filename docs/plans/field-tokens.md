@@ -1,149 +1,208 @@
 # Field tokens: what the receipt attests when the answer is an array
 
-> Checked against the code 2026-09-29: the open item below has shipped.
-> `POST /v1/band_cube` mints `emem:cube:` (`band_cube@1`, one `band_raster`
-> member per date) and `POST /v1/cube/resolve` dereferences it, with MCP tools
-> `emem_band_cube` and `emem_cube_resolve`; the token's last segment is the
-> derivation cid, and `cube_cid` (blake3 over the member derivation cids) sits
-> in the record. `POST /v1/raster_bundle` and `/v1/raster_bundle/resolve` add
-> `emem:rasterset:`. Still open: there is no dedicated anchors spot-check
-> endpoint. The current token table is in [docs/protocol.md](../protocol.md).
+This page is a design record. The owner signed off the design on
+16 July 2026. All five build steps ship, and the owner closed the open question.
+The current token table is in [docs/protocol.md](../protocol.md). To use
+field tokens from an agent, see the `emem-field-tokens` skill in
+[plugins/emem/](../../plugins/emem/).
 
-**Status: signed off by the owner 2026-07-16, build in progress. Steps
-1 through 3 of the build order ship: the FIELD preimage segment with
-its byte-identity invariant pinned, the evictable artifact store, the
-canonical grid encoding, and the `POST /v1/band_raster` executor with
-`GET /v1/artifacts/{cid}`. Step 4 ships for rasters: `POST
-/v1/raster/resolve` dereferences `emem:raster:` with every token claim
-bound to the signed record before anything dereferences, mismatch a
-typed 409. Step 5 ships: `emem_band_raster` and `emem_raster_resolve`
-are MCP tools. Open: `emem:cube:` stays unminted until a multi-tslot
-surface exists to mint one, and the numeric anchors spot-check has no
-dedicated verifier endpoint yet (re-hash the artifact and compare
-anchors client-side; the record carries everything needed). One envelope delta from the
-text below, chosen for reuse: the derivation record rides as the value
-of a `DerivativeFact` (the attribution-ledger envelope), so
-persistence, the merkle log, and `emem:fact:` resolution came free;
-the record body carries the aoi_cid exactly as specified. The anchors
-question resolved best-effort, for the reason section 6 predicted.**
+## Status on 7 November 2026
+
+The code is `crates/emem-api-rest/src/band_raster.rs`. The worked example
+below ran on emem.dev on 7 November 2026.
+
+| Item | Status | Where |
+|---|---|---|
+| FIELD preimage segment | Ships | `/v1/verifier_spec`, scalar `field_hex`, tag 10, optional |
+| Canonical grid encoding | Ships | `crates/emem-codec/src/grid.rs`, media type `application/x.emem-grid-f32.v1` |
+| Evictable artifact store | Ships | `crates/emem-storage/src/artifacts.rs`, `GET /v1/artifacts/{cid}` |
+| One field over an area | Ships | `POST /v1/band_raster`, MCP `emem_band_raster` |
+| Resolve a field token | Ships | `POST /v1/raster/resolve`, MCP `emem_raster_resolve` |
+| Anchors spot-check | Ships, opt-in | `"spot_check": true` on the raster resolve |
+| One field over time | Ships | `POST /v1/band_cube` and `POST /v1/cube/resolve`, MCP `emem_band_cube` and `emem_cube_resolve` |
+| A set of field tokens | Ships | `POST /v1/raster_bundle` and `/v1/raster_bundle/resolve`, MCP `emem_raster_bundle` and `emem_raster_bundle_resolve` |
+| Per-pixel signatures, chunk Merkle reads | Not built | Out of scope for version 1 (see below) |
+
+Three points differ from the original design:
+
+- The derivation record is the value of a `DerivativeFact`. This reuses the
+  attribution-ledger envelope, so the record gets persistence, the Merkle
+  log and `emem:fact:` resolution with no new code.
+- A `band_raster@1` record has 5 anchors: the four corners inset by 2% of the box, and
+  the centre. The design said 4 to 16.
+- `sources[]` pins the scene id, asset URL, catalogue and capture time.
+  It has no byte hash of the upstream file.
+
+The OpenAPI request schema for `/v1/raster/resolve` lists only `token`.
+The server and the MCP tool also accept `spot_check`.
 
 ## The question
 
-`POST /v1/band_raster` will return a native-resolution window for an
-area of interest: tens of thousands of pixel values as one artifact. A
-2 km AOI holds about 40,040 cells at 10 m. Every receipt emem has ever
-signed binds `(cell, fact_cid)` pairs, one per signed record; a raster
-is the first response that is bulk bytes with no cell and no fact_cid.
-Stapling a signature onto a byte pipe would make "signed" mean nothing.
-So: what exactly does the responder attest?
+`POST /v1/band_raster` returns a native-resolution window over an area of
+interest. A 2 km area holds about 40,040 cells at 10 m. Every earlier
+receipt binds `(cell, fact_cid)` pairs, one pair for each signed record.
+A raster is bulk bytes with no cell and no `fact_cid`. A signature on a
+byte stream alone proves nothing about the content. So what does the
+responder attest?
 
-## The answer in one sentence
+## The answer
 
-The receipt attests a DERIVATION, not an array: "this responder
-computed the artifact whose blake3 is `artifact_cid`, from these pinned
-upstream sources, via this versioned recipe, over this
-content-addressed geometry and this time slot," and every one of those
-five claims is independently checkable.
+The receipt attests a derivation, not an array. It says: "this responder
+computed the artifact whose BLAKE3 is `artifact_cid`. It used these
+pinned upstream sources, this versioned recipe, this content-addressed
+geometry and this time slot." A reader can check each of these five
+claims independently.
 
 ## The design
 
-### 1. The artifact is content-addressed like everything else
+### The artifact has a content address
 
-`artifact_cid = blake3(artifact_bytes)`, full 32 bytes, base32 (52
-characters, the fact_cid convention). The bytes are one canonical
-encoding per media type, stated in the derivation record (first target:
-a deterministic little-endian `f32` row-major grid with a fixed 64-byte
-header carrying dims, nodata, and CRS; GeoTIFF rendering is a lossy
-VIEW of the artifact, never the signed thing, because compressors are
-not byte-stable across versions).
+`artifact_cid = blake3(artifact_bytes)`. It is the full 32 bytes in
+base32, 52 characters, the same form as a `fact_cid`. Each media type has
+one canonical encoding, and the derivation record names it.
 
-### 2. The signed object is a derivation record, not the pixels
+The first encoding is a little-endian `f32` grid in row-major order. A
+fixed 64-byte header holds the magic `EMEMGRD1`, the dimensions, nodata
+and the CRS. A GeoTIFF is only a lossy view of the artifact. The
+signature never covers a GeoTIFF, because compressors do not give the same
+bytes across versions.
 
-A `FieldDerivation` record (canonical CBOR, hashed and signed like any
-fact) carries:
+### The signed object is a derivation record
 
-- `aoi_cid`: blake3 over the canonical CBOR of the request geometry,
-  so the same area always names the same field.
-- `band`, `tslot`: the observable and its time bucket.
-- `fn_key`: the versioned recipe (`band_raster@1`) in the algorithm
-  registry.
-- `sources[]`: the pinned upstream, scene id plus byte hash where the
-  upstream provides one, the same pinning recall provenance uses.
-- `artifact_cid`, `byte_len`, `media_type`, `grid`: dims, pixel pitch,
-  CRS, nodata.
-- `anchors[]`: between 4 and 16 sampled cell64s inside the AOI, each
-  with the pixel value the artifact holds at that cell and, where the
-  store holds one, the fact_cid of the ordinary per-cell fact for the
-  same `(cell, band, tslot)`.
+The record has schema `emem.field_derivation.v1` and is canonical CBOR.
+The responder hashes and signs it like any fact. It holds these fields:
 
-The receipt binds `(aoi_cid, derivation_cid)` through a new tagged,
-length-prefixed preimage segment (append-only tag constants, so
-`/v1/verifier_spec` serializes it automatically and the offline
-verifier learns it from the spec, not from prose).
+| Field | Meaning |
+|---|---|
+| `aoi`, `aoi_cid` | The request geometry and the BLAKE3 of its canonical CBOR. The same area always gets the same `aoi_cid`. |
+| `band`, `tslot` | The observable and its time slot (days since 1970-01-01). |
+| `fn_key` | The versioned recipe in the algorithm registry, for example `band_raster@1`. |
+| `sources[]` | The pinned upstream scene. |
+| `artifact` | `artifact_cid`, `byte_len`, `media_type` and `grid` (dimensions, pixel pitch, EPSG code, origin). |
+| `anchors[]` | Sample cells inside the area. Each has its row, column and grid value, and the `fact_cid` of the per-cell fact when the store holds one. |
+| `anchor_policy` | The rule for anchors (best effort, see the last section). |
 
-### 3. Verification has a cheap tier and a total tier
+The receipt binds `(aoi_cid, derivation_cid)` through a tagged,
+length-prefixed preimage segment. The tag constants are append-only.
+`/v1/verifier_spec` lists the segment, so an offline verifier learns it
+from the spec and not from prose. A receipt with no field binding hashes
+to the same bytes as before the segment existed.
 
-- **Spot-check (milliseconds, no upstream):** recompute
-  `blake3(artifact_bytes)` against `artifact_cid`, then check the
-  `anchors[]`: read the artifact's pixel at each anchor cell and
-  compare against the anchor value, and where an anchor carries a
-  fact_cid, resolve that ordinary fact and compare again. The anchors
-  bridge the new artifact trust to the existing per-cell trust: a
-  forged artifact must now also forge signed per-cell facts to pass.
-- **Recompute (the full audit):** fetch the pinned sources, run
-  `band_raster@1` (deterministic by construction: pinned inputs, fixed
-  resampling, canonical encoding), and compare digests. This is the
-  same replay story every derived fact already tells, at field size.
+### Verification has two tiers
 
-### 4. The token grammar extension
+| Tier | What the reader does | Needs upstream access |
+|---|---|---|
+| Spot-check | Hash the artifact and compare with `artifact_cid`. Read the pixel at each anchor and compare with the anchor value. If an anchor has a `fact_cid`, resolve that fact and compare again. | No |
+| Recompute | Fetch the pinned sources, run the recipe, and compare digests. | Yes |
 
-- `emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid>` names one
-  field. Dereference returns the derivation record plus the artifact
-  bytes (or a 404 with the recompute recipe if the artifact was
-  evicted; see 5). Anchor-binding rule as for fact tokens: every claim
-  in the token must match the signed record or the resolve refuses.
-- `emem:cube:<aoi_cid>:<band>:<tslot_a>..<tslot_b>:<cube_cid>` names a
-  stack; `cube_cid` is the blake3 of the ordered list of the member
-  derivation cids, the bundle construction reused.
+The anchors connect the artifact to the per-cell facts. To pass the
+spot-check, a forged artifact must also forge signed per-cell facts. The
+recompute tier is the same replay that every derived fact supports.
 
-### 5. Storage is evictable because everything is recomputable
+The responder runs the spot-check when the resolve request has
+`"spot_check": true`. The answer gets a `spot_check` block with a
+verdict for each anchor and a `passed` flag. If the store evicted the artifact,
+the block says `checked: false` and gives the reason.
 
-Artifacts live in a content-addressed blob store keyed by
-`artifact_cid`, size-capped with LRU eviction. Evicting bytes never
-breaks a citation: the derivation record is small, persists like any
-fact, and carries everything needed to rebuild the identical bytes.
-This is the cell-build-graph promise ("derived layers are evictable
-without breaking citations") applied to its first artifact-typed value.
+### The token grammar
 
-### 6. What this deliberately does not do
+| Token | Names | Resolve route |
+|---|---|---|
+| `emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid>` | One field | `POST /v1/raster/resolve` |
+| `emem:cube:<aoi_cid>:<band>:<tslot_lo>..<tslot_hi>:<derivation_cid>` | One field over 2 to 24 dates | `POST /v1/cube/resolve` |
+| `emem:rasterset:<bundle_cid>:<derivation_cid>` | 2 to 64 field tokens | `POST /v1/raster_bundle/resolve` |
 
-- No per-pixel signatures and no merkle-chunked partial reads in v1;
-  a window that wants independent verification is its own AOI. A
-  chunk-merkle root can replace `artifact_cid` later without changing
-  the token grammar (the cid stays "the digest the receipt binds").
-- No generative fill. A pixel with no source data is nodata, never an
-  interpolation; densified or synthesized fields keep the splat rule
-  (labelled, separate, never inside a `measured` artifact).
-- No new trust class: the artifact inherits the band's provenance
-  class, and the derivation record says so.
+Each token claim must match the signed record, or the resolve refuses
+with HTTP 409. This is the same rule as for fact tokens.
 
-## Build order, once signed off
+The design gave the cube token `cube_cid` as its last segment. As built,
+the last segment is the derivation cid, and `cube_cid` is a field in the
+record. `cube_cid` is the BLAKE3 of the canonical CBOR of the member
+derivation cids in ascending time-slot order. The cube resolve
+recomputes it and refuses a changed membership.
 
-1. The preimage segment tags plus verifier-spec rows (emem-attest),
-   with test vectors.
-2. `FieldDerivation` record and CAS blob store (emem-fact,
-   emem-storage).
-3. `band_raster@1` recipe, the canonical `f32` grid encoder, and the
-   executor over `cog::sample_window` (whose native-resolution output
-   every current call site destroys).
-4. The two token forms in the grammar, resolve and refuse rules.
-5. MCP tool and OpenAPI surface; counts move; docs flip in the same
-   commit, as always.
+### Storage can evict because the record can rebuild
 
-## The open question that stays open
+Artifacts live in a content-addressed blob store under
+`$EMEM_DATA/artifacts`. `EMEM_ARTIFACTS_MAX_BYTES` sets the cap, and the
+default is 4 GiB. When the store is full, it removes the blobs with the
+oldest file time (mtime). A read or a repeated write updates that time.
 
-Whether `anchors[]` should be REQUIRED to include at least one cell
-with an existing per-cell fact (strongest bridge, but a cold AOI would
-then materialize one fact per raster call and pay its latency), or
-best-effort (weaker bridge, no forced materialization). Owner's call at
-build time; the record shape carries both.
+Eviction never breaks a citation. The derivation record is small and
+persists like any fact. It holds what a reader needs to rebuild the same
+bytes. If the artifact is gone, the resolve says so in
+`artifact.if_evicted`, and `GET /v1/artifacts/{cid}` returns a typed 404.
+This applies the cell-build-graph rule: the store can evict derived layers,
+and the citations stay valid.
+
+### What this design does not do
+
+- It has no per-pixel signatures and no Merkle-chunked partial reads in
+  version 1. To verify a smaller window on its own, request it as its own
+  area. A chunk Merkle root can replace `artifact_cid` later with no change
+  to the token grammar.
+- It does not fill gaps. A pixel with no source data is nodata, never an
+  interpolation. Densified or synthesized fields stay labelled, separate,
+  and outside any `measured` artifact.
+- It adds no trust class. The artifact gets the provenance class of its
+  band, and the record says so.
+
+## A worked example
+
+These calls ran on emem.dev on 7 November 2026, over a box of about
+550 m on the side of Mount Fuji. The `band_raster` call reads a scene and
+persists a derivation record. It needs no key.
+
+```sh
+curl -s https://emem.dev/v1/band_raster -H 'content-type: application/json' \
+  -d '{"bbox":{"min_lat":35.36,"min_lng":138.72,"max_lat":35.365,"max_lng":138.726},"band":"s2.B04"}'
+```
+
+The answer named Sentinel-2 scene
+`S2C_MSIL2A_20261028T012741_R074_T54STE_20261028T043307` and tslot 20754.
+The grid was 56 by 55 pixels at 10 m in EPSG:32654. The artifact had
+12,384 bytes: 64 header bytes plus 4 bytes for each of 3,080 pixels. The checks gave
+these results:
+
+| Check | Result |
+|---|---|
+| BLAKE3 of the bytes from `GET /v1/artifacts/{cid}` | Equal to `artifact_cid` |
+| Grid value at each of the 5 anchors | Equal to the anchor value |
+| Resolve with `"spot_check": true` | `passed: true`, `grid_matches_record: 5`, `anchors_with_fact: 0` |
+| Resolve with the tslot changed to 20753 | HTTP 409, "token tslot 20753 contradicts the signed record" |
+| `band_cube` for 2026-09-15 and 2026-10-28 | 2 members, tslots 20739 to 20754 |
+
+No anchor had a per-cell fact, because nothing had read those cells
+before. This is the best-effort policy at work.
+
+The MCP form of the resolve:
+
+```json
+{"name": "emem_raster_resolve",
+ "arguments": {"token": "emem:raster:<aoi_cid>:s2.B04:20754:<derivation_cid>", "spot_check": true}}
+```
+
+## Build order
+
+| Step | Work | Status |
+|---|---|---|
+| 1 | Preimage segment tags and verifier-spec rows (emem-attest), with test vectors | Ships |
+| 2 | Derivation record and content-addressed blob store (emem-fact, emem-storage) | Ships, record as a `DerivativeFact` |
+| 3 | `band_raster@1` recipe, `f32` grid encoder, executor over `cog::sample_window` | Ships |
+| 4 | The token forms, with resolve and refuse rules | Ships, raster, cube and rasterset |
+| 5 | MCP tools and OpenAPI surface, counts and docs in the same commit | Ships |
+
+Before step 3, every call site of `cog::sample_window` discarded its
+native-resolution output.
+
+## The open question, now closed
+
+The question was: must `anchors[]` include at least one cell with an
+existing per-cell fact? A required anchor gives the strongest bridge.
+But a cold area would then materialize one fact for each raster call and
+pay its latency. That is the gateway-timeout trap that
+[partial-results.md](partial-results.md) describes.
+
+The owner chose best effort. An anchor cites an existing per-cell fact
+when the store holds one, and the responder never materializes a fact to
+make the bridge. The record shape carries both cases.

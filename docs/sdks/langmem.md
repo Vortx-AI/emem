@@ -136,7 +136,7 @@ Over MCP, a refusal puts its `details` block (with `how_to_sign`) in the message
 `EmemStoreError` keeps only the first 500 characters of that text.
 To see the full refusal, send the same call directly. See [Sign writes yourself](#sign-writes-yourself).
 
-Version 2.4.0 had two more defects. Version 2.4.2 fixed them.
+The 2.4.0 release had two more defects. The 2.4.2 release fixed them.
 `mdelete` signed only the v1 preimage, so the responder refused it.
 A tool result with `isError: true` did not raise an error.
 

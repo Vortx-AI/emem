@@ -1053,7 +1053,7 @@ Look at `/v1/data_availability` before you select a window.
 ### MCP tools by shape
 
 `tools/list` on `/mcp` shows the 18 `core` tools in one page (about 75 KB of descriptors).
-`/mcp/full` advertises all 116 (about 355 KB over 9 pages on 7 November 2026). Send
+`/mcp/full` advertises all 116 (about 354 KB over 8 pages on 7 November 2026). Send
 `{"tier": "core"}`, `"extended"` or `"all"` to change the list on either
 endpoint. `tools/call` runs any tool by name on both endpoints, so a short
 list costs you no tools.
