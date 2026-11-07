@@ -368,7 +368,16 @@ in `results[0].result`.
 
 The diff answer also has a `phenology` block. For the call above, on
 7 November 2026, it said that the two readings were 95 days apart in the
-seasonal cycle. Thus the delta mixes the season with real change. To
+seasonal cycle. Thus the delta mixes the season with real change.
+
+Branch on `phenology.same_doy`, not on the `caution` text. The block has
+`doy_a`, `doy_b`, `doy_gap_days`, `same_doy` and `years_apart`. The gap is
+circular, so day 350 and day 15 are 30 days apart. `same_doy` is true when
+the gap is 16 days or less. Only then is `caution` absent. A static band,
+such as elevation, gets no `phenology` block. The block is not signed and
+is not in the receipt (`phenology_advisory` in
+`crates/emem-api-rest/src/lib.rs`). For the call above, `doy_a` was 31,
+`doy_b` was 301 and `years_apart` was 0. To
 measure change from one year to the next, compare one day of the year
 across years:
 
