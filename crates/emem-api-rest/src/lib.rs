@@ -676,16 +676,17 @@ pub fn router(state: AppState) -> Router {
     // spawn_warm_priority_loop for the file format.
     spawn_warm_priority_loop(state.clone());
 
-    // Warm the GeoNames cities5000 index on a worker thread so the first
-    // find_similar / locate / reverse-geocode call doesn't pay the ~150 ms
-    // decompress+parse hit synchronously. The OnceLock inside emem-fetch
-    // makes this idempotent, repeated calls are a no-op.
+    // Warm every embedded gazetteer index on a worker thread, not only
+    // GeoNames. The locate cascade reads all of them, and each builds inside a
+    // OnceLock on first use, synchronously, on the async worker that serves the
+    // request. Measured 2026-11-07 on a fresh debug node: the first
+    // `POST /v1/locate` took 25 s, and one earlier took 55 s and returned 504.
+    // Work that holds the worker thread also delays the 40 s TimeoutLayer.
+    // admin2 and admin3 re-read cities1000 to build their bboxes, so they cost
+    // the most. Each OnceLock makes a repeated call a no-op.
     std::thread::Builder::new()
-        .name("emem-geonames-warm".into())
-        .spawn(|| {
-            let n = emem_fetch::geonames::warm_index();
-            tracing::info!(target: "emem::geocoder", geonames_index_warm = n, "geonames_index_warm");
-        })
+        .name("emem-gazetteer-warm".into())
+        .spawn(warm_gazetteer_indexes)
         .ok();
 
     // Open the embedded Lance vector index, install it on
@@ -1913,6 +1914,31 @@ fn eudr_router(state: AppState) -> Router {
 /// Off by ≈0.5 % vs the proper geodetic distance, acceptable for the
 /// "what scale is this cell" UX hint, not for survey-grade calculations.
 const METERS_PER_DEGREE_LAT: f64 = 111_320.0;
+
+/// Builds the embedded gazetteer indexes that `locate_inner` reads, in
+/// cascade order, and logs the size and time of each.
+fn warm_gazetteer_indexes() {
+    type Warm = fn() -> usize;
+    let indexes: [(&str, Warm); 6] = [
+        ("geonames", emem_fetch::geonames::warm_index),
+        ("countries", emem_fetch::countries::warm_index),
+        ("admin1", emem_fetch::admin1::warm_index),
+        ("admin2", emem_fetch::admin2::warm_index),
+        ("admin3", emem_fetch::admin3::warm_index),
+        ("pois", emem_fetch::pois::warm_index),
+    ];
+    for (name, warm) in indexes {
+        let t0 = std::time::Instant::now();
+        let n = warm();
+        tracing::info!(
+            target: "emem::geocoder",
+            index = name,
+            records = n,
+            elapsed_ms = t0.elapsed().as_millis() as u64,
+            "gazetteer_index_warm"
+        );
+    }
+}
 
 /// Hard cap on POST bodies. Defaults to 16 MiB; tunable via
 /// `EMEM_BODY_LIMIT_MB` (clamped to 1..=256 MiB).
