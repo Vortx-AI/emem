@@ -127,7 +127,7 @@ Each plot carries a `verdict_support` block. It grades the inputs by a fixed rul
 | Input | `strong` needs | `weak` when |
 |---|---|---|
 | Cells with both the JRC baseline and the Hansen loss year | 95 % or more | below 80 % |
-| TMF and Hansen agree on loss after the cut-off, where TMF reads | 90 % or more | below 70 % |
+| Cells where TMF and Hansen agree on loss after the cut-off (both see it, or neither does), of the cells TMF reads | 90 % or more | below 70 % |
 | Cells within 2 points of the 10 % canopy threshold | 10 % or less | above 30 % |
 | Distance between samples, on a plot of 0.5 ha or more | 71 m or less | above 141 m |
 
@@ -156,9 +156,11 @@ The responder holds the statement back when one of these is true:
 |---|---|
 | `tmf_cross_check_review_required` | On a plot, TMF sees a loss after the cut-off that Hansen does not |
 | `verdict_support_weak` | A plot has `verdict_support.level` `weak` |
-| `jrc_baseline_unavailable_hansen_only` | The verdict ran on Hansen alone, because the JRC baseline gave no value |
+| `jrc_baseline_unavailable_hansen_only` | No cell on any plot of the request had a JRC value, and at least one cell had a Hansen value |
 
 The list names every cause that applies.
+The first two causes come from one plot. The third cause comes from all the cells of the request.
+When TMF reads no cell on a plot, the TMF agreement row and the TMF cause do not apply to that plot.
 If the DDS verdict is not `pass`, the list starts with `verdict_<label>`, for example `verdict_fail`.
 `statement_of_compliance_signable` is true only for a `pass` with an empty list of causes.
 When the responder holds it, `statement_of_compliance` gives the reason in place of the Annex II point 5 text.
