@@ -63,7 +63,7 @@ def scene(spec):
     s.fish(150, H - 150, 28, col=INDIGO, angle=-0.15)
     s.fish(205, H - 118, 22, col=TEAL, angle=0.12)
     s.fish(112, H - 108, 18, col=LAC, angle=0.25)
-    s.vine(255, H - 200, 560, H - 210, col=LEAF, n=5, amp=20)
+    s.vine(255, H - 176, 560, H - 184, col=LEAF, n=5, amp=14)
     s.fish(660, H - 196, 24, col=VERMIL, angle=0.1)
     s.fish(720, H - 220, 18, col=TURMERIC, angle=-0.1)
     s.fish(900, H - 200, 22, col=INDIGO, angle=0.08)
