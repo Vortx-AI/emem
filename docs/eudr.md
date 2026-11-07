@@ -150,6 +150,7 @@ The responder counts a GeoJSON Point as 0.01 ha, so a Point plot gets both limit
 The sample spacing is the square root of the plot area divided by the cell count.
 For a polygon, this plot area is the area inside the polygon, not the area of its bounding box.
 A `bbox` plot of 4 ha or less gets one sample, so its spacing is the square root of the box area.
+A cattle plot (HS code that starts with 0102, 0201 or 0202) is the exception: it gets the polygon sample count.
 Above 2 ha, that spacing is more than 141 m.
 The level is then `weak`, and the responder holds the statement.
 For a `bbox` plot of more than 2 ha, send the plot as a polygon.
