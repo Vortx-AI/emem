@@ -19,7 +19,7 @@ The image is `ghcr.io/vortx-ai/emem:latest`. It has builds for `linux/amd64` and
 docker run --rm -p 5051:5051 -v emem-data:/var/emem ghcr.io/vortx-ai/emem:latest
 ```
 
-Then send two requests:
+The container runs in the foreground. In a second terminal, send two requests:
 
 ```bash
 curl http://localhost:5051/live
@@ -31,6 +31,10 @@ curl -sX POST http://localhost:5051/v1/locate \
 `/live` is the cheap probe. Its reply has `ok`, `version` and the node's `responder_pubkey_b32`. The locate reply has
 the `cell64` of the place. `/health` also reports corpus statistics and can be slower. The node needs no key and no
 account. On the first recall of a cell, it reads the open archives, signs the values and stores them.
+
+To stop the node, press Ctrl+C in the first terminal. The node gives open requests up to 3 seconds
+(`EMEM_SHUTDOWN_GRACE_S`), flushes its store, then stops. `--rm` removes the container. The `emem-data` volume
+keeps the data and the key.
 
 On 7 November 2026 the host that wrote this page had no Docker. A registry query found the image manifest, and
 the two requests ran against `https://emem.dev`, which runs the same image. The image facts below come from
@@ -324,7 +328,9 @@ The Space at <https://huggingface.co/spaces/vortx-ai/emem> runs the same image. 
 [`huggingface-space/`](https://github.com/Vortx-AI/emem/tree/main/huggingface-space). Click "Duplicate this Space" to run a copy in your own Hugging Face
 account. This is a quick way to test without a VM.
 
-The Space pins an image digest, not `:latest`, so it can be older than emem.dev.
+The Space pins an image digest, not `:latest`, so it can be older than emem.dev. On 7 November 2026 the Space
+reported version 2.4.2 at `/live`, and emem.dev reported 2.4.4. The Space also signs with its own key, and so does
+your copy.
 
 ## What changes when you run your own node
 
