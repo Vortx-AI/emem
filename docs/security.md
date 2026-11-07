@@ -5,6 +5,9 @@ claim. It includes the weak parts. It helps you decide if an agent can read from
 emem, write to it, or cite it to a third party. If this page and the source
 code disagree, the source code is correct and this page has a bug.
 
+To report a vulnerability, follow [SECURITY.md](../SECURITY.md). Do not
+open a public issue for it.
+
 Two rules carry most of the model:
 
 1. **A signature says who wrote a thing.** It does not say that the thing is

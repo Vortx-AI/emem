@@ -13,6 +13,7 @@ the fix in place. We probed each row on the live responder on 14 September
 Reads are open at every tier on every surface, so a reader cannot poison
 anything. Writes have tiers by what they can reach, never by who is asking
 (`GET /v1/enlist`). The [security page](../security.md) explains the tiers.
+To report a new attack, follow [SECURITY.md](../../SECURITY.md).
 
 ## The surfaces
 
