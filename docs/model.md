@@ -24,8 +24,11 @@ endpoint that does it. Open work stays in its own section.
   identity only.
 - When two sources disagree at one place, emem keeps both and scores the
   disagreement. It does not average them.
-- When emem has no data, it signs an absence with a typed reason. It
-  never returns an empty answer as if it were knowledge.
+- When emem has no data, it tells you why. Some misses give a signed
+  absence fact. Other misses give no facts and an unsigned note with a
+  typed reason. On 7 November 2026, a recall of `indices.ndvi` in the
+  open Pacific gave `facts: []` and the note `status: "skipped"`,
+  `reason_class: "upstream_error"`, `retryable: true`.
 - Every fact read carries a receipt. You check it offline with the
   public key of the responder. Some answers are not fact reads and have
   no receipt, for example a corpus audit from `/v1/ask` or a memory
@@ -142,7 +145,7 @@ machine checks is open work for all of them.
 | Reproducibility | a name resolves to byte-identical bytes on any responder that holds it. You can also compute `direct_sensor` and `deterministic_index` observations again from their cited raw source | content addressing; provenance classes; the `deterministic: true` recall filter |
 | Verifiability | any signed answer verifies offline with only the public key of the responder | the receipt preimage (see below). An RFC 6962 transparency log (`/v1/log/*`) that outside witnesses co-sign. `/verify` in the browser. The Python samples in [agents](./agents.md) run against production and print VALID |
 | Composability | signed sets and named objects are first-class | `emem:bundle:` (N observations, one signed envelope); `emem:entity:` (one object identity over many observations) |
-| Honest absence | an absence of data is itself a signed answer with a typed reason, and you can cite it | absence facts; never an empty 200 that looks like knowledge |
+| Honest absence | a miss always says why. Some misses are a signed absence fact that you can cite. Other misses return no facts and an unsigned note with a typed reason | absence facts (`Fact::Absence`); `materialize_notes[]` with `status`, `reason_class` and `retryable`; the receipt signs the empty `fact_cids` list |
 | Attested trust class | an attestation says how emem made a value. The class comes from the signed bands manifest, not from a claim in one response | the provenance class is in the content-addressed bands manifest, and every receipt preimage includes its `bands_cid` |
 
 The receipt preimage is domain-separated, tagged and length-prefixed.
