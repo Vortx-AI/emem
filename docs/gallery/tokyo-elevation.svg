@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 684" width="720" height="684">
-  <title>Tokyo, Japan — copdem30m.elevation_mean</title>
-  <desc>emem.dev value-painted bbox grid; band=copdem30m.elevation_mean, n_cells=64, range=[29.00, 55.00].</desc>
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="t d" viewBox="0 0 720 684" width="720" height="684">
+  <title id="t">Tokyo, Japan: copdem30m.elevation_mean, mean elevation in metres on an 8 by 8 grid of cells</title>
+  <desc id="d">emem.dev value-painted bbox grid; band=copdem30m.elevation_mean, n_cells=64, range=[29.00, 55.00].</desc>
   <defs>
     <style>
       .h1 { font-family: 'Source Serif 4','Source Serif Pro','Georgia',serif; font-weight: 600; font-size: 21px; fill: #1a1a1a; }
