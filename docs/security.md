@@ -24,6 +24,7 @@ check that you can run offline. The step-by-step checks are in
 | The key that a memory note names wrote it | [protocol §7.5.1](./protocol.md#751-check-a-notes-authorship-by-hand) |
 | A fact is in the batch that the receipt signs | [protocol §8](./protocol.md#8-merkle-inclusion-proof) |
 | A signed tree head commits a log entry | [protocol §9.6.1](./protocol.md#961-check-an-inclusion-proof-by-hand) |
+| A `fact_cid` matches the fact bytes | [protocol §5.5](./protocol.md#55-recompute-a-fact_cid-by-hand) |
 | Which code answered you | [section 1](#1-which-code-answered-you) |
 | What each refusal means | [errors](./errors.md) |
 
@@ -312,7 +313,8 @@ in the `org_vouched` tier signed the current head. The other two head fields
 say less:
 
 - `head_is_witnessed` counts this node's own write-liveness canary. The
-  canary signs the head every two minutes.
+  code comments say that the canary signs every two minutes. On 7 November
+  2026 it signed about once a minute.
 - `head_is_independently_witnessed` removes this node's key, but it counts
   every `key_only` key. Anyone can make such keys at no cost.
 
@@ -320,22 +322,28 @@ The live response `note` still points to `head_is_independently_witnessed`.
 The code comments call `independent_witness_count` a number that "a swarm of
 fresh keys inflates at will".
 
-On 7 November 2026 at 00:46 UTC, `/v1/log/witnesses` reported the values
+On 7 November 2026 at 01:29 UTC, `/v1/log/witnesses` reported the values
 below. The tree size and the lag grow with each log entry.
 
 | Field | Value |
 |---|---|
-| `current_tree_size` | 3,243,880 |
+| `current_tree_size` | 3,244,676 |
 | `independent_witness_count` | 112 keys |
 | `witness_keys_by_tier` | 111 `key_only`, 1 `org_vouched`, 1 `self_operator` |
 | `independent_operator_count` | 1 |
-| `freshest_independent_witness_entries_behind` | 20 |
+| `freshest_independent_witness_entries_behind` | 22 |
 | `head_is_independently_witnessed` | `false` |
 | `head_is_witnessed_by_independent_operator` | `false` |
 
 A `key_only` witness proves only that someone holds a key, and keys are free.
 So one independent operator vouched by a domain counts for more than 111 bare
-keys.
+keys. On that day `independent_operator_domains` named one operator, `eudr.dev`.
+
+If you pinned a head earlier, add `at_or_after=<your tree_size>`. The
+response then has a `nearest_witnessed` block. It gives the nearest co-signed
+head at or after your size, with an independent key first. It also gives a
+consistency proof from your size to that head. Check each witness signature,
+then check the proof.
 
 The node hash is `blake3(0x01 || left || right)`. A witness that uses SHA-256
 cannot reproduce the root. From outside, that failure looks the same as
@@ -448,7 +456,7 @@ the operator cannot read, encrypt on the client first.
 You can check all of the above from outside:
 
 1. Hash the canonical CBOR bytes of a fact with BLAKE3. Compare the result
-   to its `fact_cid` ([protocol §3.2](./protocol.md#32-factcid)).
+   to its `fact_cid` ([protocol §5.5](./protocol.md#55-recompute-a-fact_cid-by-hand)).
 2. Verify the Ed25519 signature against the attester key, offline
    ([protocol §7.4](./protocol.md#74-offline-verification-python)).
 3. Pin an STH. Later, get a consistency proof and fold it yourself
