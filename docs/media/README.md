@@ -51,9 +51,8 @@ whole series.
 
 <img src="stills/ndvi-two-seasons.webp" alt="Still from live emem.dev calls on 7 November 2026. A farm box near Ames, Iowa, of 2200 Sentinel-2 pixels. Two true-colour crops: 1 August 2024, median NDVI 0.88, and 22 October 2024, median NDVI 0.26. A chart of median NDVI with the p10 to p90 band for 17 clear scenes from February 2024 to November 2025, with two peaks in July and August. Eight cloudy scenes are marked as left out. The whole series has one token, emem:fact:defi.zb5dd.ze38f.nEzo:gutxcpc54gzyegyuvxr7dkevmixz5k7dnq3sfzckqocfpwbcixma, and verify_receipt returns valid. Contains modified Copernicus Sentinel data 2024-2025." width="540">
 
-More: [agents.md](../agents.md), section on `field_series`. The film
-[emem-ndvi-season.mp4](films/emem-ndvi-season.mp4) shows the same answer one scene at a time. It is silent and
-32 seconds long.
+More: [agents.md](../agents.md), section on `field_series`. The film [emem-ndvi-season.mp4](films/emem-ndvi-season.mp4)
+shows the same answer one scene at a time. It is silent and 32 seconds long.
 
 ## If one bit of a fact changes, does its id change?
 

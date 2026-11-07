@@ -64,12 +64,11 @@ Do not use colour as the only signal. Write the word too, for example `valid` or
 - Render frame by frame from an HTML page with `window.film.seek(t)`. Do not record a screen. The pages and the
   renderer are in [films/src/](films/src/). Run `python3 film.py --help` there for the commands.
 - Ship one MP4 (H.264) of 2 MB or less and a WebP poster of 300 KB or less. Do not add a WebM copy unless a page
-  needs it. One format keeps the repository small.
-  The films are 1080 by 960 px. A poster is 1080 or 720 px wide. On a phone, a 720 px poster and a 1080 px
-  poster both fill the screen width.
-- On a docs page, show the poster and link it to the MP4.
-  When a still of the same data is directly above, give text links only, so the page does not show the
-  same picture twice. `agents.md` does this for `emem-ndvi-season.mp4`.
+  needs it. One format keeps the repository small. The films are 1080 by 960 px. A poster is 1080 or 720 px wide.
+  On a phone, a 720 px poster and a 1080 px poster both fill the screen width.
+- On a docs page, show the poster and link it to the MP4. When a still of the same data is directly above, give
+  text links only, so the page does not show the same picture twice. `agents.md` does this for
+  `emem-ndvi-season.mp4`.
 
 ## Stills
 
@@ -89,15 +88,18 @@ Do not use colour as the only signal. Write the word too, for example `valid` or
 The alt text states what the image shows, with the values. The caption says what the image does not prove when that
 matters, for example "A signature shows who signed. It does not show that the value is true."
 
-Before you commit, run `python3 docs/media/stills/src/check_media.py` from the repository root. It
-fails when a file is over its size limit or has no row in the table below. It fails when a page gives
-the wrong length for a film. It also fails when a number in a still's alt text is in no saved response.
-A value that a script computes, such as a byte count, goes in its `COMPUTED` list with the code that makes it.
-For [README_MEDIA_PROPOSAL.md](README_MEDIA_PROPOSAL.md), it also checks each byte size, each file name, and
-that README.md still shows the old image on each line a swap names.
-It fails when a still or a poster has a transparent pixel or a corner that is not `#0d1117`. It also fails
-on a width that these rules do not give. It fails when a diagram has no `#0d1117` rect over its full view box, or has
-text smaller than 16 px.
+Before you commit, run `python3 docs/media/stills/src/check_media.py` from the repository root. It fails in
+these cases:
+
+- A file is over its size limit or has no row in the table below.
+- A page gives the wrong length for a film.
+- A number in a still's alt text is in no saved response. A value that a script computes, such as a byte count,
+  goes in its `COMPUTED` list with the code that makes it.
+- A byte size or a file name in [README_MEDIA_PROPOSAL.md](README_MEDIA_PROPOSAL.md) is wrong. Or README.md no
+  longer shows the old image on a line that a swap names.
+- A still or a poster has a transparent pixel, a corner that is not `#0d1117`, or a width that these rules do not
+  give.
+- A diagram has no `#0d1117` rect over its full view box, or has text smaller than 16 px.
 
 Text in a still must stay readable on a phone. A phone shows a still in a column about 360 px wide. On that column,
 no text may be smaller than 9.9 px. On a still drawn 800 px wide, that is 22 px. Chart text inside an SVG counts at
@@ -195,8 +197,8 @@ before you reuse a number.
 You need Python 3 with Playwright (Chromium) and Pillow, `ffmpeg` with libx264, and `xvfb-run` for
 films. `recall_cell.py` and `hero.py` also need `pyproj`. Run these commands from the repository root.
 
-First put the saved responses back in the `data/` folders. Then get the scene PNGs again from emem.dev.
-The second command makes 31 read-only GET calls and compares each PNG with its SHA-256 in `scenes.json`:
+First put the saved responses back in the `data/` folders. Then get the scene PNGs again from emem.dev. The
+second command makes 31 read-only GET calls and compares each PNG with its SHA-256 in `scenes.json`:
 
     python3 docs/media/src_data.py unpack
     python3 docs/media/src_data.py scenes
