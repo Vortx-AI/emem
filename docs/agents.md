@@ -632,7 +632,7 @@ def emem_recall(cell: str, bands: list[str] | None = None) -> dict:
 The full tool sets are `examples/langchain.py` (nine tools) and
 `examples/llamaindex.py` (six tools).
 
-![the agent loop: discover, locate, recall, reason, verify](diagrams/04-agent-loop.svg)
+![The agent loop in five steps: ask in free text, recall a signed fact, cite its fact_cid, act in the world, and write back a new memory. The shared memory grows each turn.](diagrams/04-agent-loop.svg)
 *The agent loop. After the first contact, an agent uses its cached cells and calls `recall` or `find_similar` directly.*
 
 ## Read a recall answer
