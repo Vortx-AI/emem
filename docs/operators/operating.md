@@ -183,7 +183,7 @@ upstreams and background work. Each default comes from the code.
 | `EMEM_ASK_TIMEOUT_SECS` | `30` | The time budget of `/v1/ask`, from 10 to 180 seconds. |
 | `EMEM_BODY_LIMIT_MB` | `16` | The maximum request body, from 1 to 256 MB. |
 | `EMEM_ALLOWED_ORIGINS` | unset | Comma-separated CORS origins. If unset, the node sends `access-control-allow-origin: *`. |
-| `EMEM_MCP_ALLOWED_ORIGINS` | unset | More origins that may call every MCP method. The binary always allows `https://claude.ai`, `https://chatgpt.com`, `https://chat.openai.com`, `https://cursor.com`, `https://emem.dev`, `https://www.emem.dev`, and requests with no `Origin`. |
+| `EMEM_MCP_ALLOWED_ORIGINS` | unset | More origins that may call every MCP method. The binary always allows `https://claude.ai`, `https://chatgpt.com`, `https://chat.openai.com`, `https://cursor.com`, `https://emem.dev`, `https://www.emem.dev`, the origin `null`, and requests with no `Origin`. Sandboxed frames and `file:` pages send `Origin: null`. |
 | `EMEM_MCP_BROWSER_READS` | on | From any other origin, MCP answers the handshake, the lists and the read-only tools, and refuses the rest. `0` refuses all of them. Use `0` when your tools reach private data. |
 | `EMEM_SCAN_CELL_LIMIT` | `10000` | The maximum rows in one cell scan of the hot store. |
 | `EMEM_COVERAGE_MATRIX_LIMIT` | `50000` | The maximum index rows that `/v1/coverage_matrix` reads, from 1000 to 100000. |
@@ -193,8 +193,8 @@ upstreams and background work. Each default comes from the code.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `EMEM_MATERIALIZE_PER_MIN` | `600` | Upstream reads per minute on a recall miss, for all clients together. |
-| `EMEM_MATERIALIZE_SHARE` | `0.5` | The part of `EMEM_MATERIALIZE_PER_MIN` that one client address can use. |
+| `EMEM_MATERIALIZE_PER_MIN` | `600` | Upstream reads per minute on a recall miss, for all clients together, from 1 to 100000. |
+| `EMEM_MATERIALIZE_SHARE` | `0.5` | The part of `EMEM_MATERIALIZE_PER_MIN` that one client address can use. A value must be more than 0 and 1 at most, or the node uses `0.5`. |
 | `EMEM_MATERIALIZE_GLOBAL_LIMIT` | `12` | Band materializations that run at the same time in the whole process, from 1 to 256. |
 | `EMEM_MATERIALIZE_CONCURRENCY` | `8` | Band materializations that one request runs at the same time, from 1 to 32. |
 | `EMEM_ASK_COLD_BAND_CAP` | `8` | Bands with no stored fact that one `/v1/ask` call materializes, from 1 to 64. The node defers the other bands with a note. |
@@ -203,7 +203,7 @@ upstreams and background work. Each default comes from the code.
 | `EMEM_MATERIALIZER_RETRIES` | `2` | How many times the node tries one ORNL MODIS read, from 1 to 5. |
 | `EMEM_ABSENCE_RECHECK_SECS` | `21600` | How long the node answers with its own signed absence before it asks the upstream again. `0` asks each time. |
 | `EMEM_TILE_STORE_GB` | `40` | Disk for whole local copies of static forest rasters (Hansen GFC, JRC GFC2020, JRC TMF, ESA WorldCover) in `$EMEM_DATA/tile_store/`. The node removes the least recently used copy first. It does not store a copy that leaves less than 30 GB free. `0` turns the store off. |
-| `EMEM_S2_CATALOGUES` | `mpc,element84` | The Sentinel-2 STAC catalogues, in order. |
+| `EMEM_S2_CATALOGUES` | `mpc,element84` | The Sentinel-2 STAC catalogues, in order. The node knows only `mpc` and `element84` and ignores other names. |
 | `EMEM_RETIRED_BANDS` | empty | A comma-separated list of bands that this node does not materialize, added to the bands that the code retires. emem.dev sets `geotessera,clay_v1,prithvi_eo2,galileo`. |
 | `EMEM_OVERTURE_RELEASE` | newest | Pins one Overture release. |
 | `EMEM_OVERTURE_PARALLEL` | `32` | Parallel range reads to the Overture bucket, from 1 to 256. |
@@ -233,13 +233,13 @@ upstreams and background work. Each default comes from the code.
 | `EMEM_PUBLIC_URL` | the first TLS domain | The origin in `/.well-known/emem.json`, `did.json` and the outbound User-Agent. |
 | `EMEM_SECURITY_POLICY_URL` | unset | Adds a `Policy:` line to `/.well-known/security.txt`. |
 | `EMEM_TOPIC_MODEL_DIR` | `$EMEM_DATA/models/bge-base-en-v1.5` | The BGE model for the topic router and memory search. |
-| `EMEM_TOPIC_THRESHOLD` | `0.35` | The cosine threshold for a topic match in `/v1/ask`. |
+| `EMEM_TOPIC_THRESHOLD` | `0.35` | The cosine threshold for a topic match in `/v1/ask`. If unset, the node uses `_routing.threshold` in `topics-v0.json`, which is also `0.35`. |
 | `EMEM_DEMOS_DIR` | `var/demos`, from the working directory | The directory that `/v1/demos` serves. |
 | `EMEM_WORLDS_DIR` | `var/worlds`, from the working directory | The directory that `/v1/worlds` serves. The image starts in `/`, so set an absolute path there. |
 | `EMEM_SPLATS_DIR` | `$EMEM_DATA/splats-site` | The static files that `/splats/` serves. The repository does not include them. If the directory is empty, `/splats/` gives 404. |
 | `RUST_LOG` | `info` | The log filter, for example `info,emem_storage=debug,rustls_acme=info`. |
 
-The binary reads more variables than these tables show. Some go through helper functions, and
+The binary reads more variables than these tables show. Helper functions read some of them, and
 `EMEM_WARM_PRIORITY` uses `env::var_os`. A search for `env::var("EMEM_` misses them. So search for every quoted
 `EMEM_` name. On 7 November 2026 this gave 273 names. The list can also hold a quoted name that is not an
 environment variable.
