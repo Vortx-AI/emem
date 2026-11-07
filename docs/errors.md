@@ -284,9 +284,33 @@ These routes also put a route code in `details.code`. The top-level code is
 | `/v1/device_publish` | `device_key_malformed`, `device_key_invalid`, `signature_malformed`, `signature_invalid` | 400 | The device key or the device signature is bad. Only the device can sign its own listing decision. |
 | `/v1/a2a/tasks` | `a2a_skill_required`, `a2a_skill_unknown` | 400 | The `skill` field is empty, or it names no skill on the agent card. |
 | `/v1/building_footprints` | `needs_location` | 400 | Send `polygon_bbox`, or a `place` that resolves to a bounding box. |
-| `/v1/range_hash` | `invalid_argument`, `range_too_large`, `url_refused` | 400 | The body is bad, the range is too long, or the URL is not public HTTPS. |
+| `/v1/range_hash` | `invalid_argument`, `range_too_large`, `url_refused` | 400 | The body is bad, the length is 0 or over the cap, or the URL is not public HTTPS. The cap is 16 MiB on 7 November 2026 (`EMEM_RANGE_HASH_MAX_BYTES`, at most 256 MiB). |
 | `/v1/range_hash` | `unresolvable`, `fetch_failed`, `too_many_redirects`, `redirect_refused`, `range_not_honoured`, `short_read` | 502 | Top-level `source_fetch_failed`. The upstream host failed or did not return the byte range. |
-| `/v1/range_hash` | `busy` | 503 | No fetch slot is free. Retry after a short wait. |
+| `/v1/range_hash` | `busy` | 503 | The responder closed its fetch pool. A normal request waits for one of 4 fetch slots, so you do not usually see this code. |
+| `/v1/range_hash`, `/v1/read`, `/v1/ocr` | `client` | 500 | The responder could not build its HTTP client. Report it. |
+| `/v1/read` | `invalid_argument` | 400 | The body is over 8 KiB, or it has no `url`. |
+| `/v1/read` | `not_text` | 422 | The page is not text, HTML, JSON or XML. Use `/v1/ocr` for an image or `/v1/range_hash` for bytes. |
+| `/v1/ocr` | `invalid_argument` | 400 | `lang` is not a tesseract language code, `image_b64` does not decode, or the body does not have exactly one of `url` and `image_b64`. |
+| `/v1/ocr` | `too_large` | 400 | The uploaded image is over 8 MiB. |
+| `/v1/ocr` | `ocr_unavailable` | 501 | The node has no OCR engine. emem.dev has one on 7 November 2026. |
+| `/v1/ocr` | `not_an_image`, `ocr_failed` | 422 | The bytes are not PNG, JPEG, TIFF, WebP, GIF or BMP, or tesseract failed on them. |
+| `/v1/ocr` | `busy` | 503 | The responder closed its OCR pool. A normal request waits for one of 2 OCR slots. |
+| `/v1/lab_report_parse`, `/v1/land_record_parse` | `invalid_argument`, `too_large` | 400 | The body has none of `text`, `ocr`, `url` and `image_b64`, `ocr.text` is missing, or the text is too long. |
+| `/v1/lab_report_parse`, `/v1/land_record_parse` | `ocr_receipt_invalid`, `text_hash_mismatch` | 422 | The `ocr` object is not a receipt that this responder signed, or `ocr.text` does not hash to `ocr.text_blake3_b32`. |
+| `/v1/decide` | `invalid_argument` | 400 | The body is over 32 KiB, has no `state`, has 0 or more than 8 questions, or `state` is over 8000 characters. |
+| `/v1/decide` | `busy`, `model_unavailable` | 503 | The responder closed its decision pool, or the model did not answer. |
+
+The fetch codes of `/v1/range_hash` (`url_refused`, `unresolvable`,
+`too_many_redirects`, `redirect_refused`, `fetch_failed`) also come from
+`/v1/read`, from `/v1/ocr` with a `url`, and from the two parse routes with a
+`url`. These routes share one fetcher. `/v1/read` and `/v1/ocr` add two 502
+codes. `upstream_status` means the upstream did not send a 2xx status.
+`too_large` means it sent more than the cap: 4 MiB for `/v1/read`, 8 MiB for
+`/v1/ocr`.
+
+The top-level code of all these routes follows one rule in `range_hash::refuse`.
+HTTP 502 gives `source_fetch_failed`. Every other status gives
+`invalid_argument`, also 422, 500, 501 and 503. Branch on `details.code`.
 
 ## Responses that are not `emem.error.v1`
 
@@ -297,6 +321,9 @@ sometimes `error` in place of `message`.
 |---|---|---|---|
 | `/v1/range_hash` | `range_hash_quota` | 429 | This IP used its daily quota (default 500, `EMEM_RANGE_HASH_DAILY_QUOTA`). `Retry-After: 86400`. |
 | `/v1/decide` | `decide_quota` | 429 | This IP used its daily quota (default 2000, `EMEM_DECIDE_DAILY_QUOTA`). `Retry-After: 86400`. |
+| `/v1/read` | `read_quota` | 429 | This IP used its daily quota (default 500, `EMEM_READ_DAILY_QUOTA`). `Retry-After: 86400`. |
+| `/v1/ocr`, and the parse routes with `url` or `image_b64` | `ocr_quota` | 429 | This IP used its daily OCR quota (default 200, `EMEM_OCR_DAILY_QUOTA`). `Retry-After: 86400`. |
+| `/v1/lab_report_parse`, `/v1/land_record_parse` with `text` | `doc_parse_quota` | 429 | This IP used its daily parse quota (default 2000, `EMEM_DOC_PARSE_DAILY_QUOTA`). `Retry-After: 86400`. |
 | `/v1/artifacts/<cid>` | `artifact_evicted_or_unknown` | 404 | This responder holds no bytes under that cid. Send the same `POST /v1/band_raster` again to make the bytes again. |
 | `/v1/artifacts/<cid>` | `invalid_argument` | 400 | The value is not a 52-character artifact cid. |
 | `/v1/cells/<cell64>/scene.png`, `/v1/cells/<cell64>/scene.rgb` | `no_clear_scene` | 404 | No Sentinel-2 L2A scene passed any of the searches. |
