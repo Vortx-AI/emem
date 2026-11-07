@@ -99,10 +99,23 @@ Output on 7 November 2026:
 {"fn_key":"overture_road_length_m@2","value":0.0}
 ```
 
-A plain `POST /v1/recall` for this band returns only the newer fact.
+A plain `POST /v1/recall` for this band returns only the newer fact:
 
-The full response also has `corpus_scanned`, `time_taken_ms`,
-`scan_truncated`, `agent_hint` and a signed `receipt`. The receipt's
+```bash
+curl -sS -X POST "$EMEM/v1/recall" \
+  -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb27e.qEfa.ze033","bands":["overture.transportation.road_length_m"]}' \
+  | jq -c '[.facts[] | {fact_cid, value, tslot}]'
+```
+
+Output on 7 November 2026:
+
+```json
+[{"fact_cid":"qklwofpxehwv54y4znfymseau3h3p2tl6sptjmtxe7nzba765m3q","value":0.0,"tslot":56}]
+```
+
+The full `memory_contradictions` response also has `corpus_scanned`,
+`time_taken_ms`, `scan_truncated`, `agent_hint` and a signed `receipt`. The receipt's
 `fact_cids` cite every disputed fact. For this cell, it cites the two
 facts above. A scan that stops at its time budget returns
 `resume_after`. Send that value back to continue.
@@ -484,7 +497,7 @@ calls as Part 1, steps 3 and 4.
 
 ---
 
-## Why it matters
+## What the loop adds to a plain store
 
 A plain store keeps facts. This loop also connects facts with typed
 edges that have a start time (`valid_from`) and an optional end time
