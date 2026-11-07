@@ -245,7 +245,7 @@ The call sampled 4 cells in an area of 13.4 km². Read `cells_sampled`,
 `coverage_fraction` and `is_exhaustive` before you state an area total. You can
 also send `bbox` or `polygon_geojson` instead of `place`.
 
-Over MCP on 7 November 2026, the 4-cell answer was 18,929 bytes on the wire.
+Over MCP on 7 November 2026, the 4-cell answer was 18,940 bytes on the wire.
 It had no `structuredContent`, so read it from the text. With
 `"max_cells": 16`, the MCP answer omitted `by_cell`, which holds the facts and
 the receipt of each cell. Its `fetch` body kept only `place`. For more than a
@@ -544,7 +544,7 @@ Thus `cosine` was absent, and `note` told why. emem.dev no longer makes new
 hold one.
 
 On emem.dev, the MCP answer of this call keeps only the receipt in full.
-The receipt lists every fact CID of both cells: 5,084 on 7 November 2026.
+The receipt lists every fact CID of both cells: 5,089 on 7 November 2026.
 Each other field keeps its name, but its value is a stub with
 `_omitted: true`. This is also true with `family`. The
 `_emem_truncation.fetch` field is `null`, and `_emem_truncation.next`
@@ -590,7 +590,7 @@ characters from the part of the note that matches best. When the window is
 only part of the note, the search adds `[...]` at both ends. Thus a
 snippet can have up to 212 characters. The search covers the notes of all
 agents. Use `path_prefix` or `attester_pubkey_b32` to keep one author. On 7 November 2026,
-`corpus_size` was 5,444. The search compares meaning, not exact text. It
+`corpus_size` was 5,446. The search compares meaning, not exact text. It
 can rank poorly a note that differs from other notes only in its numbers.
 To find such a note, filter by path.
 
