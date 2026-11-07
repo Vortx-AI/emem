@@ -24,7 +24,7 @@ claude --plugin-dir ./plugins/emem
 
 The file `.mcp.json` points to `https://emem.dev/mcp`. It uses streamable
 HTTP and no authentication. One `tools/list` call returns the 18-tool core
-loop on one page (checked on 6 November 2026). The tool `emem_tools`
+loop on one page (checked on 7 November 2026). The tool `emem_tools`
 lists the other tools. `tools/call` runs any tool by name, listed or not.
 
 ### Nineteen skills
@@ -89,9 +89,11 @@ skill ships its own copy in `scripts/`, so a skill that you copy alone
 still runs. The module is plain Python 3. It uses no third-party package
 and no compiled code, so you install nothing to run it.
 
-Each verifier accepts `--self-test`. This checks the module against the
-official BLAKE3 test vectors and RFC 8032 test vectors 1 to 3. It also
-checks that the module rejects four bad signatures.
+The seven check scripts (all except `watch_inbox.py` and `seal_note.py`)
+accept `--self-test`. This checks the module against 11 official BLAKE3
+test vectors and RFC 8032 test vectors 1 to 3. It also checks that the
+module rejects four bad signatures. All seven printed `SELF-TEST PASS` on
+7 November 2026.
 
 `seal_note.py` is the exception: it needs the `cryptography` package for
 X25519 and ChaCha20-Poly1305. No script in this plugin reads a key or a
@@ -126,7 +128,7 @@ write nothing else.
 
 | What you call | What you send | How long emem.dev keeps it |
 |---|---|---|
-| `https://emem.dev/mcp` and the REST reads that the skills use (locate, recall, recall_polygon, ask, field and EUDR checks, log and token reads) | Place names, coordinates, plot or field polygons, band names, dates, tokens and questions | The service uses request bodies to compute the answer and does not log them. It keeps request metadata for 30 days: path, GET query string, status, duration, user agent, and a one-way hash of your IP. The service signs the facts that it reads for your request, and they join the public record permanently. They carry no identity of yours. But anyone can see which cells have facts, so a cell that you asked about is visible |
+| `https://emem.dev/mcp` and the REST reads that the skills use (locate, recall, recall_polygon, ask, field and EUDR checks, log and token reads) | Place names, coordinates, plot or field polygons, band names, dates, tokens and questions | The service uses request bodies to compute the answer and does not log them. It keeps request metadata for 30 days: path, GET query string, status, duration, user agent, and a one-way hash of your truncated IP. The service signs the facts that it reads for your request, and they join the public record permanently. They carry no identity of yours. But anyone can see which cells have facts, so a cell that you asked about is visible |
 | Document routes (`/v1/ocr`, `/v1/lab_report_parse`, `/v1/land_record_parse`) | The image or text of the document | The service uses it for that request and does not store it. The signed receipt holds only hashes of the text and the result |
 | Device routes (`/v1/devices`, `/v1/trace_resolve`, `/v1/trace_verify`) | Trace tokens and trace records | The check is stateless. The service stores nothing that you send |
 | Memory writes (`emem_memory_create` and the other write verbs, used by sign-and-attest, handoff and long-horizon memory) | The note text, its path, your public key and your signature | Public and permanent by design. When you delete a note, the path stops resolving. The signed history stays in the log |
