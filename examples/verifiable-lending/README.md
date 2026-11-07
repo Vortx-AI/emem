@@ -29,8 +29,9 @@ python3 run.py --probe    # four checks on what the guard catches and what it mi
 python3 run.py --lat 19.0760 --lng 72.8777    # any coordinate
 ```
 
-On 7 November 2026 the full walkthrough took about 9 seconds and the probe took
-less than 1 second. The default parcel is lat 12.9352, lng 77.6245 (Koramangala,
+On 7 November 2026 the first full walkthrough took about 9 seconds, because the
+responder fetched some bands from their sources. A second run took less than
+1 second, and so did the probe. The default parcel is lat 12.9352, lng 77.6245 (Koramangala,
 Bengaluru). Its cell is `defi.zb493.hufo.zccc6`.
 
 ## What the walkthrough does

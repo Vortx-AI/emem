@@ -44,6 +44,8 @@ resolved          : emem:fact:defi.zb64f.fOxa.zb6f2:4zi5cjhapkvu... -> copdem30m
 resolved          : emem:fact:defi.zb64f.fOxa.zb6f2:h2oeyiebg7td... -> surface_water.recurrence (class=model_output)
 receipt valid     : True (server-side check)
 offline verify    : VALID (recomputed locally, no trust in the responder)
+
+Done. The map entry outlives both robots, both sessions, and both vendors; any third fleet can repeat robot B's half verbatim.
 ```
 
 Without `blake3`, `cbor2` and `cryptography`, the last line says `skipped`.
