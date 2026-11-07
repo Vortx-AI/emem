@@ -1725,7 +1725,10 @@ pub fn router(state: AppState) -> Router {
         // not the wiring, so a fix that was written, documented and shipped had
         // never once run. /v1/memory_bundle returned `content-length: 0` on a
         // route this was supposed to be covering.
-        .layer(axum::middleware::from_fn(timeout_to_typed_504))
+        .layer(axum::middleware::from_fn_with_state(
+            timeout_seconds(),
+            timeout_to_typed_504,
+        ))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             body_limit_bytes(),
         ))
@@ -1781,7 +1784,10 @@ fn splats_router(state: AppState) -> Router {
             std::time::Duration::from_secs(timeout_s),
         ))
         // Same reason as the main router: outermost, or it cannot see the 504.
-        .layer(axum::middleware::from_fn(timeout_to_typed_504))
+        .layer(axum::middleware::from_fn_with_state(
+            timeout_s,
+            timeout_to_typed_504,
+        ))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             body_limit_bytes(),
         ))
@@ -1857,7 +1863,10 @@ fn perception_router(state: AppState) -> Router {
             std::time::Duration::from_secs(timeout_s),
         ))
         // Same reason as the main router: outermost, or it cannot see the 504.
-        .layer(axum::middleware::from_fn(timeout_to_typed_504))
+        .layer(axum::middleware::from_fn_with_state(
+            timeout_s,
+            timeout_to_typed_504,
+        ))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             body_limit_bytes(),
         ))
@@ -1866,6 +1875,7 @@ fn perception_router(state: AppState) -> Router {
 }
 
 fn eudr_router(state: AppState) -> Router {
+    let timeout_s = eudr_route_timeout_secs();
     Router::new()
         .route("/v1/eudr_dds", post(post_eudr_dds))
         // The field signals warm a season of scenes before they answer, the
@@ -1897,10 +1907,13 @@ fn eudr_router(state: AppState) -> Router {
         // The dedicated, larger EUDR timeout (vs the 40 s blanket).
         .layer(tower_http::timeout::TimeoutLayer::with_status_code(
             StatusCode::GATEWAY_TIMEOUT,
-            std::time::Duration::from_secs(eudr_route_timeout_secs()),
+            std::time::Duration::from_secs(timeout_s),
         ))
         // Same reason as the main router: outermost, or it cannot see the 504.
-        .layer(axum::middleware::from_fn(timeout_to_typed_504))
+        .layer(axum::middleware::from_fn_with_state(
+            timeout_s,
+            timeout_to_typed_504,
+        ))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             body_limit_bytes(),
         ))
@@ -3355,7 +3368,12 @@ fn panic_to_typed_500(err: Box<dyn std::any::Any + Send + 'static>) -> Response 
 /// This runs OUTSIDE the timeout layer, so it sees the 504 the layer
 /// produced. It only rewrites a 504 that has no body of its own: an endpoint
 /// that deliberately answers 504 with a typed body keeps it.
+///
+/// `secs` is the budget of the router this wraps, not the global one: the
+/// EUDR, splats and perception routers each have a longer timeout, and a 504
+/// from them that named the 40 s main budget told the caller a false limit.
 async fn timeout_to_typed_504(
+    axum::extract::State(secs): axum::extract::State<u64>,
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
@@ -3372,7 +3390,6 @@ async fn timeout_to_typed_504(
     if has_body {
         return resp;
     }
-    let secs = timeout_seconds();
     let body = serde_json::json!({
         "schema": "emem.error.v1",
         "code": "compute_timeout",
@@ -100107,7 +100124,10 @@ mod tests {
                 StatusCode::GATEWAY_TIMEOUT,
                 std::time::Duration::from_millis(50),
             ))
-            .layer(axum::middleware::from_fn(timeout_to_typed_504));
+            .layer(axum::middleware::from_fn_with_state(
+                1u64,
+                timeout_to_typed_504,
+            ));
 
         let resp = app
             .oneshot(
@@ -100137,6 +100157,52 @@ mod tests {
         assert!(
             v.get("code").is_some(),
             "the typed 504 carries no `code`: {v}"
+        );
+    }
+
+    /// The typed 504 names the budget of the router that timed out. The EUDR
+    /// router waits up to 610 s; a 504 from it that said 40 s was false.
+    #[tokio::test]
+    async fn the_typed_504_names_its_own_routers_budget() {
+        use axum::{routing::get, Router};
+        use tower::ServiceExt;
+
+        let app = Router::new()
+            .route(
+                "/slow",
+                get(|| async {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    "unreachable"
+                }),
+            )
+            .layer(tower_http::timeout::TimeoutLayer::with_status_code(
+                StatusCode::GATEWAY_TIMEOUT,
+                std::time::Duration::from_millis(50),
+            ))
+            .layer(axum::middleware::from_fn_with_state(
+                610u64,
+                timeout_to_typed_504,
+            ));
+        let resp = app
+            .oneshot(
+                axum::extract::Request::builder()
+                    .uri("/slow")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
+        let bytes = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["details"]["budget_secs"], 610, "{v}");
+        let msg = v["message"].as_str().unwrap_or("");
+        assert!(msg.contains("610s transport budget"), "{msg}");
+        assert_eq!(
+            v["details"]["same_cause_over_mcp"],
+            "exceeded the 610s call budget"
         );
     }
 
