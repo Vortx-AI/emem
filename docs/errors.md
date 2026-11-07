@@ -353,6 +353,22 @@ sometimes `error` in place of `message`.
 | `/postcard` | `painting` | 202 | Not an error. The picture is still in progress. Ask again later. |
 | `/postcard` | `upstream_unavailable`, `upstream_error` | 502 or upstream status | The service that makes the picture is down, or it failed with no reason. |
 
+### Errors from the perception proxy
+
+`/v1/perception/<path>` forwards requests to a separate camera service.
+emem.dev does not run that service. The proxy adds three bodies of its own.
+Two of them have no `code` field, so branch on the HTTP status.
+
+| Case | HTTP | Body |
+|---|---|---|
+| The path is not on the allowlist. | 404 | `error`, `fronted` (allowed paths), `fronted_trees` (allowed prefixes), `why`. No `code`. |
+| The service answered with a 5xx status. | 502 | `code: "upstream_failed"`, `upstream_status`, `upstream_body` (first 512 bytes), `fronted_by`, `note`. The `x-emem-upstream-status` header repeats the upstream status. |
+| The service did not answer. | 502 | `error`, `detail` (the transport error), `note`. No `code`. |
+
+A 4xx status from the service comes back unchanged, with the body of the
+service. On 7 November 2026, `GET /v1/perception/nope` gave the 404 body.
+`POST /v1/perception/health` gave the 405 of the service.
+
 ## Routes that only a self-hosted node answers
 
 emem.dev answers these paths with HTTP 501 and an `emem.error.v1` body. They
