@@ -363,6 +363,26 @@ recomputes `cube_cid` from the members and refuses a changed member list with
 a 409. It does not resolve the members. Resolve each `raster_token` with
 `emem_raster_resolve`.
 
+For one cloud-free grid over a date window, use `emem_band_composite` (`POST
+/v1/band_composite`). Give `start_date` and `end_date` in place of
+`observed_on`. The server masks each scene per pixel by its SCL class and
+takes the median for each pixel.
+
+```bash
+curl -s -X POST https://emem.dev/v1/band_composite \
+  -H 'content-type: application/json' \
+  -d '{"bbox":{"min_lat":35.36,"min_lng":138.72,"max_lat":35.365,"max_lng":138.726},"band":"s2.B04","start_date":"2026-09-01","end_date":"2026-10-31","max_scenes":4}'
+```
+
+On 7 November 2026, this call read the 4 newest scenes in the window (18, 23,
+28 and 30 October). The scene of 30 October had 99.9% cloud cover. The mask
+removes its cloud pixels before the median, so it adds only its clear pixels.
+`derivation.sources` lists the members, and `tslot` (20756) is the newest one.
+The default mask rejects SCL classes 0, 1, 3, 8, 9 and 10, and keeps snow
+(11). `max_scenes` has a default of 12 and a range of 2 to 16. Two calls gave
+the same `artifact_cid` and a new `derivation_cid`. Cite `tokens.raster` and
+check it with `emem_raster_resolve`, as for `band_raster`.
+
 A Sentinel-2 grid has a limit of 512 pixels on each side, about 5.1 km at
 10 m. The `band` field also takes `copdem30m.elevation`, an encoder band or a
 forest layer, each with its own limits. `emem_tools` with
