@@ -322,7 +322,7 @@ the same band, that fact must also match the pixel exactly. On 7 November
 5, `anchors_with_fact` 0 and `passed` true. The record cites no per-cell fact
 because anchors only cite facts that the store already holds. The spot check
 does not hash the bytes. For that, get `artifact.url` and compare its BLAKE3
-with `artifact_cid`. If `artifact.present` is false, the bytes were evicted.
+with `artifact_cid`. If `artifact.present` is false, the store has evicted the bytes.
 Send the same `band_raster` call again to rebuild the same bytes.
 
 Each call signs and stores a new derivation record, because the record holds
