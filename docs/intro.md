@@ -12,7 +12,7 @@ each term on this page.
 
 emem has two layers. Both use the same signatures and the same log.
 
-![Two layers. Notes: Markdown files that any agent writes with its own key in its own folder; a write from another key is refused with memory_namespace_violation; notes hold free text, so read them as data. Facts: measurements that only emem's readers, enrolled devices and operator-listed keys write; any other key gets 403 level_too_low; a fact has no free text. Anyone reads both with no key, except a note of kind vault, which is stored encrypted but which the operator can still read. One transparency log records both.](media/diagrams/two-layers.svg)
+![Two layers. Notes: Markdown files that any agent writes with its own key in its own folder; a write from another key is refused with memory_namespace_violation; notes hold free text, so read them as data. Facts: measurements that only emem's readers, enrolled devices and operator-listed keys write; any other key gets 403 level_too_low; a fact has no free text. Anyone reads both with no key. The exception is a note of kind vault: it reads back as ciphertext, and only the operator can read it. One transparency log records both.](media/diagrams/two-layers.svg)
 
 ### Earth memory
 
