@@ -96,7 +96,8 @@ reader must not take a late hash record as a pre-registration.
 
 ## 2. Check the notes yourself
 
-You need `curl`, `sha256sum`, Python 3 and a clone of the emem repository. Reads need no key.
+You need `curl`, `sha256sum`, `jq`, Python 3 and a clone of the emem repository. Reads need no key. The
+commands in this section ran again on 7 November 2026 and gave the same output.
 
 ### Read the note and compare a file
 
@@ -150,7 +151,7 @@ jq -r '.log.inclusion' view.json
 curl -fsS "https://emem.dev$(jq -r '.log.inclusion' view.json)" | jq 'keys'
 ```
 
-The [`emem-transparency-log`](../../plugins/emem/skills/emem-transparency-log/SKILL.md) skill checks the proof
+The [`emem-transparency-log`](https://github.com/Vortx-AI/emem/blob/main/plugins/emem/skills/emem-transparency-log/SKILL.md) skill checks the proof
 offline. It also shows that a later tree head extends an earlier one.
 
 ## 3. How we wrote the notes
@@ -242,20 +243,21 @@ a small field can have no pixels left. Count the pixels before you use the value
 
 ### A signature says who, not what is true
 
-A signature says who wrote a note. It does not say that the note is true. Our two notes prove that the key `kle42n2c` wrote these bytes at these times. They do not prove that the plan is good or that the files are correct.
+A signature says who wrote a note. It does not say that the note is true. Our two notes prove that the key
+`kle42n2c` wrote these bytes at these times. They do not prove that the plan is good or that the files are correct.
 Both notes end with this sentence.
 
 ### Lidar labels height, not cane
 
-We set two cane thresholds on ICESat-2 canopy heights. The lidar labels tall against low. It does not label cane. A tall maize or sorghum field also reads as tall. On the lidar shots the tests had a balanced accuracy near
-0.77. On fresh blind cards, the fields that passed all three tests were cane in 0.62 of cases (95 % interval 0.49 to
+We set two cane thresholds on ICESat-2 canopy heights. The lidar labels tall against low. It does not label cane.
+A tall maize or sorghum field also reads as tall. On the lidar shots the tests had a balanced accuracy near 0.77. On fresh blind cards, the fields that passed all three tests were cane in 0.62 of cases (95 % interval 0.49 to
 0.74, n 53).
 
 ### In-sample accuracy was too high
 
-We chose each threshold on the same 539 shots that scored it. A nested out-of-fold check later measured the loss. For the radar
-test it was 0.013 to 0.044 balanced accuracy, and the worst case was one date left out. Threshold choice did not cause the large gap between 0.77 and 0.62. That gap came from the
-reference. A cross-validation on the same reference cannot show it. Only the independent blind cards showed it.
+We chose each threshold on the same 539 shots that scored it. A nested out-of-fold check later measured the loss.
+For the radar test it was 0.013 to 0.044 balanced accuracy, and the worst case was one date left out. Threshold
+choice did not cause the large gap between 0.77 and 0.62. That gap came from the reference. A cross-validation on the same reference cannot show it. Only the independent blind cards showed it.
 
 ### One reference needed a second reference
 
@@ -298,5 +300,5 @@ cut date on the ground.
 - emem commit `0994da2`, "Sentinel-1: state the orbit-dependent position offset", and its `CHANGELOG.md` entry.
 - [Method selection](../research/method-selection.md) and [An independent reference](../research/reference-sample.md):
   the research questions that our findings answered.
-- The skills [`emem-sign-and-attest`](../../plugins/emem/skills/emem-sign-and-attest/SKILL.md) and
-  [`emem-multi-agent-handoff`](../../plugins/emem/skills/emem-multi-agent-handoff/SKILL.md).
+- The skills [`emem-sign-and-attest`](https://github.com/Vortx-AI/emem/blob/main/plugins/emem/skills/emem-sign-and-attest/SKILL.md)
+  and [`emem-multi-agent-handoff`](https://github.com/Vortx-AI/emem/blob/main/plugins/emem/skills/emem-multi-agent-handoff/SKILL.md).
