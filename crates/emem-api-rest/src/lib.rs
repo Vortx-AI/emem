@@ -4375,6 +4375,8 @@ fn docs_book_mime(rel: &str) -> &'static str {
         "svg" => "image/svg+xml; charset=utf-8",
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
         "woff" => "font/woff",
         "woff2" => "font/woff2",
         "ttf" => "font/ttf",
@@ -65589,6 +65591,19 @@ fn coverage_page<'a>(
 #[cfg(test)]
 mod reported_bug_tests {
     use super::*;
+
+    /// docs/media/ holds GIF and WebP files. Every response carries
+    /// `x-content-type-options: nosniff`, so an octet-stream type made a
+    /// browser download them instead of showing them.
+    #[test]
+    fn the_docs_book_serves_gif_and_webp_as_images() {
+        assert_eq!(docs_book_mime("media/world-rondonia.gif"), "image/gif");
+        assert_eq!(
+            docs_book_mime("media/readme/20-encode-decode.webp"),
+            "image/webp"
+        );
+        assert_eq!(docs_book_mime("media/x.bin"), "application/octet-stream");
+    }
 
     /// crop_stress_score@1 in algorithms-v0.json is a fixed weighted sum.
     /// The hunter text said it z-scores against a rolling baseline, which
