@@ -220,7 +220,8 @@ steps:
    water).
 4. It signs the fact as the responder and writes it to the cache, the
    log and the proof table.
-5. It runs the recall again, which now hits the cache.
+5. It runs the recall again when at least one band got a fact. The
+   second recall hits the cache.
 
 The response has the facts of the second recall and a
 `materialize_notes[]` entry for each band.
@@ -235,13 +236,29 @@ Three rules select what to materialize:
 3. The request names no bands and the cell has facts. The node does
    nothing.
 
-Three environment variables control the loop:
+The node does not fetch a candidate band in these cases. Each case adds
+a `materialize_notes[]` entry, and the warm facts still come back:
+
+| Case | What the node does |
+|------|--------------------|
+| This node retires the band (`EMEM_RETIRED_BANDS`) | It removes the band from the candidates. |
+| The request sets `as_of_signed_at` to a past time | It fetches nothing. A fact signed now can never pass that filter. |
+| A `/v1/ask` question names no band and has more candidates than `EMEM_ASK_COLD_BAND_CAP` | It fetches the first bands up to the cap and defers the rest. `/v1/recall` has no cap. |
+| The node has used its per-minute budget (`EMEM_MATERIALIZE_PER_MIN`) | It defers the bands. Sentinel-2 bands use the budget later, in their own materializer. |
+
+These environment variables control the loop:
 
 | Variable | Default | Effect |
 |----------|---------|--------|
 | `EMEM_AUTO_MATERIALIZE` | on | `0` or `false` turns it off. |
 | `EMEM_MATERIALIZER_TIMEOUT_SECS` | 14 | Time for one upstream call, from 2 to 240 seconds. |
+| `EMEM_MATERIALIZE_CONCURRENCY` | 8 | Bands that one request fetches at the same time, from 1 to 32. |
+| `EMEM_MATERIALIZE_GLOBAL_LIMIT` | 12 | Bands that the whole process fetches at the same time, from 1 to 256. |
+| `EMEM_MATERIALIZE_PER_MIN` | 600 | Band fetches in one minute for all clients, from 1 to 100 000. |
 | `EMEM_TIMEOUT_SECS` | 40 | Gateway timeout for a request, from 1 to 600 seconds. |
+
+Two calls for the same cell, band and tslot share one fetch. The second
+call waits for the first one and does not start a new fetch.
 
 The responder key signs each materialized fact. Its
 `derivation.fn_key` names the function that made the value.
