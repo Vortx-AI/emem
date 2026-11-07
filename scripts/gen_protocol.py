@@ -128,8 +128,8 @@ def federation():
         s.roundel(x, y, 32, col, signed=True, petal=(i % 2 == 0), inner=inners[i % 4])
         # push labels below for the lower nodes, above for the upper nodes
         below = y >= CY
-        s.text(x, y + (54 if below else -50), "responder", 11, INK, font=MONO, anchor="middle", weight="bold")
-        s.text(x, y + (72 if below else -34), "key:" + pubs[i], 10.5, INK_SOFT, font=MONO, anchor="middle")
+        s.text(x, y + (54 if below else -66), "responder", 11, INK, font=MONO, anchor="middle", weight="bold")
+        s.text(x, y + (72 if below else -50), "key:" + pubs[i], 10.5, INK_SOFT, font=MONO, anchor="middle")
 
     def client(cx, cy, near):
         s.circle(cx, cy, 17, fill=PAPER, stroke=INK, sw=1.5)
