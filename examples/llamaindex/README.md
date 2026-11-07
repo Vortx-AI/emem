@@ -41,14 +41,14 @@ To use a different emem node, set `EMEM_MCP_URL`. The default is
 
 ## Test status
 
-On 6 November 2026 we installed the packages above
+On 7 November 2026 we installed the packages above
 (llama-index-tools-mcp 0.6.0, llama-index-core 0.14.25, mcp 2.3.0). The script
 printed `Loaded 18 emem tools via MCP` and stopped at the OpenAI call, because
 we used a test key. We did not run the model part.
 
 We also made the emem calls that the agent needs, on the same day:
 
-| call | result on 6 November 2026 |
+| call | result on 7 November 2026 |
 |---|---|
 | `emem_locate` with `South Mumbai` | cell `defi.zb4d7.zb8ec.zf21e`, "South Mumbai (precinct of the city of Mumbai)" |
 | `emem_recall` on that cell, band `copdem30m.elevation_mean` | 6.56 m |
@@ -62,8 +62,8 @@ The model must use the cell from `emem_locate`.
 - Any LlamaIndex LLM can drive the agent. Change `OpenAI` to the class for
   Anthropic, Gemini or another provider.
 - `/mcp` lists 18 core tools. `https://emem.dev/mcp/full` lists all tools in
-  pages. On 7 November 2026 it had 116 tools in 9 pages, and `McpToolSpec`
-  loaded only the first page (12 tools). That page did not have
+  pages. On 7 November 2026 it had 116 tools in 8 pages, and `McpToolSpec`
+  loaded only the first page (13 tools). That page did not have
   `emem_recall`. Keep `/mcp` for this script.
 - [`examples/llamaindex.py`](../llamaindex.py) wraps the REST API instead of
   MCP. This example uses MCP through `llama-index-tools-mcp`.

@@ -43,13 +43,13 @@ To use a different emem node, set `EMEM_MCP_URL`. The default is
 
 ## Test status
 
-On 6 November 2026 we installed the packages above (agno 3.1.12, mcp 2.3.0,
+On 7 November 2026 we installed the packages above (agno 3.1.12, mcp 2.3.0,
 fastmcp 4.1.6). The script loaded 18 tools from emem and stopped at the
 OpenAI call, because we used a test key. We did not run the model part.
 
 We also made the emem calls that the agent needs, on the same day:
 
-| call | result on 6 November 2026 |
+| call | result on 7 November 2026 |
 |---|---|
 | `emem_locate` with `Helsinki Airport, Finland` | cell `defi.zb6ae.nihE.rAvo`, "Helsinki-Vantaan lentoasema (aerodrome)" |
 | `emem_recall` on that cell | elevation 49.94 m, surface-water recurrence 0 %, WorldCover class 30 (grassland) |
@@ -64,4 +64,4 @@ The model must call `emem_locate` first and then recall by `cell`.
   another Agno model class, for example the Anthropic or Gemini class.
 - `/mcp` lists 18 core tools. For all tools, set
   `EMEM_MCP_URL=https://emem.dev/mcp/full`. On 7 November 2026 that list had
-  116 tools in 9 pages, and `MCPTools` loaded all 116.
+  116 tools in 8 pages, and `MCPTools` loaded all 116.

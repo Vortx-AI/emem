@@ -339,7 +339,7 @@ observation time instead.
 |---|---|
 | Live API | `https://emem.dev`. REST and MCP use the same origin. |
 | MCP endpoint | `https://emem.dev/mcp` (Streamable HTTP, JSON-RPC 2.0). It lists the 18 core loop tools. Call `emem_tools` to find the others. |
-| Full MCP catalog | `https://emem.dev/mcp/full`. On 7 November 2026 it listed 116 tools in total, over 9 pages. Follow `nextCursor` to get each page. |
+| Full MCP catalog | `https://emem.dev/mcp/full`. On 7 November 2026 it listed 116 tools in total, over 8 pages. Follow `nextCursor` to get each page. |
 | OpenAPI | `https://emem.dev/openapi.json` |
 | Limits | `GET /v1/limits`: batch sizes, rate limits and timeouts. |
 | Source code | `https://github.com/Vortx-AI/emem` |

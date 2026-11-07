@@ -66,7 +66,7 @@ a hunt samples and ranks cells.
 ## Notes
 
 - `/mcp/full` sends its tools in pages. On 7 November 2026 it had 116 tools
-  in 9 pages. `emem_hunt` was on the first page. We did not check if
+  in 8 pages. `emem_hunt` was on the first page. We did not check if
   `MCPClient` reads all the pages.
 - Any AI SDK provider that Mastra supports can drive the agent. Change the
   `openai(...)` import to `@ai-sdk/anthropic`, `@ai-sdk/google` or another

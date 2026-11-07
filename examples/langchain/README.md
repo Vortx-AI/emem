@@ -43,14 +43,14 @@ To use a different emem node, set `EMEM_MCP_URL`. The default is
 
 ## Test status
 
-On 6 November 2026 we installed the packages above
+On 7 November 2026 we installed the packages above
 (langchain-mcp-adapters 0.3.2, langgraph 1.2.20, mcp 1.30.0). The script
 loaded the emem tools and stopped at the OpenAI call, because we used a test
 key. We did not run the model part.
 
 We also made the emem calls that the agent needs, on the same day:
 
-| call | result on 6 November 2026 |
+| call | result on 7 November 2026 |
 |---|---|
 | `emem_locate` with `South Mumbai` | cell `defi.zb4d7.zb8ec.zf21e`, "South Mumbai (precinct of the city of Mumbai)" |
 | `emem_recall` on that cell, band `copdem30m.elevation_mean` | 6.56 m |
@@ -65,6 +65,6 @@ The model must use the cell from `emem_locate`.
   `ChatAnthropic`, `ChatGoogleGenerativeAI` or another chat model class.
 - `/mcp` lists 18 core tools. For all tools, set
   `EMEM_MCP_URL=https://emem.dev/mcp/full`. On 7 November 2026 that list had
-  116 tools in 9 pages, and the adapter loaded all 116.
+  116 tools in 8 pages, and the adapter loaded all 116.
 - [`examples/langchain.py`](../langchain.py) wraps the REST API instead of
   MCP. This example uses MCP through `langchain-mcp-adapters`.

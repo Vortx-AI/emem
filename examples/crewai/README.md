@@ -47,14 +47,14 @@ To use a different emem node, set `EMEM_MCP_URL`. The default is
 
 ## Test status
 
-On 6 November 2026 we installed the packages above (crewai 1.15.36,
+On 7 November 2026 we installed the packages above (crewai 1.15.36,
 crewai-tools 1.15.36, mcp 1.30.0). The script loaded the emem tools and
 stopped at the OpenAI call, because we used a test key. We did not run the
 model part.
 
 We also called `emem_eudr_dds` with the same plot on the same day:
 
-| field | value on 6 November 2026 |
+| field | value on 7 November 2026 |
 |---|---|
 | `due_diligence_statement.verdict` | `pass` |
 | `per_plot_results[0].verdict` | `not_in_scope` |
@@ -68,7 +68,7 @@ deforestation rule does not apply to it.
 ## Notes
 
 - `/mcp/full` sends its tools in pages. On 7 November 2026 it had 116 tools
-  in 9 pages, and `MCPServerAdapter` loaded only the first page (12 tools).
+  in 8 pages, and `MCPServerAdapter` loaded only the first page (13 tools).
   That page had `emem_eudr_dds` and `emem_hunt`. It did not have
   `emem_recall` or `emem_verify_receipt`.
 - To add a verifier agent with `emem_verify_receipt`, give it a second

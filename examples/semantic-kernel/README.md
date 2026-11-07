@@ -45,14 +45,14 @@ To use a different emem node, set `EMEM_MCP_URL`. The default is
 
 ## Test status
 
-On 6 November 2026 we installed `semantic-kernel` 1.47.0 (with mcp 1.30.0).
+On 7 November 2026 we installed `semantic-kernel` 1.47.0 (with mcp 1.30.0).
 The script loaded the emem tools and stopped at the OpenAI call, because we
 used a test key. We did not run the model part. Without step 2, the script
 stopped at `kernel.add_plugin` with a pydantic `ValidationError`.
 
 We also made the emem calls that the model needs, on the same day:
 
-| call | result on 6 November 2026 |
+| call | result on 7 November 2026 |
 |---|---|
 | `emem_locate` with `South Mumbai` | cell `defi.zb4d7.zb8ec.zf21e`, "South Mumbai (precinct of the city of Mumbai)" |
 | `emem_recall` on that cell, band `copdem30m.elevation_mean` | 6.56 m |
@@ -72,6 +72,6 @@ See [Verify the receipt](../../docs/quickstart.md#verify-the-receipt).
   `OpenAIChatCompletion` to Azure OpenAI or to the service for another
   provider.
 - `/mcp` lists 18 core tools. `https://emem.dev/mcp/full` lists all tools in
-  pages. On 7 November 2026 it had 116 tools in 9 pages, and the plugin
-  loaded only the first page (12 tools). That page did not have
+  pages. On 7 November 2026 it had 116 tools in 8 pages, and the plugin
+  loaded only the first page (13 tools). That page did not have
   `emem_recall` or `emem_verify_receipt`. Keep `/mcp` for this script.
