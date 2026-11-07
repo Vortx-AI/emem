@@ -838,6 +838,19 @@ zero bytes when its hash cell is not a 52-letter lowercase base32 hash.
 This includes an empty cell and a `blake3:<hex>` cell, so write the
 pointer hash in base32.
 
+The parser is strict about the table text (`tree.rs`, `cells`):
+
+- A row starts with `| `, ends with ` |`, and separates cells with
+  ` | `. Use one space on each side of every `|`.
+- A pointer row has 5 cells, or 6 with a stats cell at the end. The
+  route does not hash the stats cell.
+- The offset and length cells contain only digits. The URL cell has no
+  spaces.
+- The route skips a row whose label is `what`, so a header row with that
+  label is not in the tree.
+- The note starts with a `---` line. The `emem:` and `root:` keys start
+  their lines inside that first front matter block.
+
 A `directory.v1` row is `| path | url | bytes | hash |`. The URL must
 start with `https:`, and the hash cell must contain a `:`. Write a `|`
 in a path as `%7C`. Its leaf uses offset 0 and the file size as the
@@ -902,9 +915,12 @@ The top-level `code` is `invalid_argument` for every row except
 and exactly one of `leaves` (base32 leaf hashes) or `chunks` (objects
 with `url`, `offset`, `length`, `hash`). The limit is 1,048,576 leaves.
 The response gives `leaf_b32`, `path` and `root_b32`. Bad input gets a
-400. Unlike a note row, each chunk needs a 52-letter base32 `hash`. A
-chunk without one gets a 400, not 32 zero bytes. This route reads no signed note. Its root proves nothing until you
-compare it with a root that an author signed.
+400. Unlike a note row, each chunk needs a 52-letter lowercase base32
+`hash`. A chunk without one gets a 400, not 32 zero bytes. The `url`
+field is optional. A missing `url`, an empty `url` and `·` give the same
+leaf. On 7 November 2026, all three gave one `leaf_b32`, and an
+uppercase hash got a 400. This route reads no signed note. Its root
+proves nothing until you compare it with a root that an author signed.
 
 ## Time filters on reads (bi-temporal)
 
