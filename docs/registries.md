@@ -63,7 +63,7 @@ trace encodings 8.
 
 | Identifier | Source | Struct in `emem-core` | Count | Role |
 |---|---|---|---|---|
-| `emem-bands` | `data/bands-v0.json` | `bands::BandRegistry` | 43 slots | 1792-D voxel layout: family, tempo, privacy per slot |
+| `emem-bands` | `data/bands-v0.json` | `bands::BandRegistry` | 43 slots | cube slot layout (1792 dimensions): family, tempo, privacy per slot |
 | `emem-algorithms` | `data/algorithms-v0.json` | `algorithms::AlgorithmRegistry` | 172 | composition recipes (solo, combined, embedding) |
 | `emem-functions` | `data/functions-v0.json` | `functions::FunctionRegistry` | 23 | derivation functions (primary, derivative, negative) |
 | `emem-sources` | `data/sources-v0.json` | `sources::SourceRegistry` | 46 schemes | ordered providers per scheme |
@@ -97,8 +97,9 @@ trace rule applies to it.
 
 ## emem-bands (bands-v0.json)
 
-The 1792-D voxel layout. The 43 bands sum to exactly 1792 dims. The validator
-in `bands.rs` rejects a manifest when any of these is true:
+This manifest sets the fixed layout of a cell: 43 cube slots in one vector of
+1792 dimensions. Each slot has an offset and a dimension count (`dims`). The
+validator in `bands.rs` rejects a manifest when any of these is true:
 
 - `bands[i].offset != sum(bands[0..i].dims)`
 - two bands have the same `key`
@@ -121,7 +122,7 @@ Per-band fields (struct `bands::Band`):
 |---|---|---|
 | `key` | yes | stable wire band key (for example `"geotessera"`) |
 | `family` | yes | one of 14 `BandFamily` variants |
-| `offset` | yes | stable offset in the 1792-D cube |
+| `offset` | yes | stable offset in the 1792-dimension vector |
 | `dims` | yes | dimension count (for example 128 for `geotessera`) |
 | `tempo` | yes | one of 7 `Tempo` variants |
 | `provenance_class` | no | how the source makes the band's values (one of 7 `ProvenanceClass` variants); default `unclassified` |
@@ -622,7 +623,8 @@ Both scan the 27 topics. The list is small, so there is no index.
 
 ## emem-schema (schema-v0.json)
 
-The bundle of CDDL and JSON fragments that pin the wire shapes.
+This manifest is a bundle of CDDL and JSON fragments. They pin the wire
+shapes.
 
 | Field | Required | Description |
 |---|---|---|
