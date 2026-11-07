@@ -123,9 +123,9 @@ def checkpoints():
 
     s.lotus(CX, CY, 96)
     s.seal(CX + 78, CY - 78, 12, fill=LEAF)
-    s.text(CX, CY + 148, "ONE ENGINE", 14, INK, font=MONO, anchor="middle",
+    s.text(CX, CY + 164, "ONE ENGINE", 14, INK, font=MONO, anchor="middle",
            weight="bold")
-    s.text(CX, CY + 170, "policy pipeline · pure · no IO", 11, INK_SOFT,
+    s.text(CX, CY + 186, "policy pipeline · pure · no IO", 11, INK_SOFT,
            font=MONO, anchor="middle")
 
     _card(s, 1236, 372, 300, 196, LEAF, "the same answer",
@@ -177,17 +177,17 @@ def verdict_path():
         if i:
             s.flow((xs[i - 1] + 34, ys), (xs[i] - 34, ys), INK_SOFT, 1.4, op=0.7)
         s.roundel(xs[i], ys, 32, col, petal=(i % 2 == 0), inner=inners[i % 6])
-        s.text(xs[i], ys + 54, lab, 12, INK, font=MONO, anchor="middle", weight="bold")
-        s.text(xs[i], ys + 72, sub, 10, INK_SOFT, font=MONO, anchor="middle")
+        s.text(xs[i], ys + 66, lab, 12, INK, font=MONO, anchor="middle", weight="bold")
+        s.text(xs[i], ys + 84, sub, 10, INK_SOFT, font=MONO, anchor="middle")
         if budget:
-            s.text(xs[i], ys - 52, budget, 10, VERMIL, font=MONO, anchor="middle",
+            s.text(xs[i], ys - 60, budget, 10, VERMIL, font=MONO, anchor="middle",
                    weight="bold")
 
     s.flow((xs[-1] + 34, ys), (rx - 110, ys), LEAF, 1.7, op=0.9, glow=True)
     s.lotus(rx, ys, 88)
     s.seal(rx + 72, ys - 72, 12, fill=LEAF)
-    s.text(rx, ys + 142, "ANSWER", 13, INK, font=MONO, anchor="middle", weight="bold")
-    s.text(rx, ys + 162, "allow / deny + leaf", 10.5, INK_SOFT, font=MONO, anchor="middle")
+    s.text(rx, ys + 152, "ANSWER", 13, INK, font=MONO, anchor="middle", weight="bold")
+    s.text(rx, ys + 172, "allow / deny + leaf", 10.5, INK_SOFT, font=MONO, anchor="middle")
 
     # The wall. 800 ms self-budget under a 1000 ms floor: being late is not a
     # slow verdict, it is an unreachable server, and enough of those stop
@@ -246,7 +246,7 @@ def dlp_chassis():
         s.text(272, y - 4, lab, 12, INK, font=MONO, weight="bold")
         s.text(272, y + 14, sub, 10, INK_SOFT, font=MONO)
         s.text(272, y + 30, note, 9.5, col, font=MONO)
-        s.flow((402, y), (676, 470), col, 1.4, op=0.8, bow=(470 - y) * 0.08)
+        s.flow((540, y), (676, 470), col, 1.4, op=0.8, bow=(470 - y) * 0.08)
 
     # Centre: the pipeline. Two declarations decide where a module may run,
     # and neither is taken on trust.
@@ -263,9 +263,9 @@ def dlp_chassis():
     s.flow((1020, 470), (1076, 470), LEAF, 1.7, op=0.9, glow=True)
     s.lotus(1150, 470, 74)
     s.seal(1150 + 62, 470 - 62, 11, fill=LEAF)
-    s.text(1150, 584, "SIGNED VERDICT", 12.5, INK, font=MONO, anchor="middle", weight="bold")
-    s.text(1150, 604, "+ config digest of the", 10, INK_SOFT, font=MONO, anchor="middle")
-    s.text(1150, 620, "exact module set", 10, INK_SOFT, font=MONO, anchor="middle")
+    s.text(1150, 598, "SIGNED VERDICT", 12.5, INK, font=MONO, anchor="middle", weight="bold")
+    s.text(1150, 618, "+ config digest of the", 10, INK_SOFT, font=MONO, anchor="middle")
+    s.text(1150, 634, "exact module set", 10, INK_SOFT, font=MONO, anchor="middle")
 
     # Right: what the log does and does not carry. Narrow column, so the lines
     # are cut to fit rather than trusted to.
@@ -345,7 +345,7 @@ def deployments():
     ]
 
     for x, (col, title, who, lines, verb, note) in zip(cols, panels):
-        s.roundel(x, cy - 176, 34, col, petal=True, inner="ring")
+        s.roundel(x, cy - 184, 34, col, petal=True, inner="ring")
         # Clear of the roundel's spikes, which reach about 20px past r.
         s.text(x, cy - 112, title, 12.5, INK, font=MONO, anchor="middle", weight="bold")
         s.text(x, cy - 93, who, 11, col, font=MONO, anchor="middle", weight="bold")
