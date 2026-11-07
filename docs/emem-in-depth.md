@@ -97,7 +97,7 @@ commit in the header
 [`X-Emem-Commit`](https://emem.dev/.well-known/emem.json).
 
 emem controls no machine and runs no control loop. A warm recall takes
-milliseconds, and a cold read can take seconds. Do not put emem inside a
+milliseconds. The first read of a new place can take tens of seconds. Do not put emem inside a
 safety loop. [Machines that ask emem where they are](robots.md) has worked
 calls for a street robot, a sprayer, a harvester, an indoor arm and a
 satellite. The production truth workflow runs `scripts/example_check.py`
@@ -251,14 +251,14 @@ gives one call for each job. Your client lists only the core tools.
 `emem_tools` finds the other tools by words, and `tools/call` runs any tool
 by name. The core tools form a loop. In order, they name the thing,
 locate it, recall facts and cite a token. Then they resolve the token,
-verify the receipt, find contradictions and check the draft. `emem_memory_token_resolve` gives the
-same signed bytes in a later session. [`llms.txt`](https://emem.dev/llms.txt) lists the
-surface. Before you compact your context, keep the `emem:fact:` token for
+verify the receipt, find contradictions and check the draft.
+`emem_memory_token_resolve` gives the same signed bytes in a later session.
+[`llms.txt`](https://emem.dev/llms.txt) lists the surface. Before you compact your context, keep the `emem:fact:` token for
 each value that you verified, not the sentence.
 
 ## Read the agent card first
 
-An agent reads this document first. emem signs it, and a machine can parse
+An agent reads the agent card first. emem signs it, and a machine can parse
 it. Every client reads the same card.
 
 ```bash
@@ -268,7 +268,7 @@ curl -s https://emem.dev/.well-known/agent-card.json
 | Field | What it tells you |
 |---|---|
 | `skills` | The 18 core skills, with tags. `GET /extendedAgentCard` lists all 119: the 116 MCP tools and 3 perception skills. The perception skills have the tag `rest`. They run on REST only, not through `tools/call`. |
-| `additionalInterfaces` | A2A JSON-RPC, async tasks, skill query, MCP, the full OpenAPI and the short action schema |
+| `additionalInterfaces` | The URLs for A2A JSON-RPC, async tasks, skill query, MCP, the full OpenAPI, the short action schema, `/.well-known/emem.json` and `/v1/agent_card` |
 | `capabilities` | `streaming: true`. `message/stream` returns SSE. |
 | `emem.authentication` | Reads need no authentication. The card states this. |
 | `emem.write_path` | What a write needs before you send one |
@@ -321,8 +321,8 @@ step. The full exchange is public at [emem.dev/channel](https://emem.dev/channel
 
 ## What changed in version 2.4
 
-The current version is 2.4.4, a patch on 2.4.0. The 2.4.0 release added
-these items:
+The current version is 2.4.4, released on 18 October 2026. The 2.4.0
+release (7 September 2026) added these items:
 
 - Ground perception in `/v1/ask`.
 - An `age_s` on each reading, and a `freshness` block on questions in the
@@ -360,7 +360,10 @@ cell64 grid did not change. See [CHANGELOG.md](../CHANGELOG.md).
   independently. Our own re-scoring refuted several of our headline claims
   ([how emem compares](how-emem-compares.md)).
 - All that an agent writes, every reader can read. Ordinary entries have no
-  read isolation for each caller, and the roadmap has none.
+  read isolation for each caller, and the roadmap has none. emem isolates
+  writes only. Under `/memories/by_attester/<pubkey8>/`, the path names the
+  owner. Elsewhere, the first attester that creates a path owns it. A legacy
+  record with no recorded author refuses writes from every key.
 - A seal protects an entry from other callers, not from the operator. The
   key of a `vault` entry comes from the identity of this responder, so the
   operator can read it. If the operator must not read your data, encrypt it
@@ -374,8 +377,5 @@ cell64 grid did not change. See [CHANGELOG.md](../CHANGELOG.md).
   Only an operator can erase bytes, by hand. Nobody can retract copies that
   other agents already resolved.
 
-emem isolates writes, but not reads. Under
-`/memories/by_attester/<pubkey8>/`, the path itself names the owner.
-Elsewhere, the first attester that creates a path owns it. A legacy record
-with no recorded author refuses writes from every key. For full detail, see
+For full detail on who can read and write memory, see
 [PRIVACY.md](../PRIVACY.md#agent-written-memory).
