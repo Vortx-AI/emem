@@ -30,7 +30,7 @@ coverage.
 | `overture.transportation.road_bearing_deg` | deg_axial, 0 to 180 from north | The nearest carriageway segment within 50 m. The distance, the `class` and the row groups read are in `derivation.args`. | Overture transportation | An Absence when no carriageway is within 50 m. A footway or a plaza edge does not count. |
 | `population` | people_per_km2 | One 1 km pixel, sampled at the cell. | WorldPop UNadj 1 km, 2020 | The density of the pixel, not the people in the cell. |
 | `indices.ndbi` | ratio, -1 to 1 | One 10 m Sentinel-2 pixel, (B11 - B08) / (B11 + B08). | Sentinel-2 L2A. The scene id is in `derivation.args`. | Read `surface_class`. A pixel flagged as cloud shadow or water is not built-up evidence. |
-| `esa_worldcover.lc_2021` | class | One 10 m pixel. | ESA WorldCover v200, 2021 | Class 50 is built-up. |
+| `esa_worldcover.lc_2021` | class | One 10 m pixel. | ESA WorldCover v200, 2021 | Class 50 means built-up. |
 | `surface_water.recurrence` | percent | One 30 m pixel. | JRC Global Surface Water, 1984 to 2021 | Covers 60 N to 60 S only. |
 | `nightlights.dmsp_ols_avg_dn` | DN, 0 to 63 | DMSP-OLS stable lights. | DMSP-OLS V4, 1992 to 2013 | Retired in this code, because the upstream moved behind a login. Stored facts still recall and verify. A cell with no stored fact gets a `materialize_notes` entry with `band_retired_at_this_responder`. Saturates at 63 in a city core. There is no VIIRS band. |
 
@@ -57,7 +57,7 @@ returned these values on 7 November 2026 at 01:04 UTC:
 
 | Band | Value | Note |
 |---|---|---|
-| `esa_worldcover.lc_2021` | 50 | Built-up. |
+| `esa_worldcover.lc_2021` | 50 | The class for built-up. |
 | `indices.ndbi` | 0.024 (24 August 2026), -0.109 (28 October 2026) | Two scenes. `surface_class` flags the first as cloud shadow and the second as water. Neither is built-up evidence. |
 | `nightlights.dmsp_ols_avg_dn` | 63 | A stored fact. The code retires the band, so it makes no new fact. Saturated. Data year 2013, satellite F18. |
 | `population` | 16403 people_per_km2 | The 1 km pixel, data year 2020. |
@@ -98,7 +98,7 @@ of the plugin shows. The server runs it by name through `tools/call`.
 If your host calls only listed tools, use the REST route. An MCP result
 has a wire budget of about 24 KB. A larger result comes back slimmed,
 and `_emem_truncation` names what it left out. The REST route returns
-the full response. On 7 November 2026 it was 408761 bytes for this box.
+the full response. On 7 November 2026 it was about 400 KB for this box.
 
 This call returned these values on 7 November 2026 at 01:06 UTC:
 
