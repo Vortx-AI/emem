@@ -71,12 +71,12 @@ node in 2027 and replay the same query.
 ## When two signed facts disagree
 
 emem does not delete an old fact when a newer fact replaces it. `memory_contradictions` finds addresses where the
-signed values differ. On 7 November 2026 it scanned 44,705 keys. All 40 records that it returned had one signer
-that changed its source or its method. At one Sydney cell, road length was 8.45 m under
+signed values differ. On 7 November 2026 a call with limit 40 returned 40 records from a partial scan of 44,705
+keys. Each record had one signer that changed its source or its method. At one Sydney cell, road length was 8.45 m under
 `overture_road_length_m@1` and 0.00 m under `@2`. Version 1 counted footways, rail and waterways as road. A plain
 read returned 0.00 m. A read with `as_of_signed_at` set to `2026-09-01T00:00:00Z` returned 8.45 m.
 
-![Two cases from one live POST /v1/memory_contradictions call on 7 November 2026, 13:25 UTC, which scanned 44,705 keys. Case 1: road length at a Sydney cell, about 10 m by 8 m. Signed 29 June 2026: 8.45 m, method overture_road_length_m@1, Overture release 2026-06-17.0. Signed 11 October 2026: 0.00 m, method overture_road_length_m@2, release 2026-09-23.1. Version 1 counted footways, pedestrian areas, rail and waterways as road; version 2 counts only roads a vehicle can use. Recall today returns 0.00 m; recall with as_of_signed_at 1 September 2026 returns 8.45 m. Case 2: tree cover in 2000 at 20.47 S 55.79 W in Brazil. Signed 4 times from 4 July to 16 September 2026: 17 percent, Hansen GFC v1.12, pixel reader before the fix. Signed 30 September 2026: 0 percent, GFC v1.13, reader cog-pixel-floor@2. Recall today returns 0 percent. Both the release and the reader changed, so the record does not say which change moved the value. Every receipt checks valid.](media/stills/contradictions.webp)
+![Two cases from one live POST /v1/memory_contradictions call with limit 40 on 7 November 2026, 13:25 UTC, which returned 40 records from a partial scan of 44,705 keys. Case 1: road length at a Sydney cell, about 10 m by 8 m. Signed 29 June 2026: 8.45 m, method overture_road_length_m@1, Overture release 2026-06-17.0. Signed 11 October 2026: 0.00 m, method overture_road_length_m@2, release 2026-09-23.1. Version 1 counted footways, pedestrian areas, rail and waterways as road; version 2 counts only roads a vehicle can use. Recall today returns 0.00 m; recall with as_of_signed_at 1 September 2026 returns 8.45 m. Case 2: tree cover in 2000 at 20.47 S 55.79 W in Brazil. Signed 4 times from 4 July to 16 September 2026: 17 percent, Hansen GFC v1.12, pixel reader before the fix. Signed 30 September 2026: 0 percent, GFC v1.13, reader cog-pixel-floor@2. Recall today returns 0 percent. Both the release and the reader changed, so the record does not say which change moved the value. Every receipt checks valid.](media/stills/contradictions.webp)
 
 ## What ships and what does not
 

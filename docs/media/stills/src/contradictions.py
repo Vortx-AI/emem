@@ -33,6 +33,7 @@ def receipt_ok(r):
 scan = load("scan")
 assert receipt_ok(scan["receipt"]) and load("scan_verify")["valid"]
 assert scan["scopes"] == ["same_attester_provider_substitution"]
+assert "PARTIAL" in scan["agent_hint"] and scan["returned"] == 40
 
 k = {}
 for name in ("road", "tree"):
@@ -106,9 +107,9 @@ h1{{font-size:44px;line-height:1.2;margin:0 0 10px}}
 .foot{{color:#8b949e;font-size:22px;margin-top:24px;line-height:1.4}}
 </style><div class="wrap">
 <h1>Two signed facts at one address disagree. emem keeps both.</h1>
-<div class="q">One live call to POST /v1/memory_contradictions ({day(served)}, {served[11:16]} UTC)
-scanned {scan['corpus_scanned']:,} keys. Each of the {scan['returned']} records it returned has one signer
-that changed its source or its method. Two of them:</div>
+<div class="q">One live call to POST /v1/memory_contradictions with limit 40 ({day(served)}, {served[11:16]} UTC)
+returned {scan['returned']} records from a partial scan of {scan['corpus_scanned']:,} keys. Each record has one
+signer that changed its source or its method. Two of them:</div>
 
 <div class="panel">
 <div class="ph">1. Road length in one cell</div>

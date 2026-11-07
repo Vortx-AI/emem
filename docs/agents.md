@@ -661,9 +661,10 @@ curl -s -X POST https://emem.dev/v1/field_series -H 'content-type: application/j
 
 <img src="media/stills/field-outlines.webp" alt="Still from live emem.dev calls on 7 November 2026. A Sentinel-2 true-colour image of a farm box near Ames, Iowa, on 22 June 2025, with 20 field outlines from field_boundaries. A chart gives the median NDVI of each field on 17 clear dates in 2025: 8 fields are at 0.8 or more on 22 June, and 12 are under 0.75. Cards show one polygon_cid that both answers carry, one field_series token for the 20 series, and verify_receipt valid." width="540">
 
-To read one series per field, first get the outlines. `field_boundaries`
-returned 139 outlines in the box above on 7 November 2026. The still uses
-the 20 outlines over 1 ha. They went to `field_series` as `fields`, with
+To read one series per field, first get the outlines. On 7 November 2026
+`field_boundaries` returned 139 outlines in a larger box around the box
+above (latitude 41.996 to 42.008, longitude -93.706 to -93.688). The still
+uses the 20 outlines over 1 ha. They went to `field_series` as `fields`, with
 the first 8 characters of each `polygon_cid` as the `id`. Each field's
 summary carries the same `polygon_cid`, so the two answers join without
 coordinates. The outlines come from Fields of The World (CC-BY-4.0). A
