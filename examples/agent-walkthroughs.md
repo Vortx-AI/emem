@@ -14,10 +14,10 @@ change the URL.
 
 - One working command for each of eight common questions.
 - The field to read in each response, and the output it gave on
-  6 November 2026.
+  7 November 2026.
 - A table that tells you which call to make first.
 
-Every command ran against emem.dev on 6 November 2026. No CI job runs this
+Every command ran against emem.dev on 7 November 2026. No CI job runs this
 page. If a command fails for you, open an issue.
 
 Each block uses a literal `cell64`, so you can run it alone. In your own code,
@@ -36,7 +36,7 @@ curl -s -X POST https://emem.dev/v1/locate \
 curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
   -d '{"cell":"defi.zb592.nemu.zEvE","bands":["copdem30m.elevation_mean"]}' | jq '.facts[0] | {value, unit, memory_token}'
-# value 3768.409912109375, unit "m" (6 November 2026)
+# value 3768.409912109375, unit "m" (7 November 2026)
 # memory_token "emem:fact:defi.zb592.nemu.zEvE:pi3crztqnjaa2ntnjzebec2p4db3th2khc2xet6doovphnq2kgya"
 ```
 
@@ -49,12 +49,12 @@ to the same signed bytes and check the receipt offline.
 curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
   -d '{"place":"Mount Everest","bands":["copdem30m.elevation_mean"]}' | jq '.facts[0] | {cell, value, unit}'
-# cell "defi.zb53e.rIkI.seni", value 8724.0, unit "m" (6 November 2026)
+# cell "defi.zb53e.rIkI.seni", value 8724.0, unit "m" (7 November 2026)
 ```
 
 `recall` accepts a `place`. The name resolves to one cell of about 10 m. If
 the name is ambiguous, `recall` does not guess. It returns the error code
-`no_geocoder_match`, the best candidate, and a remedy. On 6 November 2026,
+`no_geocoder_match`, the best candidate, and a remedy. On 7 November 2026,
 `"Everest Base Camp"` and `"Springfield"` both gave this error. Then call
 `/v1/locate`, choose the candidate, and pass its `cell64`. For an area, see
 section 7.
@@ -69,7 +69,7 @@ already holds.
 curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
   -d '{"cell":"defi.zb53e.wUdA.rIhe","bands":["copdem30m.elevation_mean"]}' | jq '.facts[0].value'
-# 5258.5595703125 (6 November 2026)
+# 5258.5595703125 (7 November 2026)
 
 curl -s -X POST https://emem.dev/v1/verify \
   -H 'content-type: application/json' \
@@ -86,7 +86,7 @@ verdict used. Read `evidence` before you report a `false`:
 | `false` | one or more fact ids | The signed facts do not support the claim. |
 | `false` | `[]` | The cell holds no fact for that band. `verify` did not check the claim. |
 
-`"mode":"resolve"` asks `verify` to fetch a missing fact. On 6 November 2026
+`"mode":"resolve"` asks `verify` to fetch a missing fact. On 7 November 2026
 it returned `cid_not_found` for `copdem30m.elevation_mean` at a new cell, so
 call `recall` first, as above.
 
@@ -99,7 +99,7 @@ curl -s -X POST https://emem.dev/v1/compare \
   -H 'content-type: application/json' \
   -d '{"a":"defi.zb5cb.zda5f.nEqI","b":"defi.zb5b8.qIgO.pIho"}' | jq '{shared_bands, per_band, only_a, only_b}'
 # shared_bands: copdem30m.elevation_mean, indices.ndvi, weather.temperature_2m
-# per_band."copdem30m.elevation_mean": -645.78 (6 November 2026)
+# per_band."copdem30m.elevation_mean": -645.78 (7 November 2026)
 ```
 
 For a scalar band, `per_band` gives `b` minus `a`. Here Lisbon is 645.78 m
@@ -116,7 +116,7 @@ compare again.
 curl -s -X POST https://emem.dev/v1/find_similar \
   -H 'content-type: application/json' \
   -d '{"key":"defi.zb5d8.hAgU.pIxO","k":5}' | jq '.neighbors[] | {cell, band_used, score, place_label_cached}'
-# 4 neighbours on 6 November 2026. The first: defi.zb5d8.hAgU.pOgU,
+# 4 neighbours on 7 November 2026. The first: defi.zb5d8.hAgU.pOgU,
 # band_used "geotessera", score 0.833, "Carlisle, Iowa, United States"
 ```
 
@@ -135,14 +135,14 @@ a high score does not mean a similar climate, biome or latitude.
 curl -s -X POST https://emem.dev/v1/field_series \
   -H 'content-type: application/json' \
   -d '{"geometry":{"type":"Polygon","coordinates":[[[-5.3012,6.8501],[-5.2988,6.8501],[-5.2988,6.8524],[-5.3012,6.8524],[-5.3012,6.8501]]]},"index":"ndvi","start_date":"2025-01-01","end_date":"2026-09-30"}' | jq '{rows: (.rows | length), anomaly, cautions}'
-# rows 15, anomaly null, and three cautions (6 November 2026)
+# rows 15, anomaly null, and three cautions (7 November 2026)
 ```
 
 The response is one signed series for the area. It holds one row for each
 clear scene (`rows`), a trend (`trend`), an anomaly against earlier years
 (`anomaly`), and a change map (`change_map`).
 
-Read `cautions` before you report a change. On 6 November 2026, `anomaly` was
+Read `cautions` before you report a change. On 7 November 2026, `anomaly` was
 `null` for this polygon. The cautions said that no earlier-year scene in the
 same season was clear enough to compare.
 
@@ -155,14 +155,17 @@ request to this endpoint.
 curl -s -X POST https://emem.dev/v1/query_region \
   -H 'content-type: application/json' \
   -d '{"geometry":"cells:defi.zb5cb.zda5f.nEqI,defi.zb5b8.qIgO.pIho","bands":["copdem30m.elevation_mean"],"agg":"mean"}' | jq '.aggregates'
-# {"copdem30m.elevation_mean": 321.9013770903458} (6 November 2026)
+# {"copdem30m.elevation_mean": 321.9013770903458} (7 November 2026)
 ```
 
 The mean uses a cos-latitude weight. It is not the plain mean of the two
-values (325.88 on 6 November 2026). `cos_lat_weighting_applied` in the
-response tells you if the mean used this equal-area weight. For a named area instead of a list of cells, use
-`POST /v1/recall_polygon` or `POST /v1/grid`. Each one samples cells in the
-area and combines their values in one call.
+values (325.88 on 7 November 2026). `cos_lat_weighting_applied` in the
+response tells you if the mean used this equal-area weight. It was `true`
+here.
+
+For a named area instead of a list of cells, use `POST /v1/recall_polygon`
+or `POST /v1/grid`. Each one samples cells in the area and combines their
+values in one call.
 
 ## 8. Ask when you do not know which call to make
 
@@ -172,16 +175,19 @@ curl -s -X POST https://emem.dev/v1/ask \
   -d '{"q":"how is the vegetation doing around Manaus?"}' \
   | jq '{answer, shown: .band_observations_summary.bands_shown, cited: (.receipt.fact_cids|length)}'
 # answer starts "At Manaus, Amazonas, Brazil, in the one cell that name resolves to:
-# greenness (NDVI) 0.51 ...". On 6 November 2026: "shown": 12, "cited": 742
+# greenness (NDVI) 0.51 ...". On 7 November 2026: "shown": 12, "cited": 747
 ```
 
 `ask` sends a plain-language question to the correct path. It returns an
 answer and the ids of the facts it read. The answer gives the age of each
 reading. The answer shows 12 bands that match the question
 (`band_observations_summary.bands_shown`). The receipt cites every fact held at
-the cell, 742 on 6 November 2026. Each entry in
-`band_observations_summary.bands` has its own `fact_cid`. Over MCP, `emem_tools` searches the full tool list when the tool you
-need is not in your list.
+the cell, 747 on 7 November 2026. This count grows as the cell gets new
+facts. Each entry in `band_observations_summary.bands` has its own
+`fact_cid`.
+
+Over MCP, `emem_tools` searches the full tool list when the tool you need is
+not in your list.
 
 ## Which call to make first
 
