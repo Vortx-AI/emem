@@ -4,8 +4,9 @@ This page shows how emem handles two signed facts that disagree about
 one place. emem scores the disagreement and keeps both facts. An opt-in
 refinement loop then records the disagreement as a signed
 `disagrees_with` edge and marks one fact as contested. A recall can
-return that edge with the fact. emem deletes nothing, so every step
-verifies offline. For the concepts, see
+return that edge with the fact. emem deletes nothing. You can verify
+every fact and edge offline, because each one carries a signature. The
+contested marker has no signature. For the concepts, see
 [../docs/connect-and-evolve.md](../docs/connect-and-evolve.md).
 
 ## What you need
