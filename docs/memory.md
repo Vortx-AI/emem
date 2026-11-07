@@ -1345,8 +1345,8 @@ A derivation is idempotent for each pair of attester and body. If you
 send the same signed body again, you get the same token with
 `deduplicated: true`. Thus a retry after a timeout is safe. With
 `budget_ms`, a slow registration returns 202 with `status: "pending"`
-and completes in the background. Send the same body again to get the
-token.
+and `retry_after_ms: 1000`. The registration completes in the
+background. Send the same body again to get the token.
 
 ### Rule 3: default reads never return a derived fact
 
@@ -1386,14 +1386,17 @@ nearest first. The default is 5000 m and the maximum is 50000 m. A
 value outside 0 to 50000 gets 400. With `0` it reads the one cell. Each
 item has its `cell` and `distance_m`. A cell is 9.55 m wide, so a reader
 one street away finds a study anchored at its own point. `limit` is 1 to
-500, and the default is 50.
+500, and the default is 50. Near a pole, a wide circle can touch more
+than 4,096 index tiles. The responder then refuses it with 400
+`inferences_radius_too_wide`. Send a smaller `radius_m`.
 
 The trust policy decides which keys `/v1/inferences` admits. By default
 it admits each key that this responder reads at `T4_affiliated` or
 above. For such a key, an organisation vouched for it by DNS or
 `.well-known` within the last 30 days (`GET /v1/enlist`). Send
 `min_tier` to move that floor. Send `attesters` to admit only the keys
-that you name.
+that you name. `attesters` takes at most 64 keys. More keys get 400
+`inferences_too_many_attesters`.
 
 The response gives these items:
 
@@ -1413,11 +1416,6 @@ token, `fn_key`, nick, tier, distance and `signed_at`. No derivation
 value enters the answer or its receipt. To read the values, use
 `/v1/inferences`. If that search takes more than 2 seconds, the response
 omits the block.
-
-Registration is idempotent per `(your key, derivation body)`. If you
-post the same derivation again, you get the token that the responder
-already made for it. A retry after a timeout is safe and makes no
-second copy.
 
 [protocol.md § 5.2](protocol.md) gives three more items:
 
