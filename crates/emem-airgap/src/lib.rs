@@ -165,7 +165,19 @@ pub fn reject_unknown_flags(args: &[String], known: &[&str]) -> Result<(), std::
 /// directory for its identity at all, which is the point: the alternative on a
 /// two-mount platform was to put the private seed in the folder that gets
 /// downlinked.
-pub fn seed_from_environment() -> Result<Option<NodeKeyFile>, Box<dyn std::error::Error>> {
+///
+/// `seed_file` is the decoder's `--seed-file` value. It wins over the
+/// environment because a flag on the command line is the more deliberate
+/// choice; without this parameter the flag was accepted and then ignored, and
+/// a decode run with only the flag minted a second identity in `--data`.
+pub fn seed_from_environment(
+    seed_file: Option<&str>,
+) -> Result<Option<NodeKeyFile>, Box<dyn std::error::Error>> {
+    if let Some(p) = seed_file {
+        let raw = std::fs::read_to_string(p)
+            .map_err(|e| format!("cannot read the seed file at {p}: {e}"))?;
+        return seed_from_hex(&raw).map(Some);
+    }
     // Both prefixes, for both binaries.
     //
     // The variable was EMEM_AIRGAP_SEED_HEX only, so an operator configuring
@@ -194,6 +206,10 @@ pub fn seed_from_environment() -> Result<Option<NodeKeyFile>, Box<dyn std::error
     let Some(raw) = raw else {
         return Ok(None);
     };
+    seed_from_hex(&raw).map(Some)
+}
+
+fn seed_from_hex(raw: &str) -> Result<NodeKeyFile, Box<dyn std::error::Error>> {
     let hex = raw.trim();
     if hex.len() != 64 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(format!(
@@ -207,9 +223,9 @@ pub fn seed_from_environment() -> Result<Option<NodeKeyFile>, Box<dyn std::error
     for (i, b) in seed.iter_mut().enumerate() {
         *b = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16)?;
     }
-    Ok(Some(NodeKeyFile::new(
+    Ok(NodeKeyFile::new(
         seed,
         "supplied",
         "emem air-gapped node: identity supplied in the environment, never written to disk",
-    )))
+    ))
 }
