@@ -2,7 +2,8 @@
 
 Each picture on this page answers one question about emem. The values come from live calls to emem.dev on
 7 November 2026, or from the code. Read the pictures in order. They follow one fact from a place name to a check
-by a second agent, then show notes, the guard and `/v1/ask`. Each section links to the page that explains it.
+by a second agent. Other sections show a series over time, A2A, notes, the guard and
+`/v1/ask`. Each section links to the page that explains it.
 
 The rules for these pictures are in [visual-language.md](visual-language.md). The scripts are in
 [stills/src/](stills/src/) and [films/src/](films/src/). The saved responses are in [src-packs/](src-packs/), one
@@ -42,6 +43,17 @@ It returns the signed facts at the cell, from several sources, with one receipt 
 <img src="stills/recall-one-cell.webp" alt="Still from live emem.dev calls on 7 November 2026. A 10 km Sentinel-2 crop of Lake Geneva from 12 October 2026, with a ring on cell defi.zb610.tAhU.hejI at 46.4500 N, 6.5500 E. One recall returned 8 facts from 6 sources, oldest first: climate class Cfb (30 Oct 2018), elevation 368 m (30 Apr 2021), water occurrence 98 percent (1 Jan 2022), land cover class 80, permanent water bodies (28 Oct 2022), NDVI 0.055 with pixel class Water, so not a vegetation reading, and NDWI 0.226 (15 Oct 2026), precipitation 0 mm and air temperature 9.9 degrees C (7 Nov 2026, 09:00 UTC). Green dots mark the 3 facts that are recomputable from the source: elevation, NDVI and NDWI. One receipt covers the 8 fact ids; signature valid, merkle proof valid." width="540">
 
 More: [agents.md](../agents.md).
+
+## How does one area change over time?
+
+`field_series` gives one row per scene. It leaves out the cloudy scenes and says which ones. One token covers the
+whole series.
+
+<img src="stills/ndvi-two-seasons.webp" alt="Still from live emem.dev calls on 7 November 2026. A farm box near Ames, Iowa, of 2200 Sentinel-2 pixels. Two true-colour crops: 1 August 2024, median NDVI 0.88, and 22 October 2024, median NDVI 0.26. A chart of median NDVI with the p10 to p90 band for 17 clear scenes from February 2024 to November 2025, with two peaks in July and August. Eight cloudy scenes are marked as left out. The whole series has one token, emem:fact:defi.zb5dd.ze38f.nEzo:gutxcpc54gzyegyuvxr7dkevmixz5k7dnq3sfzckqocfpwbcixma, and verify_receipt returns valid. Contains modified Copernicus Sentinel data 2024-2025." width="540">
+
+More: [agents.md](../agents.md), section on `field_series`. The film
+[emem-ndvi-season.mp4](films/emem-ndvi-season.mp4) shows the same answer one scene at a time. It is silent and
+32 seconds long.
 
 ## If one bit of a fact changes, does its id change?
 
@@ -86,6 +98,14 @@ Yes. One bundle token names many facts. The second agent resolves each one and c
 <img src="stills/bundle-handoff.webp" alt="Live reads of emem.dev on 7 November 2026. 1: agent A hands over one 38-character line, emem:bundle:y2k6h2laeo4libfsiebucdw4mu, minted on 23 September 2026: four members, four resolved, one cell in Bengaluru at 12.972 N, 77.594 E. 2: agent B resolves the bundle and each fact token: elevation 915.07 m (observed 30 April 2021), NDVI 0.33 (12 May 2026), PM2.5 27.8 micrograms per cubic metre (28 May 2026) and air temperature 20.1 degrees C (21 July 2026). Each token resolves to the fact id that A cited, and each fact receipt is valid. 3: the bundle receipt rebuilds to digest 3d72e6e5 and its signature is valid; with one character of the NDVI fact id changed, the digest is ad3c1dbc and the check fails." width="540">
 
 More: [emem-in-depth.md](../emem-in-depth.md).
+
+## Can an A2A agent use emem with no key?
+
+Yes. It reads the signed agent card, sends one `message/send` and checks the receipt in the task offline.
+
+<img src="stills/a2a-exchange.webp" alt="Three live A2A steps against emem.dev on 7 November 2026. 1: the agent card reads emem 2.4.4, A2A protocol 1.0, 18 skills listed of 119, and its EdDSA signature by key 777er3yi is valid offline. 2: one message/send with the text 'what is the elevation of Table Mountain?' returns a completed task, answered by emem_ask: 1069.01 m from the Copernicus DEM at 33.962 S, 18.414 E, shown on a Sentinel-2 image of 30 March 2024. 3: the receipt in the artifact rebuilds to digest c50b2410 and its signature is valid; with one character of the fact id changed, the digest is c71bbe77 and the check fails. Contains modified Copernicus Sentinel data 2024." width="540">
+
+More: [emem-in-depth.md](../emem-in-depth.md), section "Where agents meet: A2A and the signed channel".
 
 ## How does a refused note write become an accepted one?
 
