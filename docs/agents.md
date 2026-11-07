@@ -1670,6 +1670,21 @@ The response also has a `legality_disclaimer`. Earth observation cannot
 show legality under Article 9(1)(b). Thus the receipt proves the forest
 facts and nothing about land tenure.
 
+Read `statement_of_compliance_signable` before you file. When it is
+`false`, the responder holds the statement until a person reviews the
+plot. `statement_of_compliance_held_because` lists each cause:
+
+| Cause | Meaning |
+|---|---|
+| `verdict_<label>` | The overall outcome is not `pass`. |
+| `tmf_cross_check_review_required` | JRC TMF shows a loss that Hansen does not show. |
+| `verdict_support_weak` | `verdict_support.level` of a plot is `weak`. |
+| `jrc_baseline_unavailable_hansen_only` | The verdict ran without the JRC baseline. |
+
+On 7 November 2026 the example plot gave the outcome `pass`, but the
+responder held the statement for `verdict_support_weak`. The point is 0.01 ha, and
+all its cells are within 2 points of the 10 % canopy threshold.
+
 Each plot has `per_cell_rows_cid`. It is the BLAKE3 hex of one line for
 each sampled cell, in the form `<cell>|<verdict>|<fact_cids joined by ,>\n`.
 The responder stores the facts of each sampled cell, so each fact CID
