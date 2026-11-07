@@ -2805,7 +2805,11 @@ every `key_only` key, and keys cost nothing. Use
 `head_is_witnessed_by_independent_operator`. It is true only when an
 `org_vouched` domain other than this node's own signed the current head.
 On 7 November 2026 at 07:05 UTC it was `false`. `independent_operator_count`
-was 1, and `independent_witness_count` was 112 keys.
+was 1, and `independent_witness_count` was 112 keys. The flag changes each
+time the operator's witness signs or the log grows. At 08:22 UTC it was
+`true`, less than a minute after a call that gave `false`. So read it with
+`freshest_independent_operator_entries_behind`. That number counts the log
+entries after the newest head that an `org_vouched` key signed.
 
 ##### 9.6.2.1 Check a witness co-signature by hand
 

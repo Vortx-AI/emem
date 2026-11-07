@@ -366,18 +366,28 @@ The live response `note` still points to `head_is_independently_witnessed`.
 The code comments call `independent_witness_count` a number that "a swarm of
 fresh keys inflates at will".
 
-On 7 November 2026 at 07:24 UTC, `/v1/log/witnesses` reported the values
-below. The tree size and the lag change with each log entry.
+The table gives two live readings of `/v1/log/witnesses` on 7 November
+2026. The tree size, the lags and the head fields change with each log
+entry and each co-signature.
 
-| Field | Value |
-|---|---|
-| `current_tree_size` | 3,247,652 |
-| `independent_witness_count` | 112 keys |
-| `witness_keys_by_tier` | 111 `key_only`, 1 `org_vouched`, 1 `self_operator` |
-| `independent_operator_count` | 1 |
-| `freshest_independent_witness_entries_behind` | 9 |
-| `head_is_independently_witnessed` | `false` |
-| `head_is_witnessed_by_independent_operator` | `false` |
+| Field | 07:30 UTC | 08:22 UTC |
+|---|---|---|
+| `current_tree_size` | 3,247,662 | 3,248,454 |
+| `independent_witness_count` | 112 keys | 112 keys |
+| `witness_keys_by_tier` | 111 `key_only`, 1 `org_vouched`, 1 `self_operator` | same |
+| `independent_operator_count` | 1 | 1 |
+| `freshest_independent_witness_entries_behind` | 19 | 0 |
+| `freshest_independent_operator_entries_behind` | 19 | 0 |
+| `head_is_independently_witnessed` | `false` | `true` |
+| `head_is_witnessed_by_independent_operator` | `false` | `true` |
+
+A head field is a reading at one moment, not a property of the node. At
+08:22 UTC, one call less than a minute before the call in the table gave
+`head_is_witnessed_by_independent_operator: false`, with
+`freshest_independent_operator_entries_behind: 145`. The tree size was the
+same. Then the operator's witness co-signed that head. Read the
+`_entries_behind` number with the flag. It tells you how much of the log
+the independent operator has not yet signed.
 
 A `key_only` witness proves only that someone holds a key, and keys are free.
 So one independent operator vouched by a domain counts for more than 111 bare
