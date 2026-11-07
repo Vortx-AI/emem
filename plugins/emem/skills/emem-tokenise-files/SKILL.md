@@ -12,7 +12,7 @@ description: Turns a file into signed, resolvable tokens with emem. Cuts the fil
 | You get | An `emem:tree:<file_cid>` token for the file, a `#row=<i>` token for each unit, and `MATCH` or `MISMATCH` for each check, with an exit code. |
 | Calls | `scripts/tree_proof.py build` (offline), `emem_memory_create` (signed write), `GET /v1/tree/<file_cid>?row=<i>`, then `scripts/tree_proof.py check` (offline). |
 
-> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Some steps also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. The files under `scripts/` read local files and make no network calls.
+> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Where a step says so, they also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. The files under `scripts/` read local files and make no network calls.
 
 A quoted part of a long file proves nothing about its origin. A tree
 gives that proof. The builder hashes each unit and folds the hashes

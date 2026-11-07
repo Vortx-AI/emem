@@ -90,7 +90,9 @@ REST route.
 | `per_cell_detail` | `rows` | `rows` puts the per-cell rows in the response. `anchor` leaves them out and keeps `per_cell_rows_cid`. |
 | `per_cell_offset` | none | Pages the per-cell rows. See step 4. |
 
-The full schema is at `GET https://emem.dev/v1/schemas/eudr_dds.json`.
+The request schema is `EudrDdsReq` in the OpenAPI document at
+`GET https://emem.dev/openapi.json`. The response schema is at
+`GET https://emem.dev/v1/schemas/eudr_dds.json`.
 
 ## Step 3: read the response
 

@@ -12,7 +12,7 @@ description: Verifies the Ed25519 signature of an emem receipt offline. It rebui
 | You get | `VALID` or `INVALID`, the digest, the signer key and an exit code. |
 | Calls | `scripts/verify.py` (offline). The fallback is `emem_verify_receipt` (MCP) or `POST /v1/verify_receipt`. |
 
-> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Some steps also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. The files under `scripts/` read local files and make no network calls.
+> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Where a step says so, they also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. The files under `scripts/` read local files and make no network calls.
 
 Each emem response that serves facts has a `receipt`. This skill
 rebuilds the preimage of the receipt byte for byte and hashes it with

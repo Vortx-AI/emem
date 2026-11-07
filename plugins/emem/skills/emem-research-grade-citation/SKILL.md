@@ -12,7 +12,7 @@ description: Prepares emem facts for use in research, where a reviewer must know
 | You get | The fields that define each value, an estimand sentence for each band, and a methods and data-availability text with tokens. |
 | Calls | `emem_recall`, then `emem_change_attribution` if a value changed (MCP). Or `POST /v1/recall`, `GET /v1/materializers` and `POST /v1/change_attribution`. |
 
-> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Some steps also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. The commands read no environment variable, key or credential. They read only local files that an earlier step saved from `https://emem.dev`.
+> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Where a step says so, they also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. The commands read no environment variable, key or credential. They read only local files that an earlier step saved from `https://emem.dev`.
 
 A signed fact proves which responder served which bytes. It does not
 say which quantity those bytes estimate. A reviewer needs both: the
@@ -92,12 +92,14 @@ heights.
 `GET https://emem.dev/v1/materializers` lists the `valid_range` of each
 band with `enforced_at_signing: true`. The responder refuses to sign a
 value outside that range, so it never serves one. The list has pages
-(113 materialisers on 7 November 2026). Ask for one large page and
-select the band:
+(113 materialisers on 7 November 2026). The largest page is 100
+entries. The responder clamps a larger `page_size` to 100 and does not
+give an error. Read both pages, then select the band:
 
 ```sh
-curl -s -o mat.json 'https://emem.dev/v1/materializers?page_size=200'
-jq -c '.materializers[] | select(.band == "copdem30m.elevation_mean") | .valid_range' mat.json
+curl -s -o mat1.json 'https://emem.dev/v1/materializers?page_size=100&page=1'
+curl -s -o mat2.json 'https://emem.dev/v1/materializers?page_size=100&page=2'
+jq -c '.materializers[] | select(.band == "copdem30m.elevation_mean") | .valid_range' mat1.json mat2.json
 ```
 
 On 7 November 2026 this printed

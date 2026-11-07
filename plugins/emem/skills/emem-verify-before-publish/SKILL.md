@@ -12,7 +12,7 @@ description: Checks a draft before you send it. Finds every emem citation in the
 | You get | `allow` or `deny`, a reason code, a `fix`, and one state for each citation. |
 | Calls | `emem_guard_verdict` (MCP). Or `POST /v1/guard/verdict`. |
 
-> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Some steps also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. The commands read no environment variable, key or credential. They read only local files that an earlier step saved from `https://emem.dev`.
+> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Where a step says so, they also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. The commands read no environment variable, key or credential. They read only local files that an earlier step saved from `https://emem.dev`.
 
 The citations in a draft were correct when you wrote them. This call
 checks that they still resolve. It checks that the number next to each

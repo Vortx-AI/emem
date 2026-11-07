@@ -12,7 +12,7 @@ description: Resolves a place name to an emem cell64 address and recalls signed 
 | You get | Signed facts, one `emem:fact:` token for each fact, and an Ed25519 receipt. |
 | Calls | `emem_locate`, then `emem_recall` (MCP). Or `POST /v1/locate`, then `POST /v1/recall`. |
 
-> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Some steps also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. The commands read no environment variable, key or credential. They read only local files that an earlier step saved from `https://emem.dev`.
+> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Where a step says so, they also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. The commands read no environment variable, key or credential. They read only local files that an earlier step saved from `https://emem.dev`.
 
 Two calls change a place name into signed facts. Each fact comes back
 with its own `emem:fact:` token. Thus the number always travels with

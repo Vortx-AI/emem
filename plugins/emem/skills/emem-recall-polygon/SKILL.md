@@ -12,7 +12,7 @@ description: Recalls signed Earth-observation facts at sampled cells inside an a
 | You get | Facts for each sampled cell, one Ed25519 receipt for each cell, and the sample size and coverage. |
 | Calls | `emem_recall_polygon` (MCP, by name through `tools/call`). Or `POST /v1/recall_polygon`. |
 
-> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Some steps also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. The commands read no environment variable, key or credential. They read only local files that an earlier step saved from `https://emem.dev`.
+> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Where a step says so, they also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. The commands read no environment variable, key or credential. They read only local files that an earlier step saved from `https://emem.dev`.
 
 One call samples cells inside an area and recalls the bands at each
 cell. It does the work of `locate`, a cell sample and `recall_many`

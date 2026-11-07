@@ -12,7 +12,7 @@ description: Audits emem's append-only RFC 6962 transparency log offline. Verifi
 | You get | `VALID` or `INVALID` for a signed tree head, an inclusion proof and a consistency proof, with an exit code. |
 | Calls | `GET /v1/log/*` (or the `emem_log_*` MCP tools), then `scripts/verify_log.py` (offline). |
 
-> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Some steps also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. The files under `scripts/` read local files and make no network calls.
+> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Where a step says so, they also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. The files under `scripts/` read local files and make no network calls.
 
 A receipt proves that the responder signed some fact cids. It does not
 prove that the responder showed every reader the same history. The
@@ -205,7 +205,7 @@ three levels of independence:
 
 | Field | What it counts |
 |---|---|
-| `head_is_witnessed` | Any co-signature. The node's own liveness canary signs the head every two minutes, so this is nearly always true. |
+| `head_is_witnessed` | Any co-signature, including the node's own liveness canary. It is false when any entry came after the last co-signature. At 01:34 UTC on 7 November 2026 it was false: the freshest co-signature was 13 entries behind. |
 | `head_is_independently_witnessed`, `independent_witness_count` | Keys other than the node's own. Keys are free, so many fresh keys can raise this count. |
 | `head_is_witnessed_by_independent_operator`, `independent_operator_count` | Keys with fresh DNS or well-known evidence under a domain that is not the node's own. This count costs something to move. |
 

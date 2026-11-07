@@ -192,7 +192,7 @@ which image and text gave the answer. It did not make the reading
 correct. When a verdict depends on a column, find that column in the OCR
 text.
 
-After the run, we changed one result value in `lab_text.json`. The
+After the run, a test changed one result value in `lab_text.json`. The
 script then printed `result MISMATCH` and exited with 1.
 
 ## Errors

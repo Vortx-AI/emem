@@ -12,7 +12,7 @@ description: Makes two agents refer to the same object. Finds an existing canoni
 | You get | Ranked candidate identities with their attribution, or one `emem:entity:<cid>` token. |
 | Calls | `emem_entity_resolve` (read), `emem_entity_link` and `emem_entity` (writes). REST: `/v1/entity/*`. |
 
-> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Some steps also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. The commands read no environment variable, key or credential. They read only local files that an earlier step saved from `https://emem.dev`.
+> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Where a step says so, they also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. The commands read no environment variable, key or credential. They read only local files that an earlier step saved from `https://emem.dev`.
 
 This skill covers the words half of referential drift. The values half
 is [`emem-referential-drift`](../emem-referential-drift/SKILL.md). That

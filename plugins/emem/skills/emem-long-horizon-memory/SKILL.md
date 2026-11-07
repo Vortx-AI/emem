@@ -148,7 +148,7 @@ That refusal is the check, and it works as designed.
 
 To list your notes, call `emem_memory_view` on
 `/memories/by_attester/<pubkey8>/`. To read an earlier version, call
-`emem_memory_view` with `{"file_cid": ...}`. Keep the cids that you can
+`emem_memory_view` with `{"file_cid": ...}`. Keep the cids that you will
 need later. There is no history list. A version that no path points to
 comes back without its authorship block.
 

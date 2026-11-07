@@ -12,7 +12,7 @@ description: Stops two agents, or one agent in two sessions, from reporting diff
 | You get | A citation token, a match grade (`matches`, `drift`), a per-term change ledger, and a list of signed disagreements. |
 | Calls | `emem_recall`, `emem_memory_token_resolve`, `emem_echo_verify`, `emem_change_attribution`, `emem_memory_contradictions`. Each has a REST route. |
 
-> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Some steps also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. The commands read no environment variable, key or credential. They read only local files that an earlier step saved from `https://emem.dev`.
+> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Where a step says so, they also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. The commands read no environment variable, key or credential. They read only local files that an earlier step saved from `https://emem.dev`.
 
 Referential drift has two sides. On the words side, "the north field",
 "plot 14" and a cell64 are one object, or one phrase means two objects.
