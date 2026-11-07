@@ -1014,7 +1014,8 @@ The scan stops at `iter_index_limit` entries (50,000 by default, set with
 
 #### Registries and introspection
 
-All routes in this table are `GET`.
+All routes in this table are `GET`. `/v1/capabilities` also takes `POST`.
+It ignores the body and gives the same answer.
 
 | Path | Purpose |
 |---|---|
@@ -1050,9 +1051,9 @@ marks an optional field.
 | `/v1/query_region` | `{geometry or bbox, bands?, agg?, max_cells?, as_of_tslot?, as_of_signed_at?}` |
 | `/v1/compare` | `{a, b, family?}` |
 | `/v1/compare_bands` | `{cell, a, b, tslot_a?, tslot_b?, predicate?}` |
-| `/v1/find_similar` | `{key, k?, band?, mode?, filter?, as_of_tslot?}` |
-| `/v1/trajectory` | `{cell or place or lat and lng, band, window?, as_of_tslot?, as_of_signed_at?}`, or `from_date` and `to_date` in place of `window` |
-| `/v1/field_series` | `{geometry or bbox or areas or fields, start_date, end_date, index?, sensor?, orbit?, inner_buffer_m?, min_support_px?, min_clear_fraction?, max_scenes?, blocks?, mask_policy?, qa_reject_bits?, memory?}` |
+| `/v1/find_similar` | `{key, k?, band?, mode?, filter?, as_of_tslot?, as_of_signed_at?, scope?}`. `cell` and `cell64` are aliases of `key` |
+| `/v1/trajectory` | `{cell or place or lat and lng, band, window?, as_of_tslot?, as_of_signed_at?, scope?}`, or `from_date` and `to_date` in place of `window` |
+| `/v1/field_series` | `{geometry or bbox or areas or fields, start_date, end_date, index?, sensor?, orbit?, inner_buffer_m?, min_support_px?, min_clear_fraction?, max_scenes?, blocks?, mask_policy?, qa_reject_bits?, memory?}`. `min_valid_share` is an alias of `min_clear_fraction` |
 | `/v1/diff` | `{cell or place, band, tslot_a or date_a, tslot_b or date_b}`. A date is `YYYY-MM-DD` |
 
 `/v1/recall_many` with `compact: true` keeps at most nine keys on each fact:
@@ -1245,7 +1246,20 @@ All routes in this table are `GET`.
 
 #### Backfill
 
-`POST /v1/backfill` takes `{cell, band, start_unix?, end_unix?, max_facts?, budget_ms?, refresh?}`.
+`POST /v1/backfill` has two forms:
+
+| Form | Body | Answer |
+|---|---|---|
+| One cell | `{cell, band, start_unix?, end_unix?, max_facts?, refresh?}` | `steps`, one item for each slot |
+| Many cells | `{cells, band, start_unix?, end_unix?, max_facts?, budget_ms?, refresh?}`, 1 to 64 cells | `emem.backfill_prepare.v1`: `by_cell`, `pending`, `converged` and `retry` |
+
+Only the many-cells form reads `budget_ms`. When the budget ends, the
+cells that did not finish go into `pending`. Their work continues, and
+the slots that it signs stay stored. Send the same call again to get them.
+With neither `cell` nor `cells`, the answer is 400 `invalid_argument`.
+On 7 November 2026, an empty `cells` list gave 400 with "`cells` must
+hold 1 to 64 entries".
+
 `refresh: true` signs a new fact even where one exists. The new fact
 supersedes the old one, and the old one stays readable by its CID.
 Look at `/v1/data_availability` before you select a window.
