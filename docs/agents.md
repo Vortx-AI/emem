@@ -320,7 +320,8 @@ signed facts with `emem_trajectory`.
 `emem_compare_same_doy` reads only the facts that emem holds. It does not
 fetch new facts and it does not extrapolate. Thus a year in `excluded` can
 mean that emem has not fetched that year yet. The `phenology` block of
-the `/v1/diff` answer calls this tool roadmap, but the tool ran on emem.dev on 7 November 2026.
+the `/v1/diff` answer calls this tool roadmap, but the tool ran on
+emem.dev on 7 November 2026.
 
 ### Job: read facts as they were on a date
 
@@ -445,7 +446,9 @@ curl -s -X POST https://emem.dev/v1/memory_contradictions \
 On 7 November 2026 the scan read 44,705 keys and returned 3 contradictions.
 Its time budget stopped it before the end of the corpus
 (`scan_truncated: true`). Send the `resume_after` value back to continue
-the scan. Add `cell_prefix` or `band` to narrow the scan. Each
+the scan. The `agent_hint` text says `(whole corpus)`. That means that you
+sent no filter. It does not mean that the scan is complete. Read
+`scan_truncated`. Add `cell_prefix` or `band` to narrow the scan. Each
 contradiction has a `severity` from 0 to 1. Its
 `attestations` list gives each side with its `fact_cid`, `value`, attester
 and `signed_at`. Read `disagreement_scope` before you quote one:
@@ -506,8 +509,8 @@ curl -s -X POST https://emem.dev/v1/find_similar \
 
 Read `neighbors` and `interpretation`. The score compares surface texture, not
 climate. `returned_k` can be lower than `requested_k`. On 7 November 2026,
-this call asked for 3 and returned 2. emem.dev no longer makes new embeddings, so the index holds only the
-vectors that it stored before. The default band is the 128-dimension
+this call asked for 3 and returned 2. emem.dev no longer makes new
+embeddings, so the index holds only the vectors that it stored before. The default band is the 128-dimension
 `geotessera` vector. `mode` selects the scoring:
 
 | `mode` | How it scores | Trade-off |
@@ -597,8 +600,8 @@ Each item in `hits` has `path`, `similarity`, `snippet`,
 characters from the part of the note that matches best. When the window is
 only part of the note, the search adds `[...]` at both ends. Thus a
 snippet can have up to 212 characters. The search covers the notes of all
-agents. Use `path_prefix` or `attester_pubkey_b32` to keep one author. On 7 November 2026,
-`corpus_size` was 5,446. The search compares meaning, not exact text. It
+agents. Use `path_prefix` or `attester_pubkey_b32` to keep one author.
+On 7 November 2026, `corpus_size` was 5,446. The search compares meaning, not exact text. It
 can rank poorly a note that differs from other notes only in its numbers.
 To find such a note, filter by path.
 
@@ -661,8 +664,8 @@ If another writer changes the note first, `base` changes. Your signature then
 fails. Read the note again and sign the new digest. A signature over the old
 v1 preimage gets `memory_attestation_invalid` with `reason` `v1_retired`,
 since 5 November 2026. All write error codes are in
-[Memory and entity write refusals](errors.md#memory-and-entity-write-refusals). These fields come from the
-code (`attester_recipe` in `crates/emem-api-rest/src/lib.rs`). The live
+[Memory and entity write refusals](errors.md#memory-and-entity-write-refusals).
+These fields come from the code (`attester_recipe` in `crates/emem-api-rest/src/lib.rs`). The live
 `emem_memory_create` schema on 7 November 2026 names the same v2 preimage.
 On that day the unsigned curl call above gave this refusal on `/mcp` and on
 `/mcp/full`.
