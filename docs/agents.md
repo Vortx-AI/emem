@@ -76,6 +76,7 @@ so an extended tool also works on `/mcp`.
 | [Turn a place name into an address](#job-turn-a-place-name-into-an-address) | `emem_locate` | `POST /v1/locate` | core | no |
 | [Read signed facts at one place](#job-read-signed-facts-at-one-place) | `emem_recall` | `POST /v1/recall` | core | no |
 | [Read facts over an area](#job-read-facts-over-an-area) | `emem_recall_polygon` | `POST /v1/recall_polygon` | extended | no |
+| [Get a grid of values over an area](#job-get-a-grid-of-values-over-an-area) | `emem_band_raster` | `POST /v1/band_raster` | extended | no |
 | [See how a value changed](#job-see-how-a-value-changed) | `emem_trajectory`, then `emem_diff` or `emem_compare_same_doy` | `POST /v1/trajectory`, `POST /v1/diff`, `POST /v1/compare_same_doy` | extended | no |
 | [Read facts as they were on a date](#job-read-facts-as-they-were-on-a-date) | `emem_recall` with `as_of_tslot` or `as_of_signed_at` | `POST /v1/recall` | core | no |
 | [Check a yes or no claim about a place](#job-check-a-yes-or-no-claim-about-a-place) | `emem_verify` | `POST /v1/verify` | extended | no |
@@ -262,6 +263,39 @@ It had no `structuredContent`, so read it from the text. With
 `"max_cells": 16`, the MCP answer omitted `by_cell`, which holds the facts and
 the receipt of each cell. Its `fetch` body kept only `place`. For more than a
 few cells, use the REST call with all your arguments.
+
+### Job: get a grid of values over an area
+
+Use this job when you need the pixels, not one value for each cell. The
+answer points to one grid of values. The BLAKE3 hash of its bytes is its id.
+
+```json
+{"name": "emem_band_raster", "arguments": {"bbox": {"min_lat": 35.36, "min_lng": 138.72, "max_lat": 35.365, "max_lng": 138.726}, "band": "s2.B04"}}
+```
+
+```bash
+curl -s -X POST https://emem.dev/v1/band_raster \
+  -H 'content-type: application/json' \
+  -d '{"bbox":{"min_lat":35.36,"min_lng":138.72,"max_lat":35.365,"max_lng":138.726},"band":"s2.B04"}'
+```
+
+On 7 November 2026, the call read the Sentinel-2 scene
+`S2C_MSIL2A_20261028T012741_R074_T54STE_20261028T043307` (tslot 20754). The
+grid was 56 by 55 pixels at 10 m in EPSG:32654. The bytes at `artifact.url`
+were 12,384 bytes long, and their BLAKE3 was equal to `artifact_cid`. Cite
+`tokens.raster`. To check it later, send it to `POST /v1/raster/resolve`
+(MCP `emem_raster_resolve`) with `"spot_check": true`.
+
+Each call signs and stores a new derivation record, because the record holds
+its own `signed_at`. Thus `derivation_cid` and both tokens change from call to
+call. The `artifact_cid` stayed the same for the same scene. Call once and
+cite the tokens from that answer.
+
+A Sentinel-2 grid has a limit of 512 pixels on each side, about 5.1 km at
+10 m. The `band` field also takes `copdem30m.elevation`, an encoder band or a
+forest layer, each with its own limits. `emem_tools` with
+`{"name":"emem_band_raster"}` gives them. For all the checks on this grid, see
+[the worked example](plans/field-tokens.md#a-worked-example).
 
 ### Job: see how a value changed
 
