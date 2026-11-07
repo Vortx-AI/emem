@@ -1855,9 +1855,9 @@ is the form of the answer. The table lists all 116 tools on 7 November
 | `prose` (1) | Model text over cited facts. It is `model_output`, and emem does not sign it | `emem_reason` |
 
 `emem_tools` filters the catalogue. With no arguments it returns the core
-loop, a bundle menu, and a shape menu. On 7 November 2026 the MCP answer
-was about 14 KB. The result carries the same JSON two times, as `text`
-and as `structuredContent`, so each copy is about 7 KB.
+loop, a bundle menu, and a shape menu in about 14 KB. That is the MCP
+answer on 7 November 2026. The result carries the same JSON two times,
+as `text` and as `structuredContent`, so each copy is about 7 KB.
 
 | Argument | What it selects |
 |---|---|
