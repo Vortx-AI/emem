@@ -154,8 +154,9 @@ model call. That call failed because the key was not real. Four results changed 
 The `mastra/` example did not run, because this check had no Node.js.
 
 Set `EMEM_MCP_URL` to point a script at your own node (see
-[Connect a client to your node](self-host.md#connect-a-client-to-your-node)). On 7 November 2026, `tools/list` on `/mcp` returned 18
-tools in one page. On `/mcp/full` the first page had 12 tools and a `nextCursor`.
+[Connect a client to your node](self-host.md#connect-a-client-to-your-node)). On 7 November 2026, `tools/list` on
+`/mcp` returned 18 tools in one page. On `/mcp/full` the first page had 12 tools and a `nextCursor`. All pages of
+`/mcp/full` together gave 116 tools.
 
 To use REST instead of MCP, `examples/langchain.py` wraps nine routes as LangChain tools and `examples/llamaindex.py`
 wraps six as LlamaIndex tools. Copy `langchain.py` to a new name, such as `langchain_emem.py`, before you import it.
@@ -206,8 +207,8 @@ Every runtime uses the same loop. Each step names the REST route and the MCP too
 8. Find disagreement. `POST /v1/memory_contradictions` (`emem_memory_contradictions`) shows where signed sources
    disagree at the same address. It does not average them.
 
-[`examples/agent-walkthroughs.md`](https://github.com/Vortx-AI/emem/blob/main/examples/agent-walkthroughs.md) shows this loop on real questions, as `curl`
-sequences.
+[`examples/agent-walkthroughs.md`](https://github.com/Vortx-AI/emem/blob/main/examples/agent-walkthroughs.md)
+shows this loop on real questions, as `curl` sequences.
 
 ## Cite one fact with a memory token
 
@@ -384,8 +385,8 @@ Inputs:
   family name gives no error. It only matches no band. On 7 November 2026, `["vegetation"]` at Colaba gave 4
   `missing` slots and 37 `filtered_out` slots.
 - `view: "encoder"` reads one vector band. emem.dev has retired its foundation encoders (Tessera, Clay, Prithvi,
-  Galileo). Facts that they signed still read and verify, but emem.dev makes no new ones. A cell with no such fact answers
-  404 and says so.
+  Galileo). Facts that they signed still read and verify, but emem.dev makes no new ones. A cell with no such fact
+  answers 404 and says so.
 
 Each `coverage[]` entry has one `status`. The values come from `BandCoverage` in
 `crates/emem-api-rest/src/lib.rs`:
