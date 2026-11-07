@@ -1239,6 +1239,13 @@ the hashes, and signs the root with the registry and schema CIDs. The
 responder checks all of this before it stores anything. A receipt (§7)
 is a different object: it is what a read returns.
 
+A writer sends an attestation to `POST /v1/attest` (JSON) or
+`POST /v1/attest_cbor` (canonical CBOR). Both routes call
+`put_attestation_gated`, which runs the checks in §6.2. In the JSON
+form, `batch_root`, `attester` and `signature` are arrays of byte
+integers (32, 32 and 64 elements), not base32 or hex text. To check an
+attestation by hand, follow the steps in §6.2.
+
 Defined in `crates/emem-fact/src/attest.rs:13-64`.
 
 ```rust
@@ -1322,8 +1329,9 @@ pk.verify_strict(msg.as_bytes(), &sig)?;
 
 Both rules start the same way. Each fact gives the leaf
 `blake3(canonical_cbor(fact))`, and each edge gives
-`blake3(canonical_cbor(edge))`. The rule sorts the leaves bytewise.
-An empty input gives `[0u8; 32]`. The rules differ in how they hash a
+`blake3(canonical_cbor(edge))`. The signer and the verifier sort the
+leaves bytewise before they call the rule. The root functions do not
+sort. An empty input gives `[0u8; 32]`. The rules differ in how they hash a
 leaf and a node:
 
 | Step | v1 (`merkle_root_v1`, current) | v0 (`merkle_root`, legacy) |
@@ -1398,7 +1406,9 @@ before it stores anything.
    The attester must be an enrolled device, or `FactPlanePolicy::admits`
    must accept it. `admits` accepts the responder's own key and a key in
    `EMEM_FACT_PLANE_WRITERS`. With `EMEM_FACT_PLANE_OPEN=1` it accepts
-   every key. A batch that holds only derivative facts skips this step.
+   every key. A batch with no primary fact and no absence skips this
+   step (`attestation_takes_an_address`). Examples are a batch of
+   derivative facts and a batch of edges only.
 
 If one of steps 1 to 7 fails, storage refuses the write with
 `StorageError::AttestationInvalid`. `StorageError::wire_code` in
