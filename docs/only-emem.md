@@ -59,8 +59,7 @@ Thus most disagreement on emem.dev comes from one attester that reads the
 same address from two upstreams. The default scan counts it when the facts
 differ in `derivation.fn_key` or in their set of `sources[].scheme`. Send
 `include_same_attester_sources: false` to count only different attesters.
-A new signature
-from the same provider is a refresh, not a disagreement. The fields of each
+A new signature from the same provider is a refresh, not a disagreement. The fields of each
 result and the meaning of `disagreement_scope` are in the
 [contradictions job](./agents.md#job-find-where-sources-disagree).
 
@@ -71,7 +70,9 @@ disputed fact does not change. To write an edge, read
 
 ## Read what was true, or what emem knew, on a date
 
-Every read accepts two time bounds. They are independent.
+Six read primitives take two time bounds: recall, `recall_polygon`,
+`query_region`, `trajectory`, `find_similar` and `memory_bundle`. The two
+bounds are independent. `edges/recall` takes `as_of_tslot` only.
 
 | Field | Question it answers | Filter |
 |---|---|---|
@@ -108,8 +109,8 @@ The tslot stays the same, but `signed_at` can change. To get the same
 signed fact later, also send `as_of_signed_at`.
 
 A past `as_of_signed_at` does not fetch new data on a miss. emem signs a
-fact when it fetches it, so a new fact can never fall inside a past bound. The answer
-names the reason `as_of_signed_at_in_the_past`. Use `as_of_tslot` to ask
+fact when it fetches it, so a new fact can never fall inside a past
+bound. The answer names the reason `as_of_signed_at_in_the_past`. Use `as_of_tslot` to ask
 about an old observation.
 
 Compliance and incident reviews ask "what did you know, and when". This
@@ -120,8 +121,10 @@ read answers that question directly.
 Only one key can write under `/memories/by_attester/<pubkey8>/`. `<pubkey8>`
 is the first 8 characters of the base32 public key. A write from any other
 key gets 403 `memory_namespace_violation`. Outside `by_attester/`, the first
-key that makes a path owns it. Since 2.4.4, a file under `by_attester/`
-answers to the full key that wrote it, not only to the 8-character prefix.
+key that makes a path owns it. No key can change an old note that has no
+recorded attester, and this includes the operator's key. Since 2.4.4, a
+file under `by_attester/` answers to the full key that wrote it, not only
+to the 8-character prefix.
 
 The signature covers the `emem.memory_write.v2` preimage
 (`crates/emem-primitives/src/memory_acl.rs`):
