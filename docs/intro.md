@@ -23,7 +23,7 @@ Each measurement at a cell is a fact. A fact has a cell, a band (the kind of mea
 The responder encodes the fact in canonical CBOR, hashes the bytes with BLAKE3 and signs the hash with Ed25519. If
 one byte changes, the hash changes.
 
-On 6 November 2026 the registries held 115 wired bands in 43 cube slots, 46 sources and 172 algorithms that combine
+On 7 November 2026 the registries held 115 wired bands in 43 cube slots, 46 sources and 172 algorithms that combine
 bands. The counts come from [`/v1/manifests`](https://emem.dev/v1/manifests) and
 [`/v1/algorithms`](https://emem.dev/v1/algorithms). On 7 November 2026, emem had no reader for five of those
 sources: `dynamic_world.v1`, `openet.30m.daily`, `tropomi.s5p.ch4`, `tropomi.s5p.no2` and `viirs.dnb.monthly`.
@@ -37,8 +37,10 @@ Above the facts, each agent has notes that it owns. A note is a Markdown file. S
 `emem_memory_view`, `emem_memory_create`, `emem_memory_str_replace`, `emem_memory_insert`, `emem_memory_delete` and
 `emem_memory_rename`.
 
-- Each note has a kind: `episodic`, `semantic`, `procedural` or `resource`. The kinds come from the CoALA
-  agent-memory taxonomy.
+- Each note has a kind: `episodic`, `semantic`, `procedural` or `resource` (the default). These four come from
+  the CoALA agent-memory taxonomy. emem adds `core`, a persona block that `memory_view` lists first, and `vault`,
+  an entry that emem stores encrypted. A `vault` entry reads back as ciphertext without a `vault_capability`.
+  The key derives from the responder's own secret, so the operator can still read it.
 - Each write needs an Ed25519 signature. A release responder refuses a write with no signature. Under
   `/memories/by_attester/<key>/`, it refuses every signer except the owner of that key.
 - `memory_search` finds notes by meaning. It uses the BGE text model (768 dimensions) and a LanceDB index.
