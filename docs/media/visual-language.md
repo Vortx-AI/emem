@@ -60,6 +60,10 @@ Do not use colour as the only signal. Write the word too, for example `valid` or
   [stills/src/](stills/src/), so anyone can draw it again. The script checks that the values agree, for example
   that the scene id in the image headers equals the scene id in the series row.
 - Sentinel-2 imagery carries the credit "Contains modified Copernicus Sentinel data" and the years.
+- When crops sit side by side for comparison, put them on one colour scale. `scene.png` stretches each image on
+  its own and names the stretch in its `x-emem-scene-stretch-*` headers. Undo it, as
+  [stills/src/similar_places.py](stills/src/similar_places.py) does. With a stretch per image, bare sand can look
+  like cloud.
 
 ## Captions and alt text
 

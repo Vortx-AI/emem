@@ -495,6 +495,15 @@ When the binary sibling band is absent, the responder auto-derives it
 inline from cosine via a TurboQuant rotation (seed
 `emem.binary_embedding.turboquant.v1`).
 
+<img src="media/stills/similar-places.webp" alt="Still from live emem.dev calls on 7 November 2026. find_similar with key Dubai, k 8, band geotessera, mode hamming_then_rerank returned 7 neighbours. A grid of Sentinel-2 crops from 2024, each about 2 km wide, on one colour scale: the Dubai seed, then Giza, Egypt 0.81; Lisbon, Portugal 0.81; 21.14 N 0.68 W 0.78; 38.00 N 116.00 W 0.78; 31.76 N 35.50 E 0.78; Giza, Egypt 0.78; Chicago, USA 0.77. Five crops show dry, bare ground; Lisbon and Chicago show city blocks. verify_receipt returns valid. A note says to read the score as surface texture, not climate." width="540">
+
+The still above is one live `find_similar` answer, drawn by
+[`stills/src/similar_places.py`](media/stills/src/similar_places.py).
+`GET /v1/bands` lists the `geotessera` materializer as retired. But on
+7 November 2026, a `find_similar` call with the key `Tromso` signed a new
+vector for the seed cell. The answer showed it in `materialize_notes` with
+status `materialized`.
+
    ### Verify
 
 ```bash
