@@ -35,10 +35,13 @@ the algorithm registry (`crates/emem-core/data/algorithms-v0.json`) on 29 Octobe
 
 | finding | entries |
 |---|---|
-| carry any measured accuracy, skill or validation | none |
+| carry an accuracy, skill or validation measured on emem (77 quote a published `accuracy_band` or say it is unquantified) | none |
 | state the formula as prose only, with no machine-evaluable expression | 95 |
 | do not run on this deployment: read an encoder or band it has retired (Clay, Prithvi, Galileo, Tessera, DMSP nightlights), name a route it no longer serves (the learned JEPA-v2 head, the three-encoder consensus), or read a band no materializer serves | 44 |
 | cite their own shaping as "editorial" or heuristic | 14 |
+
+The audit read 169 entries. On 7 November 2026 the registry holds 172, and 98 of them are prose only. The live
+`here_counts` of `GET /v1/algorithms` gives 36 `stored_only` and 8 `cannot_run`, which is the same 44.
 
 The drought index entry is a sharp example: it needs thirty years of `weather.precipitation_mm`, and that band holds
 the current hour only, so the recipe cannot run here at all. A registry that cannot say how good its entries are
@@ -52,12 +55,14 @@ under its own key (`mujzmxes`), in this order:
 1. **The plan.** `research/experiments/<id>/plan.md`, written before any data is read. (The code that runs the experiments is in the emem-world
    repository, private until peer review; every note and record it writes is public.) It states the question, the
    reference, the labelling rule, every method under test with the blake3 of its own source, and the deciding score
-   with its rule (a paired bootstrap of 2,000 resamples of cells, fixed seed). The transparency log orders the plan
+   with its rule (a paired bootstrap of 2,000 resamples, fixed seed). The first plans resampled cells; plans written
+   after rule 12 resample forests, each with all its cells. The transparency log orders the plan
    before the result, so a plan cannot be edited to fit what was found.
 2. **The inputs.** Every series and raster the experiment reads is a signed emem response, cited by token: per-cell
    Sentinel-2 series from `field_series`, and the reference raster from `band_raster` (`forest_raster@1`).
 3. **The reference.** Independent of every method. In the first programme the methods read Sentinel-2 and the
-   reference is Hansen Global Forest Change, read from Landsat.
+   reference is Hansen Global Forest Change, read from Landsat. A later method also reads Landsat
+   (`lab:memory_hls_emp@4`), so its plans state that shared input (rule 13).
 4. **The result.** `research/experiments/<id>/result.md`, citing the plan by path and content id, with every
    method's score, the interval on its difference from the registry baseline, the per-site breakdown and the
    verdict the pre-registered rule gives.
