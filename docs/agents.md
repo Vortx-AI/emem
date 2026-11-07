@@ -215,6 +215,16 @@ the bands you can recall there. `via` names the layer that answered. On
 7 November 2026, it was `cache`, an earlier network answer that emem stored.
 See [Geocoder cascade](#geocoder-cascade). Before you use the cell, make sure
 that `selected.is_high_confidence` is `true`.
+
+If it is `false`, do not use the cell. Ask the user, or pick a candidate from
+`alternatives`. Each candidate has `lat` and `lng`. Send them to
+`/v1/locate` again, or send a more specific name. On 7 November 2026,
+`{"place":"Springfield"}` gave `is_high_confidence` `false`,
+`disambiguation_required` `true`, `confidence_reason`
+`ambiguous_top_two_candidates` and 5 `alternatives`. `selected.class_mismatch`
+is `true` when the name implies a feature class, such as a peak, and the match
+is a different class, such as a street.
+
 On 7 November 2026, the MCP answer for Mount Fuji was too large. It omitted
 `data_at_this_cell`, so use the REST call to read that field. For an
 object such as a bridge or a field, use
