@@ -104,7 +104,7 @@ This needs Playwright:
 
     python docs/media/stills/src/text_floor.py
 
-On 7 November 2026, all 25 stills passed. The phone copies of the hero and `what-crosses` have their smallest
+On 7 November 2026 at about 18:25 UTC, all 26 stills passed. The phone copies of the hero and `what-crosses` have their smallest
 text at 12.0 px. All other stills have theirs at 9.9 px.
 
 The same floor applies to a film. A film is 1080 px wide, so its text must be 30 px or more. The film check seeks
@@ -203,10 +203,11 @@ of the current head. It uses only the standard library and makes read-only calls
 
     python3 docs/media/stills/src/recheck.py
 
-On 7 November 2026 at 16:45 UTC, 233 tokens resolved and 0 values differed. The tree root, leaf and 107 rows
+On 7 November 2026 at about 18:20 UTC, 233 tokens resolved and 0 values differed. The tree root, leaf and 107 rows
 matched, and `trace_verify` still gave `admit`. The 790 and 743 CBOR bytes of the two facts were equal to the
 saved files. The descriptor token gave the same fact id, cell and value. The head of 3,248,898 entries in
-`log-proof.webp` extended to the current head of 3,253,869 entries with an 18-hash consistency proof.
+`log-proof.webp` extended to the current head of 3,255,279 entries, signed at 18:18:44 UTC. The consistency proof
+has 18 hashes.
 
 Check one film frame before a full render. This command writes a PNG of the frame at 25 s:
 
