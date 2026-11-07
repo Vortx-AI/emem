@@ -49,8 +49,8 @@ The place name resolves to one cell. To see which cell and why, send the name to
 ```bash
 curl -s -X POST https://emem.dev/v1/locate \
   -H 'content-type: application/json' \
-  -d '{"place":"Cairo"}' | jq '{cell64, label: .selected.label, sure: .selected.is_high_confidence}'
-# {"cell64": "defi.zb555.ze8e5.xawO", "label": "Cairo, Egypt", "sure": true}
+  -d '{"place":"Cairo"}' | jq -c '{cell64, label: .selected.label, sure: .selected.is_high_confidence}'
+# {"cell64":"defi.zb555.ze8e5.xawO","label":"Cairo, Egypt","sure":true}
 ```
 
 When a name has more than one match, `is_high_confidence` is `false`. Then `decision` shows the chosen place and the
@@ -64,8 +64,8 @@ curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
   | jq '{receipt: .receipt}' \
   | curl -s -X POST https://emem.dev/v1/verify_receipt \
       -H 'content-type: application/json' --data-binary @- \
-  | jq '{signature_valid, merkle_proof_valid}'
-# {"signature_valid": true, "merkle_proof_valid": true}
+  | jq -c '{signature_valid, merkle_proof_valid}'
+# {"signature_valid":true,"merkle_proof_valid":true}
 ```
 
 This call asks the server to do the check. It is not an independent check, because the responder checks its own
@@ -114,8 +114,8 @@ Open a second terminal or a different machine, or send the token to a colleague.
 curl -s -X POST https://emem.dev/v1/memory_token/resolve \
   -H 'content-type: application/json' \
   -d '{"token":"emem:fact:defi.zb555.ze8e5.xawO:zxxbyowj2vlhyvgcj55brc47aoubvnibo7ydck4q2vn32uqcp3oa"}' \
-  | jq '{band, value, unit, signed_at: .fact.signed_at}'
-# {"band": "copdem30m.elevation_mean", "value": 187.33578491210938, "unit": "m", "signed_at": "2026-07-16T10:47:40Z"}
+  | jq -c '{band, value, unit, signed_at: .fact.signed_at}'
+# {"band":"copdem30m.elevation_mean","value":187.33578491210938,"unit":"m","signed_at":"2026-07-16T10:47:40Z"}
 ```
 
 The response holds the signed fact in `fact`. It also copies `value` and `unit` to the top level. It has its own
@@ -128,8 +128,8 @@ curl -s -X POST https://emem.dev/v1/memory_token/resolve \
   | jq '{receipt: .receipt}' \
   | curl -s -X POST https://emem.dev/v1/verify_receipt \
       -H 'content-type: application/json' --data-binary @- \
-  | jq '{signature_valid, merkle_proof_valid}'
-# {"signature_valid": true, "merkle_proof_valid": true}
+  | jq -c '{signature_valid, merkle_proof_valid}'
+# {"signature_valid":true,"merkle_proof_valid":true}
 ```
 
 The receiver does not trust you, your copy of the value, or the channel that carried the token. This check still
