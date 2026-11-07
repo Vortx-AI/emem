@@ -44,7 +44,8 @@ the registries that a reader needs to check what it serves.
 The bar has two roles for a reason. The first bar included the registry
 CIDs, and the only peer failed it while it co-signed this log every 15
 minutes. A test that no participant passes is not a standard. No node is
-a resolver yet, emem.dev included, because nobody has built read federation yet.
+a resolver yet, emem.dev included, because read federation does not exist
+yet.
 
 Durability today is the hosted node plus any node that you run. Content
 addressing lets any node that holds the bytes serve and verify them
@@ -52,7 +53,7 @@ again. If the facts are important to you, run your own node.
 
 ### The corpus is small and uneven
 
-On 7 November 2026, `GET /v1/coverage` on emem.dev reported 2,425 cells
+On 7 November 2026, `GET /v1/coverage` on emem.dev reported 2,424 cells
 (`total_cells`). That is thousands of places, not billions.
 
 Facts materialize lazily, one place at a time, from upstream sources. So
@@ -67,8 +68,8 @@ Some sources are rate-limited or slow. The MODIS land surface
 temperature band takes about 30 seconds per cell (its entry in
 `crates/emem-api-rest/src/lib.rs`). The default per-upstream timeout is
 14 seconds (`EMEM_MATERIALIZER_TIMEOUT_SECS`). So a cold read of that
-band can stop at the timeout with a `skipped` note. Hunter mode reads
-that band at 8 cells or fewer.
+band can stop at the timeout with a `skipped` note. A hunter sweep reads
+that band at 8 cells or fewer (`EMEM_HUNTER_SLOW_BAND_CAP`, 1 to 32).
 
 ### The fact corpus is for places, and memory notes are not private
 

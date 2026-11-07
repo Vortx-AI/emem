@@ -198,6 +198,7 @@ upstreams and background work. Each default comes from the code.
 | `EMEM_MATERIALIZE_GLOBAL_LIMIT` | `12` | Band materializations that run at the same time in the whole process, from 1 to 256. |
 | `EMEM_MATERIALIZE_CONCURRENCY` | `8` | Band materializations that one request runs at the same time, from 1 to 32. |
 | `EMEM_ASK_COLD_BAND_CAP` | `8` | Bands with no stored fact that one `/v1/ask` call materializes, from 1 to 64. The node defers the other bands with a note. |
+| `EMEM_HUNTER_SLOW_BAND_CAP` | `8` | Cells that one hunter sweep reads for the slow MODIS land surface temperature bands (`modis.lst_day_8day`, `modis.lst_night_8day`), from 1 to 32. |
 | `EMEM_MATERIALIZER_TIMEOUT_SECS` | `14` | The timeout of one upstream read, from 2 to 240 seconds. |
 | `EMEM_MATERIALIZER_RETRIES` | `2` | How many times the node tries one ORNL MODIS read, from 1 to 5. |
 | `EMEM_ABSENCE_RECHECK_SECS` | `21600` | How long the node answers with its own signed absence before it asks the upstream again. `0` asks each time. |
