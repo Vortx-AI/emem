@@ -100,8 +100,10 @@ export OPENAI_API_KEY=sk-...            # or EMEM_SLEEP_AGENT_LLM_API_KEY
 ```
 
 This route needs all three values: the URL, the model and a key. An empty
-value counts as not set. If `OPENAI_API_KEY` and
+URL or model counts as not set. If `OPENAI_API_KEY` and
 `EMEM_SLEEP_AGENT_LLM_API_KEY` both exist, the agent uses `OPENAI_API_KEY`.
+This is also true when `OPENAI_API_KEY` is empty. Then the agent does not
+read `EMEM_SLEEP_AGENT_LLM_API_KEY`, and it runs without an LLM.
 
 The transport sends a standard `messages` body and reads
 `choices[0].message.content`. The agent estimates the cost from the `usage`
@@ -149,8 +151,9 @@ Before the first pass, the agent sends `GET` to `/v1/health`, then
 `/health`, then `/`. If no probe returns a success status, the agent exits
 with code 2. In single-pass mode, a failed pass exits with code 1 and a
 completed pass exits with code 0. In loop mode, the agent logs a failed
-pass and tries again at the next interval. Only a configuration error
-stops the loop, with code 1.
+pass and tries again at the next interval. No code path stops the loop
+today. The loop stops only for a configuration error, and no code makes
+one.
 
 Before each LLM call, the agent compares the spend of the pass with the
 cap. When the spend is equal to or more than the cap, the pass stops and

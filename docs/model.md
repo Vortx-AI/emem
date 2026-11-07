@@ -122,7 +122,9 @@ serves such geometry, it withholds it (`bbox_withheld`,
 
 The key is `(a, b, t)`, not `a`. Time is part of the object, not
 metadata on it. These read primitives accept the bi-temporal pair:
-recall, query_region, trajectory, find_similar and memory_bundle.
+recall, recall_polygon, trajectory, query_region, find_similar, state,
+state_multi and each triple of memory_bundle. `recall_many` does not
+(see [Time filters on reads](memory.md#time-filters-on-reads-bi-temporal)).
 
 - `as_of_tslot` gives what was true on the ground at that time.
 - `as_of_signed_at` gives what the memory knew at that time.

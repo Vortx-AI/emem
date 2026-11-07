@@ -881,9 +881,11 @@ the responder asks the index for up to four times `k`, with a limit of
 ### Response fields
 
 The top level has `schema` (`emem.memory_search.v1`), `hits`, `via`,
-`corpus_size` (files in the index), `model_loaded`,
-`query_embedding_dim` and `responder_pubkey_b32`. Each hit has these
-fields:
+`corpus_size`, `model_loaded`,
+`query_embedding_dim` and `responder_pubkey_b32`. `corpus_size` counts
+the files that the answering path counted. For `lance_*` it is the
+index. For `bm25_lexical` and `brute_force_fallback` it is the store.
+Each hit has these fields:
 
 | Field | Meaning |
 |---|---|
@@ -954,7 +956,7 @@ Each response has a `via` field that tells which path answered:
 |---|---|
 | `lance_chunks` | cosine over the chunk dataset |
 | `lance_scan` | cosine over the file dataset, before the first load of the chunk dataset |
-| `brute_force_fallback` | embeds each file in the process and scans them. Used when `EMEM_DISABLE_LANCE=1`, or when the dataset is empty or not reachable. |
+| `brute_force_fallback` | embeds each file in the process and scans them. Used when `EMEM_DISABLE_LANCE=1`, when the dataset is empty or not reachable, or when the index path gives no hits. For example, a filter that matches no indexed file gives no hits. |
 | `bm25_lexical` | the `lexical` mode |
 
 None of these datasets has a vector index, so each dense query scores
@@ -1190,12 +1192,12 @@ memory trees did not move.
 | `emem.memory_files_expired` | path | `file_cid` |
 | `emem.memory_file_blobs` | `file_cid` | raw bytes, stored once for all paths that hold them |
 | `emem.memory_file_history` | path | CBOR `Vec<file_cid>`, oldest first |
-| `emem.memory_file_meta` | `file_cid` | CBOR `MemoryFileMeta` (path, signed_at, size_bytes, verb, kind, attester key, attester signature, signed body hash, preimage version, log entry hash, supersede state, receipt). The record stays with the first writer while that path still holds these bytes |
+| `emem.memory_file_meta` | `file_cid` | CBOR `MemoryFileMeta` (`file_cid`, `path`, `signed_at`, `signed_at_unix_s`, `size_bytes`, `verb`, `kind`, `attester_pubkey_b32`, `attester_sig_b32`, `attester_body_hash_hex`, `attester_preimage_version`, `attester_base`, `log_entry_hash_b32`, `superseded_by`, `supersede`, `receipt`). An offline authorship check needs `attester_base` for a v2 signature. The record stays with the first writer while that path still holds these bytes |
 | `emem.memory_file_meta_by_path` | path | the `MemoryFileMeta` of the write at that path |
 | `emem.memory_meta_repair` | `v1` | a marker. The responder writes it when it completes the one-time repair of per-path records from the transparency log |
 | `emem.memory_path_events` | path | JSON list of each supersede and delete of the path, oldest first |
 | `emem.memory_tombstones` | path | JSON `emem.tombstone.v1` (`path`, `prior_file_cid`, `deleted_by`, `deleted_at`, `log_entry_hash_b32`, `note`) |
-| `emem.memory_vault` | path | CBOR `emem.vault.v1` envelope (`nonce_b32`, `ciphertext_b32`, `aad`, `responder_pubkey_b32`, `plaintext_len`, `sealed_at`, `attester_pubkey_b32`) |
+| `emem.memory_vault` | path | CBOR `emem.vault.v1` envelope (`schema`, `path`, `nonce_b32`, `ciphertext_b32`, `aad`, `responder_pubkey_b32`, `plaintext_len`, `sealed_at`, `attester_pubkey_b32`) |
 | `emem.memory_bundles` | `bundle_cid` | CBOR `BundleResp` |
 
 A vault entry is only in `emem.memory_vault`. It is not in the file,

@@ -117,7 +117,7 @@ The block has the schema id `emem.visual_evidence.v2`. It contains these parts:
 - Sentinel-2 `indices.ndvi` at a July-1 anchor for each year from 2020 through the current
   calendar year.
   The scene picker `s2_pick_clear_scene` chooses one scene for each cell and year.
-  It tries three steps, and each step widens the scene cloud cap and the date window:
+  It tries three steps. With the default values, each step widens the scene cloud cap and the date window:
 
   | Step | Scene cloud cover below | Window around the anchor |
   |---|---|---|
@@ -134,15 +134,19 @@ The block has the schema id `emem.visual_evidence.v2`. It contains these parts:
   If scenes exist but no pixel is usable, the signed fact records an absence.
   If no step finds a scene, that cell and year get an error and no fact.
   The window never goes past the current date.
-  Operators can change the base values with `EMEM_S2_MAX_CLOUD` (default 40),
-  `EMEM_S2_LOOKBACK_DAYS` (default 30, range 1 to 365) and `EMEM_S2_MAX_SCENES`
-  (default 4, range 1 to 12). Step 2 uses 1.5 times the base cloud value (at most 60 %)
+  Operators can change the base values with three variables.
+  `EMEM_S2_MAX_CLOUD` has default 40 and range 0 to 100.
+  `EMEM_S2_LOOKBACK_DAYS` has default 30 and range 1 to 365.
+  `EMEM_S2_MAX_SCENES` has default 4 and range 1 to 12. Step 2 uses 1.5 times the base cloud value (at most 60 %)
   and 2 times the base window. Step 3 uses 2 times the base cloud value (at most 80 %)
   and 3 times the base window.
+  Thus a base cloud value above 60 gives a step 2 cap that is lower than the step 1 cap.
+  A value outside its range gives the default. The responder does not clamp it.
 - Sentinel-1 RTC VV backscatter at the same anchors, from `materialize_sentinel1_vv`.
   Radar has no cloud filter. Its window widens from ±15 to ±30 to ±60 days.
   `EMEM_S1_LOOKBACK_DAYS` sets the base window (default 15, range 1 to 365).
   The second and third steps use 2 times and 4 times the base window.
+  A value outside the range gives the default.
   It uses the newest scene in the first window that has a scene.
   The window never goes past the current date.
   The signed fact has band `sentinel1_raw` and holds VV in dB (`10 × log10` of the linear value).
@@ -154,7 +158,7 @@ The block has the schema id `emem.visual_evidence.v2`. It contains these parts:
 - Per-year `scene.png` URLs for up to 6 cells of the plot, in `scene_png_urls` and
   `scene_metadata`.
   Each URL asks for `max_cloud=20` and a window of ±20 days (`EMEM_VISUAL_SCENE_WINDOW_DAYS`,
-  1 to 120).
+  1 to 120; a value outside the range gives the default).
   The endpoint centres the window on the earliest NDVI observation date of that year.
   If the year has no NDVI date, it uses the July-1 anchor as the centre.
   The field `scene_coregistered_with_ndvi` tells you which centre the URL uses.
@@ -209,7 +213,8 @@ The schema enum for this `verdict` lists only the first three values.
 On 7 November 2026 it did not list `incomplete`, but the endpoint can return it.
 If you validate responses against the schema, allow `incomplete` in your validator.
 
-The block evaluates a signal only when the plot has a 2020 median and a latest reading for it.
+The block evaluates S1 VV only when the plot has a 2020 median and a latest-year reading.
+It evaluates NDVI when the plot has a 2020 median and a drop in any year, or a latest-year reading.
 `verdict_basis` names the signals that the verdict uses: `ndvi_and_s1_vv`, `ndvi_only`,
 `s1_vv_only` or `neither`.
 `signals.s1_vv.why_not` gives the reason when the block did not evaluate S1 VV.
