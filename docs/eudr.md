@@ -199,6 +199,11 @@ The block has the schema id `emem.visual_evidence.v2`. It contains these parts:
   If scenes exist but no pixel is usable, the signed fact records an absence.
   If no step finds a scene, that cell and year get an error and no fact.
   The window never goes past the current date.
+  Each step searches Microsoft Planetary Computer first.
+  It asks Element84 Earth Search only when that search fails, not when it finds no scene.
+  `EMEM_S2_CATALOGUES` changes the order or names one catalogue.
+  If every catalogue fails in a step, the picker stops with an error and skips the later steps.
+  The picker keeps a choice for 10 minutes for each pixel and anchor day. It does not keep an error.
   Operators can change the base values with three variables.
   `EMEM_S2_MAX_CLOUD` has default 40 and range 0 to 100.
   `EMEM_S2_LOOKBACK_DAYS` has default 30 and range 1 to 365.
