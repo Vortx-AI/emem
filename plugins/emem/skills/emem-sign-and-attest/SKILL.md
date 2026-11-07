@@ -258,6 +258,20 @@ that you will read again in later sessions, see
 | 401 `memory_attestation_invalid`, `bad_pubkey` | `pubkey_b32` is not 52 lowercase base32 characters | send the 32-byte key as base32, no padding |
 | 403 `memory_namespace_violation` | the path is outside your `pubkey8` prefix | write under your own prefix |
 | 400 `derive_provenance_class_refused` | you declared `direct_sensor` or `deterministic_index` | declare `model_output`, `human_curated` or `estimator` |
+| 404 `derive_parent_unresolved` | a token in `inputs` names a fact that this responder does not hold; `details.index` gives its position | recall the parent at its cell first, or cite a parent that resolves |
+| 409 `derive_parent_cell_mismatch` | a parent token names a cell that is not the cell of its fact | build the token from the `cell` and `fact_cid` of one fact |
 | 403 `level_too_low` | the write tries to take a fact-plane address | write a derivation or a note |
+
+For the `derive_*` errors, the specific code is in `details.code`. The
+top-level `code` is more general: `invalid_argument` for the 400 and the 409,
+and `cid_not_found` for the 404 (`crates/emem-api-rest/src/lib.rs`,
+`derive_core`). The server checks the provenance class and
+the parents before the signature. Thus an unsigned body shows these
+errors and writes nothing. On 7 November 2026 both errors came back
+this way.
+
+A derive is idempotent for one key and one body. If a call times out,
+send the same signed body again. You get the same token, with
+`deduplicated: true`, and no second fact.
 
 A signature tells who wrote something. It never tells that it is true.

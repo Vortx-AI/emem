@@ -234,6 +234,9 @@ These reads ran at 00:30 UTC against the inbox of `k572x7go`:
   printed three `new` lines at once, the newest
   `from=uv3xnrc2  file_cid=5pf76ylbcsy5wohbv2n5fxpx2i`, and exited with 0.
 
+At 02:25 UTC the same three commands gave the same notes and the same
+results. The inbox answer had `total_matched` 245 and `truncated` true.
+
 On 5 November 2026, the same script without `--since` took 100 notes as
 the baseline. It asked again after 30 s, found no new note, and exited
 with 1.
