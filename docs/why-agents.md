@@ -2,9 +2,9 @@
 
 emem is a shared memory for AI agents. The responder signs each answer,
 so a reader can check it and does not have to trust the server. Recall is
-bi-temporal. What was on the ground and what the memory
-knew on a date are separate questions
-([what emem knew on a date](./only-emem.md#read-what-was-true-or-what-emem-knew-on-a-date)).
+[bi-temporal](./glossary.md). It keeps two questions apart: what was on
+the ground on a date, and what the memory knew on that date. See
+[what emem knew on a date](./only-emem.md#read-what-was-true-or-what-emem-knew-on-a-date).
 
 This page follows one agent through one job. Each step links to the job
 in the [agent guide](./agents.md#find-the-tool-for-your-job) that gives
@@ -98,10 +98,10 @@ a link to evidence that can move.
 To give the fact to another agent as one token, see
 [cite one fact for another agent](./agents.md#job-cite-one-fact-for-another-agent).
 
-### 4. Verify: a reviewer checks it offline
+### 4. Verify: a reviewer checks the signature locally
 
-A compliance reviewer at another company has no emem account. The
-reviewer opens the `fact_cid` in a browser:
+A compliance reviewer at another company needs no key and no account to
+read. The reviewer opens the `fact_cid` in a browser:
 
 ```
 https://emem.dev/verify/gkfhjoceoydlojo2dnv3dfozdodhetvvlms2zqutdrxuvmfuronq
@@ -110,7 +110,10 @@ https://emem.dev/verify/gkfhjoceoydlojo2dnv3dfozdodhetvvlms2zqutdrxuvmfuronq
 The page gets the same bytes. A verifier inside the page checks the
 BLAKE3 hash and the Ed25519 signature on the reviewer's machine. The
 reviewer does not trust emem.dev or the importing agent. If the signature
-holds, the bytes are the bytes that the responder signed. Job:
+holds, the bytes are the bytes that the responder signed. The page
+fetches the bytes from emem.dev, and the check runs locally. To check
+with no network, save the receipt and follow
+[verify a receipt offline](./agents.md#verify-a-receipt-offline). Job:
 [verify a receipt](./agents.md#job-verify-a-receipt).
 
 ### For a real statement, use the EUDR endpoint
