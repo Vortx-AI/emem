@@ -190,6 +190,10 @@ On 7 November 2026, emem.dev returned these totals:
 | `GET /v1/coverage_matrix` | `totals.bands_declared` | 94 |
 | `GET /v1/coverage_matrix` | `totals.bands_with_materializer` | 69 |
 
+`GET /v1/materializers` and `GET /v1/algorithms` return pages. A page has
+20 entries by default and 100 at most. To get the full materializer list, read
+`?page=1&page_size=100` and then `?page=2&page_size=100`.
+
 The cube layout must stay stable. A change must keep every later offset.
 For this reason, the AlphaEarth slot (512 dims at offset 192) became
 `_reserved_512` when its no-key path closed. Nobody removed the slot. Later
@@ -556,7 +560,7 @@ and which do not.
 
 27 topics. They route free-text questions through `/v1/ask` and the MCP
 `emem_ask` tool. On 7 November 2026, 24 topics had a materializer for every
-band they cite (from `GET /v1/materializers`). Two topics,
+band they cite (from both pages of `GET /v1/materializers`). Two topics,
 `nightlights` and `foundation_embedding`, had a materializer for none of
 their bands. The last topic, `analytics`, had a materializer for each band
 except `geotessera`.
