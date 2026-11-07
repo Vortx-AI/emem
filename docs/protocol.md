@@ -1410,11 +1410,11 @@ curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
   | python3 -c 'import json,sys; json.dump(json.load(sys.stdin)["receipt"], open("receipt.json","w"))'
 ```
 
-Then run the script below in the same directory. It prints nothing when
-the signature is good, and raises `BadSignatureError` when it is not. To
-compare with the responder, send the same receipt to
-`POST /v1/verify_receipt` as `{"receipt": ...}`. Its `preimage_blake3_hex`
-must equal `digest.hex()` from the script.
+Then run the script below in the same directory. When the signature is
+good, it prints the preimage digest. When the signature is bad, it raises
+`BadSignatureError`. To compare with the responder, send the same receipt
+to `POST /v1/verify_receipt` as `{"receipt": ...}`. Its
+`preimage_blake3_hex` must equal the digest that the script prints.
 
 ```python
 import json, re
@@ -1538,7 +1538,23 @@ if version >= 2:
 
 digest = blake3(stream).digest()                   # 32 bytes; NOT the raw stream
 VerifyKey(pk_bytes).verify(digest, bytes(receipt["signature"]))
+print("signature OK, preimage_blake3_hex", digest.hex())
 ```
+
+On 7 November 2026 this script passed on a live receipt from the call
+above. It printed the same `preimage_blake3_hex` as
+`POST /v1/verify_receipt`.
+
+The Claude Code plugin ships a second verifier that needs no packages.
+It reads a saved `POST /v1/recall` response or a bare receipt:
+
+```sh
+curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb592.nUkO.zEzE","bands":["elevation"]}' > recall.json
+python3 plugins/emem/skills/emem-verify-receipt/scripts/verify.py recall.json
+```
+
+It prints `VALID` or `INVALID`, then the digest it rebuilt.
 
 Legacy receipts (`preimage_version` absent or `0`) instead use the v0
 pipe rule from §7.1; `POST /v1/verify_receipt` handles both versions and
@@ -2069,7 +2085,21 @@ On 6 November 2026 these steps passed against emem.dev. The STH had
 `log_entry_hash` `quzqrplqfultmmku5efrp4pnghwqpf37rimscveyxbonqxnsk33a`.
 That entry was leaf 2,463,431, with an audit path of 22 hashes. Its
 1,235 CBOR bytes hashed to the entry hash, and its `batch_root` was the
-receipt's Merkle root.
+receipt's Merkle root. On 7 November 2026 the same steps passed again
+for the same entry, at `tree_size` 3,243,767.
+
+The Claude Code plugin ships a verifier for steps 2, 3, 5 and 6. It
+needs no packages. Save the step 1 and step 4 responses, then run:
+
+```sh
+python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py sth sth.json
+python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py inclusion inclusion.json
+```
+
+The `inclusion` command checks the STH inside the inclusion response.
+Compare its `root_b32` with the step 1 STH yourself. The same script
+also checks a consistency proof between two STHs. Step 7 is not in the
+script.
 
 #### 9.6.2 Witnesses, and what they do not prove
 
