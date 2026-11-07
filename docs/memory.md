@@ -276,7 +276,8 @@ digest in the refusal.
 | Memory file delete | MCP `emem_memory_delete` | `{path, attester}`. A `path` that ends with `/` deletes each file below it ([rules](#reading-superseding-and-deleting)). | removes the path and writes a tombstone; the blob and the history stay |
 | Memory list by kind | MCP `emem_memory_list_by_kind` | `{kind, prefix?, limit?}`. `limit` is 256 by default, 2048 at most. | typed listing, newest `signed_at` first |
 | Memory file search | `POST /v1/memory/search` | `{q, k?, mode?, kind?, path_prefix?, attester_pubkey_b32?, include_superseded?}` | ranked hits + snippets. Superseded notes stay out unless `include_superseded` is true. |
-| Row audit path | `GET /v1/tree/<file_cid>?row=` (MCP `emem_tree`) | path + query | one row's leaf and its path to the root a `pointer.v1` or `directory.v1` note signs |
+| Row audit path | `GET /v1/tree/<file_cid>?row=` (MCP `emem_tree`) | path + query | one row's leaf and its path to the root a `pointer.v1` or `directory.v1` note signs ([details](#tokenised-files-ememtree)) |
+| Path over your rows | `POST /v1/tree/path` | `{index, leaves}` or `{index, chunks}` | the same path and root, with no note read |
 | Memory event stream | `GET /v1/memory/sse?path_prefix=&kind=&attester=` | query string | `text/event-stream` of writes |
 | Multi-attester contradictions | `POST /v1/memory_contradictions` | `{cell_prefix?, band?, window_unix_s?, min_severity?, include_same_attester_sources?, limit?, resume_after?}` | severity-scored disagreements |
 
@@ -649,22 +650,86 @@ Two limits apply:
 
 ## Tokenised files: `emem:tree`
 
-A `pointer.v1` note names a large object. It holds the blake3 hash of
-each chunk and one Merkle root over these hashes. A `directory.v1` note
-does the same for a listing. The root is inside the signed note of the
-author.
+A `pointer.v1` note names a large object, for example a model file. It
+has one table row for each chunk: a label, a URL, an offset, a length
+and the blake3 hash of the chunk bytes. Its front matter holds `root:`,
+one Merkle root over these rows. A `directory.v1` note does the same for
+a file listing. The author signs the note, so the author signs the root.
 
-`GET /v1/tree/<file_cid>` returns the row count and the root. Add
-`?row=<index or label>` to get the leaf of that row and its audit path.
-A reader then checks one chunk with log2(n) hashes, not the whole table.
-The token is `emem:tree:<file_cid>#row=<i>`.
+`GET /v1/tree/<file_cid>` (MCP `emem_tree`) reads one of these notes.
+It builds the root again from the rows and compares it with `root:`.
+Without `?row`, the response gives `rows` (the row count), `root_b32`,
+the token `emem:tree:<file_cid>` and the first 50 labels. Add
+`?row=<index or label>` to get one row. The response then adds
+`leaf_b32`, `path` and the token `emem:tree:<file_cid>#row=<index>`.
+A reader checks one chunk with about log2(n) hashes, not the whole table.
 
-The route refuses with `root_mismatch` when the stated root of the note
-does not match its rows. It refuses with `not_a_tree` for other kinds.
-The route signs nothing. You check the path against the root in the
-signed note. Unlike the transparency log, this tree does not separate
-leaf hashes from node hashes. The `scheme` field of the response gives
-the exact hashing.
+The `scheme` field of the response gives the hashing:
+
+```text
+leaf = blake3(url || u64_be offset || u64_be length || chunk_hash)
+node = blake3(left || right)
+```
+
+An odd node at the end of a level goes up one level unchanged. A
+pointer row that points into the source of the note writes its URL as
+`·`, and that row hashes with an empty URL. A pointer row with no hash
+commits 32 zero bytes.
+
+### Example: check one row of a pointer note
+
+On 7 November 2026, `amii4tnpkfoofsyzrbbs2vxsj4` was a `pointer.v1`
+note over the GPT-2 weights file, with 107 rows. This script gets row 6
+and folds its path to the root:
+
+```python
+import base64, json, urllib.request
+from blake3 import blake3
+
+url = "https://emem.dev/v1/tree/amii4tnpkfoofsyzrbbs2vxsj4?row=6"
+d = json.load(urllib.request.urlopen(url))
+raw = lambda s: base64.b32decode(s.upper() + "=" * (-len(s) % 8))
+
+h = raw(d["leaf_b32"])
+for step in d["path"]:
+    sib = raw(step["hash_b32"])
+    h = blake3(sib + h).digest() if step["side"] == "left" else blake3(h + sib).digest()
+print(d["token"], d["row"]["label"], len(d["path"]), "steps")
+print("folds to root:", base64.b32encode(h).decode().rstrip("=").lower() == d["root_b32"])
+```
+
+The output on 7 November 2026:
+
+```text
+emem:tree:amii4tnpkfoofsyzrbbs2vxsj4#row=6 tensor ln_f.weight F32[768] 7 steps
+folds to root: True
+```
+
+This check is not complete yet. The route signs nothing, so also compare
+`root_b32` with the `root:` line of the note, and check the signature of
+the note ([Step 4](#step-4-read-the-note-and-check-the-author)). Unlike
+the transparency log, this tree does not separate leaf hashes from node
+hashes. If you need that protection, also hash the chunk bytes from the
+source and compare them with the row.
+
+### Tree errors
+
+| HTTP | `details.code` | Cause |
+|---|---|---|
+| 404 | `cid_not_found` | This responder holds no note with that `file_cid`. |
+| 422 | `not_a_tree` | The note kind is not `pointer.v1` or `directory.v1`. |
+| 422 | `no_rows` | The note kind is right, but no table row parses. |
+| 409 | `root_mismatch` | The `root:` of the note is not the root of its rows. The response gives both roots and no path. |
+| 404 | `row_not_found` | No row has that index or label. The response gives the row count. |
+
+### Paths over rows that you hold
+
+`POST /v1/tree/path` builds the same path without a note. Send `index`
+and exactly one of `leaves` (base32 leaf hashes) or `chunks` (objects
+with `url`, `offset`, `length`, `hash`). The limit is 1,048,576 leaves.
+The response gives `leaf_b32`, `path` and `root_b32`. Bad input gets a
+400. This route reads no signed note. Its root proves nothing until you
+compare it with a root that an author signed.
 
 ## Time filters on reads (bi-temporal)
 
