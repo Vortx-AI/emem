@@ -452,7 +452,7 @@ We refuse these, each for a stated reason:
 | Attack | State | Why |
 |---|---|---|
 | Serving wrong bytes | closed | the reader checks the BLAKE3 hash against the id, with no trust in anyone; a hostile node can withhold bytes, not forge them |
-| Split view | closed by witnessing (§8a) | a node that shows two histories fails a consistency proof at one of its witnesses |
+| Split view | closed by §8a, open until independent witnesses keep up | a node that shows two histories fails a consistency proof at one of its witnesses. On 7 November 2026 emem.dev had one independent operator domain, and `head_is_independently_witnessed` was `false` (freshest independent co-signature 522 entries behind) |
 | Sybil writes | open, and identity cannot close it | anyone can make unlimited Ed25519 keys, so a count of signatures is worthless |
 
 The answer to sybil writes is not an identity gate. That gate would cost the

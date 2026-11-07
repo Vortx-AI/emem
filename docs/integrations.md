@@ -27,8 +27,8 @@ For a host with native Streamable HTTP, the config has one entry:
 
 `"type": "http"` is the MCP name of the Streamable HTTP transport. The URL itself is HTTPS.
 
-`/mcp` advertises the 18 core tools in `tools/list`, so the host registers about 77 KB of descriptors
-rather than about 354 KB for all 116. Both sizes are from 6 November 2026. The other 98 tools stay callable by name.
+`/mcp` advertises the 18 core tools in `tools/list`, so the host registers about 75 KB of descriptors
+rather than about 346 KB for all 116. Both sizes are from 7 November 2026 (1 KB = 1024 bytes). The other 98 tools stay callable by name.
 `emem_tools` searches them and returns the schema of one tool. To register all 116 tools at the start, use
 `https://emem.dev/mcp/full`. It returns them in more than one page, so follow `nextCursor`.
 

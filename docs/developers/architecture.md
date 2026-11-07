@@ -39,8 +39,9 @@ so any client can verify receipts offline.
 Place lookup uses only open data that the binary carries or reads
 without a key:
 
-- The binary embeds the GeoNames cities-5000 gazetteer (CC-BY-4.0,
-  68 581 populated places).
+- The binary embeds the GeoNames cities-1000 gazetteer (CC-BY-4.0,
+  169 051 populated places), and GeoNames country, admin 1, admin 2
+  and admin 3 tables (`crates/emem-fetch/data/`).
 - Overture `divisions/division_area` gives admin polygons over
   anonymous S3 (ODbL).
 - Photon, then Nominatim, answer the long tail.
@@ -372,9 +373,11 @@ verifier calls `vk.verify_strict(digest, sig)`. `GET /v1/verifier_spec`
 serves the segment table that the code generates. Use it as the source
 of truth.
 
-`Cost.was_cached` is `true` for recall, because all facts were in the
-store at signing time. It is `false` for find_similar, which scans
-fresh.
+`Cost.was_cached` is `true` when the store served the read. The
+primitives sign every read as cached, find_similar included. The REST
+recall handler sets it to `false` when a requested band missed the
+cache (`lib.rs`, after the materialize step). `cost` is not part of the
+signed preimage, so this change does not break the signature.
 
 ### In-browser verification
 
@@ -516,8 +519,10 @@ A new client usually calls these in order:
 3. `GET /v1/grid_info`: the cell grid (about 10 m at the equator).
 4. `GET /v1/data_availability`: which bands have history.
 5. `POST /v1/locate {"place":"<place>"}`: place to cell64. The lookup
-   tries a wide bbox, the embedded gazetteer, GeoNames, the cache,
-   Photon, then Nominatim. Polygons come from Overture
+   first tries the embedded tables: named regions, countries, admin 1
+   to 3, GeoNames cities-1000 and POIs. Then it tries the geocode
+   cache, Photon and Nominatim (`lib.rs::locate_inner`). Polygons come
+   from Overture
    `divisions/division_area`.
 6. `POST /v1/recall`, `/v1/find_similar`, `/v1/verify` or `/v1/diff`.
 

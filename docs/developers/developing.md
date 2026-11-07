@@ -125,7 +125,7 @@ use a real directory. The server then keeps its Ed25519 key in
 
 This sequence calls the main read primitives in the order that an
 integration uses them. Set `BASE` to your node. The responses below are
-from `https://emem.dev` on 6 November 2026.
+from `https://emem.dev` on 7 November 2026.
 
 ```sh
 BASE=http://127.0.0.1:5051
@@ -140,8 +140,9 @@ curl -sS $BASE/v1/grid_info | jq -c '.active_encoding.encoded_string_form'
 CELL=$(curl -sS -X POST $BASE/v1/locate -H "$H" \
   -d '{"place":"Bengaluru"}' | jq -r '.cell64')   # defi.zb493.xuqA.zcb5f
 curl -sS -X POST $BASE/v1/recall -H "$H" \
-  -d "{\"cell\":\"$CELL\",\"band\":\"dem\"}" > /tmp/recall.json
+  -d "{\"cell\":\"$CELL\",\"band\":\"copdem30m.elevation_mean\"}" > /tmp/recall.json
 jq -c '{facts: (.facts|length), bands: (.bands_already_attested_at_cell|length)}' /tmp/recall.json
+# {"facts":1,"bands":68}
 
 # 3. Compare two cells.
 curl -sS -X POST $BASE/v1/compare -H "$H" \
@@ -149,7 +150,8 @@ curl -sS -X POST $BASE/v1/compare -H "$H" \
 
 # 4. A time series for one band.
 curl -sS -X POST $BASE/v1/trajectory -H "$H" \
-  -d "{\"cell\":\"$CELL\",\"band\":\"dem\",\"from_date\":\"2024-01-01\",\"to_date\":\"2024-12-31\"}" | jq -c 'keys'
+  -d "{\"cell\":\"$CELL\",\"band\":\"indices.ndvi\",\"from_date\":\"2024-01-01\",\"to_date\":\"2024-12-31\"}" \
+  | jq -c '.series|length'                          # 4
 
 # 5. Check the receipt from step 2.
 jq '{receipt}' /tmp/recall.json | curl -sS -X POST $BASE/v1/verify_receipt \
