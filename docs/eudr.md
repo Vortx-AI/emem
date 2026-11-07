@@ -58,7 +58,8 @@ A comment in `eudr_batch_path_enabled` records the gain for a 4 ha plot.
 It needs 4 HTTP reads instead of about 1,760, and took about 3 s instead of 180 s.
 This batched read is on by default. An operator can set `EMEM_EUDR_BATCH_PATH=0` to read each cell on its own.
 
-The endpoint also reads the JRC TMF v1.2025 deforestation year on every cell.
+The batched path also reads the JRC TMF v1.2025 deforestation year on every cell.
+The per-cell path does not read TMF. It reads only the three bands in the table above.
 It reads a COG copy of the JRC tiles with HTTP Range requests.
 The plot result reports it as `tmf_cross_check`, which shows where TMF and Hansen agree on
 loss after the cut-off.
@@ -98,10 +99,11 @@ The plot verdict then uses the first rule that applies:
 4. Otherwise the plot is `fail`, and the 0.5 ha minimum area of Article 2(4) applies.
 
 A plot with no sampled cell is `indeterminate`.
-For rule 4, `failing_area_ha` is the failing fraction of the sampled cells times the plot area.
+For rule 4, `failing_area_ha` is the failing fraction of the sampled cells times the area of the plot's bounding box.
+For a polygon, this area can be more than the area of the plot.
 If `failing_area_ha` is less than 0.5, the plot gets `below_mmu` in place of `fail`.
-For example, 10 failing cells out of 100 give 0.1 ha on a 1 ha plot (`below_mmu`).
-The same count gives 1 ha on a 10 ha plot (`fail`).
+For example, 10 failing cells out of 100 give 0.1 ha when the bounding box is 1 ha (`below_mmu`).
+The same count gives 1 ha when the bounding box is 10 ha (`fail`).
 
 A `not_in_scope` plot has `deforestation_free_non_forest: true` when no cell carries a `refinement_applied` value.
 A natural-cause loss, `sims_natural_cause`, is one such value.
@@ -399,6 +401,7 @@ It evaluates NDVI when the plot has a 2020 median and also one of these:
 
 - a drop from the 2020 median in any year
 - a latest-year NDVI median.
+
 `verdict_basis` names the signals that the verdict uses: `ndvi_and_s1_vv`, `ndvi_only`,
 `s1_vv_only` or `neither`.
 `signals.s1_vv.why_not` gives the reason when the block did not evaluate S1 VV.
@@ -482,7 +485,9 @@ The deploy unit `deploy/systemd/emem-server.service` does not set `EMEM_EUDR_TIM
 EUDR Article 2(4) defines forest by canopy, height and area, **not by data source**.
 Bourgoin et al. 2026 name JRC GFC2020 as the baseline that the Commission expects.
 This baseline is not binding, and an operator can use a different baseline that it can defend.
-The `eudr_compliance@1` verdict uses JRC GFC2020 as the forest baseline and Hansen for the loss year.
+The `eudr_compliance@1` verdict takes forest at the cut-off from JRC GFC2020 or from Hansen `treecover2000`.
+Hansen counts as forest when its canopy is 10 % or more and it shows no loss up to the cut-off year.
+The verdict takes the loss year from Hansen.
 This choice gives the strongest audit position today.
 The `visual_evidence` block is extra evidence in support.
 It does not change the strict pass or fail verdict.
