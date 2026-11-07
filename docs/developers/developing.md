@@ -9,8 +9,9 @@ rules that the repository enforces. For the system design, read
 
 The numbers on this page come from the code and from `https://emem.dev`
 on 7 November 2026. The `curl` commands ran against `https://emem.dev`
-on that date. The `cargo` commands are the ones that CI runs on every
-pull request to `main` (`.github/workflows/ci.yml`).
+on that date. The `cargo fmt` and `cargo clippy` commands are the CI
+gates in `.github/workflows/ci.yml`. CI runs the tests in a different
+form; [Run the tests and lints](#run-the-tests-and-lints) shows both.
 
 ## Prepare a build host
 
@@ -263,16 +264,18 @@ with the band, materializer and function registry entries.
 
 | Goal | Command |
 |---|---|
-| Unit, binary and integration tests, no network | `cargo test --workspace --lib --bins --tests` |
+| Unit, binary and integration tests, no network | `EMEM_NO_NETWORK=1 cargo test --workspace --lib --bins --tests` (CI runs `cargo test --workspace --release`) |
 | Live network tests | `cargo test -p emem-fetch --test live_cog_fetch` |
 | Format | `cargo fmt --all` |
 | Format, CI gate | `cargo fmt --all --check` |
 | Lint, CI gate | `cargo clippy --workspace --all-targets -- -D warnings` |
 
 There is no `live` cargo feature. The live tests are in
-`crates/emem-fetch/tests/live_cog_fetch.rs`. They skip when you set
-`EMEM_NO_NETWORK=1`. Run them after you change a connector or the
-source registry.
+`crates/emem-fetch/tests/live_cog_fetch.rs`. The `--tests` flag also
+runs them, unless you set `EMEM_NO_NETWORK=1`. Run them after you change
+a connector or the source registry. A transport error makes a live test
+return without a failure, so a pass does not prove that the upstream
+answered.
 
 Unit tests are in `src/`, next to the code (`#[cfg(test)] mod tests`).
 Five crates also have tests in `tests/`: `emem-airgap`, `emem-fact`,
