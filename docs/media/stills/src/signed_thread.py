@@ -29,7 +29,7 @@ sys.path.insert(0, str(HERE.parents[3] / "plugins/emem/skills/emem-multi-agent-h
 import verify_note as vn  # noqa: E402
 from emem_crypto import blake3  # noqa: E402
 
-TOKEN = "emem:fact:defi.zb27d.xobA.lAkA:p3dv6dvjbxzdm72fsxg73ass7yxnc7zrreebzwz5x4f4rrj2epvq"
+FACT_REF = "emem:fact:defi.zb27d.xobA.lAkA:p3dv6dvjbxzdm72fsxg73ass7yxnc7zrreebzwz5x4f4rrj2epvq"
 
 
 def check(view):
@@ -79,7 +79,7 @@ assert all(k in rows for k, _ in show), rows
 intact = json.loads((D / "intact.json").read_text())
 drop2 = json.loads((D / "drop2.json").read_text())
 subst1 = json.loads((D / "subst1.json").read_text())
-cid = TOKEN.rsplit(":", 1)[1]
+cid = FACT_REF.rsplit(":", 1)[1]
 assert intact["fact_cid"] == cid and intact["band"] == "copdem30m.elevation_mean"
 dd = drop2["details"]
 assert dd["code"] == "fact_cid_malformed_length" and dd["observed_length"] == 50 and dd["recoverable"] is False
