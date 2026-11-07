@@ -104,9 +104,30 @@ The script prints each step and stops with an error if a check fails.
   ```
 
   `run.sh` deletes its responder and its data when it stops.
-  So to check the checkpoint from run 1, put these lines into `run.sh` before the last `echo`.
-  Give the script `$BASE/mcp` and `$CHECKPOINT_PATH` as arguments, as the other Python steps in `run.sh` do.
-  Use them as the URL and as `path`.
+  So to check the checkpoint from run 1, paste these lines into `run.sh` before the last `echo`.
+  The block is the same check. It reads the URL and the path from its arguments.
+
+  ```bash
+  python3 - "$BASE/mcp" "$CHECKPOINT_PATH" <<'PY'
+  import base64, json, sys, urllib.request
+  import blake3
+
+  url, path = sys.argv[1], sys.argv[2]
+  call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+          "params": {"name": "emem_memory_view", "arguments": {"path": path}}}
+  req = urllib.request.Request(url, data=json.dumps(call).encode(),
+                               headers={"content-type": "application/json"})
+  body = json.loads(json.load(urllib.request.urlopen(req))["result"]["content"][0]["text"])
+
+  mine = base64.b32encode(blake3.blake3(body["content"].encode()).digest()[:16]).decode().rstrip("=").lower()
+  assert mine == body["file_cid"]
+  print(mine)
+  PY
+  ```
+
+  On 7 November 2026 we ran this block with `https://emem.dev/mcp` and the public note path above.
+  It printed `citmouad4wp4gbcvharhifvsnm`.
+  We did not run it inside `run.sh` on a local responder.
 
 - On the hosted node, anyone can read `/memories/by_attester/`. Only the attester can write there.
   So every agent can read a checkpoint on emem.dev. It is not private.

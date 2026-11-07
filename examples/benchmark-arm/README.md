@@ -212,13 +212,14 @@ The output has seven numbered sections, from `## 1. integrity` to
    Without the `blake3` package, it skips the address check but does not say
    so. The output then shows 0 for both address counts (`cid==blake3` and
    `cid MISMATCH`). Install `blake3` before you use those two lines.
-2. Ground truth, two times (sections 2 and 7). It parses the value that the prompt showed from
-   the prompt bytes. It resolves the value that emem signed from the
-   responder. These can differ: a prompt can show `0.747614` for a signed
+2. Ground truth, two times (sections 2 and 7). It parses the value that
+   the prompt showed from the prompt bytes. It resolves the value that emem
+   signed from the responder. These can differ: a prompt can show `0.747614` for a signed
    `0.7476139978791093`. A scorer with only one expected value mis-scores one
    of the arms.
-3. Scores (sections 3 to 6). The classes stay separate: `exact`, `numeric_equal` (right value, wrong
-   bytes, which is the rounding failure), `confidently_wrong` and `abstain`.
+3. Scores (sections 3 to 6). The classes stay separate: `exact`,
+   `numeric_equal` (right value, wrong bytes, which is the rounding
+   failure), `confidently_wrong` and `abstain`.
    If you merge these classes, the benchmark looks better than it is.
 
 The script does not stop when an integrity check fails. It prints the

@@ -113,8 +113,8 @@ Limits that apply to every number below:
 The first two rows tie. Our own re-score found that the citation arm shows a
 rounded value. So that arm and plain context measure the same skill: copying a
 number that is already in the context window. A content address adds nothing
-that we could measure in that arm. If your answer needs one value and the value fits in
-context, plain context is as good as emem and costs less.
+that we could measure in that arm. If your answer needs one value and the
+value fits in context, plain context is as good as emem and costs less.
 
 The dereference row tests what emem claims. It reached 99.2% only after four
 fixes. The benchmark found it at 84.4% first, and the fixes came from that.

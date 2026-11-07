@@ -41,7 +41,8 @@ To use a different emem node, set `EMEM_MCP_URL`. The default is
    `emem_locate`, `emem_recall`, `emem_ask` and `emem_verify_receipt`.
 3. It makes an agent with `create_agent` from `langchain.agents` and the
    `gpt-4.1-mini` model. LangGraph 1.0 deprecated the older
-   `create_react_agent`, and LangGraph 2.0 removes it.
+   `create_react_agent`. Its warning says that LangGraph 2.0 will remove
+   it.
 4. It asks the agent to locate South Mumbai, recall its elevation
    (`copdem30m.elevation_mean`), and answer with the `fact_cid` and receipt.
 
@@ -49,8 +50,8 @@ To use a different emem node, set `EMEM_MCP_URL`. The default is
 
 On 7 November 2026 we installed the packages above in a new virtual
 environment (langchain 1.4.9, langchain-mcp-adapters 0.3.2, langgraph
-1.2.20, mcp 1.30.0). The script loaded 18 emem tools and stopped at the OpenAI call, because we used a test
-key. We did not run the model part.
+1.2.20, mcp 1.30.0). The script loaded 18 emem tools and stopped at the
+OpenAI call, because we used a test key. We did not run the model part.
 
 We also made the emem calls that the agent needs, on the same day:
 

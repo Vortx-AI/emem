@@ -74,8 +74,9 @@ The server-side check is the responder checking itself. The offline check is
 the one that does not trust the responder.
 
 On 7 November 2026, `resolve` returned `contested: true` with two candidates
-for both phrasings: `4itylz3k...` and `qd54sx3d...`. The script takes the first candidate. A real fleet should
-read `corroboration` and `independent_attesters` before it picks one.
+for both phrasings: `4itylz3k...` and `qd54sx3d...`. The script takes the
+first candidate. A real fleet should read `corroboration` and
+`independent_attesters` before it picks one.
 On 7 November 2026 these fields did not break the tie. Both candidates had
 `corroboration: none_attributed` and `independent_attesters: 0`. Both had
 the same cell and bounding box, `[3.9407, 51.9110, 4.1131, 51.9995]`. That

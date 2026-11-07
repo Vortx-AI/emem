@@ -237,7 +237,8 @@ The third way is the browser. Paste the receipt, or the `emem:fact:` token of th
 [`/emem-verify-core.js`](https://emem.dev/emem-verify-core.js), which bundles `@noble/hashes` blake3 and
 `@noble/curves` ed25519. It checks the hash and the signature in your browser.
 
-Send the full receipt, with no changes. When the receipt has `preimage_version: 2`, the signature also covers the inclusion proof.
+Send the full receipt, with no changes.
+When the receipt has `preimage_version: 2`, the signature also covers the inclusion proof.
 If you remove or rebuild a field, a correct receipt shows as tampered.
 
 ## Cite one fact with a memory token

@@ -1,4 +1,4 @@
-"""Semantic Kernel + emem MCP example: multi-step verification: locate, recall, verify.
+"""Semantic Kernel + emem MCP example. Multi-step verification: locate, recall, verify.
 
 Connects a Microsoft Semantic Kernel kernel to the emem MCP server over
 Streamable HTTP and runs a multi-step verification chain for South Mumbai:
