@@ -993,11 +993,16 @@ predictor with fixed coefficients. It is arithmetic, not a learned model.
 
 #### Routes for algorithms that the formula engine cannot run
 
-The registry marks these four algorithms `documentation_only`. Their
-formula needs a multi-year series or two scenes, and the scalar formula
-engine cannot express that. Each registry entry has a `runtime_path` to
-the route below. Each route signs its result. When an input is not
-available, it returns `verdict: "inconclusive"` and no number.
+On 7 November 2026, the registry marked 88 of its 172 algorithms
+`documentation_only`. The scalar formula engine cannot run them. The four
+below need a multi-year series or two scenes, so each has its own route.
+Its registry entry names that route in `runtime_path`. The route signs its
+result. When an input is not available, it returns
+`verdict: "inconclusive"` and no number.
+
+The registry gives each `documentation_only` entry
+`here.executes: "agent"`, also these four. For these four, the route
+computes the result and signs it.
 
 | Path | Body | Algorithm |
 |---|---|---|
@@ -1133,9 +1138,10 @@ and [protocol.md](protocol.md).
 ## Algorithms
 
 The algorithm registry holds standard agronomic and hydrological indices,
-for example NDVI, NBR, NDWI, walkability, heat index and RUSLE. Each tuned
-threshold carries a `learned_from` citation. The `parameters` block on each
-`AlgorithmSpec` has types (`Algorithm::param_f64("consensus_threshold")`).
+for example NDVI, NBR, NDWI, walkability, heat index and RUSLE. On
+7 November 2026, 8 entries had a `parameters` block of named numbers. For
+each parameter, `learned_from` gives `value`, `rationale` and `basis`
+(`literature` or `operational_default`).
 
 To replay an algorithm yourself:
 
@@ -1658,6 +1664,11 @@ anchor.
 This script verifies a live receipt. It needs `requests`, `blake3`,
 `cbor2` and `cryptography`. On 7 November 2026 it printed
 `VALID, signed by 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka`.
+The script does not build segments `0x03` to `0x05`. It prints `INVALID`
+for a valid receipt that has `scope`, `as_of` or edges. Send such a receipt
+to `POST /v1/verify_receipt`. The verifier in
+[emem-verify-receipt](../plugins/emem/skills/emem-verify-receipt/SKILL.md)
+has the same limit, and it tells you to use that route.
 
 ```python
 """Verify an emem receipt offline. Reproduces /v1/verify_receipt locally.
@@ -1802,7 +1813,7 @@ import base64, requests, blake3
 EMEM = "https://emem.dev"
 rec = requests.post(f"{EMEM}/v1/recall",
                     json={"cell": "defi.zb64a.cAzU.zfa27",
-                          "band": "indices.ndvi"}, timeout=45).json()
+                          "bands": ["indices.ndvi"]}, timeout=45).json()
 
 for f in rec["facts"]:
     cid = f["fact_cid"]
