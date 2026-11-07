@@ -228,12 +228,12 @@ def compaction():
 
     ctx_card(*cards[0][:4], cards[0][4], cards[0][5], [
         ("USER: survey the plot", INK_SOFT, False),
-        ("recall: elevation 38.3 m", INK, False),
+        ("recall: elevation 38.27 m", INK, False),
         ("recall: ndvi 0.61", INK, False),
         ("receipt: signed, verified", LEAF, False),
         ("full JSON payloads", INK_SOFT, False),
         ("...", INK_SOFT, False),
-        ("memt:defi.zb6d9...:sroz...", INDIGO, True),
+        ("emem:fact:defi.zb6d9...:sroz...", INDIGO, True),
     ])
     ctx_card(*cards[1][:4], cards[1][4], cards[1][5], [
         ("summary of turns 1-59", INK_SOFT, False),
