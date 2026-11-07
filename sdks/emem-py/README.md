@@ -19,8 +19,8 @@ and [docs/agents.md](https://github.com/Vortx-AI/emem/blob/main/docs/agents.md).
 ## What the client does
 
 The `Client` class wraps the public REST surface. Each method sends one
-request and returns the parsed JSON without changes. The client keeps every
-Ed25519-signed receipt and every content-addressed CID, so you can cite a
+request and returns the parsed JSON without changes. That JSON includes
+the Ed25519-signed receipt and the content-addressed CIDs, so you can cite a
 fact and verify it offline. The module docstring of `ememdev.client` maps
 each endpoint to its method. The full REST surface is the list in
 [`/openapi.json`](https://emem.dev/openapi.json). This README gives no count,
@@ -140,8 +140,9 @@ The `sign` and `write` commands refuse it locally before they send anything.
 
 ## Cite and verify a receipt
 
-Each response, except introspection responses, has a `receipt` block. It
-contains these fields:
+Every response from a read primitive (for example `recall`) has a `receipt`
+block. Some responses, such as `locate`, have none. A receipt contains these
+fields:
 
 - `responder_pubkey_b32`: the Ed25519 public key, base32 without padding, lowercase.
 - `signature_b32`: the Ed25519 signature over the BLAKE3 preimage digest.
@@ -150,8 +151,9 @@ contains these fields:
 - `fact_cids[]`: the BLAKE3 CIDs of all facts in the response.
 
 To cite an answer, quote `receipt.fact_cids[0]` and the responder pubkey.
-Anyone can verify the signature offline against the public key at
-`https://emem.dev/.well-known/emem.json`. The check needs no call to the
+Anyone can verify the signature offline against the public key in
+`https://emem.dev/.well-known/emem.json`, field
+`federation.node.responder_pubkey_b32`. The check needs no call to the
 responder.
 
 Keep and forward the receipt whole. `ememdev` returns it without changes;

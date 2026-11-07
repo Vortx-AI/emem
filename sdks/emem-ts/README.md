@@ -16,8 +16,9 @@ const loc = (await new Client().locate({ place: "Mount Fuji" })) as { cell64: st
 console.log(loc.cell64);
 ```
 
-The script prints the cell64 address of Mount Fuji (`defi.zb592.nUkO.zEzE`
-on 6 November 2026). For the protocol itself, read
+The snippet is TypeScript and uses top-level `await`, so it must run as an
+ES module. Save it as `fuji.mts` and run `npx tsx fuji.mts`. It prints the
+cell64 address of Mount Fuji (`defi.zb592.nUkO.zEzE` on 7 November 2026). For the protocol itself, read
 [docs/quickstart.md](https://github.com/Vortx-AI/emem/blob/main/docs/quickstart.md)
 and [docs/agents.md](https://github.com/Vortx-AI/emem/blob/main/docs/agents.md).
 
@@ -28,8 +29,8 @@ and [docs/agents.md](https://github.com/Vortx-AI/emem/blob/main/docs/agents.md).
 ## What the client does
 
 The `Client` class wraps the public REST surface. Each method sends one
-request and returns the parsed JSON without changes. The client keeps every
-Ed25519-signed receipt and every content-addressed CID, so you can cite a
+request and returns the parsed JSON without changes. That JSON includes
+the Ed25519-signed receipt and the content-addressed CIDs, so you can cite a
 fact and verify it offline. The full REST surface is the list in
 [`/openapi.json`](https://emem.dev/openapi.json). This README gives no
 count, because a count goes out of date.
@@ -83,7 +84,8 @@ call can take tens of seconds.
 
 The file [`examples/recall.ts`](https://github.com/Vortx-AI/emem/blob/main/sdks/emem-ts/examples/recall.ts) does the same steps and
 also prints the receipt. Run it from `sdks/emem-ts` with
-`npx tsx examples/recall.ts`.
+`npx tsx examples/recall.ts`. `tsx` is not a dependency of the package, so
+`npx` downloads it on the first run.
 
 ## Configure the client
 
