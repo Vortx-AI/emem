@@ -169,7 +169,7 @@ bytes as Markdown, with the `file_cid` in the `ETag` header:
 curl -sSi https://emem.dev/memories/by_attester/k572x7go/note-20260929-line-url-to-ddzmyzhn.md
 ```
 
-On 6 November 2026 that note returned `etag: "uexdskdusjv5fsekzw3cdjdily"`.
+On 7 November 2026 that note returned `etag: "uexdskdusjv5fsekzw3cdjdily"`.
 A `file_cid` is the first 16 bytes of `blake3(bytes)` in lowercase
 base32. Hash the bytes again to check it.
 
@@ -517,7 +517,7 @@ curl -s -X POST https://emem.dev/v1/memory_bundle \
 
 To read a bundle, send its token to `GET /v1/memory_bundle/<token>`.
 The MCP tool is `emem_memory_bundle_resolve`. The example below ran on
-6 November 2026:
+7 November 2026:
 
 ```sh
 curl -s https://emem.dev/v1/memory_bundle/emem:bundle:3d4octsgzilnelhvzvxwdvqzty
@@ -593,7 +593,7 @@ read returns the current state.
 
 ### Example: what emem knew on 1 October 2026
 
-This read ran on 6 November 2026. It asks for PM2.5 at the cell of
+This read ran on 7 November 2026. It asks for PM2.5 at the cell of
 Mount Fuji, as emem knew it on 1 October 2026:
 
 ```sh
@@ -618,7 +618,7 @@ byte for byte.
 
 With `"as_of_signed_at":"2026-09-01T00:00:00Z"` the same read returned
 no facts and a 200 status. The `temporal_advice` block said that the cell
-held 325 facts without the bound and that the bound removed all of them.
+held 326 facts without the bound and that the bound removed all of them.
 
 ### Errors and edge cases
 
@@ -659,8 +659,8 @@ The responder keeps two LanceDB datasets under `$EMEM_DATA/lance/`:
 | `memory_text_chunks_d768.lance` | one per 128-token window, up to 64 windows per file | the BGE vector of that window, so a note scores by its best window |
 
 Search uses the chunk dataset after its first full load. Until then it
-uses the file dataset. On 6 November 2026, `GET /v1/memory_search/stats`
-on emem.dev gave 5,425 files and 116,533 chunk rows, with the model
+uses the file dataset. On 7 November 2026, `GET /v1/memory_search/stats`
+on emem.dev gave 5,427 files and 116,432 chunk rows, with the model
 loaded.
 
 Both datasets have this schema:
@@ -755,7 +755,7 @@ provider, the scan does not count it. Each record also has
 
 ### Example
 
-This read ran on 6 November 2026 on emem.dev:
+This read ran on 7 November 2026 on emem.dev:
 
 ```sh
 curl -s -X POST https://emem.dev/v1/memory_contradictions \
@@ -824,7 +824,7 @@ parameters are optional filters:
 | `kind` | its `kind` is equal to this value |
 | `attester` | its `attester_pubkey_b32` is equal to this key. `expired` and `consolidated` events have no attester, so this filter removes them. |
 
-This read ran on 6 November 2026 and stopped after 4 seconds:
+This read ran on 7 November 2026 and stopped after 4 seconds:
 
 ```sh
 curl -sN --max-time 4 \
