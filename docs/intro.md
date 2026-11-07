@@ -5,6 +5,8 @@ fact and each object one identity. So two models reason about the same thing, no
 Each answer carries an Ed25519 receipt. Anyone can check the receipt without trust in the server, for example in
 the browser at [/verify](/verify).
 
+![Live reads of emem.dev on 7 November 2026, in three steps. 1: the name Mount Fuji resolves to the cell defi.zb592.nUkO.zEzE, ringed on a Sentinel-2 image of the summit crater from 12 December 2025. 2: emem signs one fact there: copdem30m.elevation_mean 3,539.04 m, read from a Copernicus GLO-30 DEM tile, fact id qejpz7cg...bplq, signed 28 September 2026. 3: another agent gets the 83-character emem:fact token. Resolve gives the same fact id and value. The receipt signature is valid offline. Log entry 2,463,431 of 3,248,898 proves with 22 hashes. One changed character of the fact id fails. Contains modified Copernicus Sentinel data 2025.](media/stills/one-token-hero.webp)
+
 New to emem? Read [Start here](./start-here.md) first. It takes ten minutes. The [glossary](./glossary.md) defines
 each term on this page.
 
