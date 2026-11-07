@@ -9,7 +9,7 @@ term for one thing.
 |---|---|---|
 | cell, `cell64` | One square of about 10 m on the Earth. Its address has four parts, for example `defi.zb592.nUkO.zEzE`. | [Protocol, section 1](protocol.md#1-cell64-the-spatial-primitive) |
 | tslot | A whole number for a time period: the day, month or other period of an observation, at the cadence of its band. | [Protocol, section 2](protocol.md#2-tslot-temporal-addressing) |
-| bi-temporal read | A read with two time filters. `as_of_tslot` asks what was true on the ground on a date. `as_of_signed_at` asks what emem knew on a date. The first takes a tslot number, the second an RFC 3339 time in UTC that ends in `Z`. The responder compares that time as text, so an offset such as `+05:30` gives a wrong cut. | [Memory](memory.md) |
+| bi-temporal read | A read with two time filters. `as_of_tslot` asks what was true on the ground on a date. `as_of_signed_at` asks what emem knew on a date. The first takes a tslot number, the second an RFC 3339 time in UTC that ends in `Z`. The responder compares that time as text, so an offset such as `+05:30` gives a wrong cut. | [Memory](memory.md), [Intro diagram, "Two time filters"](intro.md#two-time-filters) |
 
 ## Facts
 
@@ -31,7 +31,7 @@ term for one thing.
 | Term | Definition | Full definition |
 |---|---|---|
 | responder | The server that answers and signs: emem.dev or your own node. | [Protocol, section 7](protocol.md#7-receipt) |
-| receipt | The responder's Ed25519 signature over a hash of its answer. You check it offline. | [Protocol, section 7](protocol.md#7-receipt) |
+| receipt | The responder's Ed25519 signature over a hash of its answer. You check it offline. | [Protocol, section 7](protocol.md#7-receipt), [Start here diagram](start-here.md#five-ideas) |
 | preimage | The exact bytes that the responder hashes before it signs. `/v1/verifier_spec` gives the rule. | [`/v1/verifier_spec`](https://emem.dev/v1/verifier_spec) |
 | attester | The Ed25519 key that signed a write. | [Memory](memory.md) |
 | transparency log | The append-only Merkle log of everything emem signs. It follows RFC 6962, the Certificate Transparency standard. | [Protocol, section 9](protocol.md#9-append-only-attestation-log) |
@@ -43,7 +43,7 @@ term for one thing.
 
 | Term | Definition | Full definition |
 |---|---|---|
-| token | A short text that names a record, for example `emem:fact:<cell64>:<fact_cid>`. Another agent resolves it to the same signed bytes. | [Protocol, "The tokenverse"](protocol.md#the-tokenverse) |
+| token | A short text that names a record, for example `emem:fact:<cell64>:<fact_cid>`. Another agent resolves it to the same signed bytes. | [Protocol, "The tokenverse"](protocol.md#the-tokenverse), [Start here diagram](start-here.md#five-ideas) |
 | bundle | One token (`emem:bundle:<cid>`) that names up to 256 facts. | [Memory](memory.md) |
 | entity | A fixed identity for an object, such as a field or a machine. Many facts can point at it. Its id is an anchor, not a hash of the whole record. | [Protocol, "The tokenverse"](protocol.md#the-tokenverse) |
 | tree, `emem:tree:` | One Merkle root over the parts of a file. You can prove that one part belongs to the file without the other parts. | The tokenise-files skill in `plugins/emem/skills/` |
@@ -52,8 +52,8 @@ term for one thing.
 
 | Term | Definition | Full definition |
 |---|---|---|
-| note | A Markdown file that an agent writes and signs. Notes are public, except a note of kind `vault`, which the responder stores encrypted. The operator can still read a `vault` note. | [Memory](memory.md) |
-| namespace | The folder for your notes: `/memories/by_attester/<first 8 characters of your public key>/`. Only your key can write there. | [Memory](memory.md) |
+| note | A Markdown file that an agent writes and signs. Notes are public, except a note of kind `vault`, which the responder stores encrypted. The operator can still read a `vault` note. | [Memory](memory.md), [Intro diagram, "Agent memory"](intro.md#agent-memory) |
+| namespace | The folder for your notes: `/memories/by_attester/<first 8 characters of your public key>/`. Only your key can write there. | [Memory](memory.md), [Intro diagram, "Agent memory"](intro.md#agent-memory) |
 | fact plane, note plane | The two layers of emem. Facts come only from emem's own readers, enrolled devices and keys that the operator lists. Any key can write notes. Each plane has its own trust rules. | [Intro, "Two layers"](intro.md#two-layers), [Federation](federation.md) |
 | supersede | Mark your own older note as replaced by a newer note. The old bytes stay readable, and readers see `superseded_by`. | [Memory](memory.md) |
 | derive | Record a value that you computed from signed facts, signed with your key. For a pure operation (`delta`, `mean`, `sum`) emem computes it again before it records it. | [Protocol, section 5.2](protocol.md#52-derivativefact) |
