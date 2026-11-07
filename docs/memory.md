@@ -762,6 +762,12 @@ the token `emem:tree:<file_cid>` and the first 50 labels. Add
 `leaf_b32`, `path` and the token `emem:tree:<file_cid>#row=<index>`.
 A reader checks one chunk with about log2(n) hashes, not the whole table.
 
+The route reads `?row` as an index first. A label of only digits
+matches as a label only when that number is not a valid index. URL-encode
+a label: `?row=tensor%20ln_f.weight%20F32%5B768%5D` gave row 6 on
+7 November 2026. The path also accepts the token form,
+`GET /v1/tree/emem:tree:<file_cid>`.
+
 The `scheme` field of the response gives the hashing:
 
 ```text
@@ -771,13 +777,17 @@ node = blake3(left || right)
 
 An odd node at the end of a level goes up one level unchanged. A
 pointer row that points into the source of the note writes its URL as
-`·`, and that row hashes with an empty URL. A pointer row with no hash
-commits 32 zero bytes.
+`·`, and that row hashes with an empty URL. A pointer row commits 32
+zero bytes when its hash cell is not a 52-letter lowercase base32 hash.
+This includes an empty cell and a `blake3:<hex>` cell, so write the
+pointer hash in base32.
 
-A `directory.v1` row is `| path | url | bytes | hash |`. Its leaf uses
-offset 0 and the file size as the length. The `chunk_hash` is
-`blake3(path \n bytes \n hash)`, where `hash` is the cell text, for
-example `blake3:<hex>`.
+A `directory.v1` row is `| path | url | bytes | hash |`. The URL must
+start with `https:`, and the hash cell must contain a `:`. Write a `|`
+in a path as `%7C`. Its leaf uses offset 0 and the file size as the
+length. The `chunk_hash` is `blake3(path \n bytes \n hash)`, where
+`hash` is the cell text, for example `blake3:<hex>`. The route skips
+rows that do not parse, so they are not in the tree.
 
 ### Example: check one row of a pointer note
 
@@ -822,11 +832,12 @@ source and compare them with the row.
 | 404 | `cid_not_found` | This responder holds no note with that `file_cid`. |
 | 422 | `not_a_tree` | The note kind is not `pointer.v1` or `directory.v1`. |
 | 422 | `no_rows` | The note kind is right, but no table row parses. |
-| 409 | `root_mismatch` | The `root:` of the note is not the root of its rows. The response gives both roots and no path. |
+| 409 | `root_mismatch` | The `root:` of the note is not the root of its rows, or the note has no `root:` line. The response gives both roots and no path. |
 | 404 | `row_not_found` | No row has that index or label. The response gives the row count. |
+| 500 | `path_self_check_failed` | The server built a path that does not fold to the root. This is a server fault, not a fault in the note. |
 
 The top-level `code` is `invalid_argument` for every row except
-`cid_not_found`, so branch on `details.code`. The two 404 rows and the
+`cid_not_found` and the 500 (`internal`), so branch on `details.code`. The two 404 rows and the
 400 below ran on 7 November 2026.
 
 ### Paths over rows that you hold
