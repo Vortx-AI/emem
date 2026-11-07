@@ -61,6 +61,44 @@ The responder key signs this block under the `emem.operator_attestation.v1`
 preimage. The `preimage` field names the eight segments. `GET
 /v1/verifier_spec` gives the segment table that you need to rebuild it.
 
+To check the signature by hand, save the file and run this script on it.
+It needs the `blake3` and `cryptography` Python packages.
+
+```bash
+curl -s https://emem.dev/.well-known/emem.json -o emem.json
+python3 check_operator_attestation.py emem.json
+```
+
+```python
+# check_operator_attestation.py
+import base64, json, struct, sys
+from blake3 import blake3
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+def b32(s):
+    return base64.b32decode(s.upper() + "=" * (-len(s) % 8))
+
+d = json.load(open(sys.argv[1]))
+a, m = d["operator_attestation"], d["manifests"]
+dom = b"emem.operator_attestation.v1"
+st = b"emem.preimage.v1\x00" + struct.pack("<I", len(dom)) + dom
+segs = [a["version"].encode(), struct.pack(">I", a["key_epoch"]),
+        a["attested_at"].encode(), a["git_commit"].encode(),
+        a["build_timestamp"].encode(), a["binary_blake3"].encode(),
+        m["bands_cid"].encode(), m["registry_cid"].encode()]
+for tag, s in enumerate(segs, 1):
+    st += bytes([tag]) + struct.pack("<I", len(s)) + s
+pk = Ed25519PublicKey.from_public_bytes(b32(d["responder"]["pubkey_b32"]))
+pk.verify(b32(a["signature_b32"]), blake3(st).digest())  # raises if bad
+print("VALID")
+```
+
+Segment lengths are u32 little-endian, but `key_epoch` itself is u32
+big-endian. `bands_cid` and `registry_cid` come from `manifests`, not from
+the attestation block. The tag order is `operator_attestation_tag` in
+`crates/emem-api-rest/src/lib.rs`. On 7 November 2026 at 07:39 UTC, this
+script printed `VALID` on the live file.
+
 The commit is public, so you can read the source that made your answer. The
 `binary_blake3` is the BLAKE3 hash of the running binary. The server reads it
 from `/proc/self/exe` at startup. The digest changes when the code changes, and
