@@ -228,11 +228,11 @@ run writes no new edges.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `EMEM_REFINEMENT_ENABLED` | off | `1` turns the loop on. Any value other than empty, `0`, `false` or `no` also turns it on. |
+| `EMEM_REFINEMENT_ENABLED` | off | `1` turns the loop on. Any value other than empty, `0`, `false` or `no` also turns it on. The check ignores case. The value `off` turns the loop on. |
 | `EMEM_REFINEMENT_INTERVAL_SECS` | 86400 (one day) | Time between runs. Minimum 1. |
 | `EMEM_REFINEMENT_MIN_SEVERITY` | 0.5 | Lower severities make no edge. Range 0 to 1. |
 | `EMEM_REFINEMENT_CELL_PREFIX` | none | Limits the scan to cells with this cell64 prefix. |
-| `EMEM_REFINEMENT_MAX_PAIRS` | 1 | Pairs written for each contradiction. Minimum 1. |
+| `EMEM_REFINEMENT_MAX_PAIRS` | 1 | Pairs written for each contradiction. Minimum 1. The loop writes no more pairs than half the facts in the contradiction. |
 
 The fact plane admits few attesters: the responder, enrolled devices and
 an operator allow list. Thus on a corpus with one responder, the loop has
