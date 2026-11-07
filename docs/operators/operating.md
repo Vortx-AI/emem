@@ -226,7 +226,7 @@ upstreams and background work. Each default comes from the code.
 | `EMEM_MATERIALIZER_TIMEOUT_SECS` | `14` | The timeout of one upstream read, from 2 to 240 seconds. |
 | `EMEM_MATERIALIZER_RETRIES` | `2` | How many times the node tries one ORNL MODIS read, from 1 to 5. |
 | `EMEM_ABSENCE_RECHECK_SECS` | `21600` | How long the node answers with its own signed absence before it asks the upstream again. `0` asks each time. |
-| `EMEM_TILE_STORE_GB` | `40` | Disk for whole local copies of static forest rasters (Hansen GFC, JRC GFC2020, JRC TMF, ESA WorldCover) in `$EMEM_DATA/tile_store/`. The node removes the least recently used copy first. It does not store a copy that leaves less than 30 GB free. `0` turns the store off. |
+| `EMEM_TILE_STORE_GB` | `40` | Disk for whole local copies of static forest rasters (Hansen GFC, JRC GFC2020, JRC TMF, ESA WorldCover) in `$EMEM_DATA/tile_store/`. The node removes the least recently used copy first. It does not store a copy that leaves less than 30 GB free. It does not copy a file larger than 8 GB; it reads that file by range. `0` turns the store off. |
 | `EMEM_S2_CATALOGUES` | `mpc,element84` | The Sentinel-2 STAC catalogues, in order. The node knows only `mpc` and `element84` and ignores other names. |
 | `EMEM_RETIRED_BANDS` | empty | A comma-separated list of bands that this node does not materialize, added to the bands that the code retires. emem.dev sets `geotessera,clay_v1,prithvi_eo2,galileo`. |
 | `EMEM_OVERTURE_RELEASE` | newest | Pins one Overture release. |
