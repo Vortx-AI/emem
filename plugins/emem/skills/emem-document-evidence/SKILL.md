@@ -197,17 +197,22 @@ script then printed `result MISMATCH` and exited with 1.
 
 ## Errors
 
-The error body has `schema: "emem.error.v1"`. The specific code is in
-`details.code`.
+The error body has `schema: "emem.error.v1"`. The top-level `code` is
+`invalid_argument` for the 400 and 422 rows, and `source_fetch_failed`
+for the 502 rows. Read the specific code in `details.code`.
 
 | HTTP | `details.code` | Cause |
 |---|---|---|
 | 400 | `too_large` | The image is larger than 8 MiB, or the text is too long. |
-| 400 | (none, `code` is `invalid_argument`) | No input, both `url` and `image_b64`, a bad base64 string, or a `lang` that is not a Tesseract code. |
-| 422 | `not_an_image` | The bytes are not PNG, JPEG, TIFF, WebP, GIF or BMP. |
+| 400 | `invalid_argument` | No input, both `url` and `image_b64`, a bad base64 string, or a `lang` that is not a Tesseract code. The `message` names the cause. |
+| 400 | `url_refused` | The responder does not fetch this `url`. On 7 November 2026, an `http://` URL gave the message `only https urls are fetched`. |
+| 422 | `not_an_image` | The bytes are not PNG, JPEG, TIFF, WebP, GIF or BMP. On 7 November 2026, base64 of the text `hello world` gave this code. |
 | 422 | `ocr_receipt_invalid` | Someone changed the `ocr` object, or another responder signed it. On 7 November 2026, one space added to `ocr.text` gave this code. |
 | 422 | `text_hash_mismatch` | `ocr.text_blake3_b32` does not match `ocr.text`. On 7 November 2026, a changed hash field gave this code. |
 | 422 | `ocr_failed` | Tesseract did not read the image. |
+| 429 | (no `details`) | Your IP reached a daily quota. This body is different: `code` is `ocr_quota` or `doc_parse_quota`, and the header `retry-after` is 86400. |
+| 502 | `upstream_status` | The host of `url` did not answer with 2xx. On 7 November 2026, a missing file gave `emem.dev answered 404 Not Found`. |
+| 502 | `fetch_failed`, `too_large` | The fetch of `url` failed, or the host sent more bytes than the cap. |
 | 501 | `ocr_unavailable` | The responder has no OCR engine. |
 | 503 | `busy` | No OCR slot was free. Try again. |
 
