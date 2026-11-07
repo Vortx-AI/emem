@@ -970,23 +970,28 @@ marks an optional field.
 
 | Path | Body |
 |---|---|
-| `/v1/recall` | `{cell, bands?, tslot?, as_of_tslot?, as_of_signed_at?, deterministic?, provenance?, include?}` |
-| `/v1/recall_many` | `{cells, bands?}`, at most 256 cells |
-| `/v1/recall_polygon` | `{place?, polygon_bbox?, polygon_geojson?, bands?, max_cells?, include?}` |
-| `/v1/grid` | `{center, bands, n?, half_km?, budget_ms?}` |
-| `/v1/field_boundaries` | `{place?, polygon_bbox?, zoom?}` |
+| `/v1/recall` | `{cell or place or lat and lng, bands?, tslot?, as_of_tslot?, as_of_signed_at?, scope?, deterministic?, provenance?, include?}` |
+| `/v1/recall_many` | `{cells, bands?, tslot?, budget_ms?, compact?}`, at most 256 cells |
+| `/v1/recall_polygon` | `{place?, polygon_bbox?, polygon_geojson?, bands?, tslot?, as_of_tslot?, as_of_signed_at?, max_cells?, budget_ms?, include?}` |
+| `/v1/grid` | `{center, bands, n?, half_km?, tslot?, budget_ms?, bundle?}` |
+| `/v1/field_boundaries` | `{place?, polygon_bbox?, zoom?, clean?, max_features?}` |
 | `GET /v1/cells/:cell64` | No body. Recall of all bands at one cell |
-| `/v1/query_region` | `{geometry or bbox, bands?, agg?, max_cells?}` |
+| `/v1/query_region` | `{geometry or bbox, bands?, agg?, max_cells?, as_of_tslot?, as_of_signed_at?}` |
 | `/v1/compare` | `{a, b, family?}` |
 | `/v1/compare_bands` | `{cell, a, b, tslot_a?, tslot_b?, predicate?}` |
-| `/v1/find_similar` | `{key, k?, band?, mode?}` |
-| `/v1/trajectory` | `{cell or place, band, window?}`, or `from_date` and `to_date` in place of `window` |
-| `/v1/field_series` | `{geometry or bbox or areas or fields, start_date, end_date, index?, sensor?, orbit?, inner_buffer_m?, min_support_px?, max_scenes?, memory?}` |
-| `/v1/diff` | `{cell, band, tslot_a, tslot_b}` |
+| `/v1/find_similar` | `{key, k?, band?, mode?, filter?, as_of_tslot?}` |
+| `/v1/trajectory` | `{cell or place or lat and lng, band, window?, as_of_tslot?, as_of_signed_at?}`, or `from_date` and `to_date` in place of `window` |
+| `/v1/field_series` | `{geometry or bbox or areas or fields, start_date, end_date, index?, sensor?, orbit?, inner_buffer_m?, min_support_px?, min_clear_fraction?, max_scenes?, blocks?, mask_policy?, qa_reject_bits?, memory?}` |
+| `/v1/diff` | `{cell or place, band, tslot_a or date_a, tslot_b or date_b}`. A date is `YYYY-MM-DD` |
+
+`/v1/recall_many` with `compact: true` keeps eight keys on each fact:
+`band`, `confidence`, `fact_cid`, `kind`, `memory_token`, `observed_at`,
+`tslot` and `value`. The call on 7 November 2026 gave these keys.
 
 `/v1/grid` returns the cells in row order. Each band has `values`,
 `states` (`value`, `absent` or `missing`), `fact_cids`, `absence_cids` and
-`captured_at`. The answer has one `bundle_token` and one receipt. Cells
+`captured_at`. The answer has one `bundle_token` (omitted when you send
+`bundle: false`) and one receipt. Cells
 that did not finish are in `pending` or `skipped`.
 
 `/v1/query_region` sets `max_cells` from the bbox area when you do not
@@ -1050,9 +1055,15 @@ Run it, then read again.
 
 | Method | Path | Body |
 |---|---|---|
-| GET, POST | `/v1/locate` | `{place or q or name, lat?, lng?}` |
-| POST | `/v1/ask` | `{q, place?, cell?, lat?, lng?}` |
+| GET, POST | `/v1/locate` | `{place or q or name or query, lat?, lng?, strict?}` |
+| POST | `/v1/ask` | `{q, place?, cell?, lat?, lng?, model?, verbose?, include_image?}` |
 | POST | `/v1/intent` | A typed intent. Always send `type`; the other fields depend on it |
+
+With `strict: true`, `/v1/locate` answers 404 `no_geocoder_match` when the
+name matched only weakly. The error names the weak candidate. On
+7 November 2026, "Qwzxv Mountain Lake" gave this 404. `strict` has no effect on
+coordinates. For `model` on `/v1/ask`, see
+[Ask a model to read the signed answer](#ask-a-model-to-read-the-signed-answer).
 
 `/v1/intent` (MCP `emem_intent`) accepts eight values of `type`. Each one
 needs its own fields:
@@ -1131,7 +1142,7 @@ the registry gave this algorithm `here.status: "stored_only"` and
 |---|---|---|
 | POST | `/v1/verify` | Check a claim at a cell. Returns a verdict and evidence |
 | POST | `/v1/verify_receipt` | Rebuild the preimage and check the Ed25519 signature |
-| POST | `/v1/fetch` | Get a fact by CID |
+| POST | `/v1/fetch` | Get a fact by `cid`, or by `cell` and `band` with an optional `tslot` |
 | POST | `/v1/attest` | Send a signed attestation as JSON. This is a write |
 | POST | `/v1/attest_cbor` | Send a signed attestation as canonical CBOR. This is a write |
 
@@ -1159,7 +1170,9 @@ All routes in this table are `GET`.
 
 #### Backfill
 
-`POST /v1/backfill` takes `{cell, band, start_unix?, end_unix?, max_facts?}`.
+`POST /v1/backfill` takes `{cell, band, start_unix?, end_unix?, max_facts?, budget_ms?, refresh?}`.
+`refresh: true` signs a new fact even where one exists. The new fact
+supersedes the old one, and the old one stays readable by its CID.
 Look at `/v1/data_availability` before you select a window.
 
 - Sentinel-2 bands: one catalogue search lists every acquisition over the
@@ -1354,7 +1367,7 @@ When a band has no data at a cell, the responder does not return `404` or
 an empty array. It returns a signed Absence fact. The answer has
 `"kind": "absence"`, a `reason` and a `reason_cid`. It has no `value`
 field. The signed fact carries `reason_cid` only. The recall answer adds
-the `reason` text beside it, and that text is not signed. Read `kind`
+the `reason` text beside it, and the receipt does not sign that text. Read `kind`
 before you read `value`. You can cite its `fact_cid` like any other fact.
 
 `reason` is text that starts with a short code from the connector. Examples
