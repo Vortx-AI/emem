@@ -90,7 +90,7 @@ The response also has `input_bands`, `materializer_status`, `caveats`, `recipe`,
 
 How to read this result:
 
-- `region_resolution: "point_fallback_bbox"` means the geocoder gave a point, not a lake outline. The hunt then sampled a square of 0.30 degrees on each side of that point (`EMEM_HUNT_FALLBACK_HALF_DEG`). That is why it sampled only 9 cells, all near 42.0 to 42.5 N, 80.8 to 81.2 W.
+- `region_resolution: "point_fallback_bbox"` means the geocoder gave a point, not a lake outline. The point was 42.25 N, 81.00 W. The hunt then sampled a square around it, 0.60 degrees wide. Each side is 0.30 degrees from the point (`EMEM_HUNT_FALLBACK_HALF_DEG`). That is why it sampled only 9 cells, all near 42.0 to 42.5 N, 80.8 to 81.2 W.
 - All eight hotspot NDVI values were between -0.333 and -0.216. The formula is `chl_a_mg_m3 = clip(70 * max(0, ndvi) - 5, 0, 200)`, so each cell scores 0 mg/m³. There was no chlorophyll signal in these facts.
 - The top value came from a scene observed on 14 September 2026. The same cell had newer NDVI facts up to 25 October 2026 (see [How a hunt ranks cells](#how-a-hunt-ranks-cells)).
 
@@ -113,7 +113,7 @@ The algorithm is `deforestation_alert_ndvi_drop@1`. Its formula from `/v1/algori
 if baseline_tc < 30: return null (not a forest cell); drop = ndvi_60d - ndvi_now; alert = drop > 0.20 AND ndvi_now < 0.5
 ```
 
-The hunt ranks cells by `indices.ndvi`, lowest first, with no gate. It does not apply the Hansen 2000 tree-cover test or the 60-day drop. On 7 November 2026 it sampled 64 cells. The eight hotspot NDVI values were between -0.702 and -0.238. This hunt also applied the embedding rerank (`embedding_rerank.applied: true`, 16 candidates, method `cluster_centroid_cosine`).
+The hunt ranks cells by `indices.ndvi`, lowest first, with no gate. It does not apply the Hansen 2000 tree-cover test or the 60-day drop. On 7 November 2026 it sampled 64 cells. The eight hotspot NDVI values were between -0.702 and -0.238. This hunt also applied the embedding rerank (`embedding_rerank.applied: true`, 16 candidates, method `cluster_centroid_cosine`). The rerank takes the 16 cells with the lowest NDVI. It sorts them by how near each cell's stored embedding is to the mean of the stored embeddings in that group. Cells with no stored embedding go last. Thus the hotspots are not in NDVI order. The first hotspot had NDVI -0.275, and the second had -0.702.
 
 A low NDVI alone does not prove forest loss. Check the baseline at each hotspot before you call it deforestation:
 
