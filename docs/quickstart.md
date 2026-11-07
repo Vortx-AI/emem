@@ -180,19 +180,21 @@ printed the same value.
    At the equator, a cell is about 9.5 m on each side. The latitude pitch is the same everywhere. The longitude
    pitch gets smaller with the cosine of latitude. Thus, away from the equator, a cell is taller than it is wide.
    `GET /v1/grid_info` gives both values.
-2. Cells near each other often start with the same bigrams. Do not calculate distance from the prefix. A cell
-   10 m north and a cell 1 km north of one origin can share the first two of four bigrams. For real neighbours,
-   use `neighborhood_cells` from the same `/v1/locate` response.
-3. Before you use the cell, read `selected.is_high_confidence`. When it is `false`, `alternatives` lists the
-   other candidates.
-4. `POST /v1/recall` returned a **signed fact** at that cell. The fact holds the value, the unit, the derivation,
+2. `POST /v1/recall` returned a **signed fact** at that cell. The fact holds the value, the unit, the derivation,
    the upstream sources, the `fact_cid` and a `memory_token` that you can cite. The response also holds an
    Ed25519 `receipt` for the full answer.
-5. Each request for the same cell and band returns the same fact and `fact_cid`, until emem signs a new
+3. Each request for the same cell and band returns the same fact and `fact_cid`, until emem signs a new
    observation.
-6. When nobody asked about a cell before, emem reads the upstream archive during your call. On 7 November 2026, a
+4. When nobody asked about a cell before, emem reads the upstream archive during your call. On 7 November 2026, a
    first read of `copdem30m.elevation_mean` at a new cell took 1.3 s, and the second read took 0.02 s. Other
    sources can take tens of seconds. `receipt.cost.was_cached` tells you which type of read you got.
+
+Two checks before you use a cell from `/v1/locate`:
+
+- Read `selected.is_high_confidence`. When it is `false`, `alternatives` lists the other candidates.
+- Do not calculate distance from the cell64 text. Cells near each other often start with the same bigrams. But a
+  cell 10 m north and a cell 1 km north of one origin can share the first two of four bigrams. For real
+  neighbours, use `neighborhood_cells` from the same `/v1/locate` response.
 
 ## Verify the receipt
 
@@ -235,7 +237,7 @@ The third way is the browser. Paste the receipt, or the `emem:fact:` token of th
 [`/emem-verify-core.js`](https://emem.dev/emem-verify-core.js), which bundles `@noble/hashes` blake3 and
 `@noble/curves` ed25519. It checks the hash and the signature in your browser.
 
-Send the full receipt, with no changes. Since `preimage_version: 2`, the signature also covers the inclusion proof.
+Send the full receipt, with no changes. When the receipt has `preimage_version: 2`, the signature also covers the inclusion proof.
 If you remove or rebuild a field, a correct receipt shows as tampered.
 
 ## Cite one fact with a memory token
@@ -255,9 +257,9 @@ with Client() as em:
     print(em.memory_token_resolve(token)["value"])   # 3539.042236328125
 ```
 
-Each recall fact has its `memory_token`. If you kept only the cid, `em.memory_token(cell,
-fact_cid)["memory_token"]` makes the same string. Two agents that resolve one token read the same signed fact.
-Each agent can check the receipt and does not have to trust the other agent.
+Each recall fact has its `memory_token`. If you kept only the cid,
+`em.memory_token(cell, fact_cid)["memory_token"]` makes the same string. Two agents that resolve one token read
+the same signed fact. Each agent can check the receipt and does not have to trust the other agent.
 
 ## Put several facts in one bundle
 
