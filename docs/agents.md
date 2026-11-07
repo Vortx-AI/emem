@@ -1875,6 +1875,12 @@ route reads five shapes:
 | `cloudevent` | a CloudEvents 1.0 structured event | a CloudEvent with the verdict |
 | `policy` | `{"input":{...}}` | `{"result":{"allow":bool,"deny":[...]}}` |
 
+In the `openai` shape, branch on `flagged`, not on `categories`. Four
+`emem/*` categories map to four deny codes: `PROV_SIG`, `PROV_BYTES`,
+`PROV_DRIFT` and `CLAIM_UNGROUNDED`. Other deny codes have no category. On
+7 November 2026, the 2000 m call above gave `flagged: true` with all four
+categories `false`. Read the code and fix in `results[].emem`.
+
 Add `?claim_gating=true` to also find measurable claims about a place that
 have no citation. The answer names the emem band that can answer each one.
 
