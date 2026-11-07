@@ -5,7 +5,7 @@ facts about places. You need no SDK, no API key and no account to read. The same
 described at `/openapi.json`.
 
 This page gives the smallest config for each runtime and a link to a runnable example in `examples/`. Then it shows
-the calls an agent makes after it connects. The requests and responses on this page ran on emem.dev on 6 November
+the calls an agent makes after it connects. The requests and responses on this page ran on emem.dev on 7 November
 2026.
 
 ## Connect an MCP host
@@ -80,7 +80,7 @@ Older hosts speak stdio only. Use the `mcp-remote` bridge:
 | Claude Desktop | MCP (`http`) | none | [`examples/claude-desktop.json`](https://github.com/Vortx-AI/emem/blob/main/examples/claude-desktop.json) |
 | Cursor 0.42 and later | MCP (`http`) | none | [`examples/cursor.mcp.json`](https://github.com/Vortx-AI/emem/blob/main/examples/cursor.mcp.json) |
 | Cline (VS Code) | MCP (`http`) | none | [`examples/cline.mcp.json`](https://github.com/Vortx-AI/emem/blob/main/examples/cline.mcp.json) |
-| Gemini CLI | extension install | none | [`examples/gemini-extension.json`](https://github.com/Vortx-AI/emem/blob/main/examples/gemini-extension.json) |
+| Gemini CLI | extension install | none | Run `gemini extensions install https://github.com/Vortx-AI/emem`. It reads [`gemini-extension.json`](https://github.com/Vortx-AI/emem/blob/main/gemini-extension.json) at the repository root. |
 | OpenAI Custom GPT Action | OpenAPI 3.1 | none | [`examples/openai-gpt-action.json`](https://github.com/Vortx-AI/emem/blob/main/examples/openai-gpt-action.json) |
 | LangChain | MCP through an adapter | none | [`examples/langchain/`](https://github.com/Vortx-AI/emem/tree/main/examples/langchain) |
 | LlamaIndex | MCP through an adapter | none | [`examples/llamaindex/`](https://github.com/Vortx-AI/emem/tree/main/examples/llamaindex) |
@@ -96,7 +96,7 @@ Older hosts speak stdio only. Use the `mcp-remote` bridge:
 | Plain REST | `POST /v1/*` | none | The quick reference in [`docs/agents.md`](agents.md). |
 | Any runtime, as a guardrail | `POST /v1/guard/verdict` | none | [Check a draft before you publish it](#check-a-draft-before-you-publish-it) |
 
-For a Custom GPT, import `https://emem.dev/openapi.action.json`, not `/openapi.json`. On 6 November 2026 the full
+For a Custom GPT, import `https://emem.dev/openapi.action.json`, not `/openapi.json`. On 7 November 2026 the full
 document was 405,695 bytes and the action document was 126,810 bytes. A Custom GPT cannot hold the full document.
 
 A host that has no row here reaches the same 116 tools at the same URL. The rows are the runtimes with a checked-in
@@ -199,7 +199,7 @@ The last part of the token is the fact CID:
 curl -sS https://emem.dev/v1/facts/4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma
 ```
 
-This returns the fact as JSON. On 6 November 2026 it was `copdem30m.elevation_mean`, value `10.0`, unit `m`. Send
+This returns the fact as JSON. On 7 November 2026 it was `copdem30m.elevation_mean`, value `10.0`, unit `m`. Send
 `Accept: application/cbor` to get the canonical CBOR. The CID checks itself:
 `blake3(canonical_cbor(fact)) == base32_decode(fact_cid)`, a 52-character name for the full 32-byte digest. If a
 server sends a different fact for the same CID, the digest check fails.
@@ -267,14 +267,14 @@ curl -sX POST https://emem.dev/v1/memory_bundle \
     ],
     "purpose":"flood-risk site assessment 2026-05"
   }' | jq '.bundle_token'
-# "emem:bundle:pzcbww6am7hyzhcicblv3imqei"   (on 6 November 2026)
+# "emem:bundle:pzcbww6am7hyzhcicblv3imqei"   (on 7 November 2026)
 
 curl -sS https://emem.dev/v1/memory_bundle/emem:bundle:pzcbww6am7hyzhcicblv3imqei | jq .
 ```
 
 One call takes at most 256 triples. The responder resolves each triple through recall. Then it hashes the `purpose`
-and, for each triple in the order you sent, the cell, band, resolved tslot and fact CID into `bundle_cid`. The same facts and the same purpose give the same `bundle_cid` on any
-responder. A triple resolves to the newest fact, so a newer fact gives a new `bundle_cid`. To bind exact facts, send
+into `bundle_cid`. It also hashes the cell, band, resolved tslot and fact CID of each triple, in the order you sent.
+The same facts and the same purpose give the same `bundle_cid` on any responder. A triple resolves to the newest fact, so a newer fact gives a new `bundle_cid`. To bind exact facts, send
 `fact_cids` instead of `triples`.
 
 Only the responder that made a bundle can resolve its token. Another responder answers 404. Paste the token at the
@@ -291,7 +291,7 @@ curl -sX POST https://emem.dev/v1/state \
   -d '{"cell":"Colaba, Mumbai","view":"cube"}'
 ```
 
-Response on 6 November 2026, shortened:
+Response on 7 November 2026, shortened:
 
 ```json
 {
