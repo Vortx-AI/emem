@@ -255,7 +255,7 @@ prose. So a test can check them.
   `no_finite_overlap`, `recall_failed`, `partial_consensus_N_of_3` and
   `insufficient_encoders`. A 2-of-3 result had `degraded: true`, but it still
   had a real ensemble number. emem removed the route with the retired
-  foundation models after 2.4.0. On 7 November 2026 it returned `404`. The
+  foundation models in 2.4.2. On 7 November 2026 it returned `404`. The
   facts that it signed still recall and verify.
 
 ## Agreement of the change ensemble (record)
@@ -267,8 +267,8 @@ places came from the site's own demos and world presets. The sample is
 small and the site chose it. It describes the instrument on this node, not
 the general behaviour of the models.
 
-You cannot run it again. emem removed the route and its three encoders
-(Clay, Prithvi and Galileo on a GPU sidecar) after 2.4.0.
+You cannot run it again. The ensemble used the Clay, Prithvi and Tessera
+encoders. Release 2.4.2 removed the route and the Clay and Prithvi models.
 
 | Outcome | Count |
 |---|---|
@@ -380,8 +380,8 @@ the verifier from `/v1/verifier_spec`, not from the emem source. The
 verifier gave the same golden preimage digest on a live receipt. The agent
 also found these results:
 
-- The verifier rejected five receipt tampers, one of them a downgrade from
-  v1 to v2.
+- The verifier rejected five receipt tampers, one of them a downgrade of a
+  v2 receipt to v1.
 - Five inclusion proofs and one live consistency proof passed under a
   separate RFC 6962 verifier.
 - 725 requests at 1x to 16x concurrency gave zero errors.
@@ -652,7 +652,7 @@ Neither party found it alone. If you build a scorer over model output,
 assume that it has this bug. Check for abstention before you extract a
 value, never after, because a refusal contains the numbers it quotes.
 
-The scorecard has its own reproducibility checklist with six explicit
+The scorecard has its own reproducibility checklist with five explicit
 "no" answers. They are: no independent replication, no independent re-scoring and no
 power calculation before the run. There is also no DOI, and no models
 beyond two open 7B to 12B models on one host. The maintainers

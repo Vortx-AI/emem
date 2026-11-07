@@ -109,12 +109,15 @@ The tool answer is a JSON string in `result.content[0].text`. An MCP answer
 has a size limit of 24,000 bytes by default (`EMEM_MCP_RESPONSE_BUDGET_BYTES`).
 The limit covers the text and `structuredContent` together. Thus a tool that
 also sends `structuredContent` has less room for its text. A cut answer has
-an `_emem_truncation` block. It names each omitted field and the call that
-gives the rest. The REST route has no size limit.
+an `_emem_truncation` block. It names each omitted field. Its
+`budget_bytes` is the share of one copy, text or `structuredContent`, so it
+can show 12,000. Often its `fetch` gives the call that returns the rest.
+Sometimes `fetch` is `null`, or it drops some arguments. Then send the same
+arguments to the REST route, which has no size limit.
 
 On 7 November 2026, emem.dev used the 24,000-byte default. Of the job calls
 below, emem.dev cut only the locate answer for Mount Fuji. Its text had 7,570
-bytes, and its `structuredContent` had 8,028 bytes.
+bytes, and its `structuredContent` had 8,028 bytes. Its `fetch` was `null`.
 
 ### Job: find the right tool
 
@@ -200,7 +203,7 @@ curl -s -X POST https://emem.dev/v1/recall_polygon \
 The call sampled 4 cells in an area of 13.4 km². Read `cells_sampled`,
 `coverage_fraction` and `is_exhaustive` before you state an area total. You can
 also send `bbox` or `polygon_geojson` instead of `place`. Over MCP, the
-4-cell answer was 17,703 bytes. With `"max_cells": 16`, the MCP answer
+4-cell answer was 18,934 bytes on the wire. With `"max_cells": 16`, the MCP answer
 omitted `by_cell`, which holds the facts and the receipt of each cell. For more than a few cells, use
 the REST call.
 
@@ -255,9 +258,12 @@ curl -s -X POST https://emem.dev/v1/compare_same_doy \
 
 Each year in `included` has `method: "exact"` when a fact exists on that
 day. It has `method: "interpolated"` when the value comes from the facts
-before and after that day. An interpolated value is not a signed fact.
-Get the facts around it with `emem_trajectory`. The responder puts a year
-that it cannot bracket in `excluded` and does not extrapolate. The
+before and after that day. The answer has no receipt and no `fact_cid`,
+also for `exact` years. Its `why` says to treat the values as derived.
+To cite a value, get the signed facts with `emem_trajectory`. The tool
+reads only facts that emem already holds. It does not fetch. Thus a year
+in `excluded` can mean that emem did not fetch that year yet. The
+responder does not extrapolate. The
 `phenology` text calls this tool roadmap, but the tool ran on emem.dev on
 7 November 2026.
 
@@ -626,7 +632,7 @@ def emem_recall(cell: str, bands: list[str] | None = None) -> dict:
 The full tool sets are `examples/langchain.py` (nine tools) and
 `examples/llamaindex.py` (six tools).
 
-![the agent loop: discover, locate, recall, reason, verify](/docs/diagrams/04-agent-loop.svg)
+![the agent loop: discover, locate, recall, reason, verify](diagrams/04-agent-loop.svg)
 *The agent loop. After the first contact, an agent uses its cached cells and calls `recall` or `find_similar` directly.*
 
 ## Read a recall answer
@@ -954,8 +960,9 @@ needs its own fields:
 
 `area_over_time` sends the area and the date window to
 `emem_field_series`. Thus a host that lists only the core tools can get an
-area series. If `type` is missing or wrong, REST answers 400
-`invalid_argument`, and the error names the eight types. `emem_intent`
+area series. If `type` is missing, REST answers 400 `invalid_argument`
+with "missing field `type`". If `type` has a wrong value, the 400 error
+names the eight types. `emem_intent`
 answers `status: needs_intent_type` with `valid_types`. This `confirm` call
 checks a claim at one cell:
 
@@ -1634,9 +1641,11 @@ Two different responses cannot have the same signed bytes. The Merkle
 tree uses the RFC 6962 domain separation for leaves and nodes.
 
 Receipts from before the cutover have no `preimage_version` field. They
-verify under the first rule, a plain join:
-`request_id || "|" || served_at || "|" || primitive || "|" || cells, || "|" || cids,`.
-The trailing commas are part of the rule.
+verify under the first rule, a plain join. On 7 November 2026,
+`GET /v1/verifier_spec` gave it as
+`request_id|served_at|[scope|][as_of|][edges|][manifest|]primitive|cell,*|cid,*`.
+The optional parts are present only when the receipt has them. The
+trailing commas are part of the rule.
 
 The public key is in `responder_pubkey_b32` (base32, no padding) and in
 the byte array `responder`. Both hold the same 32-byte Ed25519 key.
@@ -1762,8 +1771,9 @@ loads `/emem-verify-core.js`, which uses `@noble/curves` and
 ### What the receipt does not sign
 
 The receipt signs `request_id`, `served_at`, `primitive`, `cells`,
-`fact_cids`, and, in v2, the inclusion proof. It signs no other field of
-the request or the answer:
+`fact_cids`, and, in v2, the inclusion proof. When the receipt has them, it
+also signs `scope`, `as_of`, the edges, the source manifest and the field
+segment. It signs no other field of the request or the answer:
 
 | Not signed | What can go wrong | What to do |
 |---|---|---|
@@ -1883,7 +1893,8 @@ These responses carry steps:
 - `details.next` in a signed-write refusal. It sends the same tool again
   with an `attester` block. `details.how_to_sign` is next to it.
 - `next` in `/v1/locate` and `emem_locate`, for the resolved cell.
-- `next` in `/v1/recall_polygon`.
+- `next` in `/v1/recall_polygon` is plain text, not steps. It has four
+  sentences of advice.
 - `next` in `/v1/ask`, when it has no trusted place or the question asks
   what a term means. Its cold-cell `next_steps` entry also has a step.
 
@@ -1937,7 +1948,7 @@ backfill window. It gives the tempo and the history range of each band.
 |---|---|---|
 | One upstream fetch in a materializer | 14 s | `EMEM_MATERIALIZER_TIMEOUT_SECS`, 2 to 240 |
 | One request at the gateway | 40 s | `EMEM_TIMEOUT_SECS`, 1 to 600 |
-| `/v1/eudr_dds` | 600 s | `EMEM_EUDR_TIMEOUT_SECS`, 15 to 600 |
+| `/v1/eudr_dds` | 280 s | `EMEM_EUDR_TIMEOUT_SECS`, 15 to 600 |
 
 `GET /v1/agent_card` gives the live values under `runtime`
 (`materializer_timeout_secs`, `gateway_timeout_secs`). It advises a

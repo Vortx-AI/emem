@@ -44,25 +44,31 @@ The response has the header `Cache-Control: public, max-age=3600, stale-while-re
 ## Deprecated surfaces
 
 These surfaces still work.
-Each one passed the version set for its removal, and no release has removed it yet.
+The first three passed the version set for their removal, and no release has removed them yet.
+The old memory names stay until 3.0.
 
 | Surface | Announced in | Removal set for | State on 7 November 2026 | Use instead |
 |---|---|---|---|---|
 | `GET /.well-known/ai-plugin.json` (OpenAI plugin manifest) | 0.0.6 | 0.0.8 | Served: HTTP 200, 2,883 bytes | `/.well-known/agent-card.json` and `/.well-known/mcp.json` |
 | `EMEM_TOPIC_BACKEND=transformer` | 0.0.3 | 0.0.7 | Accepted, mapped to `model2vec` with no warning | `EMEM_TOPIC_BACKEND=model2vec` |
 | `EMEM_TOPIC_BACKEND=fastembed` | 0.0.3 | 0.0.7 | Accepted, mapped to `ort` with no warning | `EMEM_TOPIC_BACKEND=ort` |
+| The 8 MCP names `memory_view`, `memory_create`, `memory_str_replace`, `memory_insert`, `memory_delete`, `memory_rename`, `memory_supersede`, `memory_list_by_kind` | 2.1.0 | 3.0 | Dispatched, not listed in `tools/list` | The same name with the prefix `emem_`, for example `emem_memory_view` |
 
 OpenAI no longer supports the plugin manifest format.
 The two topic-backend values are operator settings, not wire surfaces.
 The mapping is in `crates/emem-api-rest/src/topic_router.rs`.
+Three of the old memory names delete data.
+They had the same names as the verbs of Claude's own memory tool, so the project added the prefix.
+The MCP dispatcher in `crates/emem-api-rest/src/lib.rs` still accepts each old name, and each tool description says "Version 3.0 removes it".
+On 7 November 2026, `tools/call` with `memory_view` gave a normal result.
 The project replaced the `fastembed-rs` wrapper with direct `ort` calls, because the wrapper locked at session start on the production host.
 
 ## Removed surfaces
 
 | Surface | Removed in | Use instead |
 |---|---|---|
-| `POST /v1/jepa_predict_v2` and MCP `emem_jepa_predict_v2` (learned dynamics head on the GPU sidecar) | not in a release | No direct replacement. `POST /v1/jepa_predict` is the closed-form NDVI AR(2) model. |
-| `POST /v1/triple_consensus` and MCP `emem_triple_consensus` (Clay, Prithvi and Tessera change ensemble) | not in a release | No direct replacement. Use `POST /v1/state_diff` for one encoder, or `POST /v1/change_attribution` for the evidence ledger. |
+| `POST /v1/jepa_predict_v2` and MCP `emem_jepa_predict_v2` (learned dynamics head on the GPU sidecar) | 2.4.2 | No direct replacement. `POST /v1/jepa_predict` is the closed-form NDVI AR(2) model. |
+| `POST /v1/triple_consensus` and MCP `emem_triple_consensus` (Clay, Prithvi and Tessera change ensemble) | 2.4.2 | No direct replacement. Use `POST /v1/state_diff` for one encoder, or `POST /v1/change_attribution` for the evidence ledger. |
 | `fastembed-rs` ONNX Runtime wrapper | 0.0.4 | `ort` and `tokenizers` called directly, running BAAI/bge-base-en-v1.5 |
 | Hand-written `GAZETTEER` constant (REST) | 0.0.6 | `emem_fetch::geonames::lookup` over the embedded GeoNames cities-1000 table |
 | Hand-written `gazetteer_reverse_label` (primitives) | 0.0.6 | `emem_fetch::geonames::nearest_label(lat, lng, max_km)` |
@@ -70,6 +76,7 @@ The project replaced the `fastembed-rs` wrapper with direct `ort` calls, because
 | Fixed `max_cells: 256` default in `/v1/query_region` | 0.0.6 | A default from the bbox area: about one cell per 100 km², limited to 64 through 1,024 cells |
 | Fixed 4x pre-scan size in `find_similar` mode `hamming_then_rerank` | 0.0.6 | An adaptive factor `ceil(1/recall)`, limited to 4 through 16; it stays at 4 until the recall estimate has data |
 
+Releases 0.0.4 and 0.0.9 added these two routes. Release 2.4.2 removed them, and they were never on the deprecation list.
 What a caller sees for the two removed routes:
 
 - REST: `POST /v1/triple_consensus` and `POST /v1/jepa_predict_v2` return HTTP 404 with `"code": "not_found"`.
@@ -88,8 +95,8 @@ See [What stays stable](#what-stays-stable).
 | Receipts | A receipt stays verifiable after the responder changes version. | `POST /v1/verify_receipt` verifies `preimage_version` 0, 1 and 2. New receipts use version 2. See [protocol.md](../protocol.md). |
 | Fact CIDs | A fact CID does not change. A new registry version does not make an old fact invalid. | New registries get new CIDs. The old facts keep their CIDs. |
 | Algorithm keys | The `@N` suffix is the version. An old version stays readable after a new one ships. | `flood_risk@1` and `flood_risk@2` both return HTTP 200 at `/v1/algorithms/<key>`. |
-| REST routes under `/v1/` | A removal must first appear on the deprecation list. | The two removed routes above were never in a release. |
-| MCP tool names | A rename must first appear on the deprecation list. | The code has no table of old tool names. A retired name gets "Unknown tool". |
+| REST routes under `/v1/` | A removal must first appear on the deprecation list. | Release 2.4.2 broke this rule: it removed `/v1/jepa_predict_v2` and `/v1/triple_consensus` without a deprecation entry. |
+| MCP tool names | A rename must first appear on the deprecation list. | The 8 old `memory_*` names still dispatch; see [Deprecated surfaces](#deprecated-surfaces). A removed name gets "Unknown tool". |
 
 Registries with a content-addressed manifest (bands, algorithms, functions, sources, schema) do not lose entries silently.
 A change publishes a new manifest CID, and the old CIDs stay resolvable for offline checks.

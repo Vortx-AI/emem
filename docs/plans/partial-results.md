@@ -1,7 +1,7 @@
 # Partial results: the store holds the state, not a job queue
 
 This page is a design record. The owner signed off the design on
-16 July 2026, and all four build steps shipped the same day. The current
+16 July 2026, and all five build steps shipped the same day. The current
 reference for each route is [docs/agents.md](../agents.md) and
 `/openapi.json` on emem.dev.
 
@@ -36,7 +36,9 @@ Four points differ from the original design:
 
 ## The problem
 
-A cold area read can need many upstream fetches for each cell.
+A cold area read can need many upstream fetches for each cell. The design
+put the worst case at about 31 upstream round trips, one after the other,
+for one cell.
 `recall_polygon` reads 64 cells by default (`max_cells`, 1 to 1024). Such a
 read cannot finish inside the 40 s transport timeout. A 504 gives the agent
 nothing. An agent that gets 40 of 64 cells and a list of the rest can
@@ -104,7 +106,7 @@ it did not converge.
 
 ### The `pending[]` states
 
-Each pending entry names the cell, the bands, a state and a reason. The
+Each pending entry names the cell, the `band`, a state and a reason. The
 entry tells the agent what to do next.
 
 | State | Where | Meaning |

@@ -2,7 +2,8 @@
 
 `emem-langmem` is a LangChain [`BaseStore`](https://python.langchain.com/api_reference/core/stores/langchain_core.stores.BaseStore.html)
 that keeps its data on an emem responder.
-Give it to `StateGraph.compile(store=...)`, and the long-term memory of your LangGraph agent goes into emem.
+It is a key-value store (`mget`, `mset`, `mdelete`, `yield_keys`), not a LangGraph store.
+Call it from a node of your LangGraph agent to keep long-term memory in emem.
 Each value is content-addressed and signed with your Ed25519 key.
 Other agents can read it at the same path.
 
@@ -21,6 +22,7 @@ The source is in [sdks/emem-langmem](https://github.com/Vortx-AI/emem/tree/main/
 | `yield_keys()` with no prefix | Fails on emem.dev. See [Known issues](#known-issues-in-244). |
 | `yield_keys(prefix=...)` | Works when the prefix ends in `/`. Lists only the first part of a large folder. |
 | Receipts | Not returned. `BaseStore` has no place for them. See [Get the receipt](#get-the-receipt). |
+| `StateGraph.compile(store=...)` | Does not work. LangGraph expects a different store interface. See [Known issues](#known-issues-in-244). |
 | Install next to the newest `langgraph` | Not possible. The package needs `langchain-core` below 1.0. |
 
 ## Install the package
@@ -33,20 +35,26 @@ The package needs Python 3.9 or later.
 It pins `langchain-core>=0.3,<1.0`, `httpx`, `blake3` and `cryptography`.
 On 7 November 2026 the newest `langgraph` (1.2.20) needs `langchain-core` 1.4.7 or later.
 `langgraph` 1.1.7 to 1.1.10 need `langchain-core` 1.3 or later.
-`langgraph` 1.0.10 and 1.1.0 still accept `langchain-core` 0.3.
-Thus pip installs an older `langgraph` next to `emem-langmem`.
+`langgraph` 1.0.10 and 1.1.0 accept `langchain-core` 0.3 directly.
+But they need `langgraph-prebuilt` 1.0.8 or later, and `langgraph-prebuilt` 1.0.2 and later need `langchain-core` 1.0.
+Thus pip installs `langgraph` 1.0.1 or older next to `emem-langmem`.
 
 ## Connect a LangGraph agent
+
+Make one store and call it from your nodes.
+Do not give it to `StateGraph.compile(store=...)`. See [Known issues](#known-issues-in-244).
 
 ```python
 import os
 from emem_langmem import EmemStore
-from langgraph.graph import StateGraph
 
 SEED = bytes.fromhex(os.environ["EMEM_AGENT_SEED"])  # 32 raw bytes, yours
 
 store = EmemStore(base_url="https://emem.dev", signing_key=SEED)
-graph = StateGraph(...).compile(store=store)
+
+def remember(state):
+    store.mset([((("notes",), "harvest"), state["summary"])])
+    return state
 ```
 
 If you do not give `base_url`, the store uses `EMEM_BASE_URL`, then `https://emem.dev`.
@@ -111,12 +119,18 @@ Thus `mget([(("prefs",), "tone")])` reads `/memories/by_attester/<pk8>/prefs/ton
 The store sends text values as UTF-8 and other bytes as base64.
 
 `mget` gives `None` for a key that has no file.
-`mdelete` does nothing for a key that is not there, as `BaseStore` requires.
+With a signing key, `mdelete` does nothing for a key that is not there, as `BaseStore` requires.
+Without a key, it sends the delete, and the responder refusal raises `EmemStoreError`.
 
 ## Known issues in 2.4.4
 
 These issues are in the adapter, not in the responder.
 We found them on 7 November 2026 in the package source and in reads on emem.dev.
+
+`StateGraph.compile(store=...)` takes a `langgraph.store.base.BaseStore`, with `get`, `put` and `search`.
+`EmemStore` has none of these methods.
+A graph node that uses the store from the runtime gets `AttributeError`.
+We read the source of the `langgraph` 1.0.1 wheel. We did not run a graph.
 
 `yield_keys()` with no prefix fails.
 The responder lists a folder only when the path ends in `/` (`memory_view`, `crates/emem-api-rest/src/lib.rs`).
@@ -150,7 +164,7 @@ No version of `BaseStore` can return it.
 To get the receipt, call the memory tool directly. The store uses the same endpoint:
 
 ```python
-import uuid, httpx
+import json, uuid, httpx
 
 r = httpx.post(
     "https://emem.dev/mcp",
@@ -167,9 +181,13 @@ r = httpx.post(
 result = r["result"]
 if result.get("isError"):
     raise RuntimeError(result["content"][0]["text"])  # e.g. cid_not_found
-print(result["structuredContent"]["receipt"])
+sc = result.get("structuredContent") or json.loads(result["content"][0]["text"])
+print(sc["receipt"])
 ```
 
+A large note can come back with no `structuredContent`. On 7 November 2026,
+3 of 9 note views on emem.dev had text only. Thus the code reads the text
+when `structuredContent` is missing.
 Replace the path with a path that you wrote. `aoqqpp7t` stands for your own `pubkey8`.
 On 7 November 2026 a file view also had an `authorship` block.
 It gives the key of the writer, the signature, `preimage_version` and the `signed_path`.

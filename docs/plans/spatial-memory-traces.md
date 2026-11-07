@@ -14,6 +14,7 @@ reasoning.*
 | Point fields `t` (tslot), `conf`, `class`, `f` | Ships | All 19 recalled points carry them; the 4 `ground` camera points have no `t`, `conf` or `f` |
 | `ranges` from the band registry | Ships | `indices.ndvi` gives `[-1.0, 1.0]` |
 | Cap of 48 points, question-matched bands first | Ships | `SPLAT_CAP` and the `topic_matched` sort in `spatial_trace()`, `crates/emem-api-rest/src/lib.rs` |
+| One point per family before the rest of the cap | Does not ship | The sort uses `topic_matched` only |
 | `splat` event in the stream (`Accept: text/event-stream`) | Ships | One `emem.spatial_trace_event.v1` event at the `recalled` stage |
 | `GET /v1/state/<cid>` | Ships | 200; every stage has `verifiable_today: true` |
 | MCP `structuredContent` for `emem_ask` | Ships | Keys `answer`, `cell`, `question`, `schema`, `spatial_trace` |
@@ -167,7 +168,8 @@ These are two different claims, and a model can read the difference.
 
 The cap keeps 48 points and 48 absences. The sort puts question-matched bands
 (`topic_matched`) first and is stable, so two same asks give the same
-trace. The server computes `truncated` from the counts before the cap. A count taken
+trace. The old plan also kept one point per family before the rest of the
+cap. That step does not ship. The server computes `truncated` from the counts before the cap. A count taken
 from a list after the cap cannot show that the cap removed anything. That fault
 shipped twice in one week in September.
 

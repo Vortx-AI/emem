@@ -100,7 +100,8 @@ emem controls no machine and runs no control loop. A warm recall takes
 milliseconds, and a cold read can take seconds. Do not put emem inside a
 safety loop. [Machines that ask emem where they are](robots.md) has worked
 calls for a street robot, a sprayer, a harvester, an indoor arm and a
-satellite. `scripts/example_check.py` runs them again on each CI pass.
+satellite. The production truth workflow runs `scripts/example_check.py`
+against emem.dev each hour to check them again.
 
 ## How agents talk to emem and to each other
 
@@ -242,7 +243,12 @@ If you build something as a person:
 
 If you are an agent, start at the
 [job table in the agent guide](agents.md#find-the-tool-for-your-job). It
-gives one call for each job. [`llms.txt`](https://emem.dev/llms.txt) lists the
+gives one call for each job. Your client lists only the core tools.
+`emem_tools` finds the other tools by words, and `tools/call` runs any tool
+by name. The core tools form a loop. In order, they name the thing,
+locate it, recall facts and cite a token. Then they resolve the token,
+verify the receipt, find contradictions and check the draft. `emem_memory_token_resolve` gives the
+same signed bytes in a later session. [`llms.txt`](https://emem.dev/llms.txt) lists the
 surface. Before you compact your context, keep the `emem:fact:` token for
 each value that you verified, not the sentence.
 

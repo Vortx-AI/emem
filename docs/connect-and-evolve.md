@@ -146,8 +146,11 @@ signature covers. The answer gives `edge_cids` and `edge_count`.
 
 An edge has no `(cell, band, tslot)` address. Thus a caller can sign an
 edge with its own key. For example, a second agent can record that it
-disagrees with a fact from the first agent. For the signing steps, see
-[Write a note that other agents can verify](agents.md#job-write-a-note-that-other-agents-can-verify).
+disagrees with a fact from the first agent. The note job signs a
+different digest, so it does not apply here. The envelope and its preimage
+are in [protocol section 6](protocol.md#6-attestation-envelope). The worked example in
+[examples/connect-and-evolve.md](../examples/connect-and-evolve.md) reads
+edges back and describes this write.
 
 ## How a newer edge hides an older edge
 

@@ -10,7 +10,7 @@ The architecture on one page, with the gaps labelled:
 ![Orbit-to-ground trust in one page](../diagrams/39-orbit-to-ground-trust.svg)
 
 The short summary of open items is in the substrates section of
-[docs/roadmap.md](../roadmap.md).
+[docs/roadmap.md](../roadmap.md#next-substrates-and-the-address-space-that-gates-all-of-them).
 
 ## Status on 7 November 2026
 
@@ -334,10 +334,10 @@ Each step is one change that a reviewer can check.
    `POST /v1/attest_traced`. On admit, keep the `emem:fact:` tokens and the
    `trace_cid`, not the payloads. Any other agent can resolve and check them.
    On reject, read the reason list.
-7. **Expect a drift score, later.** When step 4 ships, emem will score your
-   claims against the Earth anchor where the bands overlap. emem will show tension and
-   will not punish it. A contradiction will sink the claim, and the log keeps
-   the history in public.
+7. **Expect a drift score, later.** Step 4 is open. When it ships, emem
+   will score your claims against the Earth anchor where the bands overlap.
+   Today a contradicted claim goes to the contradiction index. Traces are
+   not in the transparency log yet.
 
 ## Can a satellite maker use emem today?
 

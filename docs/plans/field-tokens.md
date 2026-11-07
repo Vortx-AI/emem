@@ -170,7 +170,7 @@ these results:
 | Grid value at each of the 5 anchors | Equal to the anchor value |
 | Resolve with `"spot_check": true` | `passed: true`, `grid_matches_record: 5`, `anchors_with_fact: 0` |
 | Resolve with the tslot changed to 20753 | HTTP 409, "token tslot 20753 contradicts the signed record" |
-| `band_cube` for 2026-09-15 and 2026-10-28 | 2 members, tslots 20739 to 20754 |
+| `band_cube` for 2026-09-15 and 2026-10-28 | 2 members. The nearest scenes were on 13 and 28 October 2026 (tslots 20739 and 20754). |
 
 No anchor had a per-cell fact, because nothing had read those cells
 before. This is the best-effort policy at work.

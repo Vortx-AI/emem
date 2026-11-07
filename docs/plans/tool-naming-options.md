@@ -69,7 +69,7 @@ that do not change when the server changes.
 |---|---|
 | Docs, `README.md` and the web pages | You can fix them in one pass. No check finds a tool name in prose that no longer exists. `scripts/sync_counts.py` checks counts only. |
 | The two SDKs (`@vortxai/emem` on npm, `ememdev` on PyPI) | Both need a release. A caller that pins an old version keeps the old names. |
-| Clients that cache the tool list | The MCP specification lets clients cache the list. A cached client calls the old name and gets an error. This is the largest cost. |
+| Clients that cache the tool list | The MCP specification lets clients cache the list and gives servers `ttlMs` and `cacheScope` for it. It says that a fixed order lets clients cache the list and improves prompt cache hit rates. A cached client calls the old name and gets an error. This is the largest cost. |
 | `server.json` and MCP directory entries | Other people crawl them on their own schedule. |
 | Signed notes that name a tool | Notes are content addressed. Nobody can edit them, so old names stay in the record. |
 
@@ -135,6 +135,9 @@ The memo compared two changes on that day:
 | Rename all tools; Naming goes from 4 to 5 | 4.444 | +0.075 |
 | Rescore `emem_guard_verdict` after the annotation fix in commit 6d54683 (about 4.8; the floor becomes the next tool, 4.2) | 4.446 | +0.077 |
 
+Glama had marked the Behavioral Transparency of `emem_guard_verdict` 1 out of 5.
+The reason was a contradiction in its annotations that commit 6d54683 removed.
+
 The rescore happened. On 19 October 2026, `emem_guard_verdict` scored 4.5.
 
 ### Score on 19 October 2026
@@ -151,7 +154,7 @@ That supports the two assumptions. It does not prove them.
 
 | Change | New total | Gain |
 |---|---|---|
-| Rename all tools; Naming goes from 3 to 4 | 4.135 | +0.075 |
+| Rename all tools; Naming goes from 3 to 4 | 4.134 | +0.075 |
 | Lift the two 4.2 tools to 4.6; the floor becomes 4.4 | 4.134 | +0.075 |
 
 The result is the same as in August. The minimum tool score is 40 percent
@@ -195,6 +198,8 @@ names still work, so the inconsistency stays. Only the advertised list changes.
 - Whether Glama gives the four coherence dimensions equal weight. If
   the Naming weight is lower, the rename is worth less. If Naming were the
   only dimension, one point would add `0.3` out of 5. That is the upper limit.
+  The August memo gave `0.06`. That was the fraction `0.3 x 1/5`, not a
+  score out of 5.
 - Whether Glama scores `name` alone or `name` with `title`. Its comments
   quote name fragments, so this memo assumes `name`.
 - When Glama scores again. The 19 October 2026 score is the latest that
