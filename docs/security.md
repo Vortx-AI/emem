@@ -31,7 +31,7 @@ check that you can run offline. The step-by-step checks are in
 | What each refusal means | [errors](./errors.md) |
 
 The short version of those checks is in
-[section 12](#12-verify-without-trusting-us). To run the receipt and log
+[section 12](#12-verify-the-responder-yourself). To run the receipt and log
 checks with three plugin scripts, see
 [section 12.1](#121-run-the-checks-with-the-plugin-scripts).
 
@@ -456,7 +456,7 @@ the operator cannot read, encrypt on the client first.
   `candidate`, and every trust anchor is provisional. The server accepts no vendor
   root of trust yet.
 
-## 12. Verify without trusting us
+## 12. Verify the responder yourself
 
 You can check all of the above from outside:
 

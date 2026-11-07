@@ -579,7 +579,9 @@ time. The data time is the `tslot`.
 
 ### 5.1 PrimaryFact
 
-`crates/emem-fact/src/fact.rs:73-112`.
+In plain words: a primary fact is a value that the responder read from
+an upstream source. `sources` names that source, and `derivation` names
+the recipe that read it. Defined in `crates/emem-fact/src/fact.rs:73-112`.
 
 ```rust
 struct PrimaryFact {
@@ -635,6 +637,9 @@ capture's day.
 
 ### 5.2 DerivativeFact
 
+In plain words: a derivative fact is a value computed from other facts.
+`parents` lists their CIDs. The responder signs some derivatives
+itself. A caller can register others with `POST /v1/derive`. Defined in
 `fact.rs:150-175`.
 
 ```rust
@@ -672,25 +677,6 @@ the two parent CIDs.
 A caller-registered derivative (`POST /v1/derive`, below) carries the
 `op` and `fn_key` that the caller sent.
 
-The example below shows the shape only. It is not a stored fact, and
-`agg.mean@1` is not a registered recipe:
-
-```jsonc
-{
-  "kind": "derivative",
-  "cell": "defi.zb400.bafi.baba",
-  "band": "indices.ndvi",
-  "tslot_window": [665, 667],
-  "op": "mean",
-  "parents": ["fc6...52char", "ab2...52char", "9k4...52char"],
-  "value": 0.39, "confidence": 0.92,
-  "derivation": { "fn_key": "agg.mean@1" },
-  "schema_cid": "bn7c...",
-  "signer": [/* 32 bytes */],
-  "signed_at": "2024-04-01T03:11:00Z"
-}
-```
-
 A real derivative from emem.dev, read on 7 November 2026, is the change
 ledger at Mount Fuji. Its fields other than `value` are:
 
@@ -713,6 +699,26 @@ ledger at Mount Fuji. Its fields other than `value` are:
 Its token is
 `emem:fact:defi.zb592.nUkO.zEzE:tu734ucbc2asymi4l6gwtcnd4r64ejxpzy45yr7r3tr7bt3nw6qa`.
 §5.5 recomputes its `fact_cid` from this JSON.
+
+The ledger `value` is a map. A derivative with a number value has this
+shape. It is not a stored fact, and `agg.mean@1` is not a registered
+recipe:
+
+```jsonc
+{
+  "kind": "derivative",
+  "cell": "defi.zb400.bafi.baba",
+  "band": "indices.ndvi",
+  "tslot_window": [665, 667],
+  "op": "mean",
+  "parents": ["fc6...52char", "ab2...52char", "9k4...52char"],
+  "value": 0.39, "confidence": 0.92,
+  "derivation": { "fn_key": "agg.mean@1" },
+  "schema_cid": "bn7c...",
+  "signer": [/* 32 bytes */],
+  "signed_at": "2024-04-01T03:11:00Z"
+}
+```
 
 The `signed_at` of a derivative is part of its CID. Thus a responder
 derivative that must stay the same across calls takes `signed_at` from
@@ -782,8 +788,8 @@ writes `deterministic_index` to
 declared, because the caller signed it. The `recomputation` map holds
 these keys in this order: `verified`, `op`, `recomputed_via`,
 `responder_recomputed`, `effective_provenance_class`, `recomputed_at`,
-`rule`, `ulp_gap`, `ulp_tolerance`. The `fact_cid` covers it. On no match, or for any other op, the value stays as the
-caller declared it. Without a `code_cid`, the responder does no
+`rule`, `ulp_gap`, `ulp_tolerance`. The `fact_cid` covers it. On no
+match, or for any other op, the value stays as the caller declared it. Without a `code_cid`, the responder does no
 arithmetic.
 
 The `signer` on the fact is the key of the **responder**. The caller
@@ -933,6 +939,8 @@ each gets its own token.
 
 ### 5.3 NegativeFact
 
+In plain words: a negative fact says that the responder looked for a
+value and found none. `reason_cid` names the reason. Defined in
 `fact.rs:177-198`.
 
 ```rust
@@ -1065,7 +1073,7 @@ with `fact_cid`. No key and no responder code is necessary.
      -o recall.json
    ```
 
-2. Remove the served-only keys from the table in §5.4.
+2. Remove the served-only keys that the table in §5.4 lists.
 3. Put the remaining keys in struct order, with `"kind"` first. Remove
    each optional key that is absent or `null`.
 4. Encode the map as CBOR with the rules in §4.2. Use the shortest
@@ -1162,8 +1170,8 @@ MATCH
 
 At 00:59 UTC on 7 November 2026, a recall with no `bands` field at
 that cell gave 358 facts: 355 primary facts and 3 absences. The script
-gave `MATCH` for each of the 358 facts. That set included a vector value with NaN
-entries and one fact with `served_via`.
+gave `MATCH` for each of the 358 facts. That set included a vector
+value with NaN entries and one fact with `served_via`.
 
 For an absence you can also check `reason_cid`. Hash the `reason` text
 with BLAKE3, keep the first 16 bytes, and encode them as in step 5
@@ -1196,9 +1204,9 @@ fact that the responder signs (`persistence:
 "stored_derivative_fact"`). A repeat call returns the same CID with
 `persistence: "existing_derivative_fact"`.
 
-A `MISMATCH` means that the served JSON is not the signed fact. It can also mean that your
-encoder breaks a rule in §4.2. Do not trust the value until you find
-which one.
+A `MISMATCH` means that the served JSON is not the signed fact. It can
+also mean that your encoder breaks a rule in §4.2. Do not trust the
+value until you find which one.
 
 ---
 
@@ -1210,7 +1218,7 @@ the hashes, and signs the root with the registry and schema CIDs. The
 responder checks all of this before it stores anything. A receipt (§7)
 is a different object: it is what a read returns.
 
-`crates/emem-fact/src/attest.rs:13-64`.
+Defined in `crates/emem-fact/src/attest.rs:13-64`.
 
 ```rust
 struct Attestation {
@@ -1341,6 +1349,9 @@ The tree below uses the v0 rule. For 4 facts with sorted CBOR hashes
        CBOR(fact0)     CBOR(fact1)     CBOR(fact2)     CBOR(fact3)
 ```
 
+Under the current v1 rule the shape is the same. Each leaf is
+`blake3(0x00 ‖ Ci)`, and each node is `blake3(0x01 ‖ left ‖ right)`.
+
 ### 6.2 Verify-on-write
 
 In plain words: storage proves that the signer signed exactly these
@@ -1366,7 +1377,7 @@ before it stores anything.
    The attester must be an enrolled device, or `FactPlanePolicy::admits`
    must accept it. `admits` accepts the responder's own key and a key in
    `EMEM_FACT_PLANE_WRITERS`. With `EMEM_FACT_PLANE_OPEN=1` it accepts
-   every key. A batch of derivative facts only skips this step.
+   every key. A batch that holds only derivative facts skips this step.
 
 If one of steps 1 to 7 fails, storage refuses the write with
 `StorageError::AttestationInvalid`. `StorageError::wire_code` in
@@ -1381,8 +1392,8 @@ If one of steps 1 to 7 fails, storage refuses the write with
 | Steps 2 to 7 (duplicate leaf, root mismatch, bad key, bad signature) | `bad_signature` | 422 |
 | Step 8 (key not allowed on the fact plane) | `level_too_low` | 403 |
 
-The step 8 message starts with `LevelTooLow: fact_plane_closed:`. It tells the
-caller to use `POST /v1/derive` (§5.2) for a value of its own. See
+The step 8 message starts with `LevelTooLow: fact_plane_closed:`. It
+tells the caller to use `POST /v1/derive` (§5.2) for a value of its own. See
 `docs/errors.md` for the full refusal.
 
 ---
@@ -3098,7 +3109,7 @@ conformance gate:
 | CID | Source manifest | What the manifest pins |
 |-----|-----------------|--------------|
 | `bands_cid` | `bands-v0.json` | 43 cube slots summing to exactly 1792 dims, each with its tempo and privacy class. Materializer-wired band names route into those slots (`GET /v1/materializers` gave `pagination.total` 113 on 7 November 2026). That routing is not in this manifest |
-| `algorithms_cid` | `algorithms-v0.json` | 172 algorithms in three kinds: 29 `solo`, 114 `combined`, 29 `embedding`. Each entry carries typed `parameters`, `learned_from` with citations, and `prerequisites`, so a third party can run it again against the receipt that cites it. [agents.md](agents.md) lists the catalog. Seven entries are triple-encoder consensus recipes: `clay_prithvi_tessera_triple_consensus@1`, `deforestation_triple@1`, `coastal_erosion_triple@1`, `urban_expansion_triple@1`, `wetland_change_triple@1`, `disaster_anomaly_triple@1` and `climate_archetype_triple@1`. The manifest declares them, but they do not run on emem.dev, because the operator retired the encoders. On 7 November 2026, the `here` block in `GET /v1/algorithms` gave `status: cannot_run` for the first and `status: stored_only` for the other six. A `stored_only` recipe answers only at a cell that holds a fact signed before its input bands were retired |
+| `algorithms_cid` | `algorithms-v0.json` | 172 algorithms in three kinds: 29 `solo`, 114 `combined`, 29 `embedding`. Each entry carries typed `parameters`, `learned_from` with citations, and `prerequisites`, so a third party can run it again against the receipt that cites it. [agents.md](agents.md) lists the catalog. Seven entries are triple-encoder consensus recipes: `clay_prithvi_tessera_triple_consensus@1`, `deforestation_triple@1`, `coastal_erosion_triple@1`, `urban_expansion_triple@1`, `wetland_change_triple@1`, `disaster_anomaly_triple@1` and `climate_archetype_triple@1`. The manifest declares them, but they do not run on emem.dev, because the operator retired the encoders. On 7 November 2026, the `here` block in `GET /v1/algorithms` gave `status: cannot_run` for the first and `status: stored_only` for the other six. A `stored_only` recipe answers only at a cell that holds a fact signed before the operator retired its input bands |
 | `sources_cid` | `sources-v0.json` | 46 source schemes, each with its providers, tempo and native resolution. The manifest does not record transport. In the code, many connectors use the shared STAC + COG sampler (`crates/emem-fetch/src/cog.rs`). Others use HTTPS JSON, Parquet on S3, NCSS CSV, TAR or ZIP, Overpass QL and PMTiles |
 | `schema_cid` | `schema-v0.json` | CDDL bundle pinned to `hash="blake3"`, `signature="ed25519"`, `cid_encoding="base32-nopad-lowercase"` |
 
