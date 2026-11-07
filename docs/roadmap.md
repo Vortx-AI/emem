@@ -416,15 +416,15 @@ has the full rule.
 
 Status: shipped on 2026-08-13.
 
-The problem came from dpwotikn, who read `/v1/algorithms` to build on it.
-In `flood_risk@2`, the parameter `dem_agreement_threshold_m` cites the
+A contributor, `dpwotikn`, found the problem when they read
+`/v1/algorithms` to build on it. In `flood_risk@2`, the parameter `dem_agreement_threshold_m` cites the
 Copernicus DEM product specification. The parameter beside it,
 `dem_agreement_penalty`, cites nothing. Their words for the risk: "one
 parameter earned its citation, the neighbour inherited its credibility by
 adjacency."
 
-The problem was not in one algorithm only. Eleven of nineteen parameters,
-across seven algorithms, had no source. Each one stood beside a parameter
+The problem was not in one algorithm only. At that time, eleven of
+nineteen parameters, across seven algorithms, had no source. Each one stood beside a parameter
 that had a source.
 
 The fix is a rule in the loader (`crates/emem-core/src/algorithms.rs`).
@@ -446,14 +446,13 @@ has 172 algorithms. Eight of them have parameters, 19 parameters in total:
 | `operational_default` | 11 |
 | `fitted` | 0 |
 
-So most parameters are choices, not derived values, and the registry now
-says so. The test `every_parameter_declares_a_basis` fails if no parameter
+So most parameters are choices, not derived values. The registry now says
+so. The test `every_parameter_declares_a_basis` fails if no parameter
 uses `operational_default`. This stops the rule from turning into a habit of
 writing `literature` for every number.
 
-No parameter uses `fitted`. No Earth corpus value is a fitted value that a
-reader can run again, so the label would not be true. The value is there for
-a contributor who has a fitted parameter.
+No parameter uses `fitted`, because no parameter comes from a fit that a
+reader can run again. The value is for a contributor who has such a fit.
 
 ### One field, three vocabularies
 
@@ -490,8 +489,8 @@ Two ways to close the gap:
    can check one list against the other.
 
 The second is more useful. The map is in the code today, but no endpoint
-serves it. A device maker lost a week on a similar gap, when the `os_trace`
-specification was in code only.
+serves it. The same contributor lost a week on a similar gap: the
+`os_trace` specification was only in the code.
 
 ### Open validation: the measurements the claims still rest on
 
@@ -536,24 +535,25 @@ reader can compare two addresses by prefix without a decode step.
 
 #### Per-encoder calibration for the change gate
 
-This item needs no more work. The gate used three encoders, and the maintainers
-removed them with the Clay and Prithvi encoders. One result still applies
+This item needs no more work. The gate used three image encoders. The
+maintainers removed those encoders, so there is nothing to calibrate. One result still applies
 to a future gate. A scalar nuisance parameter can move a threshold, but it
-cannot change the order of the candidates (dpwotikn, 2026-08-13).
+cannot change the order of the candidates (`dpwotikn`, 2026-08-13).
 
 #### Accuracy, separate from verifiability
 
 This is the largest gap on this page. Many readers take "verifiable" to
 mean "accurate".
 
-On 2026-08-13, dpwotikn found the same gap in a different domain. They
+On 2026-08-13, `dpwotikn` found the same gap in a different domain. They
 scored a detector and wrote: "verifiability improves none of the accuracy
 metrics. It is pure overhead on detection performance, justified only on
 multi-party trust grounds." Their limit for a signed chain is also clear.
 A chain proves "this pipeline signed these bytes and nobody altered them
 since". It does not prove that the bytes came from that sensor.
-`os_trace_required` admission is for the second claim. For this reason, emem
-does not admit a device substrate that signs with a software key.
+`os_trace_required` admission is for the second claim. For this reason, a
+device platform with only a software root of trust cannot be `active`
+(`crates/emem-core/src/device_platforms.rs`).
 
 The current grounding comparison scores one thing: whether an answer
 carries a `fact_cid` that resolves. A model with no tools cannot make one.
