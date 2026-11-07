@@ -330,6 +330,27 @@ its own `signed_at`. Thus `derivation_cid` and both tokens change from call to
 call. The `artifact_cid` stayed the same for the same scene. Call once and
 cite the tokens from that answer.
 
+For the same grid on several dates, use `emem_band_cube` (`POST
+/v1/band_cube`). Add `observed_on`, a list of 2 to 24 dates as `YYYY-MM-DD`.
+Each date selects the nearest scene, and dates that select one scene become one
+member. The band must be one of `s2.B02`, `s2.B03`, `s2.B04`, `s2.B08`,
+`s2.B11` or `s2.B12`.
+
+```bash
+curl -s -X POST https://emem.dev/v1/band_cube \
+  -H 'content-type: application/json' \
+  -d '{"bbox":{"min_lat":35.36,"min_lng":138.72,"max_lat":35.365,"max_lng":138.726},"band":"s2.B04","observed_on":["2026-06-01","2026-10-28"]}'
+```
+
+On 7 November 2026, this call gave 2 members. The date `2026-06-01` selected
+the scene of 16 May 2026 (tslot 20589), and `requested_date_distance_days`
+was 16. The date `2026-10-28` selected the scene above (tslot 20754, distance
+0), with the same `artifact_cid`. Each member has its own `raster_token`.
+Cite `tokens.cube`, and check it with `POST /v1/cube/resolve` (MCP
+`emem_cube_resolve`). The same call, sent again, gave a new `cube_cid`, because
+`cube_cid` hashes the member `derivation_cid` values, and those change on each
+call.
+
 A Sentinel-2 grid has a limit of 512 pixels on each side, about 5.1 km at
 10 m. The `band` field also takes `copdem30m.elevation`, an encoder band or a
 forest layer, each with its own limits. `emem_tools` with
