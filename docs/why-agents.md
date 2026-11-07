@@ -143,9 +143,11 @@ facts about the physical world.
 
 ## Signatures make a planted record traceable
 
-MINJA (NeurIPS 2025) is a paper on memory injection attacks. Through
-queries alone, it planted false records in a typical agent memory store
-with a 95% success rate.
+[MINJA](https://arxiv.org/abs/2503.03704) (NeurIPS 2025) is a paper on
+memory injection attacks. Through queries alone, it planted false records
+in the memory of LLM agents. The average injection success rate was
+98.2%. On average, the planted records then changed the agent's answer
+in 76.8% of the tests.
 
 A signature does not make a writer honest. It ties each record to a key.
 So in emem a planted record has a known author. Readers can score it
