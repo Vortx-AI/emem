@@ -1000,13 +1000,18 @@ curl -s -X POST https://emem.dev/v1/memory_contradictions \
   -d '{"cell_prefix":"defi.zb592","limit":3}'
 ```
 
-It scanned 56 keys and found 2 records. Both were at cell
+It scanned 67 keys and found 2 records. Both were at cell
 `defi.zb592.nemu.zEvE`:
 
-| `band` | `tslot` | `disagreement_scope` | attestations |
-|---|---|---|---|
-| `copdem30m.provenance` | 0 | `multi_attester` | 89 |
-| `geotessera.multi_year` | 54 | `same_attester_provider_substitution` | 5 |
+| `band` | `tslot` | `kind` | `severity` | `disagreement_scope` | attestations |
+|---|---|---|---|---|---|
+| `copdem30m.provenance` | 0 | `mixed` | 1.0 | `multi_attester` | 89 |
+| `geotessera.multi_year` | 54 | `vector` | `null` | `same_attester_provider_substitution` | 5 |
+
+The second record has a `null` severity. Its vectors contain `null`
+(NaN) entries, so the cosine score is not a number. The scan does not
+drop such a record. Its `providers[]` shows `geotessera_multi_year@1`
+for two facts and `geotessera_multi_year@2` for three.
 
 Read `disagreement_scope` before you quote a record. A
 `multi_attester` record shows two or more witnesses. A
@@ -1019,14 +1024,30 @@ changed its source.
 |---|---|
 | `cell_prefix` (or `cell`, `cell64`) | a full cell64, or a bytewise prefix of one |
 | `band` | one band key |
-| `window_unix_s` | `[lo, hi]` on `signed_at`; all disagreeing facts must fall inside |
-| `min_severity` | drops records below this score (default 0.1) |
-| `limit` | 1 to 1000 records (default 100) |
+| `window_unix_s` | `[lo, hi]` on `signed_at`, both ends included; all disagreeing facts must fall inside. A fact with a `signed_at` that does not parse falls outside |
+| `min_severity` | drops records below this score (default 0.1). Must be 0 to 1 |
+| `include_same_attester_sources` | `false` keeps only `multi_attester` records (default `true`) |
+| `limit` | records to return (default 100). The responder clamps the value to 1 to 1000 |
 | `resume_after` | continues a scan that stopped at its time budget |
 
-A scan that stops at its time budget returns `scan_truncated: true` and
-a `resume_after` value. Send that value back to continue. A `band`
-filter or a narrower `cell_prefix` also gives complete coverage.
+A `min_severity` outside 0 to 1, or a window with `lo` greater than
+`hi`, gives HTTP 400 `invalid_argument`. Both refusals ran live on
+7 November 2026. The responder does not refuse an out-of-range `limit`.
+
+The scan reads at most 50,000 keys (`EMEM_CONTRADICTIONS_SCAN_CAP`).
+It stops reading facts after 8,000 ms
+(`EMEM_CONTRADICTIONS_TIME_BUDGET_MS`). Then it returns
+`scan_truncated: true` and a `resume_after` value in the form
+`cell|band|tslot`. Send that value back to continue after that key. If
+the value names no key in the scan, the response has
+`resume_not_found: true` and no records. Start again without it. A
+`band` filter or a narrower `cell_prefix` also gives complete coverage.
+
+The scan skips these keys:
+
+- keys with fewer than two facts that the responder can still read
+- absence facts and derived facts; only primary facts count
+- keys where all values agree (severity 0), also at `min_severity: 0`
 
 ### Severity
 
@@ -1034,20 +1055,36 @@ The score depends on the band kind:
 
 | Band kind | Score |
 |---|---|
-| Scalar (`indices.ndvi`, `modis.lst_day_8day`, …) | `(max - min) / band_typical_range`, clamped to [0, 1] |
-| Vector (foundation embeddings) | `1 - mean(cosine_off_diagonal)` |
-| Categorical (`esa_worldcover.lc_2021`, `s2.scl`, …) | `1 - max_class_share` |
+| Scalar (`indices.ndvi`, `modis.lst_day_8day`, …) | `(max - min) / range`, clamped to [0, 1]. `range` is the `value_range` width in the bands registry. With no range, it is `max(max - min, 1)` |
+| Vector (embeddings) | `1 - mean` of the pairwise cosine values, clamped to [0, 1] |
+| Categorical | `1 - max_class_share`. Text, integer or byte values use this. Whole numbers do too, but only in `esa_worldcover.lc_2021`, `landcover`, `surface_water.transition_class` and `s2.scl` |
 | Mixed / unknown | `1.0` (flag for human review) |
+
+Each record gives the scorer it used in `kind`: `scalar`, `vector`,
+`categorical` or `mixed`.
 
 ### Response fields
 
-- `contradictions[]`: one record per `(cell, band, tslot)` key, with all
-  the disagreeing attestations
+- `contradictions[]`: one record per `(cell, band, tslot)` key, highest
+  severity first
 - `corpus_scanned`: the number of keys the scan read
 - `scan_truncated`, and `resume_after` when the scan stopped early
+- `resume_not_found`, only when it is `true`
 - `time_taken_ms`
 - `agent_hint`: one paragraph on what to do with the result
-- a signed receipt with primitive `emem.memory_contradictions`
+- `receipt`: a signed receipt with primitive `emem.memory_contradictions`.
+  It covers each cell and each fact CID in the records
+
+Each record has these fields:
+
+| Field | Content |
+|---|---|
+| `cell`, `band`, `tslot` | the address |
+| `attestations[]` | `attester_pubkey_b32`, `fact_cid`, `value`, `confidence`, `signed_at` for each fact |
+| `severity` | the score from the table above |
+| `kind` | the scorer used |
+| `disagreement_scope` | `multi_attester` or `same_attester_provider_substitution` |
+| `providers[]` | `fn_key` and `schemes` for each fact, in the same order as `attestations[]` |
 
 ## Memory event stream
 
