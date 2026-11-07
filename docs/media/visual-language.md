@@ -127,6 +127,7 @@ pages, so the PRs can merge without a conflict. The description of PR #34 gives 
 | `stills/area-receipts.webp` | What does an area read sign, and what does it leave to me? | `agents.md`, section on polygon receipts | `stills/src/area_receipts.py` (asserts inside), reads from `fetch_polygon.py` in `data/polygon/` (7 November 2026 16:08 and 16:09 UTC) |
 | `stills/glossary-map.webp` | Which part of a real answer does each glossary term name? | `glossary.md`, under the opening lines | `stills/src/glossary_map.py` (asserts inside), reads from `fetch_glossary.py` in `data/glossary/` (7 November 2026 16:03 UTC) |
 | `stills/canopy-rules.webp` | Which canopy-loss rule flags less stable forest, and what does it cost in lost forest found? | `research/canopy-loss-2026-10.md`, section 5.9 | `stills/src/canopy_rules.py` (checks the note signatures and parses the signed tables), reads from `fetch_canopy.py` in `data/canopy/` (7 November 2026 16:15 UTC) |
+| `stills/method-selection.webp` | Did choosing a method per forest beat the champion? | `research/method-selection.md`, section 9 | `stills/src/method_selection.py` (checks the note signatures and parses the signed tables), reads from `fetch_selection.py` in `data/selection/` (7 November 2026 16:20 UTC) |
 
 Each film also has a WebM copy and a `-poster.webp` file with the same name. The `fetch_*.py` scripts in
 `stills/src/` make the live reads. The drawing scripts read only the saved responses in `stills/src/data/`.

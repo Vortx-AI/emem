@@ -187,6 +187,11 @@ It found that the selection plan did not print the parameters block its verifier
 
 ## 9. What the first experiment found
 
+The picture shows both selections side by side: which method each policy chose per forest, and how each policy
+scored. It reads the lab's two signed result notes. We drew it on 7 November 2026.
+
+<p align="center"><img src="../media/stills/method-selection.webp" width="420" alt="Two method selections, from two signed result notes of key mujzmxes. Selection 1, 9 forests: the champion memory_hls_emp@4 at every forest; the local policy chose another method at 3 forests; pooled MCC for 2024 and 2025 is 0.145 global, 0.656 local and 0.145 context; local minus global lies between -0.052 and +0.750; no decision@1 was signed. Selection 2, 10 forests: the champion memory_hls_emp@5; the local policy chose another method at 7, two of them version 4, which scored the same; pooled MCC 0.314 global, 0.261 local and 0.308 context; local minus global -0.162 to +0.041, context minus global -0.035 to +0.028; 10 decision@1 facts signed. Both note signatures are valid when checked offline."></p>
+
 Results are in the companion paper, section 5.19. In short:
 
 - **A first, narrow yes.** The local policy chose, from each forest's own earlier record, a different method at three
