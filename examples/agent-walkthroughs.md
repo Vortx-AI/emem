@@ -242,7 +242,7 @@ independent check. For an independent check, use the Python SDK or
 
 | The question | First call | Then |
 |---|---|---|
-| A latitude and longitude | `/v1/recall` with `lat` and `lng` | `/v1/locate` if you need the `cell64` |
+| A latitude and longitude | `/v1/recall` with `lat` and `lng` | Read `cell` from any fact |
 | A place name | `/v1/recall` with `place` | `/v1/locate` if HTTP 400 |
 | "Is X true here?" | `/v1/recall` for the band | `/v1/verify` |
 | "How does X differ from Y?" | `/v1/recall` at both cells | `/v1/compare` |
