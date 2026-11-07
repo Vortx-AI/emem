@@ -65,6 +65,12 @@ A path that does not exist gives HTTP 404 with `code: not_found`:
 curl -s https://emem.dev/v1/no-such-route
 ```
 
+The body is short. All error bodies have `schema: emem.error.v1`:
+
+```json
+{"code":"not_found","did_you_mean":[],"message":"no route matched /v1/no-such-route. ...","path":"/v1/no-such-route","schema":"emem.error.v1"}
+```
+
 A malformed cell64 gives HTTP 400 with `code: invalid_cell`:
 
 ```sh
@@ -92,7 +98,18 @@ bands in the request:
 | `POST /v1/recall`, some bands are in the registry | HTTP 200 with the known facts. Each unknown band is in `materialize_notes` with `reason_class: unknown_band` and `retryable: false`. The top-level `unknown_bands` array also lists them. |
 | MCP `emem_recall`, any mix | No tool error. Unknown bands are in `materialize_notes`, as for REST. The MCP result has no `unknown_bands` field. |
 
-This request has one unknown and one known band, so it returns HTTP 200:
+This request has only the unknown band, so it returns HTTP 400 with `code:
+band_not_in_registry`:
+
+```sh
+curl -s -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb4d9.pefa.zf619","bands":["elevation_mean"]}'
+```
+
+This request has one unknown and one known band, so it returns HTTP 200.
+`facts` holds the `copdem30m.elevation_mean` fact, and `unknown_bands` is
+`["elevation_mean"]`:
 
 ```sh
 curl -s -X POST https://emem.dev/v1/recall \
@@ -110,8 +127,21 @@ curl -s -X POST https://emem.dev/v1/memory_token/resolve \
   -d '{"token":"emem:fact:defi.zb4d9.pefa.zf619:4zstrktfkxaxm7hvdw5tuz2khxf53y5f55ucn5wk2rvjfxpam7"}'
 ```
 
+The `details` block of that refusal is:
+
+```json
+{"code":"fact_cid_malformed_length","expected_length":52,"observed_length":50,"recoverable":false,"why":"..."}
+```
+
 Over MCP, the malformed cell gives a result with `isError: true` and the
-text `tool error (-27): invalid_cell: ...`.
+text `tool error (-27): invalid_cell: ...`. The JSON-RPC call itself
+succeeds, so read `result.isError`, not the JSON-RPC `error` field:
+
+```sh
+curl -s -X POST https://emem.dev/mcp \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"emem_recall","arguments":{"cell":"not.a.cell"}}}'
+```
 
 ## Protocol codes (27)
 
