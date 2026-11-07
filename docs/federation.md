@@ -408,7 +408,7 @@ needs no chain.
 #### Measured state
 
 On 2026-09-05 both directions worked. Outbound, emem.dev co-signed
-`https://geo.qa/emem` at tree size 72. The root was unchanged, the signer
+`https://geo.qa/emem` at tree size 72. The root did not change, the signer
 resolved to `did:web:geo.qa:emem`, and 4 sampled leaves re-hashed and proved.
 Inbound, an independent witness (`ttecxvf3drdt...`) co-signed emem.dev's log
 88 entries behind. Of the last 200 co-signatures, 43 came from a key that
@@ -595,7 +595,7 @@ only peer of emem.dev failed it. `geo.qa` is a private deployment. Its `/emem/he
 can read its four registry CIDs. The old rule called it "not joined". That was
 wrong: it is a good witness and has co-signed this log since September. A
 node that holds no public data can be a better witness. So the bar depends on
-what the node asks to be trusted for.
+what the node asks others to trust.
 
 A witness attests that it saw a head. It must publish these, with no
 credentials:
@@ -794,7 +794,7 @@ The three jobs a token does, and what does them here:
 
 | Token job | Web3 mechanism | emem today | Gap |
 |---|---|---|---|
-| Sybil cost on writes | stake (The Graph: 100,000 GRT minimum) | ladder T0 to T5 in `enlistment.rs`; 240 writes per minute per attester; DNS TXT and organisation vouching | the code default now enforces (earlier releases used shadow mode), and emem.dev sets it explicitly. On 2026-09-02 every key read T1, the operator's own agents too, so the shared entity space was closed to everyone (fixed, §9d) |
+| Sybil cost on writes | stake (The Graph: 100,000 GRT minimum) | ladder T0 to T5 in `enlistment.rs`; 240 writes per minute per attester; DNS TXT and organisation vouching | the code default now enforces (earlier releases used shadow mode), and emem.dev sets it explicitly. On 2026-09-02 every key read T1, the operator's own agents too, so no key could write to the shared entity space (fixed, §9d) |
 | Reward for serving | issuance (The Graph: 3% a year) | none; operators run a node because they need the data, as in the Nostr relay and ATProto PDS model | none needed at four nodes |
 | Settlement | on-chain transfer | none | a payment rail without a token exists (§9b) |
 
@@ -924,7 +924,7 @@ never scores, so the docs lost the sentence and the code stayed.
    C2PA has no hardware capture attestation. emem's OS-trace substrate is
    the device half that it lacks.
 
-### 9d. Acceptors: where emem is listed, where it is missing, where it drifted
+### 9d. Acceptors: where emem has a listing, where it has none, where it drifted
 
 Listed, checked on 7 November 2026:
 
@@ -957,7 +957,7 @@ source that day, and the image built later. On 7 November 2026 they are live:
 | Item | State on 7 November 2026 |
 |---|---|
 | `/.well-known/emem-agents.json` served an empty list, because `config/` never reached the container and the handler turned "no file" into `{"agents": []}` | fixed: serves `count` 16, `source` `config`, `source_path` `config/emem-agents.json` |
-| a missing vouching file looked the same as vouching for nobody | fixed: `count`, `source` and `source_path` are served beside `agents`, and a load failure warns at startup |
+| a missing vouching file looked the same as vouching for nobody | fixed: the route sends `count`, `source` and `source_path` beside `agents`, and a load failure warns at startup |
 | the A2A card did not point back at the node identity | fixed: `responder` carries `did`, `did_document` and `federation` |
 | MCP protocol version: for an unsupported client version, the header said `2025-03-26` and the body said `2025-11-25` | fixed: header and body both say `2025-11-25` |
 | the MCP registry keeps old versions active | still open: 18 versions, 0.0.2 to 2.4.4, all `active`; mark the old ones deprecated from the publisher |
@@ -967,9 +967,9 @@ source that day, and the image built later. On 7 November 2026 they are live:
 The empty vouching list had a dated risk. Evidence stands for 30 days. The
 cached `T4_affiliated` tiers from 2026-09-02 would have fallen to T1 on
 2026-10-02, while emem.dev enforced the ladder. The fix shipped as a fallback
-path. The handler reads `EMEM_AGENTS_WELL_KNOWN` when it is set. Otherwise it
-tries the relative `config/` path, then `$EMEM_DATA/emem-agents.json`. The image does not include a roster on
-purpose. The document says that the operator of a domain vouches for these
+path. If the operator sets `EMEM_AGENTS_WELL_KNOWN`, the handler reads that
+file. If not, it tries the relative `config/` path, then
+`$EMEM_DATA/emem-agents.json`. The image does not include a roster on purpose. The document says that the operator of a domain vouches for these
 keys. One roster in every self-hosted image would make each operator vouch
 for keys they never chose.
 
