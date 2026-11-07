@@ -77,9 +77,9 @@ Older hosts speak stdio only. Use the `mcp-remote` bridge:
 | Runtime | Surface | Auth | Example |
 |---|---|---|---|
 | Claude Code | MCP (`http`) | none | [`examples/claude-code.mcp.json`](https://github.com/Vortx-AI/emem/blob/main/examples/claude-code.mcp.json) |
-| Claude Desktop | MCP (`http`) | none | [`examples/claude-desktop.json`](https://github.com/Vortx-AI/emem/blob/main/examples/claude-desktop.json) |
-| Cursor 0.42 and later | MCP (`http`) | none | [`examples/cursor.mcp.json`](https://github.com/Vortx-AI/emem/blob/main/examples/cursor.mcp.json) |
-| Cline (VS Code) | MCP (`http`) | none | [`examples/cline.mcp.json`](https://github.com/Vortx-AI/emem/blob/main/examples/cline.mcp.json) |
+| Claude Desktop | MCP (`url` only) | none | [`examples/claude-desktop.json`](https://github.com/Vortx-AI/emem/blob/main/examples/claude-desktop.json) |
+| Cursor 0.42 and later | MCP (`url` only) | none | [`examples/cursor.mcp.json`](https://github.com/Vortx-AI/emem/blob/main/examples/cursor.mcp.json) |
+| Cline (VS Code) | MCP (`url` only) | none | [`examples/cline.mcp.json`](https://github.com/Vortx-AI/emem/blob/main/examples/cline.mcp.json) |
 | Gemini CLI | extension install | none | Run `gemini extensions install https://github.com/Vortx-AI/emem`. It reads [`gemini-extension.json`](https://github.com/Vortx-AI/emem/blob/main/gemini-extension.json) at the repository root. |
 | OpenAI Custom GPT Action | OpenAPI 3.1 | none | [`examples/openai-gpt-action.json`](https://github.com/Vortx-AI/emem/blob/main/examples/openai-gpt-action.json) |
 | LangChain | MCP through an adapter | none | [`examples/langchain/`](https://github.com/Vortx-AI/emem/tree/main/examples/langchain) |
@@ -101,6 +101,37 @@ document was 405,695 bytes and the action document was 126,810 bytes. A Custom G
 
 A host that has no row here reaches the same 116 tools at the same URL. The rows are the runtimes with a checked-in
 example or a known config.
+
+### Run a framework example
+
+Each framework folder has a README and one script. The script connects over Streamable HTTP and asks one question
+about a place. emem needs no key, but each script uses an OpenAI model, so set `OPENAI_API_KEY` first.
+
+```bash
+cd examples/langchain
+pip install langchain-mcp-adapters langgraph langchain-openai
+export OPENAI_API_KEY="sk-..."
+python emem_mcp_geospatial_agent.py
+```
+
+The other folders use the same steps with these values:
+
+| Folder | Install | MCP client in the script | Endpoint |
+|---|---|---|---|
+| `langchain/` | `pip install langchain-mcp-adapters langgraph langchain-openai` | `MultiServerMCPClient` | `/mcp` |
+| `llamaindex/` | `pip install llama-index-tools-mcp llama-index-llms-openai llama-index-core` | `BasicMCPClient` | `/mcp` |
+| `autogen/` | `pip install autogen-agentchat 'autogen-ext[openai,mcp]'` | `McpWorkbench` | `/mcp` |
+| `crewai/` | `pip install 'crewai[tools]' 'mcp[cli]'` | `MCPServerAdapter` | `/mcp/full` |
+| `semantic-kernel/` | `pip install semantic-kernel` | `MCPStreamableHttpPlugin` | `/mcp` |
+| `agno/` | `pip install agno openai` | `MCPTools` | `/mcp` |
+| `mastra/` | `npm install`, then `npx tsx emem_mcp_geospatial_agent.ts` | `MCPClient` from `@mastra/mcp` | `/mcp/full` |
+
+Set `EMEM_MCP_URL` to point a script at your own node. On 7 November 2026, `tools/list` on `/mcp` returned 18
+tools in one page. On `/mcp/full` the first page had 12 tools and a `nextCursor`.
+
+To use REST instead of MCP, `examples/langchain.py` wraps nine routes as LangChain tools and `examples/llamaindex.py`
+wraps six as LlamaIndex tools. Copy `langchain.py` to a new name, such as `langchain_emem.py`, before you import it.
+The name `langchain.py` hides the `langchain` package. Set `EMEM_URL` to use a node other than emem.dev.
 
 ### Timeouts and retries
 
