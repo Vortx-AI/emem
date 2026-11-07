@@ -16,17 +16,18 @@ Forest Change, an independent Landsat product.
 
 The first win, the lab's seasonal NDVI rule under F1, did not replicate, and F1 itself misled: it rewarded the
 registry's `deforestation_alert_ndvi_drop@1` for flagging up to 74% of stable forest. Under the Matthews correlation
-(MCC), registered in advance from the fifth experiment on, two rules beat the registry rule in all four experiments,
-on four disjoint sets of 19, 7, 10 and 8 forests: the lab's seasonal NBR rule (MCC 0.381, 0.457, 0.262 and 0.262,
-against 0.295, 0.145, 0.098 and 0.013) and the forest desk's held NDVI drop (0.356, 0.284, 0.202 and 0.301). A rule
-found by a search and then fixed, `lab:seasonal_canopy_loss@1`, beat it on the 18 forests it had never seen. The
+(MCC), registered in advance from the fourth experiment on, two rules beat the registry rule in each of the first
+four MCC experiments, on four disjoint sets of 19, 7, 10 and 8 forests: the lab's seasonal NBR rule (MCC 0.381, 0.457,
+0.262 and 0.262, against 0.295, 0.145, 0.098 and 0.013) and the forest desk's held NDVI drop (0.356, 0.284, 0.202 and
+0.301). In the memory experiment that came next, on six forests (section 5.13), neither beat it. A rule found by a search and then fixed,
+`lab:seasonal_canopy_loss@1`, beat it in its next two tests, on 18 forests it had never seen. The
 seasonal NBR rule flags 1.2 to 4.6% of stable forest; the registry rule flags 46 to 62%. In managed forests a
 registered hypothesis held: the sub-pixel rules after a cloud screen scored best of all (MCC 0.389 for the
 10th-percentile rule).
 
 Detectors built on each cell's own memory came next. Each keeps a seasonal normal per band over five years, applies a
 matched filter across bands and sensors, and calibrates its alarm on the cell's remembered noise. Under Hansen in
-2022 and 2023 the first memory detectors scored MCC 0.25 to 0.30 against 0.06. The version with Landsat 8 and 9 in the
+2022 and 2023 the three best memory detectors scored MCC 0.25 to 0.30 against 0.06. The version with Landsat 8 and 9 in the
 same optical memory scored 0.42 against 0.06 on nine forests that had loss before the window. It beat the registry rule
 with forests as the resampled unit (+0.03 to +0.69); against the same detector without Landsat, the interval spans
 zero.
@@ -45,15 +46,16 @@ are replicated:
 The later memory detectors pool higher but disagree too much across forests to be called better. A second reference,
 JRC TMF, marked too few of the cells as lost to judge any method.
 
-The record also bounds these rules. Their wins are pooled: site by site, each beats the registry rule at 38% to 80%
-of the sites with both loss and stable forest, depending on the rule and the site set. They find 91% of the 400 m cells where half the forest or more was cleared, as the
-registry rule does, but only 20% of those where 5 to 10% was. Combining them does not help, because they miss the
-same small clearings. The cloud screen helped detectors that compare single passes or read percentiles in 7 of 12
-tests and never hurt them, and never helped the rule that waits for a drop to hold. Sub-pixel rules won once and
-failed to beat the registry rule twice. Read at 200 m cells instead of 400 m, scored on the same Hansen pixels, every
-detector found more of the lost forest with no more false alarms, and the 10th-percentile rule gained with an interval
-clear of zero; on forests with small clearings, the seasonal NBR rule went from finding none of the loss to pixel MCC
-0.343.
+The record also bounds these rules. Their wins are pooled. Take only the sites with both loss and stable forest.
+Site by site, each rule beats the registry rule at 44% to 80% of them (sections 5.7 and 5.9). Where clearing took half
+the cell or more, they find 91% of the 400 m cells, as the registry rule does. Where clearing took 5 to 10%, they find
+only 20%. Combining them does not help, because they miss the same small clearings. The cloud screen helped detectors
+that compare single passes or read percentiles in 7 of 12 tests and never hurt them. It never helped the rule that
+waits for a drop to hold. Sub-pixel rules beat the registry rule in two experiments (sections 5.8 and 5.12) and failed
+to beat it in two (sections 5.5 and 5.6). The cell-size test read 200 m cells instead of 400 m and scored both on the
+same Hansen pixels. At 200 m every detector found more of the lost forest, and the share of stable forest flagged
+barely moved. The 10th-percentile rule gained with an interval clear of zero. On forests with small clearings, the
+seasonal NBR rule went from finding none of the loss to pixel MCC 0.343.
 
 ## 1. Question
 
