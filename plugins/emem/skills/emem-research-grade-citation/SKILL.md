@@ -51,6 +51,7 @@ The elevation line for this Bengaluru cell on 7 November 2026:
 This value and token were the same on 28 September 2026. The DEM is a
 static layer, so the fact does not change. The WorldCover line gives
 the value 10 (`lccs_class`, observed 2022-10-28) from tile `N12E075`.
+Class 10 is "Tree cover" in the ESA WorldCover legend.
 
 | Field | What it tells you |
 |---|---|

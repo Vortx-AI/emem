@@ -50,10 +50,10 @@ On 7 November 2026 it returned `jrc_gfc2020.forest_2020` 0,
 tools `emem_locate` and `emem_recall` take the same bodies.
 
 For a Point, the statement samples one cell in a box that reaches
-0.0001 degrees on each side of the point. That cell can be a neighbour of the cell from
-`locate`. On 7 November 2026 the statement read `defi.zb44d.zae9f.bujI`.
-The warm-up still helps, because it loads the source tiles, and
-neighbour cells share them.
+0.0001 degrees on each side of the point. That cell can be a neighbour
+of the cell from `locate`. On 7 November 2026 the statement read
+`defi.zb44d.zae9f.bujI`. The warm-up still helps, because it loads the
+source tiles, and neighbour cells share them.
 
 ## Step 2: send the request
 
