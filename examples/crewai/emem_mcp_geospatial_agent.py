@@ -1,11 +1,12 @@
-"""CrewAI + emem MCP example: EUDR Article 2(4) verdict at Manaus.
+"""CrewAI + emem MCP example: EUDR deforestation-free verdict at Manaus.
 
 Connects a CrewAI Agent to the emem MCP server over Streamable HTTP and
 loads the tools that MCPServerAdapter gets. /mcp/full sends its tools in
 pages, and the adapter reads only the first page (12 tools on
 7 November 2026, with emem_eudr_dds). Then it runs a single-task crew
 that asks:
-"Is the point at Manaus (Brazil) deforested under EUDR Article 2(4)?"
+"Is the point at Manaus (Brazil) deforestation-free under EUDR
+Article 2(13)?" Article 2(4) gives the forest definition that the tool uses.
 
 The agent dispatches emem_eudr_dds, inspects the per-cell verdict
 block, and reports the verdict plus signed fact_cids and the responder
@@ -35,8 +36,8 @@ EMEM_MCP_URL = os.getenv("EMEM_MCP_URL", "https://emem.dev/mcp/full")
 
 QUESTION = (
     "Using the emem MCP tools, decide whether the point at latitude "
-    "-3.10 longitude -60.02 (Manaus, Brazil) is deforested under EUDR "
-    "Article 2(4). Call emem_eudr_dds with a single-point plot of "
+    "-3.10 longitude -60.02 (Manaus, Brazil) is deforestation-free under "
+    "EUDR Article 2(13). Call emem_eudr_dds with a single-point plot of "
     "cocoa (HS 1801), commodity quantity 1000 kg, country BRA. Report "
     "the top-level verdict, every per-cell verdict, the fact_cids "
     "supporting the answer, and the responder pubkey. Do not invent "
@@ -52,7 +53,7 @@ def main() -> None:
         analyst = Agent(
             role="Geospatial Evidence Analyst",
             goal=(
-                "Decide EUDR Article 2(4) verdicts on plots and report "
+                "Decide EUDR deforestation-free verdicts on plots and report "
                 "every supporting fact_cid for independent verification."
             ),
             backstory=(
