@@ -130,6 +130,7 @@ The block has the schema id `emem.visual_evidence.v2`. It contains these parts:
   (SCL classes 0, 1, 8, 9 and 10). Cloud shadow (class 3) does not reject a scene.
   If the SCL read fails, the scene cloud cap alone decides.
   Thus the picker does not choose the clearest scene. It chooses the newest usable scene.
+  The block's `method` string says `annual_s2_l2a_least_cloudy`, but this paragraph gives the real rule.
   If scenes exist but no pixel is usable, the signed fact records an absence.
   If no step finds a scene, that cell and year get an error and no fact.
   The window never goes past the current date.
@@ -139,9 +140,15 @@ The block has the schema id `emem.visual_evidence.v2`. It contains these parts:
   and 2 times the base window. Step 3 uses 2 times the base cloud value (at most 80 %)
   and 3 times the base window.
 - Sentinel-1 RTC VV backscatter at the same anchors, from `materialize_sentinel1_vv`.
-  Radar has no cloud filter. Its window widens from ±15 to ±30 to ±60 days
-  (`EMEM_S1_LOOKBACK_DAYS`, default 15).
+  Radar has no cloud filter. Its window widens from ±15 to ±30 to ±60 days.
+  `EMEM_S1_LOOKBACK_DAYS` sets the base window (default 15, range 1 to 365).
+  The second and third steps use 2 times and 4 times the base window.
   It uses the newest scene in the first window that has a scene.
+  The window never goes past the current date.
+  The signed fact has band `sentinel1_raw` and holds VV in dB (`10 × log10` of the linear value).
+  Its derivation arguments record the half-width in days of the window that found the scene.
+  If the pixel value is zero, negative or not a number (water mask or no-data), that cell
+  and year get an error and no fact.
   Radar sees through cloud, so this signal confirms the NDVI in monsoon regions where
   Sentinel-2 has gaps.
 - Per-year `scene.png` URLs for up to 6 cells of the plot, in `scene_png_urls` and
