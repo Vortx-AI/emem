@@ -19,7 +19,7 @@ share no backend and no credentials, and B does not have to trust A.
 - One entity token for the landmark, reused by both robots.
 - Two `emem:fact:` tokens that resolve to signed readings: elevation and
   surface-water recurrence.
-- A receipt that the server checks, and that your own machine checks offline.
+- A receipt that the responder checks, and that your own machine checks offline.
 
 ## Run it
 

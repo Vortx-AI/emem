@@ -43,7 +43,7 @@ lng 77.6245 (Koramangala, Bengaluru). Its cell is `defi.zb493.hufo.zccc6`.
 | step | call | result on 7 November 2026 |
 |---|---|---|
 | 1. Find the parcel address | `POST /v1/locate` with `lat`, `lng` | `cell64` `defi.zb493.hufo.zccc6` |
-| 2. Recall signed facts | `POST /v1/recall` with 14 bands | 14 of 14 bands materialized; 26 facts and 26 receipt `fact_cids` at 08:32 UTC (this count grows with new readings) |
+| 2. Recall signed facts | `POST /v1/recall` with 14 bands | 14 of 14 bands materialised; 26 facts and 26 receipt `fact_cids` at 08:32 UTC (this count grows with new readings) |
 | 3. Apply published algorithms | `GET /v1/algorithms/<key>` | `vegetation_class_from_ndvi@1` gives `bare`; `flood_risk@2` gives 0.0244 (low); both agree with the responder |
 | 4. Write two memos | none | a naive memo and a grounded memo with the same numbers |
 | 5. Get two verdicts | `POST /v1/guard/verdict?shape=native` | naive: `deny` `CLAIM_UNGROUNDED`; grounded: `allow`, 5 citations, 5 `fact_cids` |
@@ -121,7 +121,7 @@ this file.
 
 - One cell is about 10 m by 10 m at the equator. The script reads one cell. A
   claim about hectares needs many cells.
-- When a band does not materialize, the script prints its `reason_class`. A
+- When a band does not materialise, the script prints its `reason_class`. A
   `no_materializer` or an `upstream_error` is silence, not an observation. Only
   a signed `Absence` means that the corpus looked and found nothing.
 - The script does not price land or judge a borrower. It checks physical claims

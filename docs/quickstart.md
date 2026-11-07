@@ -216,7 +216,7 @@ with Client() as em:
 # {'valid': True, 'state': 'verified', ..., 'verified_locally': True}
 ```
 
-The server can also check the receipt for you. Use this to find problems. It is not an independent check, because
+The responder can also check the receipt for you. Use this to find problems. It is not an independent check, because
 the responder checks its own signature.
 
 ```bash

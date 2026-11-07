@@ -52,7 +52,7 @@ python3 -m http.server 8080
 `three.min.js` is in this directory. The data comes from the responder in
 the config block, through `fetch`.
 
-A cold area must materialize and sign each sampled cell, so the first run
+A cold area must materialise and sign each sampled cell, so the first run
 can take a few minutes. A warm area is fast: on 7 November 2026 a full
 1,024-cell Grand Canyon fetch took 4.7 s. The loader shows progress in the
 HUD. It splits a batch that times out at the gateway and tries again.
@@ -131,7 +131,7 @@ slots, which is a different count.
 1. `POST /v1/query_region` with the bbox returns the sampled cell list in
    `receipt.cells`. It does not fetch from upstream sources.
 2. `POST /v1/recall_many` recalls those cells in batches, one band at a
-   time. It materializes misses, signs the facts and returns a receipt for
+   time. It materialises misses, signs the facts and returns a receipt for
    each cell under `by_cell`.
 3. Positions come from each fact's `derivation.args` (lat, lng). Heights,
    shapes and colours come from the fact values.
@@ -272,7 +272,7 @@ baked.
 
 ## Serve baked worlds
 
-A cold build takes minutes of materialize and sign work. A baked world is a
+A cold build takes minutes of materialise and sign work. A baked world is a
 disk read.
 
 - [`scripts/bake_worlds.sh`](../../scripts/bake_worlds.sh) runs this

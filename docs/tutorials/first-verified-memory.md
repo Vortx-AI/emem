@@ -68,7 +68,7 @@ curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
 # {"signature_valid":true,"merkle_proof_valid":true}
 ```
 
-This call asks the server to do the check. It is not an independent check, because the responder checks its own
+This call asks the responder to do the check. It is not an independent check, because the responder checks its own
 signature. Use it to find problems. For an independent check, do the BLAKE3 and Ed25519 arithmetic yourself against
 the responder's published key. Any BLAKE3 and Ed25519 library can do it offline. The
 [`/verify`](https://emem.dev/verify) page does it in your browser: paste the receipt, or the token from step 3. The

@@ -193,7 +193,7 @@ Output on 7 November 2026:
 A receipt with a changed field returns HTTP 200 with `"valid": false`
 and `"reason": "signature_invalid"`. A body that is not a receipt at all
 returns HTTP 400 `invalid_argument`. To check a receipt with no trust in
-the server, paste it into the in-browser verifier at
+the responder, paste it into the in-browser verifier at
 https://emem.dev/verify.
 
 ---
