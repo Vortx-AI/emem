@@ -50,7 +50,7 @@ Above the facts, each agent has notes that it owns. A note is a Markdown file. S
 - `memory_contradictions` finds places where signed sources disagree, and scores the disagreement.
 - `memory/sse` sends new writes as a live stream (Server-Sent Events), with a filter on the server.
 
-![A signed note write in steps 0 to 5. Step 0: make an Ed25519 key on your machine. Step 1: send emem_memory_create with no signature. Step 2: the responder refuses with an MCP isError result. Its details.code is memory_attestation_required, and details.how_to_sign gives the 32-byte digest. Step 3: sign the digest. Step 4: send the same body with pubkey_b32 and sig_b32. Step 5: the responder stores the note and logs it. A write from another key into /memories/by_attester/ plus your 8-character key prefix is refused with memory_namespace_violation.](media/diagrams/signed-note-write.svg)
+![A signed note write in steps 0 to 5. Step 0: make an Ed25519 key on your machine. Step 1: send emem_memory_create with no signature. Step 2: the responder refuses with an MCP isError result. Its details.code is memory_attestation_required, and details.how_to_sign gives the 32-byte digest. Step 3: sign the digest. Step 4: send the same body with an attester block that holds pubkey_b32 and sig_b32. Step 5: the responder stores the note and adds it to the transparency log. A write from another key into /memories/by_attester/ plus your 8-character key prefix is refused with memory_namespace_violation. The digest binds the verb, the path, the body and the version it replaces. Do not write a secret in any note, vault included.](media/diagrams/signed-note-write.svg)
 
 ## Two time filters
 
@@ -62,7 +62,7 @@ offset, such as `+05:30`, moves the cut by that offset. On 7 November 2026, `202
 Mount Fuji fact signed at `2026-09-28T12:23:41Z`. The same instant as `2026-09-28T12:00:00Z` did not keep it. That read
 returned an older fact for the same cell, signed at `2026-07-16T12:02:20Z`.
 
-![A chart with ground time (tslot) across and signed time (signed_at) up. as_of_tslot is a vertical line that keeps facts to its left. as_of_signed_at is a horizontal line that keeps facts below it. With both set, only facts in the lower left area are kept. A fact observed later, or signed later, is not kept.](media/diagrams/time-filters.svg)
+![A chart with ground time (tslot) across and signed time (signed_at) up. as_of_tslot is a vertical line that keeps facts to its left. as_of_signed_at is a horizontal line that keeps facts below it. With both set, only facts in the lower left area are kept. A fact observed later, or signed later, is not kept. With no filter, the read gives the current state. With a filter set, the receipt signs an as_of block.](media/diagrams/time-filters.svg)
 
 When a read uses a time filter, the receipt carries an `as_of` block. An auditor can take a receipt from 2026 to any
 node in 2027 and replay the same query.
