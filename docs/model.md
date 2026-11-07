@@ -280,14 +280,23 @@ traffic today:
 - Build on demand. A recall on a miss reads, signs and stores the value.
   This is a lazy build. `receipt.cost.was_cached` is true only when the
   cache served the whole read. It is outside the signed preimage.
-- Hermeticity labels. The provenance classes are these labels.
+- Hermeticity labels. The provenance class of a band says if its build
+  is hermetic.
 
 | Provenance class | Build role |
 |---|---|
 | `deterministic_index` | a hermetic action: you can build the value again from the cited sources, with no hidden input |
+| `estimator` | a hermetic action: you can fit the value again from the signed inputs, the named estimator and the seed |
 | `model_output` | a pinned action that is not hermetic: you can reproduce it with the signed checkpoint |
 | `direct_sensor` | a source, not an action |
 | `human_curated` | a source, not an action |
+| `attested_execution` | a source: a device reading that a verified execution trace supports. You cannot compute it again |
+| `unclassified` | no build role. It has the lowest trust |
+
+The classes come from `ProvenanceClass` in `crates/emem-core/src/bands.rs`.
+On 7 November 2026, `bands-v0.json` lists 43 bands. No band uses
+`estimator` or `attested_execution`. The two `unclassified` bands
+(`_reserved_128` and `reserved`) are zero-padded slots that hold no data.
 
 ### When a rebuild gives the same bits
 
@@ -411,8 +420,8 @@ ingest.
 
 ### The smallest object
 
-A review asked: what is the smallest immutable object, as the blob is in
-git and the block is in IPFS? The answer is not the band. The atom is
+A review asked for the smallest immutable object, the object that has the
+role of the blob in git and the block in IPFS. The answer is not the band. The atom is
 the observation `O` at the top of the formal model. The band is its
 semantic type field.
 
@@ -432,8 +441,8 @@ an element of `O` that ships:
 | signature | `s` |
 
 The git analogy holds in the same way. Blob, tree and commit map to
-observation, edge, and rule with receipt. Worlds, meshes and projects
-are to come from these. They are not to become new stored types.
+observation, edge, and rule with receipt. The plan is to build worlds,
+meshes and projects from these, not to add new stored types.
 
 The review is correct on one point: today `v` is band-typed. emem signs
 some whole fields as one object: a raster bundle, and the `emem:cube:`
@@ -459,8 +468,9 @@ knows the graph. The position here is deliberate:
 
 - The rules stay declared, versioned and signed, because nobody can
   check a discovered rule again.
-- A planner, not fixed code, is to pick which declared derivations exist,
-  apply and are worth a run at a cell for a goal.
+- The plan is that a planner, not fixed code, picks the declared
+  derivations to run at a cell for a goal. It checks that each one
+  exists, applies there and is worth its cost.
 
 Only the seed of that planner ships. `/v1/ask` sends a question to the
 recipes that apply, in the `algorithms_for_question` list of its answer.
