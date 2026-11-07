@@ -575,166 +575,171 @@ as `severity: 0.62` has a meaning for a reader.
 recall@k on any held-out set. Until it has one, a paper must say that emem
 supplies the search, not that the search works well.
 
-### Next substrates: and the address space that gates all of them
+### Next substrates: subjects that are not places
 
-Satellite Earth observation is the first substrate because its data is
-open, global, and already keyed by location. The protocol requirement
-for any other substrate is the same pair: a canonical address and a
-signing key.
+Status on 7 November 2026: one substrate profile is `active`
+(`earth.satellite.v0`), and the other 17 are `candidate`. The record
+layer can key a fact to a place or to an `emem:entity:` identity. No
+candidate profile has open ingest on emem.dev.
 
-**The second half of that pair is done and the first half is not, and
-until 2026-08-11 the registry did not say so.** The signing key
-generalises completely: content addressing, the receipt, the append-only
-log, bi-temporal bounds, contradiction scoring and the token grammar do
-not care what the subject is. The ADDRESS does not generalise at all.
-Every fact is keyed by `CanonicalKey { cell, band, tslot }` where `cell`
-is a cell64, a 64-bit quantisation of latitude and longitude, so a fact
-can only be recorded about a place. A file at a commit, a table at a
-schema version, a model at a checkpoint and a span in an execution trace
-have no latitude, and no amount of signing machinery gives them one.
+Satellite Earth observation is the first substrate. Its data is open,
+global, and already keyed by location. Any other substrate needs the
+same two things: a canonical address and a signing key.
 
-That is why the README's "Earth is the substrate, not the subject" needs
-reading carefully. It is true of the record, the receipt and the token
-grammar. It is not true of the address, and the address is the part
-everything else hangs from.
+#### The signing key and the address
 
-So every profile now declares an `address_space`, and the registry
-refuses to load a profile that is `active` on one this build cannot key
-a fact by. `geo.cell64` is the only address space with a write path
-today. `entity.cid` names a subject that is not a place, using the
-`emem:entity:` identity that already ships (mint, resolve and link are
-core tools) but that a fact cannot yet be keyed by. Five profiles are
-pinned on it as candidates, so builders can write against a fixed shape
-while the honest status stays visible:
+The signing parts do not depend on the subject. Content addressing, the
+receipt, the append-only log, bi-temporal bounds, contradiction scoring
+and the token grammar work for any subject.
 
-- **`space.deep.v1`**: a telescope SITE has a cell; the thing it looks
-  at does not. The cleanest statement of the gap, on an instrument we
-  already model.
-- **`code.repository.v1`**: a file or symbol at a commit. Admitted by
-  recomputability exactly as the Earth archives are, and the fit is
-  closer than it looks: git is already content-addressed. What emem adds
-  over git is the half git does not do, a signed reading ABOUT the code
-  at that address, contradiction when two analysers disagree, and a
-  bi-temporal answer to what we believed about this function in May.
-- **`data.table.v1`**: a table or column at a schema version. The
-  readings are the statistics teams already compute and cannot defend:
-  null rate, cardinality, freshness lag, today passed around as
-  screenshots. Recomputable only against an immutable snapshot.
-- **`model.checkpoint.v1`**: a model at a checkpoint. Every encoder
-  record already pins its checkpoint so a model swap cannot pose as
-  change in the world; here the model is the subject and an eval score
-  is the reading. Two labs quoting one benchmark are usually quoting
-  two.
-- **`exec.trace.v1`**: a span, as the subject rather than the evidence.
-  Same verifier and same required layers as a device trace, inverted
-  role.
+The address needed a check. The store keys every fact by
+`CanonicalKey { cell, band, tslot }`. A file at a commit or a model at a
+checkpoint has no latitude. So the question was whether `cell` must be a
+cell64. The code shows that it need not be:
 
-**The keystone is one change: letting a fact be keyed by an
-`emem:entity:` identity instead of a cell64.** When this section was
-first written it said that change "touches the canonical index, the
-receipt preimage and the storage key, so it is a major". That was
-asserted from memory of the design rather than read off the code, and it
-is wrong on all three counts:
+| Part | What the code does | Where |
+|---|---|---|
+| `CanonicalKey.cell` | A `String`. Storage never decodes it. | crate `emem-cache` |
+| Storage key | Cell bytes, a zero byte, band bytes, a zero byte, then `tslot` big-endian. Storage does not parse the subject. | `canonical_key_bytes`, `crates/emem-storage/src/lib.rs` |
+| Receipt preimage | Hashes cells with `seg_list`, a length-prefixed list of opaque strings | `crates/emem-attest/src/lib.rs` |
 
-- `CanonicalKey.cell` is a `String`. It is never decoded.
-- the receipt preimage hashes cells through `seg_list`, a length-prefixed
-  list of opaque strings, so a subject that is not a cell64 changes no
-  bytes of the construction
-- the storage key is `cell_bytes || 0 || band_bytes || 0 || tslot_be`, a
-  byte concatenation that never parses the subject
+Two tests check this. The first is
+`the_record_layer_does_not_require_the_subject_to_be_a_place` in
+`crates/emem-primitives/tests/bi_temporal.rs`. It stores an entity
+subject and a cell64 in one store and recalls both. The second is
+`a_signed_fact_can_be_keyed_to_an_object_rather_than_a_place` in
+`crates/emem-storage/src/lib.rs`. It signs a fact about a codebase,
+writes it through `put_attestation`, and reads it back by content
+address.
 
-The record layer is therefore already subject-agnostic, and that is now a
-test rather than a claim: `the_record_layer_does_not_require_the_subject_
-to_be_a_place` writes an `emem:entity:` identity and a cell64 into one
-store and recalls both, verbatim. Correcting this against ourselves
-matters, because "it is a major" is what postpones work, and a wrong
-estimate that postpones is more expensive than one that hurries.
+An earlier version of this section said that entity keys need a major
+version. Its reason was a change to the canonical index, the preimage and
+the storage key. That was wrong on all three points. The change is a minor.
 
-What is actually left is smaller and lives at the edges, not the core:
+#### Address spaces in the substrate registry
 
-1. **A subject validator.** Nothing today decides whether a subject
-   string is a well-formed cell64, a well-formed `emem:entity:`
-   identity, or junk. The read path guards this for GEOCODING
-   (`is_dotted_cell_junk` stops `not.a.cell` reaching the fuzzy
-   geocoder), which is a different question from what a write may key.
-2. **Write admission tied to the profile.** A write should be accepted
-   in the `entity.cid` address space only under a profile that declares
-   it, which is what the `address_space` field now makes checkable.
-3. **Typed refusals on geo-only reads.** `cells_in_bbox`, polygon recall
-   and `cell_geojson` are meaningless for a subject with no latitude and
-   must refuse with a typed error naming the address space, rather than
-   surfacing a decode failure that reads like corruption.
+Every profile in the substrates manifest
+(`crates/emem-core/data/substrates-v0.json`, served at
+`GET /v1/substrates`) declares an `address_space`. This build knows two:
 
-None of that is a preimage change, so it is a minor. The claim that it
-was a major stood for exactly one commit.
+| Address space | Subject | Can key a fact | Profiles on 7 November 2026 |
+|---|---|---|---|
+| `geo.cell64` | A cell64 place id | Yes | 12: `earth.satellite.v0` (active) and 11 candidates |
+| `entity.cid` | An `emem:entity:` identity | Yes | 6, all candidates |
 
-What ships today that a new substrate would use unchanged: the
-multi-writer attest endpoint (`POST /v1/attest`, ed25519 envelope over a
-merkle root, no transport auth to configure), per-attester namespaces,
-the provenance classes with in-band cautions, contradiction scoring
-between writers, and the token grammar.
+The registry refuses to load a profile with an unknown address space. It
+also refuses an `active` profile with no declared bands (`validate` in
+`crates/emem-core/src/substrates.rs`). Only `earth.satellite.v0`
+declares bands (10). Each of the 17 candidates declares `bands: []`, so
+there is nothing to measure at their subjects yet. That empty band list,
+not the address, keeps them at `candidate`.
 
-The next upgrade here is not another substrate. It is a trust layer,
-and its core now ships as code. The written profiles live in the
-ninth content-addressed manifest (`emem-substrates`,
-`crates/emem-core/data/substrates-v0.json`), and every device-borne
-profile carries the same admission rule: the protocol respects the
-device as an observer of the physical world and refuses its output
-alone. A device must present its complete, unaltered OS execution
-trace for the capture window (`emem.os_trace.v1`, the `emem-trace`
-crate), with the layers its profile requires (syscalls, scheduler,
-memory tracks, energy, thermal, signal, sensor bus, network, storage,
-on-device inference), digest-chained, merkle-rooted, and signed by the
-device key together with the emitted output digests. Only output bound
-inside a verified trace is admitted; the verifier names every failure
-it finds. The founding Earth substrate keeps its own rule,
-recomputability from free public archives, and takes the standing role
-of drift anchor: device claims are contradiction-scored against it,
-tension is surfaced rather than dropped, and the full design plus the
-wiring steps live in `docs/plans/encoder-substrates.md`.
+The six `entity.cid` candidates:
 
-Candidate substrates that DO observe a location, in the order the
-machinery favours them, each pinned as a profile in the registry and all
-of them on `geo.cell64`:
+| Profile | Subject | Admission rule |
+|---|---|---|
+| `space.deep.v1` | A target off Earth. The telescope site has a cell; the target does not. | `os_trace_required` |
+| `code.repository.v1` | Source code at a commit | `archive_recomputable` |
+| `data.table.v1` | A table or column at a schema version | `archive_recomputable` |
+| `model.checkpoint.v1` | A model at a checkpoint. An eval score is the reading. | `archive_recomputable` |
+| `exec.trace.v1` | A span in an execution trace, as the subject | `os_trace_required` |
+| `host.counters.v1` | A general-purpose host and the counters Linux gives | `os_trace_required` |
 
-- **CCTV and fixed sensors.** A camera or gauge is the simplest case: a
-  fixed location, a stream of observations, one key. Its readings land
-  as facts at its cell, timestamped and signed at the edge.
-- **Drones.** A survey flight is a moving attester writing along a
-  path; each observation lands at the cell it measured, and the flight
-  becomes citable evidence rather than a file someone hosts.
-- **Robot fleets.** Landmarks as `emem:entity:` identities, terrain,
-  hazard, and traversability as signed facts. Two vendors' robots share
-  one map and verify each other's contributions without a shared
-  backend. A runnable two-vendor example ships today at
-  `examples/fleet-memory/` (plain HTTP, runs on the robot); a ROS 2
-  client package is open work.
-- **Industrial machines.** A meter, a turbine, a pipeline sensor:
-  location-pinned observations whose provenance class says exactly how
-  the value was produced.
-- **Government registries and open data programs.** Cadastral records,
-  permits, environmental monitoring: `human_curated` by class, carrying
-  that caution in-band, signed by the issuing authority's key.
+For code, git already gives the content address. emem would add a signed
+reading about the code at that address. It would also add a
+contradiction when two analysers disagree, and a bi-temporal answer. For
+tables, the readings are statistics such as null rate, cardinality and
+freshness lag. They are recomputable only against an immutable snapshot.
 
-The profiles above are pinned in the substrates manifest as
-`candidate` status: declared direction a device maker can build
-against today, not open ingest. The registry, the trace record, the
-verification engine, the storage-side write gate (device enrollment
-plus `put_attestation_gated`, with `emem:trace:` tokens and the first
-committed conformance vectors), the `GET /v1/substrates` and
-`POST /v1/trace_verify` surfaces with their MCP tools, and a runnable
-satellite-operator example
-(`crates/emem-primitives/examples/satellite_downlink.rs`) all ship.
-So do the hosted device write path (`POST /v1/attest_traced`, an
-attestation plus its `emem.os_trace.v1` trace) and self-service
-enrollment (`POST /v1/enroll_attested`, admitted only on a platform
-attestation that endorses the key and chains to a whitelisted anchor).
-Every anchor shipped is provisional, so enrollment refuses every call
-today, which is the intended no-new-admissions state. Admitting a first
-production anchor and the drift-anchor wiring are the open work. The test each substrate must pass is unchanged
-and now has a second half: observations sign at the source, resolve
-byte-identically anywhere, verify offline, and carry the execution
-evidence their profile demands.
+#### Guards on subjects
+
+These three guards ship:
+
+| Guard | What it does | Where |
+|---|---|---|
+| Subject check on every write | Before the append, refuses a fact whose subject is neither a cell64 shape nor an `emem:entity:` identity | `verify_fact_subjects`, `crates/emem-storage/src/lib.rs` |
+| Profile admission | For an enrolled device, refuses a subject outside the address space of its profile | `put_attestation_gated`, `crates/emem-storage/src/lib.rs` |
+| Typed refusal on area reads | Area recall refuses an entity subject with `invalid_cell` and names its address space | `geo_only_refusal`, `crates/emem-api-rest/src/lib.rs` |
+
+The profile admission check applies only where storage knows the
+profile. Today that means enrolled devices. Archive writers carry no enrollment,
+so the check does not apply to them.
+
+#### What a new substrate uses unchanged
+
+These parts ship and do not depend on the substrate:
+
+- The multi-writer attest endpoint, `POST /v1/attest`. It takes an
+  Ed25519 envelope over a Merkle root, with no transport auth to configure.
+- Per-attester namespaces.
+- The provenance classes, with their in-band cautions.
+- Contradiction scoring between writers.
+- The token grammar.
+
+#### Device substrates and the trace rule
+
+Each device profile has the admission rule `os_trace_required`. The one
+exception is `feed.retained.v1`, which uses `custodial_retention`. A
+device must present its complete OS execution trace for the capture
+window (`emem.os_trace.v1`, crate `emem-trace`). The trace holds the
+layers that its profile requires. It is digest-chained, Merkle-rooted,
+and signed by the device key with the output digests. The gate admits only
+output bound inside a verified trace. The verifier names each failure it
+finds.
+
+The Earth substrate keeps its own rule, `archive_recomputable`: anyone
+can recompute a fact from free public archives. It is also the planned
+drift anchor, so device claims will be contradiction-scored against it.
+The design and the wiring steps are in `docs/plans/encoder-substrates.md`.
+
+What ships for devices:
+
+| Part | Where |
+|---|---|
+| Trace record, verifier and conformance vectors | crate `emem-trace`, `spec/test_vectors/os_trace/`, `POST /v1/trace_verify` |
+| Substrate registry | `GET /v1/substrates` |
+| Storage write gate: device enrollment, `put_attestation_gated`, `emem:trace:` tokens | crate `emem-storage` |
+| Hosted device write path: an attestation plus its trace | `POST /v1/attest_traced` |
+| Self-service enrollment on a platform attestation | `POST /v1/enroll_attested` |
+| Satellite-operator example | `crates/emem-primitives/examples/satellite_downlink.rs` |
+| Two-vendor robot fleet example over plain HTTP | `examples/fleet-memory/` |
+
+What does not ship:
+
+- A production trust anchor. The device-platforms manifest
+  (`crates/emem-core/data/device-platforms-v0.json`) lists 17 platforms,
+  all `candidate`. All 16 trust anchors are `provisional`, and a
+  provisional anchor admits nothing. So enrollment refuses every call
+  today. That is the intended state until a published vendor anchor
+  replaces one.
+- The drift-anchor wiring that scores device claims against Earth facts.
+- A ROS 2 client package.
+
+#### Device substrates that observe a location
+
+These candidates are on `geo.cell64`. Each reading would land as a fact
+at the cell it measured.
+
+| Kind | Profiles |
+|---|---|
+| Fixed cameras, gauges and sensors | `urban.cctv.v1`, `fixed.sensor.v1` |
+| Survey drones, which write along a flight path | `aerial.drone.v1` |
+| Robot fleets: landmarks as `emem:entity:` identities, terrain and hazards as facts | `robot.fleet.v1` |
+| Meters, turbines and plant-floor machines | `industrial.machine.v1` |
+| Operator satellites and orbital payloads | `orbital.satellite.v1`, `orbital.counters.v1` |
+| Telescopes at a fixed site, and microscopes | `observatory.telescope.v1`, `lab.microscope.v1` |
+| Phones and wearables | `mobile.handheld.v1` |
+| Third-party feeds that a custodian kept but did not capture | `feed.retained.v1` |
+
+Government registries and open data programs (cadastre, building
+approvals, environmental monitoring) would write with the `human_curated`
+provenance class, which carries its caution in-band. No profile for them
+is in the registry today.
+
+The test for each substrate stays the same. Observations sign at the
+source, resolve to the same bytes anywhere, and verify offline. Device
+observations also carry the execution evidence that their profile
+requires.
 
 ### Tenancy: closing the memory layer before scaling ingest
 
