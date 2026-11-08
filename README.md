@@ -2,7 +2,7 @@
 
 <img src="web/logo-300w.png" alt="emem logo" width="72">
 
-<h1>The epistemic settlement layer for AI.</h1>
+<h1>The epistemic settlement memory layer for AI.</h1>
 
 <p><b>When agents, people and machines disagree about the world, emem settles what was observed, by whom, when and how. Every record is signed, has a content id, and anyone can check it offline.</b></p>
 
