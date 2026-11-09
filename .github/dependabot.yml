@@ -32,5 +32,13 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # ort and ort-sys 2.0.0-rc.15 need rustc 1.92, above the 1.91 MSRV, and
+      # rc.15 removed EnvironmentBuilder::commit, which emem-api-rest and
+      # emem-primitives call. Both crates pin =2.0.0-rc.12. Remove these two
+      # rules when the MSRV moves to 1.92 and the ORT setup is ported.
+      - dependency-name: "ort"
+        versions: [">2.0.0-rc.12"]
+      - dependency-name: "ort-sys"
+        versions: [">2.0.0-rc.12"]
     commit-message:
       prefix: "Deps"
