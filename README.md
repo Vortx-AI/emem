@@ -422,12 +422,12 @@ Issues and pull requests welcome: [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.
 
 ## Content address
 
-Every section above this one is a unit of one signed tree: `emem:tree:lroxaj4xbygsb4ucvyqfs7v6jq`, root `hbnrnb2lyewpvab3fzk3gvmle7ymtqfiwy23fgswkigssrb4ts7q`, published under the key `k572x7go`. A single section is `emem:tree:lroxaj4xbygsb4ucvyqfs7v6jq#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
+Every section above this one is a unit of one signed tree: `emem:tree:sn2275zzgk5xvazgxgb6gve7lu`, root `xxhy6lxaykj652mmabmqgw7665fecsqxr76xr2qf2gwsr76imtha`, published under the key `k572x7go`. A single section is `emem:tree:sn2275zzgk5xvazgxgb6gve7lu#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
 
 ```bash
-curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261107b.md" > index.md
-curl -s "https://emem.dev/v1/tree/lroxaj4xbygsb4ucvyqfs7v6jq?row=3" > row.json
+curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261109.md" > index.md
+curl -s "https://emem.dev/v1/tree/sn2275zzgk5xvazgxgb6gve7lu?row=3" > row.json
 python3 plugins/emem/skills/emem-tokenise-files/scripts/tree_proof.py check row.json index.md README.md
 ```
 
-`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261107b.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261107b.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
+`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261109.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261109.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
