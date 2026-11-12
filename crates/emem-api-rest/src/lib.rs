@@ -3632,12 +3632,18 @@ fn operator_json() -> JsonValue {
 /// than `name`. Reusing the general accessor here would have swapped a
 /// hardcoded literal for a spec violation, which is a worse trade than the one
 /// it was fixing.
+///
+/// `url` is this node's own origin, and the operator's site only when the
+/// node has none. Directories read the provider as the card's identity:
+/// apis.io showed "This card does not identify emem. It identifies itself as
+/// Vortx AI Private Limited at vortx.ai" while the card sat at emem.dev. The
+/// company keeps its name here and its site in the card's `emem.operator_url`.
 fn operator_provider_json() -> JsonValue {
     let mut m = serde_json::Map::new();
     if let Some(v) = op_env("EMEM_OPERATOR_NAME") {
         m.insert("organization".to_owned(), JsonValue::String(v));
     }
-    if let Some(v) = op_env("EMEM_OPERATOR_URL") {
+    if let Some(v) = public_origin().or_else(|| op_env("EMEM_OPERATOR_URL")) {
         m.insert("url".to_owned(), JsonValue::String(v));
     }
     JsonValue::Object(m)
@@ -3675,6 +3681,7 @@ fn drop_undeclared(v: &mut JsonValue, keys: &[&str]) {
 /// The identity keys that are absent rather than null when undeclared.
 const OPERATOR_KEYS: &[&str] = &[
     "contact",
+    "operator_url",
     "contact_email",
     "vendor",
     "author",
@@ -7592,6 +7599,7 @@ fn a2a_agent_card(s: &AppState, extended: bool) -> JsonValue {
             }),
             "contact":      op_value(operator_contact()),
             "country":      "India",
+            "operator_url": op_value(op_env("EMEM_OPERATOR_URL")),
             "privacy_policy_url":   format!("{origin}/privacy"),
             "terms_of_service_url": format!("{origin}/terms"),
             "support_url":          format!("{origin}/support"),
