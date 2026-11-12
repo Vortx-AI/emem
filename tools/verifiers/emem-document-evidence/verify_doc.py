@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """Verify emem OCR and document-parse responses offline.
 
-    verify_doc.py RESPONSE.json [DOCUMENT]
+    verify_doc.py RESPONSE.json [DOCUMENT] [--pubkey KEY] [--require-ocr]
     verify_doc.py --self-test               # check the bundled crypto
+
+--pubkey KEY   the key the receipts must be signed by (base32). Without it, emem.dev's published key. A receipt
+               names its own signer, so checking against that name alone would pass for anyone's key.
+--require-ocr  fail a parse that carries no OCR receipt. A parse of typed or pasted text is signed too, but
+               nothing in it ties the text to a picture.
 
 RESPONSE is the body of POST /v1/ocr (receipt domain emem.ocr.v1) or of
 POST /v1/lab_report_parse / POST /v1/land_record_parse (emem.doc_parse.v1).
@@ -70,8 +75,17 @@ def check(label: str, ok: bool, detail: str) -> bool:
     return ok
 
 
+# emem.dev's responder key, as /.well-known/emem.json published it on 12 November 2026.
+EMEM_DEV_PUBKEY = "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka"
+PINNED = [EMEM_DEV_PUBKEY]
+
+
 def sig_ok(r: dict, segs, label: str = "sig") -> bool:
     rc = r["receipt"]
+    if rc["responder_pubkey_b32"].strip().lower() != PINNED[0].strip().lower():
+        print(f"{label:7} INVALID   signer={rc['responder_pubkey_b32']} is not the pinned key {PINNED[0]} "
+              "(for another node, pass --pubkey <responder.pubkey_b32 from its /.well-known/emem.json>)")
+        return False
     pk = b32d(rc["responder_pubkey_b32"])
     digest = preimage_v1(rc["domain"], segs + [(len(segs) + 1, pk)])
     if ed25519_verify(pk, b32d(rc["signature_b32"]), digest):
@@ -120,17 +134,35 @@ def verify_parse(r: dict, text: bytes | None) -> bool:
         ok &= verify_ocr(r["ocr"], None, "ocr")
         ok &= check("ocr", r["ocr"]["text_blake3_b32"] == r["text_blake3_b32"],
                     "the parsed text is the text the OCR receipt signs")
+    else:
+        print("source  NO OCR    the text was typed or pasted: no picture was read, so nothing ties it to a document image")
+        if REQUIRE_OCR[0]:
+            ok = False
     return ok
 
 
+REQUIRE_OCR = [False]
+
+
 def main() -> int:
-    if sys.argv[1:] == ["--self-test"]:
+    argv = sys.argv[1:]
+    if argv == ["--self-test"]:
         return 0 if self_test() else 1
-    if len(sys.argv) not in (2, 3):
+    if "--require-ocr" in argv:
+        REQUIRE_OCR[0] = True
+        argv.remove("--require-ocr")
+    if "--pubkey" in argv:
+        i = argv.index("--pubkey")
+        if i + 1 >= len(argv):
+            sys.stderr.write("--pubkey needs a key\n")
+            return 2
+        PINNED[0] = argv[i + 1]
+        argv = argv[:i] + argv[i + 2:]
+    if len(argv) not in (1, 2):
         sys.stderr.write(__doc__)
         return 2
     try:
-        raw = sys.stdin.read() if sys.argv[1] == "-" else Path(sys.argv[1]).read_text()
+        raw = sys.stdin.read() if argv[0] == "-" else Path(argv[0]).read_text()
         r = json.loads(raw)
     except (OSError, json.JSONDecodeError) as e:
         sys.stderr.write(f"cannot read the response: {e}\n")
@@ -138,7 +170,7 @@ def main() -> int:
     if r.get("schema") == "emem.error.v1" or "receipt" not in r:
         sys.stderr.write(f"not a signed document response: {r.get('code')}: {r.get('message')}\n")
         return 2
-    doc = Path(sys.argv[2]).read_bytes() if len(sys.argv) == 3 else None
+    doc = Path(argv[1]).read_bytes() if len(argv) == 2 else None
     domain = r["receipt"].get("domain")
     if domain == "emem.ocr.v1":
         ok = verify_ocr(r, doc)

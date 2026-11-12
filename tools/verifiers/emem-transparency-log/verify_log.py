@@ -4,9 +4,12 @@
     verify_log.py sth STH.json
         Verify a signed tree head (the body of GET /v1/log/sth).
 
-    verify_log.py inclusion INCLUSION.json
+    verify_log.py inclusion INCLUSION.json [CONSISTENCY.json | PINNED_STH.json]
         Verify the STH carried in a GET /v1/log/inclusion response, then
         recompute its root from leaf_hash_b32, leaf_index and the audit path.
+        A proof asked under an older tree_size walks to that size's root,
+        which is not signed: add the GET /v1/log/consistency proof from that
+        size to the reply's head, or the head you pinned at that size.
 
     verify_log.py consistency OLD_STH.json NEW_STH.json CONSISTENCY.json
         Verify both STHs, then check that the GET /v1/log/consistency proof
@@ -187,7 +190,7 @@ def main() -> int:
     if cmd == "sth" and len(docs) == 1:
         return 0 if verify_sth(sth_of(docs[0])) else 1
 
-    if cmd == "inclusion" and len(docs) == 1:
+    if cmd == "inclusion" and len(docs) in (1, 2):
         inc = docs[0]
         sth = sth_of(inc)
         ok = verify_sth(sth)
@@ -196,10 +199,37 @@ def main() -> int:
         else:
             leaf = blake3(b"\x00" + b32d(inc["entry_hash_b32"])).digest()
         path = [b32d(p) for p in inc["audit_path_b32"]]
-        got = root_from_inclusion(leaf, int(inc["leaf_index"]), int(inc["tree_size"]), path)
-        same = got is not None and got == b32d(sth["root_b32"]) and int(inc["tree_size"]) == int(sth["tree_size"])
-        print(f"inclusion    {'VALID  ' if same else 'INVALID'}  leaf_index={inc['leaf_index']} path={len(path)} hashes")
-        return 0 if ok and same else 1
+        size = int(inc["tree_size"])
+        got = root_from_inclusion(leaf, int(inc["leaf_index"]), size, path)
+        if size == int(sth["tree_size"]):
+            same = got is not None and got == b32d(sth["root_b32"])
+            print(f"inclusion    {'VALID  ' if same else 'INVALID'}  leaf_index={inc['leaf_index']} path={len(path)} hashes")
+            return 0 if ok and same else 1
+        # A proof under an older tree_size walks to that size's root, which is not signed. Bind it to a signed
+        # head: the consistency proof from that size to the head in the reply, or the head you pinned there.
+        walked = got is not None and ("root_b32" not in inc or got == b32d(inc["root_b32"]))
+        if not walked:
+            print(f"inclusion    INVALID  leaf_index={inc['leaf_index']} the path does not walk to the root at tree_size={size}")
+            return 1
+        if len(docs) == 1:
+            print(f"inclusion    UNBOUND  leaf_index={inc['leaf_index']} walks to the unsigned root at tree_size={size}. Bind it: "
+                  f"GET /v1/log/consistency?first={size}&second={sth['tree_size']}, or give the head you pinned at {size}")
+            return 1
+        extra = docs[1]
+        if "consistency_proof_b32" in extra:
+            if int(extra["first_size"]) != size or int(extra["second_size"]) != int(sth["tree_size"]):
+                print(f"inclusion    INVALID  the consistency proof is not {size} -> {sth['tree_size']}")
+                return 1
+            proof = [b32d(p) for p in extra["consistency_proof_b32"]]
+            bound = consistent(size, got, int(sth["tree_size"]), b32d(sth["root_b32"]), proof)
+            how = f"bound to the signed head by a consistency proof, {size} -> {sth['tree_size']}"
+        else:
+            pinned = sth_of(extra)
+            ok = verify_sth(pinned) and ok
+            bound = int(pinned["tree_size"]) == size and got == b32d(pinned["root_b32"])
+            how = f"the root of the head you pinned at {size}"
+        print(f"inclusion    {'VALID  ' if bound else 'INVALID'}  leaf_index={inc['leaf_index']} path={len(path)} hashes, {how}")
+        return 0 if ok and bound else 1
 
     if cmd == "consistency" and len(docs) == 3:
         old, new, cons = sth_of(docs[0]), sth_of(docs[1]), docs[2]
