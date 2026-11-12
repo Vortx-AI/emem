@@ -77,7 +77,7 @@ shows only the units that you choose to publish.
 
 | Source | Where it is encoded | What crosses | What stays | Status |
 |---|---|---|---|---|
-| **Documents, datasets, model weights, code** | the tokeniser on [emem.dev](https://emem.dev) (in your browser: code by definition, safetensors by tensor, zip and pptx by entry, PDF by page) or [`tree_proof.py`](plugins/emem/skills/emem-tokenise-files/) on your machine | one `emem:tree:` token: each unit's BLAKE3 folded into a Merkle root, in an index you sign | every unit you do not choose to publish | shipped |
+| **Documents, datasets, model weights, code** | the tokeniser on [emem.dev](https://emem.dev) (in your browser: code by definition, safetensors by tensor, zip and pptx by entry, PDF by page) or [`tree_proof.py`](tools/verifiers/emem-tokenise-files/) on your machine | one `emem:tree:` token: each unit's BLAKE3 folded into a Merkle root, in an index you sign | every unit you do not choose to publish | shipped |
 | **Your own algorithm** | wherever you run it | `emem_derive`: your value, the signed facts it read, and an optional `code_cid`, the hash of your code, all signed by your key | the code. emem never runs it; it pins it by hash | shipped; emem re-runs only pure operations (`delta`, `mean`, `sum`) |
 | **A payload on a satellite, drone, camera or robot** | [`emem-airgap`](crates/emem-airgap/README.md) on the device, with no network; the `emem-encode` sidecar adds an execution trace | a signed custody record: these bytes, this name, this size, at this time, under this key | the payload | the encoders ship (arm64 and amd64); the public device gate admits no real hardware yet |
 | **Open Earth archives** | emem's own readers of registered archives | signed facts, each naming its source bytes | nothing private: the archives are public, so anyone can recompute | shipped, the first corpus |
@@ -99,7 +99,7 @@ claude mcp add --transport http emem https://emem.dev/mcp
 ```bash
 curl -s "https://emem.dev/memories/by_attester/k572x7go/readme-example/license-tree.md" > index.md
 curl -s "https://emem.dev/v1/tree/xrnco3igl6j2j4kehg4z33ggk4?row=3" > row.json
-python3 plugins/emem/skills/emem-tokenise-files/scripts/tree_proof.py check row.json index.md LICENSE
+python3 tools/verifiers/emem-tokenise-files/tree_proof.py check row.json index.md LICENSE
 ```
 
 The index names every unit's hash and the root; the row carries unit 3 and its audit path. The check confirms bytes 6144 to 8191 are in the file the key `k572x7go` signed, by hashing those bytes and walking three steps to the root. For your own file, `tree_proof.py build report.md` cuts it into units and prints the index offline; sign and publish it under your own key ([the skill](plugins/emem/skills/emem-tokenise-files/SKILL.md) walks through it). The file never leaves your machine.
@@ -422,12 +422,12 @@ Issues and pull requests welcome: [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.
 
 ## Content address
 
-Every section above this one is a unit of one signed tree: `emem:tree:sn2275zzgk5xvazgxgb6gve7lu`, root `xxhy6lxaykj652mmabmqgw7665fecsqxr76xr2qf2gwsr76imtha`, published under the key `k572x7go`. A single section is `emem:tree:sn2275zzgk5xvazgxgb6gve7lu#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
+Every section above this one is a unit of one signed tree: `emem:tree:2zmkpwbjf24mxrafxtftyijsf4`, root `yxrzbbkdvlpucdizoahre6lymdpauqd22frjlt3iceycgmpqq5cq`, published under the key `k572x7go`. A single section is `emem:tree:2zmkpwbjf24mxrafxtftyijsf4#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
 
 ```bash
-curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261109.md" > index.md
-curl -s "https://emem.dev/v1/tree/sn2275zzgk5xvazgxgb6gve7lu?row=3" > row.json
-python3 plugins/emem/skills/emem-tokenise-files/scripts/tree_proof.py check row.json index.md README.md
+curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261112.md" > index.md
+curl -s "https://emem.dev/v1/tree/2zmkpwbjf24mxrafxtftyijsf4?row=3" > row.json
+python3 tools/verifiers/emem-tokenise-files/tree_proof.py check row.json index.md README.md
 ```
 
-`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261109.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261109.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
+`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261112.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261112.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.

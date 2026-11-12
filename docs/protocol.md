@@ -45,14 +45,14 @@ To check a receipt, a note or a log proof with no code of your own, use a
 verifier from the Claude Code plugin. Each plugin script uses only the
 Python standard library. Each section in the table shows how to run it.
 
-| Check | Script in `plugins/emem/skills/` | Section |
+| Check | Reference script in `tools/verifiers/` | Section |
 |---|---|---|
-| Receipt signature | `emem-verify-receipt/scripts/verify.py` | [§7.4](#74-offline-verification-python) |
+| Receipt signature | `emem-verify-receipt/verify.py` | [§7.4](#74-offline-verification-python) |
 | Merkle proof on a receipt | None. Use the script in the section. It needs no package. | [§8.5](#85-fold-a-live-proof-by-hand) |
-| Note authorship | `emem-multi-agent-handoff/scripts/verify_note.py` | [§7.5.1](#751-check-a-notes-authorship-by-hand) |
-| Signed tree head, inclusion or consistency proof | `emem-transparency-log/scripts/verify_log.py` | [§9.6.1](#961-check-an-inclusion-proof-by-hand), [§9.6.1.1](#9611-check-a-consistency-proof-by-hand) |
+| Note authorship | `emem-multi-agent-handoff/verify_note.py` | [§7.5.1](#751-check-a-notes-authorship-by-hand) |
+| Signed tree head, inclusion or consistency proof | `emem-transparency-log/verify_log.py` | [§9.6.1](#961-check-an-inclusion-proof-by-hand), [§9.6.1.1](#9611-check-a-consistency-proof-by-hand) |
 | Witness co-signature | None. Use the script in the section. It needs `blake3` and `pynacl`. | [§9.6.2.1](#9621-check-a-witness-co-signature-by-hand) |
-| One row of a tree in a note | `emem-tokenise-files/scripts/tree_proof.py` | [§9.8.1](#981-check-one-row-of-a-live-note) |
+| One row of a tree in a note | `emem-tokenise-files/tree_proof.py` | [§9.8.1](#981-check-one-row-of-a-live-note) |
 
 The words cell64, tslot, fact, receipt and responder have one meaning
 each. The [glossary](glossary.md) gives it.
@@ -74,7 +74,7 @@ repository.
    from the receipt and checks them with the key on the receipt:
 
    ```sh
-   python3 plugins/emem/skills/emem-verify-receipt/scripts/verify.py recall.json
+   python3 tools/verifiers/emem-verify-receipt/verify.py recall.json
    ```
 
    It prints `VALID`, the `digest` it rebuilt and the `signer` key.
@@ -115,7 +115,7 @@ To see a failure, change one signed field and run step 2 again:
 
 ```sh
 python3 -c 'import json; d=json.load(open("recall.json")); d["receipt"]["served_at"]="2000-01-01T00:00:00Z"; json.dump(d, open("tampered.json","w"))'
-python3 plugins/emem/skills/emem-verify-receipt/scripts/verify.py tampered.json
+python3 tools/verifiers/emem-verify-receipt/verify.py tampered.json
 ```
 
 The script prints `INVALID` and a different digest, and exits with
@@ -2000,13 +2000,13 @@ The check runs the first `python` block in this file that contains both
 `emem.preimage.v1` and `VerifyKey`. The witness block in §9.6.2.1 also
 contains both. If you edit this page, keep the §7.4 block before it.
 
-The Claude Code plugin ships a second verifier that needs no packages.
+The emem repository has a second verifier, in `tools/verifiers/`, that needs no packages.
 It reads a saved `POST /v1/recall` response or a bare receipt:
 
 ```sh
 curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
   -d '{"cell":"defi.zb592.nUkO.zEzE","bands":["elevation"]}' > recall.json
-python3 plugins/emem/skills/emem-verify-receipt/scripts/verify.py recall.json
+python3 tools/verifiers/emem-verify-receipt/verify.py recall.json
 ```
 
 It prints `VALID` or `INVALID`, then the digest it rebuilt. On
@@ -2246,11 +2246,11 @@ note and printed the same line. The served bytes had not changed.
 `verify()` raises `InvalidSignature` when the signature fails. For a v1
 note, drop `.v2` and the final `"|" + base` from the digest.
 
-The plugin ships a fuller checker that needs no third-party packages. It
+The repository has a fuller checker that needs no third-party packages. It
 also checks a `_superseded` banner. Give it the same two files:
 
 ```sh
-python3 plugins/emem/skills/emem-multi-agent-handoff/scripts/verify_note.py view.json note.md
+python3 tools/verifiers/emem-multi-agent-handoff/verify_note.py view.json note.md
 ```
 
 On 7 November 2026 it printed `body MATCH`, `sig VALID` and
@@ -2398,7 +2398,7 @@ package. Save it as `fold_proof.py` in the root of your clone:
 
 ```python
 import base64, json, sys
-sys.path.insert(0, "plugins/emem/skills/emem-verify-receipt/scripts")
+sys.path.insert(0, "tools/verifiers/emem-verify-receipt")
 from emem_crypto import blake3
 
 r = json.load(open(sys.argv[1]))["receipt"]
@@ -2675,7 +2675,7 @@ receipt's Merkle root. On 7 November 2026 the same steps passed again
 for the same entry at three sizes: 3,243,767, 3,245,735 (02:19 UTC) and
 3,247,662 (07:27 UTC).
 
-The Claude Code plugin ships a verifier for steps 2, 3 and 6. It needs
+The repository has a verifier for steps 2, 3 and 6. It needs
 no packages. It does step 5 only when the response has no
 `leaf_hash_b32`. Otherwise it uses `leaf_hash_b32` as given, so do
 step 5 yourself. The `inclusion` command checks the proof against the
@@ -2686,8 +2686,8 @@ proof at an older `tree_size` gives `INVALID` when the log has grown
 step 1 and step 4 responses, then run:
 
 ```sh
-python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py sth sth.json
-python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py inclusion inclusion.json
+python3 tools/verifiers/emem-transparency-log/verify_log.py sth sth.json
+python3 tools/verifiers/emem-transparency-log/verify_log.py inclusion inclusion.json
 ```
 
 The STH inside the step 4 response can be newer than the step 1 STH.
@@ -2904,7 +2904,7 @@ python3 check_consistency.py old.json new.json cons.json
 ```
 
 The Rust function for steps 2 and 3 is `witness_preimage` in
-`crates/emem-api-rest/src/lib.rs`. The plugin script `verify_log.py`
+`crates/emem-api-rest/src/lib.rs`. The reference script `verify_log.py`
 does not check witness co-signatures.
 
 On 7 November 2026 these steps passed against emem.dev at 01:55 UTC.
@@ -3207,7 +3207,7 @@ or the row label (a pointer's chunk label, a directory's path). Without
 Unlike §9.6, this tree has no leaf and node domain separation.
 `POST /v1/tree/path` computes the same path over leaves or chunks that
 the caller holds. To check a path offline, use
-[`tree_proof.py`](../plugins/emem/skills/emem-tokenise-files/scripts/tree_proof.py)
+[`tree_proof.py`](../tools/verifiers/emem-tokenise-files/tree_proof.py)
 from the `emem-tokenise-files` plugin skill. Its `build` command makes a
 `pointer.v1` note from a file. Its `check` command folds the path from
 `GET /v1/tree`. The result must equal the served root and the `root:`
@@ -3238,7 +3238,7 @@ Sentinel-2 `B08.tif` file. Get the note bytes and the path for row 3:
 
     curl -s -o note.md https://emem.dev/memories/by_attester/slkf7ntk/qid2s6q7beopjzfijs2k5qjubq.md
     curl -s -o row3.json "https://emem.dev/v1/tree/qid2s6q7beopjzfijs2k5qjubq?row=3"
-    python3 plugins/emem/skills/emem-tokenise-files/scripts/tree_proof.py check row3.json note.md
+    python3 tools/verifiers/emem-tokenise-files/tree_proof.py check row3.json note.md
 
 On 7 November 2026, the route gave 74 rows and a 7-step path. The check
 printed:

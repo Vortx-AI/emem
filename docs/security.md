@@ -552,7 +552,7 @@ Check a receipt. Use the receipt from a `POST /v1/recall` response
 [Check your first receipt](./protocol.md#check-your-first-receipt):
 
 ```sh
-python3 plugins/emem/skills/emem-verify-receipt/scripts/verify.py recall.json
+python3 tools/verifiers/emem-verify-receipt/verify.py recall.json
 ```
 
 Check that the log holds the entry for that receipt. Use the
@@ -563,7 +563,7 @@ A proof at an older size gives `INVALID` when the log has grown.
 ```sh
 curl -s https://emem.dev/v1/log/sth -o sth.json
 curl -s 'https://emem.dev/v1/log/inclusion?entry_hash=<log_entry_hash>' -o inclusion.json
-python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py inclusion inclusion.json
+python3 tools/verifiers/emem-transparency-log/verify_log.py inclusion inclusion.json
 ```
 
 The head inside `inclusion.json` can be newer than `sth.json`. Connect the
@@ -573,7 +573,7 @@ each file. When the two sizes are equal, the proof has 0 hashes.
 ```sh
 jq .sth.tree_size sth.json inclusion.json
 curl -s 'https://emem.dev/v1/log/consistency?first=<sth.json size>&second=<inclusion.json size>' -o link.json
-python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py consistency sth.json inclusion.json link.json
+python3 tools/verifiers/emem-transparency-log/verify_log.py consistency sth.json inclusion.json link.json
 ```
 
 Keep `sth.json`. Later, get a new head and prove that the log only grew
@@ -583,7 +583,7 @@ between the two heads. Each file keeps its size at `.sth.tree_size`:
 curl -s https://emem.dev/v1/log/sth -o new_sth.json
 jq .sth.tree_size sth.json new_sth.json
 curl -s 'https://emem.dev/v1/log/consistency?first=<old tree_size>&second=<new tree_size>' -o consistency.json
-python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py consistency sth.json new_sth.json consistency.json
+python3 tools/verifiers/emem-transparency-log/verify_log.py consistency sth.json new_sth.json consistency.json
 ```
 
 On 7 November 2026 at 08:11 UTC all four checks gave `VALID` against

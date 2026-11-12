@@ -8,11 +8,11 @@ description: Fetches a native-resolution raster field over an area from emem, or
 | | |
 |---|---|
 | Use it when | The user needs a grid of pixel values over an area, at one date or at several dates. |
-| You need | A bounding box (`min_lat`, `min_lng`, `max_lat`, `max_lng`) and a band. Dates are optional. No key. |
+| You need | A bounding box (`min_lat`, `min_lng`, `max_lat`, `max_lng`) and a band. Dates are optional. No key. For the hash check, a BLAKE3 tool that you already trust. |
 | You get | A grid artifact with its BLAKE3 name (`artifact_cid`), a signed derivation record, a receipt, and an `emem:raster:` or `emem:cube:` token. |
-| Calls | `POST /v1/band_raster`, `/v1/band_composite`, `/v1/band_cube`, then `/v1/raster/resolve` or `/v1/cube/resolve` to check a token. |
+| Calls | `POST /v1/band_raster`, `/v1/band_composite`, `/v1/band_cube`, then `/v1/raster/resolve` or `/v1/cube/resolve` to check a token, and `GET /v1/artifacts/{cid}` for the bytes. |
 
-> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON or a raster file from it. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. The files under `scripts/` read local files and make no network calls.
+> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON or a raster file from it. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no code. Its commands read no environment variable, key or credential. They read only files that an earlier step saved from `https://emem.dev`.
 
 A world model reads a field over an area, often across time. This
 skill gets that field from emem as a signed artifact. Another party can
@@ -103,27 +103,36 @@ newer scene arrives, the `artifact_cid` changes too.
 Download the file at `artifact.url`. No MCP tool returns the bytes.
 Send a GET to
 `https://emem.dev/v1/artifacts/77zgrf4hiv4cnzqblgkttrg4jssvh5sghhvdqjjq3wnj77nmgpma`
-and save the bytes as `artifact.bin`. Then hash them again:
+and save the bytes as `artifact.bin`. Use your own `artifact_cid` from
+step 1 in the URL. The file is data, a header and an array of numbers.
+Nothing in it runs.
 
-```sh
-python3 "${CLAUDE_SKILL_DIR}/scripts/rehash.py" 77zgrf4hiv4cnzqblgkttrg4jssvh5sghhvdqjjq3wnj77nmgpma artifact.bin
-```
+Then compute the BLAKE3-256 digest of the file with a tool that you
+already trust. Write the 32 digest bytes in base32: the RFC 4648
+alphabet, lowercase, no padding. The result has 52 characters.
 
-Use your own `artifact_cid` from step 1 in the URL and in the command.
-`${CLAUDE_SKILL_DIR}` is the directory of this skill. Claude Code sets
-it.
+| Result | Meaning |
+|---|---|
+| Equal to `artifact_cid` | The bytes are the bytes that the record names. |
+| Different | The bytes changed, or you used a different cid. |
 
-| Output of `rehash.py` | Exit code | Meaning |
-|---|---|---|
-| The computed cid, then `MATCH` | 0 | The bytes are the bytes that the record names. |
-| The computed cid, then `MISMATCH` | 1 | The bytes changed, or you used a different cid. |
-| `emem_crypto.py not found` | 2 | The script is not beside `emem_crypto.py`. |
+A tool such as `b3sum` prints the digest as 64 hex characters. Convert
+the 32 bytes that the hex stands for, not the hex text. For the cid
+above, the hex form is
+`fff2689787457826e601599539c4dc4ca553f64639ea382530dd9a9ffdac33d8`.
 
-On 7 November 2026 the file was 4160 bytes and `rehash.py` printed
-`MATCH`. With a different cid, it printed `MISMATCH`. `rehash.py`
-gets BLAKE3 from `scripts/emem_crypto.py`, which ships with this skill.
-It is plain Python with no third-party packages.
-`rehash.py --self-test` checks it against the official test vectors.
+On 7 November 2026 the file was 4160 bytes. On 12 November 2026 the
+responder still served it, and its BLAKE3 in base32 was equal to the
+cid.
+
+No emem route hashes the whole file for you. The resolve route in
+step 5 reads only sample pixels. This hash is the check that does not
+depend on emem: it needs only the bytes and the cid.
+
+The emem repository publishes a reference offline verifier at
+https://github.com/Vortx-AI/emem/tree/main/tools/verifiers/emem-field-tokens
+for anyone who wants to read or run it themselves. This plugin ships no
+code.
 
 The file format is `application/x.emem-grid-f32.v1`. It has a 64-byte
 header, then a little-endian f32 array. The header starts with the
@@ -226,10 +235,13 @@ place of `s2.B04` returned:
 {"code":"invalid_argument","message":"token band `s2.B08` contradicts the signed record's `s2.B04`; refusing to dereference a forged or corrupt handle","schema":"emem.error.v1"}
 ```
 
-To check the receipt signature offline, use
-[`emem-verify-receipt`](../emem-verify-receipt/SKILL.md) on
-`raster.json`. On 7 November 2026 it printed `VALID`, primitive
-`emem.band_raster`, with the FIELD segment bound.
+The resolve route is the responder that checks its own record. To
+check the receipt signature, use
+[`emem-verify-receipt`](../emem-verify-receipt/SKILL.md) on the
+`receipt` in `raster.json`. That skill also gives the independent
+check. Its tag 10 binds `aoi_cid` and `derivation_cid`. On
+12 November 2026 the server check of a `band_raster` receipt returned
+`valid: true`, `primitive: emem.band_raster` and `field_bound: true`.
 
 ## Step 6 (optional): put several rasters in one set
 

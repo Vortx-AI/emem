@@ -7,7 +7,7 @@ Every value comes from the files in data/log/, which are live responses from eme
   GET  /v1/log/inclusion?fact_cid=<fact_cid of the recall>                      -> data/log/inclusion_fuji.json
   GET  /v1/log/consistency?first=<sth.json size>&second=<inclusion_fuji size>   -> data/log/consistency.json
   GET  /v1/log/witnesses                                                        -> data/log/witnesses.json
-The checks use plugins/emem/skills/emem-transparency-log/scripts/verify_log.py, so the image shows only what that
+The checks use tools/verifiers/emem-transparency-log/verify_log.py, so the image shows only what that
 offline verifier accepts.
 usage: python log_proof.py OUT.webp    (needs Playwright for Python with Chromium and Pillow)
 """
@@ -23,7 +23,7 @@ from playwright.sync_api import sync_playwright
 
 HERE = Path(__file__).resolve().parent
 DATA = HERE / "data" / "log"
-sys.path.insert(0, str(HERE.parents[3] / "plugins/emem/skills/emem-transparency-log/scripts"))
+sys.path.insert(0, str(HERE.parents[3] / "tools/verifiers/emem-transparency-log"))
 import verify_log as vl  # noqa: E402
 
 

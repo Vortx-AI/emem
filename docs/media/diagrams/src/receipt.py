@@ -17,7 +17,7 @@ from xml.sax.saxutils import escape
 HERE = Path(__file__).resolve().parent
 D = HERE / "data" / "receipt"
 sys.dont_write_bytecode = True
-sys.path.insert(0, str(HERE.parents[3] / "plugins/emem/skills/emem-verify-receipt/scripts"))
+sys.path.insert(0, str(HERE.parents[3] / "tools/verifiers/emem-verify-receipt"))
 import verify as V  # noqa: E402
 from emem_crypto import blake3, ed25519_verify  # noqa: E402
 

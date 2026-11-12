@@ -53,51 +53,37 @@ emem.dev before the skill shipped.
 | `emem-shared-identity` | make two agents refer to the same object, and know what each token proves |
 | `emem-referential-drift` | pin a value to a citation, grade what you are about to say, ask why a number moved |
 | **Checks** | |
-| `emem-verify-receipt` | check the Ed25519 signature of a receipt offline, without a new call to the responder |
+| `emem-verify-receipt` | check the Ed25519 signature of a receipt, through emem or with tools that you trust |
 | `emem-transparency-log` | prove the log only grew, and that an entry or note is in it |
 | `emem-verify-before-publish` | check the citations of a draft and the numbers written next to them |
 | `emem-device-traces` | resolve and verify again the signed OS trace of a device, and what enrolment admits today |
 
-### Python scripts in seven skills
+### No code in this plugin
 
-Seven skills ship small Python scripts next to their `SKILL.md`:
+This plugin ships Markdown, JSON and its icon, and no code. The skills check
+a receipt, a log proof, a note or a hash through emem's MCP tools and HTTP
+routes. Each skill also says what to compute again so that you can check
+it with tools that you trust, without trusting the responder.
 
-| Script | What it does |
+The emem repository publishes reference offline verifiers in Python at
+https://github.com/Vortx-AI/emem/tree/main/tools/verifiers. They are not
+part of this plugin:
+
+| Folder | What it does |
 |---|---|
-| `emem-verify-receipt/scripts/verify.py` | rebuilds the preimage of a receipt and checks its signature |
-| `emem-transparency-log/scripts/verify_log.py` | checks a tree head, an inclusion proof, a consistency proof |
-| `emem-document-evidence/scripts/verify_doc.py` | checks OCR and parse receipts and the hashes of the document |
-| `emem-field-tokens/scripts/rehash.py` | computes the hash of a downloaded artifact again and compares it with its cid |
-| `emem-multi-agent-handoff/scripts/verify_note.py` | checks offline which key wrote a memory note, and the signature on its supersede banner. With `--read-key-card`, it also reads the card of that key. `test_verify_note.py` tests it |
-| `emem-multi-agent-handoff/scripts/seal_note.py` | seals a note to one key. The recipient opens it with `signer_open_sealed` from the emem-signer plugin. `emem_sealed.py` holds the format and `test_sealed.py` tests it |
-| `emem-tokenise-files/scripts/tree_proof.py` | builds a pointer.v1 index; checks the audit path and the bytes of a unit |
-| `emem-long-horizon-memory/scripts/verify_note.py` | the same note check, shipped with the skill that uses it |
-| `emem-long-horizon-memory/scripts/watch_inbox.py` | waits until a new note comes into your inbox |
+| `emem-verify-receipt` | rebuilds the preimage of a receipt and checks its signature |
+| `emem-transparency-log` | checks a tree head, an inclusion proof, a consistency proof |
+| `emem-document-evidence` | checks OCR and parse receipts and the hashes of the document |
+| `emem-field-tokens` | computes the hash of a downloaded artifact again and compares it with its cid |
+| `emem-multi-agent-handoff` | checks which key wrote a memory note, and seals a note to one key |
+| `emem-tokenise-files` | builds a pointer.v1 index; checks the audit path and the bytes of a unit |
+| `emem-long-horizon-memory` | the same note check, and a wait for a new note in your inbox |
 
-The scripts read only the files that you give them. They write only to
-the location that you tell them. Two scripts also read from
-`https://emem.dev` and send nothing:
-
-- `verify_note.py` reads the key card of the author with one GET, only
-  when you give `--read-key-card`.
-- `watch_inbox.py` polls the inbox.
-
-The other scripts make no network call.
-
-One module, `emem_crypto.py`, does the BLAKE3 and Ed25519 checks. Each
-skill ships its own copy in `scripts/`, so a skill that you copy alone
-still runs. The module is plain Python 3. It uses no third-party package
-and no compiled code, so you install nothing to run it.
-
-The seven check scripts (all except `watch_inbox.py` and `seal_note.py`)
-accept `--self-test`. This checks the module against 11 official BLAKE3
-test vectors and RFC 8032 test vectors 1 to 3. It also checks that the
-module rejects four bad signatures. All seven printed `SELF-TEST PASS` on
-7 November 2026.
-
-`seal_note.py` is the exception: it needs the `cryptography` package for
-X25519 and ChaCha20-Poly1305. No script in this plugin reads a key or a
-seed.
+Their BLAKE3 and Ed25519 code is plain Python 3 with no third-party
+package. The check scripts accept `--self-test`, which checks it against
+11 official BLAKE3 test vectors and RFC 8032 test vectors 1 to 3. All
+printed `SELF-TEST PASS` on 12 November 2026. A note sealed to your key
+opens with `signer_open_sealed` from the emem-signer plugin.
 
 ## Signing key
 

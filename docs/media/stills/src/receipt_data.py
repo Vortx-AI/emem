@@ -13,7 +13,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[3]
-sys.path.insert(0, str(ROOT / "plugins/emem/skills/emem-verify-receipt/scripts"))
+sys.path.insert(0, str(ROOT / "tools/verifiers/emem-verify-receipt"))
 import verify as V  # noqa: E402
 from emem_crypto import blake3, ed25519_verify  # noqa: E402
 

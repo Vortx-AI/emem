@@ -178,6 +178,7 @@ hook fails, fix the underlying issue.
 | Registries (10 manifest digests, `GET /v1/manifests`) | `crates/emem-core/data/*.json` + `src/` |
 | MCP tool registry (116 tools) | `crates/emem-mcp/src/lib.rs` |
 | Read primitives | `crates/emem-primitives/src/*.rs` |
+| Reference offline verifiers (kept out of the plugin, which ships no code) | `tools/verifiers/` |
 | Hunter and corpus-audit classifiers for /v1/ask | `crates/emem-api-rest/src/ask_foundation.rs` |
 | Physics solvers (heat / wave / NDVI AR(2)) | `crates/emem-api-rest/src/physics.rs` |
 | `/humans` interactive console | `web/humans.html` |

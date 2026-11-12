@@ -45,7 +45,7 @@ SAVED_CBOR = [
     ("qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq", ROOT / "docs/media/films/src/data/one-byte/fact-live.cbor"),
 ]
 COST_RESOLVE = ROOT / "docs/media/stills/src/data/cost/resolve.json"
-VERIFY_LOG = ROOT / "plugins/emem/skills/emem-transparency-log/scripts/verify_log.py"
+VERIFY_LOG = ROOT / "tools/verifiers/emem-transparency-log/verify_log.py"
 BASE = "https://emem.dev"
 TOKEN = re.compile(r"emem:(?:fact|bundle):[a-z0-9]+(?:\.[A-Za-z0-9]+)*(?::[a-z2-7]{52})?")
 

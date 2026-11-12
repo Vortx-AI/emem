@@ -124,7 +124,7 @@ Ask for the JSON view. It carries the `authorship` block. Then run the offline v
 
 ```sh
 curl -fsS -H 'Accept: application/json' "$N" > view.json
-python3 plugins/emem/skills/emem-multi-agent-handoff/scripts/verify_note.py view.json
+python3 tools/verifiers/emem-multi-agent-handoff/verify_note.py view.json
 ```
 
 On 6 November 2026 it printed:

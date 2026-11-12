@@ -24,7 +24,7 @@ import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-TREE_PROOF = REPO / "plugins/emem/skills/emem-tokenise-files/scripts/tree_proof.py"
+TREE_PROOF = REPO / "tools/verifiers/emem-tokenise-files/tree_proof.py"
 FOOTER = "\n## Content address\n"
 
 

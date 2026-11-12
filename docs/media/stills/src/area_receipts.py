@@ -19,7 +19,7 @@ from pyproj import Transformer
 
 HERE = Path(__file__).resolve().parent
 D = HERE / "data"
-sys.path.insert(0, str(HERE.parents[3] / "plugins/emem/skills/emem-verify-receipt/scripts"))
+sys.path.insert(0, str(HERE.parents[3] / "tools/verifiers/emem-verify-receipt"))
 import verify as vr  # noqa: E402
 from emem_crypto import blake3, ed25519_verify  # noqa: E402
 

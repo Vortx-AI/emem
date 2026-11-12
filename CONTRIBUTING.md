@@ -43,7 +43,7 @@ old receipts. Before you open the PR, run `cargo test -p emem-fact`.
 Then check a saved response from `var/demos/` with the offline verifier:
 
 ```bash
-python3 plugins/emem/skills/emem-verify-receipt/scripts/verify.py \
+python3 tools/verifiers/emem-verify-receipt/verify.py \
   var/demos/<UTC>/<step>.resp.json
 ```
 

@@ -33,6 +33,12 @@ Each rule is a finding a review made, or a mistake made while fixing one:
                   A docs rewrite brought back 69 such curls in 19 skills on
                   2026-11-07, two days after they were removed; the scanner
                   failed on main before anything here noticed
+  file-type       a file in the emem plugin that the directory refuses from
+                  an unverified publisher: anything but Markdown, text,
+                  JSON, YAML and images, a text file starting with #!, a
+                  NUL byte, or extra files in .claude-plugin/ (the
+                  directory held the plugin as LOCAL_CODE_FILE_TYPE,
+                  2026-11-12; the verifiers moved to tools/verifiers/)
 
 Exit 1 on any finding, with file and line.
 """
@@ -189,6 +195,38 @@ for name, srv in json.load(open(mcp, encoding="utf-8")).get("mcpServers", {}).it
     if "headers" in srv:
         findings.append((rel(mcp), 1, "credential", f"{name} sends headers; emem.dev takes no credential"))
 
+# The directory takes no code from a publisher it has not verified
+# (LOCAL_CODE_FILE_TYPE, 2026-11-12): only these types, an image that is the
+# image its name says, no text file that starts with #!, every text file UTF-8
+# with no NUL byte, and in .claude-plugin/ only plugin.json. The offline
+# verifiers live in tools/verifiers/, outside the plugin.
+TEXT_EXT = {".md", ".txt", ".json", ".yaml", ".yml"}
+IMAGE_MAGIC = {".png": b"\x89PNG\r\n\x1a\n", ".jpg": b"\xff\xd8\xff", ".jpeg": b"\xff\xd8\xff",
+               ".gif": b"GIF8", ".webp": b"RIFF", ".ico": b"\x00\x00\x01\x00"}
+for dirpath, _dirs, names in os.walk(ROOT):
+    for name in names:
+        f = os.path.join(dirpath, name)
+        inside = os.path.relpath(f, ROOT)
+        ext = os.path.splitext(name)[1].lower()
+        data = open(f, "rb").read()
+        if any(c in inside for c in ':\\*?"<>|'):
+            findings.append((rel(f), 1, "file-type", "a character in the path that not every computer keeps"))
+        if inside.startswith(".claude-plugin" + os.sep) and name != "plugin.json":
+            findings.append((rel(f), 1, "file-type", "only plugin.json belongs in .claude-plugin/"))
+        if ext in IMAGE_MAGIC:
+            if not data.startswith(IMAGE_MAGIC[ext]):
+                findings.append((rel(f), 1, "file-type", f"not the {ext} image its name says"))
+            continue
+        if ext not in TEXT_EXT and name not in ("LICENSE", ".gitignore"):
+            findings.append((rel(f), 1, "file-type", "the directory takes only Markdown, text, JSON, YAML and images from this publisher"))
+            continue
+        if data.startswith(b"#!") or b"\0" in data:
+            findings.append((rel(f), 1, "file-type", "starts with #! or holds a NUL byte"))
+        try:
+            data.decode("utf-8")
+        except UnicodeDecodeError:
+            findings.append((rel(f), 1, "file-type", "not UTF-8"))
+
 for f in sorted(glob.glob(os.path.join(PLUGINS, "*", "**", "*.py"), recursive=True)):
     for n, line in enumerate(open(f, encoding="utf-8"), 1):
         if LOCAL_READ.search(line):
@@ -198,4 +236,4 @@ for f, n, rule, what in findings:
     print(f"{f}:{n}: {rule}: {what}")
 if findings:
     sys.exit(1)
-print("plugin skills: no undefined shell variables, sibling scripts, local reads, foreign hosts, piped execution, secret-shaped names, credentials, unshipped files or scanner-flagged curls in the emem plugin")
+print("plugin skills: no undefined shell variables, sibling scripts, local reads, foreign hosts, piped execution, secret-shaped names, credentials, unshipped files, scanner-flagged curls or refused file types in the emem plugin")

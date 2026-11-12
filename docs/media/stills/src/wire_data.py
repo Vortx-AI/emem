@@ -16,7 +16,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[3]
-sys.path.insert(0, str(ROOT / "plugins/emem/skills/emem-field-tokens/scripts"))
+sys.path.insert(0, str(ROOT / "tools/verifiers/emem-field-tokens"))
 from emem_crypto import blake3  # noqa: E402
 
 D = HERE / "data" / "wire"

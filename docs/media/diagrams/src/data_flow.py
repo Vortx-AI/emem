@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parents[3] / "plugins/emem/skills/emem-field-tokens/scripts"))
+sys.path.insert(0, str(HERE.parents[3] / "tools/verifiers/emem-field-tokens"))
 from emem_crypto import blake3  # noqa: E402
 
 CID = "qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq"

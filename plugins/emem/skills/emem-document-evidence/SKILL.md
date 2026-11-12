@@ -1,6 +1,6 @@
 ---
 name: emem-document-evidence
-description: Turns a scanned document into signed, checkable evidence with emem. It runs OCR on an image. Then it parses a pesticide-residue lab report: analytes, results in mg/kg, LOQ, printed MRL, exceedances. Or it parses a land record: owners, parcel ids, areas in hectares, places, dates. Each value carries its line and byte offset, and emem signs each step. Use when an agent must extract fields from a lab certificate, a 7/12 extract, a khasra or a CAR record. Use it when the agent must hand them on with proof of the image and text they came from. Ships an offline verifier.
+description: Turns a scanned document into signed, checkable evidence with emem. It runs OCR on an image. Then it parses a pesticide-residue lab report: analytes, results in mg/kg, LOQ, printed MRL, exceedances. Or it parses a land record: owners, parcel ids, areas in hectares, places, dates. Each value carries its line and byte offset, and emem signs each step. Use when an agent must extract fields from a lab certificate, a 7/12 extract, a khasra or a CAR record. Use it when the agent must hand them on with proof of the image and text they came from. It states which hashes and signatures to compute again, so that a third party can check the chain with its own tools and no trust in emem.
 ---
 
 # emem-document-evidence
@@ -8,11 +8,11 @@ description: Turns a scanned document into signed, checkable evidence with emem.
 | | |
 |---|---|
 | Use it when | An agent must read fields from a residue lab report or a land record, and must show which image and text each field came from. |
-| You need | A PNG, JPEG, TIFF, WebP, GIF or BMP image of 8 MiB or less, or the document text. No key. |
+| You need | A PNG, JPEG, TIFF, WebP, GIF or BMP image of 8 MiB or less, or the document text. No key. For the independent check, a BLAKE3 tool and an Ed25519 tool that you already trust. |
 | You get | The OCR text with a signed receipt, the parsed fields with a second signed receipt, and the line and byte offset of each value. |
-| Calls | `POST /v1/ocr` (MCP `emem_ocr`), `POST /v1/lab_report_parse`, `POST /v1/land_record_parse`. |
+| Calls | `POST /v1/ocr` (MCP `emem_ocr`), `POST /v1/lab_report_parse`, `POST /v1/land_record_parse`, and `GET /.well-known/emem.json` for the published key. |
 
-> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. The files under `scripts/` read local files and make no network calls.
+> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no code. Its commands read no environment variable, key or credential. They read only the image or text that you give them, and responses that an earlier step saved.
 
 Each call signs its output. A hash chains each call to the call before it:
 
@@ -23,7 +23,7 @@ Each call signs its output. A hash chains each call to the call before it:
 | `POST /v1/land_record_parse` | The same, for a land record. | `deterministic_index` |
 
 The responder does not store the document or the result. Each receipt
-is complete in itself. The verifier in step 3 needs only the response,
+is complete in itself. The check in step 3 needs only the response,
 and the document if you have it.
 
 ## Limits
@@ -162,45 +162,99 @@ Indian scripts, Portuguese, Spanish, French and Indonesian.
 Each extracted value carries `line`, `line_no` and `byte_offset`. Use
 `line` to quote the exact line. `line_no` counts from 0.
 
-## Step 3: verify offline
+## Step 3: check the chain
 
-`scripts/verify_doc.py` ships with this skill. Claude Code sets
-`${CLAUDE_SKILL_DIR}`. The script makes no network calls. It gets
-BLAKE3 and Ed25519 from `scripts/emem_crypto.py`, which also ships with
-this skill. Both are plain Python with no third-party packages.
+### Through emem
 
-```sh
-python3 "${CLAUDE_SKILL_DIR}/scripts/verify_doc.py" --self-test
-python3 "${CLAUDE_SKILL_DIR}/scripts/verify_doc.py" ocr.json report.png
-python3 "${CLAUDE_SKILL_DIR}/scripts/verify_doc.py" lab.json
-python3 "${CLAUDE_SKILL_DIR}/scripts/verify_doc.py" lab_text.json report.txt
+emem has one server check for this chain. Send an OCR response,
+unchanged, as `ocr` to a parse route, as step 2 does. Before it parses,
+the responder rebuilds the `emem.ocr.v1` preimage from the fields of
+the response and checks the signature against its own key. It also
+checks that `text` hashes to `text_blake3_b32`. A changed response gets
+HTTP 422 with `ocr_receipt_invalid` or `text_hash_mismatch` (see
+[Errors](#errors)). A parse with `ocr` has no daily quota.
+
+This check has limits:
+
+- The responder checks its own signature. The check is not independent.
+- It accepts only an OCR response that this responder signed.
+- It does not have the image, so it cannot check `image_blake3_b32`.
+- No route checks a parse receipt (`emem.doc_parse.v1`).
+  `emem_verify_receipt` does not take it, because it reads only the
+  receipts of fact reads.
+
+Without `product`, the parser is deterministic. Send the same text
+again, and `text_blake3_b32` and `result_blake3_b32` come back the
+same. On 12 November 2026 two parses of one report text, 6 s apart,
+gave the same two hashes. This shows that the responder still reads
+that text the same way. It is again the responder that checks itself.
+
+### Independently
+
+Use this part when the result must not depend on emem. Use tools that
+you already trust for BLAKE3-256 and Ed25519. If you have none, say
+that only the responder checked the chain.
+
+Section 9.7 of https://github.com/Vortx-AI/emem/blob/main/docs/protocol.md
+gives both preimages. The `receipt.preimage` text in each response
+repeats its segment list.
+
+First compute the hashes. Each `_b32` value is a 32-byte BLAKE3-256
+digest in base32: the RFC 4648 alphabet, lowercase, no padding, 52
+characters.
+
+| Check | Compute | Must equal |
+|---|---|---|
+| Image | BLAKE3 of the bytes of the image file | `image_blake3_b32` |
+| Text | BLAKE3 of the UTF-8 bytes of `text` (OCR), or of the text that you sent (parse) | `text_blake3_b32` |
+| Result | BLAKE3 of `result` as compact JSON: no spaces, object keys in sorted order, non-ASCII text as raw UTF-8 | `result_blake3_b32` |
+| Chain | For a parse that carries `ocr` | `ocr.text_blake3_b32` equals `text_blake3_b32` |
+
+The responder writes `result` with serde_json. If your JSON tool writes
+a number in a different form, the result hash does not match, even for
+an unchanged result. Check the form of the numbers before you report a
+mismatch.
+
+Then check the signature:
+
+```
+seg(tag, bytes) = tag || u32le(len(bytes)) || bytes
+stream = "emem.preimage.v1\0" || u32le(len(domain)) || domain || seg(1, ...) || seg(2, ...) || ...
+digest = blake3(stream)                              32 bytes
+valid  = ed25519_verify(responder_pubkey, signature, digest)
 ```
 
-The second argument is optional. For an OCR response it is the image.
-For a parse response it is the text file.
-
-| Line | What it checks |
+| `receipt.domain` | Segments, from tag 1 |
 |---|---|
-| `image MATCH` | The image file hashes to `image_blake3_b32`. |
-| `text MATCH` | The text hashes to `text_blake3_b32`. |
-| `result MATCH` | The `result` object hashes to `result_blake3_b32`. |
-| `sig VALID` | The Ed25519 signature verifies over the rebuilt preimage. |
-| `ocr VALID`, `ocr MATCH` | For a parse that carries its OCR response: the OCR signature verifies, and the parsed text is the text that the OCR receipt signs. |
+| `emem.ocr.v1` | `image_blake3_b32`, `source`, `lang`, `engine`, `text_blake3_b32`, `read_at`, `receipt.responder_pubkey_b32` |
+| `emem.doc_parse.v1` | `signal`, `text_blake3_b32`, `result_blake3_b32`, `parser`, `parsed_at`, `receipt.responder_pubkey_b32` |
 
-A failed check prints `MISMATCH` or `INVALID`. The exit code is 0 when
-every check passed, 1 when a check failed, and 2 for bad input.
+A tag is 1 byte and `u32le(n)` is `n` as 4 bytes, little-endian. A hash
+and the key enter as their 32 raw bytes, decoded from base32. Every
+other field enters as its UTF-8 bytes. The signature is
+`receipt.signature_b32`, 64 bytes after decoding. Ed25519 signs the
+32-byte digest, not the stream. For a parse that carries `ocr`, check
+the OCR receipt inside it the same way.
 
-The script checks the signature with the key in the response. Compare
-the `signer` that it prints with the published key of the responder:
+The signature names the key in the response. Compare that key with the
+published key of the responder:
 
 ```sh
-curl -sf https://emem.dev/.well-known/emem.json
+curl -fsSL https://emem.dev/.well-known/emem.json
 ```
 
 Read `responder.pubkey_b32` in the answer.
 
-On 7 November 2026 this returned
-`777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka`.
+On 12 November 2026 this returned
+`777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka`. On the same
+day, a parse of a three-row residue report sent as `text` was checked
+in this way. The text hash, the result hash in the JSON form above and
+the signature under that key all matched.
+
+The emem repository publishes a reference offline verifier at
+https://github.com/Vortx-AI/emem/tree/main/tools/verifiers/emem-document-evidence
+for anyone who wants to read or run it themselves. This plugin ships no
+code.
 
 ## Example run on 7 November 2026
 
@@ -210,8 +264,8 @@ and `Sample ID: BAS-RICE-044`. The text in `report.txt` was the same.
 
 | Path | Result |
 |---|---|
-| OCR (`tesseract 5.5.0`), then parse with `ocr` | Tesseract put the LOQ and MRL columns in separate blocks. Each row came back with `mrl_mg_kg: null`, and the verdict was `no_mrl_printed`. All hashes and both signatures verified. |
-| Parse with `text` and `product: "rice"` | Tricyclazole 0.012 mg/kg against the printed MRL 0.01: `exceeds_printed_mrl: true`. The EU lookup matched 3 of 3 rows to product 0500060 Rice, with MRL `0.01*` for each. The verdict was `exceeds_eu_mrl`, with 1 exceedance. `verify_doc.py` printed `text MATCH`, `result MATCH` and `sig VALID`. |
+| OCR (`tesseract 5.5.0`), then parse with `ocr` | Tesseract put the LOQ and MRL columns in separate blocks. Each row came back with `mrl_mg_kg: null`, and the verdict was `no_mrl_printed`. The parse route accepted the signed OCR response, so the responder had checked its signature and its text hash. |
+| Parse with `text` and `product: "rice"` | Tricyclazole 0.012 mg/kg against the printed MRL 0.01: `exceeds_printed_mrl: true`. The EU lookup matched 3 of 3 rows to product 0500060 Rice, with MRL `0.01*` for each. The verdict was `exceeds_eu_mrl`, with 1 exceedance. |
 
 Both paths gave `sample_id` `BAS-RICE-044`. A run on 28 September 2026
 gave the report number there. The parser no longer makes that mistake.
@@ -220,9 +274,6 @@ The OCR path shows the purpose of this skill. The chain proved exactly
 which image and text gave the answer. It did not make the reading
 correct. When a verdict depends on a column, find that column in the OCR
 text.
-
-After the run, a test changed one result value in `lab_text.json`. The
-script then printed `result MISMATCH` and exited with 1.
 
 ## Errors
 

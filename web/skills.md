@@ -238,9 +238,9 @@ rec = httpx.post(f"{BASE}/v1/recall", json={"cell": "defi.zb493.zezo.zcb35",
 print(verify(rec["receipt"], pubkey_b32))
 ```
 
-The plugin's `emem-verify-receipt` skill ships the same check as a
-script (`verify.py`). The script has exit codes and clearer errors, and
-it needs only Python and the files next to it.
+The emem repository has the same check as a script,
+`tools/verifiers/emem-verify-receipt/verify.py`. The script has exit codes
+and clearer errors, and it needs only Python and the files next to it.
 
 ### Browser (what `/verify` does)
 
@@ -524,9 +524,9 @@ curl -sf "$BASE/v1/log/consistency?first=$OLD&second=$NEW" | jq '{first_size, se
 
 The log is RFC 6962 with BLAKE3. A leaf is `blake3(0x00 || entry_hash)`.
 A node is `blake3(0x01 || left || right)`. The responder signs the signed
-tree head (STH) over `PreimageV1("emem.translog.sth.v1")`. The plugin's
-`emem-transparency-log` skill has `verify_log.py`. It checks the head,
-the inclusion proof and the consistency proof offline.
+tree head (STH) over `PreimageV1("emem.translog.sth.v1")`. The repository
+script `tools/verifiers/emem-transparency-log/verify_log.py` checks the
+head, the inclusion proof and the consistency proof offline.
 
 `GET /v1/log/witnesses` lists the co-signatures. Read
 `independent_operator_count` to know how many separate operators
@@ -712,28 +712,30 @@ cp -r emem/plugins/emem/skills/emem-* .claude/skills/
 |---|---|
 | `emem-locate-and-recall` | a place name to a cell, then signed facts and their citation tokens |
 | `emem-recall-polygon` | the same over an area, with the sampling stated |
-| `emem-field-tokens` | the raster field over an area, or over time, as a signed artifact (`rehash.py`) |
+| `emem-field-tokens` | the raster field over an area, or over time, as a signed artifact |
 | `emem-urban` | buildings, places, roads, population, built-up and water signals, and what each measures |
 | `emem-field-signals` | a farm field: boundaries, residue burning, evapotranspiration, a picture |
 | `emem-eudr-due-diligence` | a signed EUDR deforestation statement for plots |
 | `emem-find-similar` | analogues over the frozen embedding index; read its coverage note |
 | `emem-research-grade-citation` | the estimand behind a fact, its units and ranges, and a methods paragraph |
-| `emem-tokenise-files` | a file cut into units under one signed Merkle root; prove one unit (`tree_proof.py`) |
-| `emem-document-evidence` | OCR plus lab-report and land-record parsing, every step signed (`verify_doc.py`) |
+| `emem-tokenise-files` | a file cut into units under one signed Merkle root; prove one unit |
+| `emem-document-evidence` | OCR plus lab-report and land-record parsing, every step signed |
 | `emem-sign-and-attest` | write with your own key; the refusal names the bytes to sign, and the optional `emem-signer` plugin signs them locally |
 | `emem-long-horizon-memory` | signed working state that survives a context reset, and the inbox |
-| `emem-multi-agent-handoff` | hand findings to other agents as tokens, and check who wrote a note (`verify_note.py`) |
+| `emem-multi-agent-handoff` | hand findings to other agents as tokens, and check who wrote a note |
 | `emem-shared-identity` | make two agents refer to one object, and know what each token proves |
 | `emem-referential-drift` | pin a value to a citation, grade what you are about to say, ask why a number moved |
-| `emem-verify-receipt` | check a receipt's signature offline (`verify.py`) |
-| `emem-transparency-log` | prove the log only grew, and that an entry is in it (`verify_log.py`) |
+| `emem-verify-receipt` | check a receipt's signature, through emem or with your own tools |
+| `emem-transparency-log` | prove the log only grew, and that an entry is in it |
 | `emem-verify-before-publish` | check a draft's citations and the numbers beside them |
 | `emem-device-traces` | resolve and re-verify a device's signed OS trace, and what enrolment admits today |
 
-Seven skills ship scripts. The scripts need only Python 3. Each
-`scripts/` directory has its own copy of `emem_crypto.py`, which does
-the BLAKE3 and Ed25519 checks. Thus you can copy one skill on its own
-and its scripts still run.
+The plugin ships no code. Its skills check through emem's MCP tools
+and HTTP routes, and say what to compute again with your own tools. The
+emem repository keeps reference offline verifiers in `tools/verifiers/`,
+one folder for each skill that describes a check. They need only Python 3,
+and each folder has its own copy of `emem_crypto.py` for the BLAKE3 and
+Ed25519 checks.
 
 You can read each `SKILL.md` in the repository at
 `plugins/emem/skills/<name>/SKILL.md`. The site also serves each one at

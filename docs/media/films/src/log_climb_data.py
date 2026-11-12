@@ -16,7 +16,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[3]
 DATA = ROOT / "docs/media/stills/src/data/log"
-sys.path.insert(0, str(ROOT / "plugins/emem/skills/emem-transparency-log/scripts"))
+sys.path.insert(0, str(ROOT / "tools/verifiers/emem-transparency-log"))
 import verify_log as vl  # noqa: E402
 
 

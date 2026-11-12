@@ -17,7 +17,7 @@ from playwright.sync_api import sync_playwright
 
 HERE = Path(__file__).resolve().parent
 D = HERE / "data" / "selection"
-sys.path.insert(0, str(HERE.parents[3] / "plugins/emem/skills/emem-multi-agent-handoff/scripts"))
+sys.path.insert(0, str(HERE.parents[3] / "tools/verifiers/emem-multi-agent-handoff"))
 import verify_note as vn  # noqa: E402
 from emem_crypto import blake3  # noqa: E402
 

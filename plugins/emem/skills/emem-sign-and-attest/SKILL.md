@@ -137,7 +137,7 @@ text `hello` at `/memories/by_attester/abcdefgh/probe.md`, with `base`
 |---|---|
 | 28 September 2026 | the server refused this write with no attester and named this `digest_hex` |
 | 5 November 2026 | `signer_sign_write` returned this digest with no refusal first |
-| 7 November 2026 | the rule above, computed with the pure-Python BLAKE3 in `emem_crypto.py` of the plugin |
+| 7 November 2026 | the rule above, computed with a pure-Python BLAKE3 (the `emem_crypto.py` that the emem repository now keeps in `tools/verifiers/`) |
 
 You can also send the write with no `attester` block. The refusal is
 HTTP 401 `memory_attestation_required`. Its `details.how_to_sign`
@@ -245,8 +245,9 @@ they stay open at `T1_keyed`.
 ## Step 6. Verify what you wrote
 
 Paste the path into `https://emem.dev/verify`. The page checks the
-receipt and the authorship in the browser. For the offline check, use
-`verify_note.py` in
+receipt and the authorship in the browser, with code that emem.dev
+serves. To check the authorship yourself, follow "Check authorship
+yourself" in
 [`emem-multi-agent-handoff`](../emem-multi-agent-handoff/SKILL.md).
 That skill also shows how to give the note to another agent. For notes
 that you will read again in later sessions, see

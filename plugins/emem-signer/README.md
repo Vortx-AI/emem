@@ -102,9 +102,10 @@ digest = blake3("emem.memory_write.v2|" + verb + "|" + path + "|" + blake3(text)
 ## Sealed notes and crypto
 
 The sealed-note format is in `signer/emem_sealed.py`. It is a
-byte-identical copy of the file that the emem plugin uses to seal notes.
-Its tests are in `signer/test_signer.py` here and in the emem plugin's
-`emem-multi-agent-handoff/scripts/test_sealed.py`.
+byte-identical copy of the module that the reference sealing tool uses,
+in the emem repository at `tools/verifiers/emem-multi-agent-handoff/`.
+Its tests are in `signer/test_signer.py` here and in
+`tools/verifiers/emem-multi-agent-handoff/test_sealed.py`.
 
 The signer uses the `cryptography` package (OpenSSL's constant-time
 Ed25519). If the package is missing, the signer says so. It does not
