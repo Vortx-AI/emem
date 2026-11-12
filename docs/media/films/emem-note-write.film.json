@@ -1,0 +1,16 @@
+{
+ "id": "emem-note-write",
+ "version": 2,
+ "slot": "docs",
+ "privacy_check": true,
+ "verdict": "NONE",
+ "claims": [
+  {
+   "text": "the write digest and signature of one note",
+   "reproduce": "docs/media/films/src/note_write_data.py",
+   "output": "docs/media/films/src/note-write-data.js",
+   "output_sha256": "a9aeed4af1071b52b584c29864461ff2f5c1afe8e882204287104503651d360e"
+  }
+ ],
+ "note": "Explainer: the signed-write flow (401 with the digest, sign, 200). Computed offline with a fixed throwaway key; nothing was sent to emem.dev, so no token resolves. Run the script to get the same bytes."
+}

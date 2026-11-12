@@ -14,12 +14,16 @@ The half of docs/media/films/STANDARD.md that film_qc.py cannot do offline. For 
                                    check: note, leaf, root and unit must MATCH. Then the unit's `- value:` line
                                    must equal the claim's `value`.
 
+  a computed claim (explainers only)  `reproduce` names a public script that computes the value offline, and
+                                   `output` the file it writes; the file must hash to `output_sha256`.
+
 Exit 0 when every claim passes, 1 when one fails, 2 on bad input. Reads emem.dev and nothing else.
 """
-import json, re, subprocess, sys, tempfile, urllib.request
+import hashlib, json, re, subprocess, sys, tempfile, urllib.request
 from pathlib import Path
 
 EMEM = "https://emem.dev"
+REPO = Path(__file__).resolve().parent.parent
 TREE_PROOF = Path(__file__).resolve().parent / "verifiers" / "emem-tokenise-files" / "tree_proof.py"
 FACT = re.compile(r"^emem:fact:[A-Za-z0-9.]+:[a-z2-7]{20,64}$")
 TREE = re.compile(r"^emem:tree:([a-z2-7]{20,64})#row=(\d{1,6})$")
@@ -61,7 +65,8 @@ def fact(c):
         return False, f"carries an erratum ({r['erratum'].get('id')}); cite the fact in replaced_by"
     if "value" in c and not same(c["value"], r.get("value")):
         return False, f"shown {c['value']!r}, signed {r.get('value')!r}"
-    return True, f"signed {r.get('value')!r}"
+    v = r.get("value")
+    return True, f"signed {v!r}" if not isinstance(v, (dict, list)) else "signed record (a structure; no value compared)"
 
 
 def tree(c, m):
@@ -111,7 +116,15 @@ def main():
     for c in claims:
         tok = str(c.get("token", ""))
         try:
-            if FACT.match(tok):
+            if not tok and c.get("reproduce") and c.get("output_sha256"):
+                out = REPO / str(c.get("output", ""))
+                if REPO not in out.resolve().parents or not out.is_file():
+                    ok, why = False, "a computed claim needs `output`, a file in this repository"
+                else:
+                    h = hashlib.sha256(out.read_bytes()).hexdigest()
+                    ok = h == c["output_sha256"]
+                    why = f"computed by {c['reproduce']}; output {'matches' if ok else 'differs from'} its sha256"
+            elif FACT.match(tok):
                 ok, why = fact(c)
             elif (m := TREE.match(tok)):
                 ok, why = tree(c, m)

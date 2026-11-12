@@ -1,0 +1,14 @@
+{
+ "id": "emem-log-climb",
+ "version": 2,
+ "slot": "docs",
+ "privacy_check": true,
+ "verdict": "NONE",
+ "claims": [
+  {
+   "text": "the fact whose inclusion the film proves",
+   "token": "emem:fact:defi.zb592.nUkO.zEzE:qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq"
+  }
+ ],
+ "note": "Explainer: the transparency-log inclusion and consistency proof for one fact. Log sizes on screen come from the saved responses in ../src-packs/."
+}

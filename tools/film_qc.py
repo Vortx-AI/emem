@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Acceptance gate for films offered to emem. Runs inside the emem-film-qc image (ffmpeg + python3).
 
-    film_qc.py FILM.mp4 [--loop] [--json FILM.json] [--max-mb N]
+    film_qc.py FILM.mp4 [--loop | --docs] [--json FILM.json] [--max-mb N]
+
+--docs is a figure for a docs page only (1080x960 or 1080x1080), never a homepage or web cut.
 
 A film is ACCEPTED only when every gate passes. Technical gates are measured here. The emem gates read
 film.json: every on-screen claim must carry an emem token, and the token must resolve (checked by the caller
@@ -80,7 +82,7 @@ def main():
     a = sys.argv[1:]
     if not a:
         print(__doc__); return 2
-    path, loop = a[0], "--loop" in a
+    path, loop, docs = a[0], "--loop" in a, "--docs" in a
     max_mb = float(a[a.index("--max-mb") + 1]) if "--max-mb" in a else (0.6 if loop else 1.5)
     meta = json.loads(Path(a[a.index("--json") + 1]).read_text()) if "--json" in a else None
     p = probe(path)
@@ -100,7 +102,8 @@ def main():
     tags = (v.get("color_primaries"), v.get("color_transfer"), v.get("color_space"))
     gate("colour tags", tags == ("bt709", "bt709", "bt709"), "/".join(str(x) for x in tags), "bt709/bt709/bt709")
     gate("range", v.get("color_range") in ("tv", None), v.get("color_range"), "tv (limited)")
-    gate("size", (v["width"], v["height"]) in ((1280, 720), (1920, 1080)), f"{v['width']}x{v['height']}", "1280x720")
+    sizes = ((1080, 960), (1080, 1080)) if docs else ((1280, 720), (1920, 1080))
+    gate("size", (v["width"], v["height"]) in sizes, f"{v['width']}x{v['height']}", "1080x960 (docs)" if docs else "1280x720")
     gate("constant frame rate", v.get("r_frame_rate") == v.get("avg_frame_rate") and v.get("r_frame_rate") in ("24/1", "25/1", "30/1", "24000/1001", "30000/1001"),
          f"r={v.get('r_frame_rate')} avg={v.get('avg_frame_rate')}", "24, 25 or 30, constant")
     gaps, keys = keyframe_gaps(path)
@@ -130,8 +133,12 @@ def main():
         gate("film.json", False, None, "present: id, version, claims[] with emem tokens")
     else:
         claims = meta.get("claims") or []
-        gate("claims carry emem tokens", bool(claims) and all(str(c.get("token", "")).startswith("emem:") for c in claims),
-             len(claims), "every on-screen claim has an emem: token")
+        # An explainer (verdict NONE) may also show values a public script computes offline: such a claim names
+        # the script and the sha256 of its output, which film_claims.py checks, in place of a token.
+        computed = lambda c: str(meta.get("verdict", "")).upper() == "NONE" and c.get("reproduce") and c.get("output_sha256")
+        gate("claims carry emem tokens", bool(claims) and all(str(c.get("token", "")).startswith("emem:") or computed(c)
+                                                              for c in claims),
+             len(claims), "every on-screen claim has an emem: token (or, in an explainer, a reproducing script)")
         gate("verdict stated", str(meta.get("verdict", "")).upper() in ("TRUE", "NOT TRUE", "CAN'T TELL", "VOID", "NONE"),
              meta.get("verdict"), "TRUE, NOT TRUE, CAN'T TELL, VOID or NONE (an explainer)")
         gate("privacy check recorded", meta.get("privacy_check") is True, meta.get("privacy_check"), "true")

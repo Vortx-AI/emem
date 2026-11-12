@@ -1,0 +1,14 @@
+{
+ "id": "emem-ndvi-season",
+ "version": 2,
+ "slot": "docs",
+ "privacy_check": true,
+ "verdict": "NONE",
+ "claims": [
+  {
+   "text": "one token for the whole season series",
+   "token": "emem:fact:defi.zb5dd.ze38f.nEzo:gutxcpc54gzyegyuvxr7dkevmixz5k7dnq3sfzckqocfpwbcixma"
+  }
+ ],
+ "note": "Explainer: a field_series answer over a farm box near Ames, Iowa. Its medians are inside the signed record the token names."
+}

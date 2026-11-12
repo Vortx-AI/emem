@@ -1,0 +1,15 @@
+{
+ "id": "emem-one-byte",
+ "version": 2,
+ "slot": "docs",
+ "privacy_check": true,
+ "verdict": "NONE",
+ "claims": [
+  {
+   "text": "Mount Fuji, copdem30m elevation 3539.0422 m",
+   "token": "emem:fact:defi.zb592.nUkO.zEzE:qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq",
+   "value": "3539.0422"
+  }
+ ],
+ "note": "Explainer: one changed byte (3539.0422 to 3539.0420) changes the fact id. The changed value is the film's demonstration, not a claim."
+}

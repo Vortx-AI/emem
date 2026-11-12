@@ -17,6 +17,9 @@ fails a technical gate is sent back with the report.
   - Otherwise cite it as one unit of the author's signed pointer.v1 index over a facts card: `emem:tree:<cid>#row=<i>`.
     The unit names the value, the method and the scenes, so anyone can count again. The screen says whose count it
     is. It is the author's signed claim, not an emem fact.
+- An explainer (verdict NONE) may show values that a public script in this repository computes offline. Such a
+  claim names the script (`reproduce`), the file it writes (`output`) and that file's `output_sha256`, in place
+  of a token.
 - It says what the check does not show. A signature says who signed, not that a claim is true.
 - It shows nothing private: no farm or field outline, no client or partner name, no coordinates of a person.
 - A pixel that decides the verdict is an untouched source pixel from a named pass, stretched only where it says
@@ -43,7 +46,9 @@ fails a technical gate is sent back with the report.
 | Flashes | 3 or fewer in any 1 s (WCAG 2.3.1) | the same |
 | Warnings | black 0.5 s or longer, frozen 4 s or longer | the same |
 
-`docs/media/` is compiled into the server, so the size caps are hard.
+A figure for a docs page only may be 1080x960 or 1080x1080 (`film_qc.py --docs`). Every other gate is the same,
+and it never goes on a homepage or into a web cut. `docs/media/` is compiled into the server, so the size caps are
+hard.
 
 x264 writes colour tags into the stream only through its own parameters:
 `-x264-params colorprim=bt709:transfer=bt709:colormatrix=bt709:range=tv`, with `-g` at twice the frame rate,
@@ -83,4 +88,5 @@ the row, the note named in `index_note` and the source the note indexes, then co
 
 On 12 November 2026 the gate accepted a test pattern encoded to the spec and rejected a 4 s clip that flashed
 11 times a second. It rejected all five older films in this folder on colour tags, frame size, keyframe interval
-and the missing `film.json`, so those five are below this standard until they are cut again.
+and the missing `film.json`. They were rendered again the same day with `src/film.py`, which now converts with the
+BT.709 matrix, tags BT.709 and keys every 2 s. Each has a `<name>.film.json`. They are docs figures (`--docs`).

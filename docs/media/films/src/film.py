@@ -68,8 +68,15 @@ print("frames", n, "gpu", gpu, "errors", errs)
 
 enc = ["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(fps), "-i", str(frames / "%05d.png")]
 mp4, webm = out / f"{a.name}.mp4", out / f"{a.name}.webm"
-subprocess.run(enc + ["-c:v", "libx264", "-profile:v", "high", "-preset", "veryslow", "-crf", a.crf_mp4, "-tune", "animation",
-                      "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", str(mp4)], check=True)
+# docs/media/films/STANDARD.md: BT.709 tagged in the stream, and converted with the BT.709 matrix to match (ffmpeg's
+# default RGB to YUV matrix is BT.601, so a tag alone would mislabel the colours); a keyframe every 2 s.
+gop = str(int(round(2 * fps)))
+subprocess.run(enc + ["-vf", "scale=out_color_matrix=bt709:out_range=tv", "-c:v", "libx264", "-profile:v", "high",
+                      "-preset", "veryslow", "-crf", a.crf_mp4, "-tune", "animation", "-pix_fmt", "yuv420p",
+                      "-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709:range=tv",
+                      "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
+                      "-g", gop, "-keyint_min", gop, "-sc_threshold", "0", "-movflags", "+faststart", "-an", str(mp4)],
+               check=True)
 if a.webm:
     subprocess.run(enc + ["-c:v", "libvpx-vp9", "-crf", a.crf_webm, "-b:v", "0", "-row-mt", "1", "-deadline", "good", "-cpu-used", "2",
                           "-pix_fmt", "yuv420p", "-an", str(webm)], check=True)

@@ -1,0 +1,15 @@
+{
+ "id": "emem-fact-to-check",
+ "version": 2,
+ "slot": "docs",
+ "privacy_check": true,
+ "verdict": "NONE",
+ "claims": [
+  {
+   "text": "value 3539.04 m",
+   "token": "emem:fact:defi.zb592.nUkO.zEzE:qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq",
+   "value": "3539.04"
+  }
+ ],
+ "note": "Explainer: a place name to a cell, a signed fact, a token, an offline check."
+}
