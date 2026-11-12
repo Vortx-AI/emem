@@ -14917,9 +14917,8 @@ fn decode_class_value(band: &str, value_json: &JsonValue) -> Option<String> {
 /// positional in a signed array, so the two must move together.
 const S2_FN_KEY_PREFIX: &str = "sentinel2_l2a_";
 const S2_ARGS_SCL_INDEX: usize = 9;
-/// The scene's STAC item id and the DNs read, in the same positional array.
+/// The scene's STAC item id, in the same positional array.
 const S2_ARGS_ITEM_INDEX: usize = 2;
-const S2_ARGS_SAMPLES_INDEX: usize = 5;
 
 /// Is a vegetation index measuring vegetation over this SCL class?
 ///
@@ -24678,6 +24677,59 @@ async fn get_state_record(
     })))
 }
 
+/// Adds the erratum to a fact served by cid and, once the responder has read
+/// its address again with today's reader, names the fact now there. Recall
+/// needs no pointer: it serves whatever the address holds.
+async fn annotate_fact_erratum(s: &AppState, cid: &str, v: &mut JsonValue) {
+    element84_erratum::annotate(v);
+    if v.get("erratum").is_none() {
+        return;
+    }
+    let (Some(cell), Some(band), Some(tslot)) =
+        (v["cell"].as_str(), v["band"].as_str(), v["tslot"].as_u64())
+    else {
+        return;
+    };
+    let key = emem_cache::CanonicalKey {
+        cell: cell.to_string(),
+        band: band.to_string(),
+        tslot,
+    };
+    let Ok(found) = s
+        .storage
+        .lookup_canonical_many(std::slice::from_ref(&key))
+        .await
+    else {
+        return;
+    };
+    let Some(Some(now)) = found.into_iter().next() else {
+        return;
+    };
+    if now.as_str() == cid {
+        return;
+    }
+    let Ok(facts) = s.storage.get_facts_many(std::slice::from_ref(&now)).await else {
+        return;
+    };
+    let Some(Some(Fact::Primary(p))) = facts.into_iter().next() else {
+        return;
+    };
+    let fresh_json = serde_json::to_value(&p).unwrap_or(JsonValue::Null);
+    let fresh = p.signer == s.identity.pubkey
+        && !superseded_read(&p)
+        && fresh_json
+            .as_object()
+            .is_none_or(|o| element84_erratum::for_fact(o).is_none());
+    if fresh {
+        v["erratum"]["replaced_by"] = json!({
+            "cid": now.as_str(),
+            "token": format!("emem:fact:{cell}:{}", now.as_str()),
+            "value": fresh_json["value"],
+            "signed_at": p.signed_at,
+        });
+    }
+}
+
 async fn get_fact(
     State(s): State<AppState>,
     Path(cid): Path<String>,
@@ -24794,7 +24846,7 @@ async fn get_fact(
     let mut erratum_id = None;
     let body = {
         let mut v = serde_json::to_value(&fact).unwrap_or(JsonValue::Null);
-        element84_erratum::annotate(&mut v);
+        annotate_fact_erratum(&s, &cid, &mut v).await;
         match v.get("erratum") {
             Some(e) => {
                 erratum_id = e["id"].as_str().map(str::to_string);
@@ -24876,7 +24928,7 @@ async fn post_fetch(
             )
         })?;
         let mut fact_json = serde_json::to_value(&fact).unwrap_or(JsonValue::Null);
-        element84_erratum::annotate(&mut fact_json);
+        annotate_fact_erratum(&s, cid_in, &mut fact_json).await;
         return Ok(Json(json!({
             "schema": "emem.fetch.v1",
             "cid": cid_in,
@@ -32570,7 +32622,7 @@ async fn mcp_read_resource_dynamic(uri: &str, s: &AppState) -> Result<JsonValue,
                 .flatten()
                 .ok_or_else(|| (-32602, format!("no fact for cid={cid} on this responder")))?;
             let mut body = serde_json::to_value(&fact).unwrap_or(JsonValue::Null);
-            element84_erratum::annotate(&mut body);
+            annotate_fact_erratum(s, cid, &mut body).await;
             let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_string());
             return Ok(json!({
                 "uri":      uri,
@@ -34806,7 +34858,7 @@ async fn mcp_tool_call_inner(
                 )
             })?;
             let mut fact_json = serde_json::to_value(&fact).unwrap_or(JsonValue::Null);
-            element84_erratum::annotate(&mut fact_json);
+            annotate_fact_erratum(s, trimmed, &mut fact_json).await;
             Ok(json!({
                 "schema": "emem.fetch.v1",
                 "cid": trimmed,
@@ -40590,7 +40642,7 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
     }
 
     let mut fact_json = serde_json::to_value(&fact).unwrap_or(json!({}));
-    element84_erratum::annotate(&mut fact_json);
+    annotate_fact_erratum(s, &cid, &mut fact_json).await;
     let erratum = fact_json.get("erratum").cloned();
     let fact_url = format!("https://emem.dev/v1/facts/{}", cid);
     let canonical_token = format!("emem:fact:{cell}:{cid}");
@@ -56133,10 +56185,7 @@ pub(crate) fn s2_catalogues() -> Vec<&'static str> {
 }
 
 /// A Sentinel-2 value from its DNs, `samples` in the order the band's plan
-/// lists its assets, under `reflectance = (DN + offset) * 1e-4`. The
-/// materializer signs this; [`element84_erratum`] recomputes a signed fact's
-/// value from the DNs it carries with the offset it should have had, so the
-/// correction cannot drift from what a fresh read would sign.
+/// lists its assets, under `reflectance = (DN + offset) * 1e-4`.
 pub(crate) fn s2_value_from_samples(
     kind: &str,
     samples: &[f64],

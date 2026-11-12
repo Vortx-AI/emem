@@ -5,7 +5,8 @@
 //!
 //! The rule reads only the fact: when it was signed and which Element84 items
 //! it names. It needs no list, so it covers facts in storage that predate the
-//! transparency log. A scan of the log on 12 November 2026 found 1,890 such
+//! transparency log. A fact served by cid also gets `replaced_by` once the
+//! responder has re-read its address (`annotate_fact_erratum` in lib.rs). A scan of the log on 12 November 2026 found 1,890 such
 //! facts (2,891 attestations) on 601 cells, from 83 items, signed from 7 July
 //! to 5 November 2026: 1,464 NDVI, 389 band reflectances, 2 NDMI and 35
 //! derived records.
@@ -105,8 +106,7 @@ pub(crate) fn for_fact(obj: &Map<String, JsonValue>) -> Option<JsonValue> {
     });
     if kind == "primary" && fn_key.starts_with(crate::S2_FN_KEY_PREFIX) {
         let band = f.get("band").and_then(|v| v.as_str()).unwrap_or("");
-        let plan_kind = crate::s2_band_plan(band).map(|(_, k, _)| k);
-        if plan_kind == Some("scl_categorical") {
+        if crate::s2_band_plan(band).map(|(_, k, _)| k) == Some("scl_categorical") {
             // A class index, not reflectance: the offset never touched it.
             return None;
         }
@@ -117,33 +117,9 @@ pub(crate) fn for_fact(obj: &Map<String, JsonValue>) -> Option<JsonValue> {
             .and_then(|a| a.get(crate::S2_ARGS_ITEM_INDEX))
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let samples: Option<Vec<f64>> = args
-            .and_then(|a| a.get(crate::S2_ARGS_SAMPLES_INDEX))
-            .and_then(|v| v.as_array())
-            .map(|a| a.iter().filter_map(|x| x.as_f64()).collect());
         if wrong.iter().any(|w| w == item) {
             e["status"] = json!("wrong");
             e["what"] = json!("Element84 served this acquisition's DNs with ESA's BOA_ADD_OFFSET (-1000 DN) still in them, and this fact read them with offset 0: each band's reflectance is 0.1 too high, and a ratio index is pulled toward zero.");
-            let fixed = match (plan_kind, samples) {
-                (Some(k), Some(s)) => crate::s2_value_from_samples(
-                    k,
-                    &s,
-                    emem_fetch::stac::S2_BOA_ADD_OFFSET_DN,
-                    band,
-                    item,
-                ),
-                _ => Err("the fact does not carry its DNs".to_string()),
-            };
-            match fixed {
-                Ok((v, _)) => {
-                    e["corrected_value"] = json!(v);
-                    e["corrected_how"] = json!("the DNs this fact signed (derivation.args[5]) with offset -1000, through the same formula a read signs today");
-                }
-                Err(why) => {
-                    e["corrected_value"] = JsonValue::Null;
-                    e["corrected_why_not"] = json!(why);
-                }
-            }
         } else if unknown.iter().any(|u| u == item) {
             e["status"] = json!("unknown");
             e["what"] = json!("acquired on 27 or 28 February 2022, while Element84 began removing ESA's BOA_ADD_OFFSET: whether these DNs still carry it is not known, so this value may be 0.1 too bright per band, and emem no longer reads these items.");
@@ -151,6 +127,13 @@ pub(crate) fn for_fact(obj: &Map<String, JsonValue>) -> Option<JsonValue> {
             return None;
         }
         e["items"] = json!([item]);
+        // No value is corrected from the fact's own DNs: every such fact the
+        // log holds was signed before the pixel fix too, so its DNs may be a
+        // neighbouring pixel's. A fresh read fixes both; see `replaced_by`.
+        if f.get("signed_at").and_then(|v| v.as_str()) < Some(crate::PIXEL_FIX_AT) {
+            e["pixel"] = json!(format!("also signed before {}, when the point reader took the south-east neighbour for about 3 points in 4, so these DNs may be another pixel's", crate::PIXEL_FIX_AT));
+        }
+        e["remedy"] = json!("emem began re-reading these passes on 12 November 2026. Served by cid, `replaced_by` names the fresh fact now at this address when there is one. Otherwise POST /v1/backfill with refresh over that day signs one");
     } else {
         e["status"] = json!(if wrong.is_empty() { "unknown" } else { "wrong" });
         e["what"] = json!("this record took values from the Element84 scenes named in `items`, whose DNs still carry ESA's BOA_ADD_OFFSET (-1000 DN) or, for 27 and 28 February 2022, may: their reflectance reads 0.1 too high and ratio indices are pulled toward zero. Values from other scenes are not affected. Run the request again for a corrected record.");
@@ -185,17 +168,20 @@ mod tests {
     }
 
     #[test]
-    fn corrects_a_point_fact_from_its_own_dns() {
+    fn a_point_fact_is_wrong_and_says_its_pixel_may_be_too() {
         let mut f = ndvi_fact("S2B_43RGP_20220208_0_L2A", "2026-07-14T17:55:50Z");
         annotate(&mut f);
         let e = &f["erratum"];
         assert_eq!(e["status"], "wrong");
-        let v = e["corrected_value"].as_f64().unwrap();
-        assert!(
-            (v - (1706.0 - 1218.0) / (1706.0 + 1218.0)).abs() < 1e-12,
-            "{v}"
-        );
         assert_eq!(e["items"], json!(["S2B_43RGP_20220208_0_L2A"]));
+        // Its DNs may be the neighbour's, so no value is corrected from them.
+        assert!(e.get("corrected_value").is_none());
+        assert!(e["pixel"].as_str().is_some_and(|p| p.contains("neighbour")));
+        // Signed between the pixel fix and the offset fix: no pixel note.
+        let mut f = ndvi_fact("S2B_43RGP_20220208_0_L2A", "2026-10-01T00:00:00Z");
+        annotate(&mut f);
+        assert_eq!(f["erratum"]["status"], "wrong");
+        assert!(f["erratum"].get("pixel").is_none());
     }
 
     #[test]

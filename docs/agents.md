@@ -1131,13 +1131,15 @@ provenance classes by name, for example
   7 November 2026, the Mount Fuji elevation fact had class `direct_sensor`
   and no `caution`.
 - A fact the node knows to be wrong carries `erratum`: an `id`, a `status`
-  (`wrong` or `unknown`), what is wrong, and, when the node can compute it,
-  `corrected_value`. The signed `value` does not change. The JSON views add
+  (`wrong` or `unknown`) and what is wrong. The signed `value` does not
+  change. The JSON views add
   the block, and `GET /v1/facts/{cid}` also sends the header
-  `x-emem-erratum`. The CBOR bytes of a fact never carry it. On 12 November
-  2026 one erratum existed, `s2-element84-boa-offset-2022`. It covers
-  Sentinel-2 facts read before 6 November 2026 from Element84 items acquired
-  from 25 January to 28 February 2022: their reflectance is 0.1 too high.
+  `x-emem-erratum`. The CBOR bytes of a fact never carry it. A fact you get
+  by cid also has `replaced_by` when the node has read its address again:
+  cite that fact instead. On 12 November 2026 one erratum existed,
+  `s2-element84-boa-offset-2022`. It covers Sentinel-2 facts read before
+  6 November 2026 from Element84 items acquired from 25 January to
+  28 February 2022: their reflectance is 0.1 too high.
 - `attested_execution` is a device reading. You trust it through the
   device's verified execution trace and platform attestation, not through a
   new computation.

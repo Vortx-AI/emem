@@ -228,10 +228,11 @@ when it needs one. Each fact's `derivation.args` ends with the catalogue and the
 
 Facts signed before that rule went live (2026-11-06 21:39Z) read those Element84 items with
 offset 0. A fact is signed and cannot change, so the node serves each such fact with an `erratum`
-block (`element84_erratum.rs`). The block has status `wrong` and a `corrected_value`, which it
-computes from the DNs in `derivation.args` with the formula a read uses today. For 27 and 28
-February the status is `unknown`. On 12 November 2026 the transparency log held 1,890 such facts
-from 83 items, all of baseline 04.00.
+block (`element84_erratum.rs`) with status `wrong`, or `unknown` for 27 and 28 February. On
+12 November 2026 the transparency log held 1,890 such facts from 83 items, all of baseline 04.00.
+All of its point facts were also signed before the pixel-reader fix, so the erratum computes no
+value from their DNs. The node read those 944 addresses again on 12 November 2026. A fact served
+by cid names the fresh fact at its address, when there is one, in `replaced_by`.
 
 A single cell searches with `intersects: Point`, not `bbox`. A bbox search can match the next
 tile in an MGRS overlap zone. A read over many cells searches once for their bbox. It then keeps,
