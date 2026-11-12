@@ -127,7 +127,7 @@ rule never saw.
 
 **Memory detectors.** From section 5.13 on, the lab also tests detectors that compare each pass with the cell's own
 remembered past, in five versions (`lab:memory_optical@1` to `lab:memory_hls_emp@5`). Sections 5.13, 5.14, 5.15 and 5.20
-describe them, and section 5.21 gives the status of each.
+describe them, and section 5.22 gives the status of each.
 
 ## 4. Protocol
 
@@ -581,7 +581,7 @@ second reference separates them, read the stated rate as a floor.
 
 **The replicated rules did not win here.** The seasonal NBR rule and the searched rule tied with the baseline
 (intervals -0.077 to +0.175 and -0.038 to +0.176); the desk's NDVI rule scored below it. Under the program's rule a
-failure to win after a first win means not replicated, so all three now read not replicated (section 5.21).
+failure to win after a first win means not replicated, so all three now read not replicated (section 5.22).
 
 ### 5.14 Two references: loss in 2022 and 2023, judged by Hansen and by JRC TMF (MCC decides)
 
@@ -913,7 +913,43 @@ version 5 at Trairao, so the change falls on all of them, and neither comparison
 behind the decisions held no affected scene. The verification above re-derived the lab's numbers from these same
 inputs, so it could not see an error in an input.
 
-### 5.21 Status of every proposal
+### 5.21 Finer cells: small clearings at 240 m (a reading experiment)
+
+At 400 m cells most clearings under 1 ha went unfound (section 5.17). This experiment read the same nine forests and
+years as section 5.15, at 240 m cells (20 a side, 5.8 ha each). The 5% loss rule is then about 0.29 ha
+(`canopy-loss-finer-cells-2024-2025`, plan content id `uovbl5vhsnog7afsr5kfnpjqu4`). Only the unit changes, so it
+decides no method's status. It asks, for each method, whether 240 m finds more clearings under 1 ha beyond chance, and
+at what false-alarm rate. Chance is what the method's own flag rate on stable forest would find at random.
+
+| method | under 1 ha at 240 m: found (chance) | at 400 m, registered: found (chance) | false alarms per 1,000 km2 of stable forest per year, 240 m |
+|---|---|---|---|
+| `lab:memory_hls_emp@4` | 55 (4) | 27 (5) | 119 |
+| `lab:memory_mv_fusion_emp@3` | 46 (4) | 20 (4) | 126 |
+| `lab:memory_optical@1` | 129 (63) | 100 (61) | 1,369 |
+| `lab:seasonal_canopy_loss@1` | 54 (37) | 42 (16) | 652 |
+| `registry:deforestation_alert_ndvi_drop@1` | 215 (200) | 176 (162) | 5,603 |
+
+**What it found.** The memory detectors find about twice as many clearings under 1 ha beyond chance at 240 m.
+Version 4 finds 51 more than chance, against 22 at 400 m. Version 3 finds 42, against 16. The fixed seasonal rule finds
+fewer beyond chance (17 against 26), and the registry rule finds about as many (15 against 14). The calibrated
+detectors stated a 5% chance of flagging a stable cell, and flagged 1.5 to 2.9%. So they stay calibrated, and quiet,
+at the finer unit.
+
+**Cell scores.** 214 cells were loss and 2,338 stable. Version 4 scores MCC 0.455 against 0.058 for the registry
+rule (+0.262 to +0.558 with forests resampled). Cell scores at 240 m are not comparable with those at 400 m, because
+the label rule scales with the cell. The temporal cloud screen helps the sub-cell rule (+0.028 to +0.084) and hurts
+the registry rule (-0.092 to -0.007). The searched seasonal rule, scored on forests it never saw, is worse than the
+registry rule (-0.137 to -0.050).
+
+**Verified.** The integrity desk re-derived it from signed records. All 522 inputs resolve, hash to the content ids
+they are cited by, and carry receipts that verify offline. Every published MCC of the 24 methods reproduces.
+
+**Limits.** The reference is Hansen's loss year. Hansen maps loss from Landsat, as version 4's input does, so part
+of version 4's lead may be one sensor agreeing with itself. Nine forests carry the counts. The lab's note of this
+result had two text errors. Its reading notes said the cells were 400 m. It called the searched rule "not shown
+better", where its interval is wholly below zero. Both are fixed in the lab's writer.
+
+### 5.22 Status of every proposal
 
 **The status rule was changed on 29 October, in the open.** The rule in force until then asked every pre-registered
 experiment after a method's first win to win as well. Section 5.13 showed what that does: one experiment that read six
@@ -1038,16 +1074,16 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
 
 - To watch many tropical forests and act only on what is likely real, use `lab:seasonal_loss_nbr@1` or
   `lab:seasonal_canopy_loss@1`: pooled over eight and six disjoint sets of forests, they beat the registry rule by
-  +0.12 and +0.15 MCC (section 5.21). The strict status rule reads them not replicated after one tie (section 5.13).
+  +0.12 and +0.15 MCC (section 5.22). The strict status rule reads them not replicated after one tie (section 5.13).
   Read a silence as "no large loss seen", not as "no loss". The three quiet rules include seasonal NBR. They find
   nine in ten cells where half the forest went. They find one in five where clearing took 5 to 10% (section 5.9).
 - Where harvests take part of a cell, use `lab:subcell_loss_p10@1+screen` (section 5.12), and not on clearing
   frontiers.
 - In snowy boreal forest, do not trust any of them (section 5.11).
-- `lab:memory_optical@1` is replicated and forest-dependent, by +0.21 MCC (section 5.21). It is the one method above
+- `lab:memory_optical@1` is replicated and forest-dependent, by +0.21 MCC (section 5.22). It is the one method above
   the registry rule in every climate class it ran in (section 5.18, post hoc).
 - The later memory detectors pool higher, but no test shows them better, because their forests disagree (I² 96 to 99%,
-  section 5.21). `lab:memory_hls_emp@4` won the one experiment it has entered (section 5.15); wait for its next.
+  section 5.22). `lab:memory_hls_emp@4` won the one experiment it has entered (section 5.15); wait for its next.
 - To find every clearing at one site, the registry's `deforestation_alert_ndvi_drop@1` finds more of it, and most of
   what it flags is not loss; check each flag against a second source.
 - Do not use a rule whose status is mixed on the strength of its best result.
@@ -1076,14 +1112,14 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
 - Heavy reads fail: the fusion experiment lost four of ten forests to server timeouts and upstream errors, which cost
   it power.
 - The strict status rule turned a single tie into not replicated. Since 29 October a random-effects meta-analysis
-  decides status (rule v2, section 5.21), and the strict verdicts appear beside it. The lab adopted rule v2 after
+  decides status (rule v2, section 5.22), and the strict verdicts appear beside it. The lab adopted rule v2 after
   it saw the experiments that the rule judges, so every status is exploratory
   ([program](program.md#2-the-unit-of-research-is-an-experiment-held-in-emem-memory), section 2).
 - Before rule v2, the lab tightened the strict rule once, after the third replication (section 5.8). That change only
   demoted.
 - Cells are the unit the experiments score, and the label rule (5% of a 400 m cell) never counts a clearing under about 0.8 ha. Section 5.17 scores clearings by size against chance; at 400 m the methods miss most small ones.
 - Every interval in sections 5.1 to 5.14, except 5.10, resamples cells. Where loss comes in clearings, that overstates
-  certainty: a clearing is one event seen in many cells. Section 5.21 measures how much on two experiments; from the
+  certainty: a clearing is one event seen in many cells. Section 5.22 measures how much on two experiments; from the
   two-optical-sensor experiment on, forests are the resampled unit that decides, and every result reports both.
 
 ## 8. Reproducing this

@@ -277,7 +277,7 @@ new forests, the memory detectors led, and the calibrated ones flagged 1.2 to 1.
 JRC TMF marked only 5 cells as loss, against 42 for Hansen, too few to judge any method. Version 4
 (`lab:memory_hls_emp@4`) adds Landsat 8 and 9 to the optical memory. On nine forests that had loss, it scored MCC 0.420
 and beat the registry rule with forests resampled (+0.031 to +0.685). Its gain over version 3 (-0.066 to +0.203) is not
-yet clear of zero. The replication in section 5.21 read the four forests that failed and six new ones. Its best detector
+yet clear of zero. The replication in section 5.22 read the four forests that failed and six new ones. Its best detector
 scored MCC 0.93, but 56 of its 59 loss cells are one clearing at Humaitá.
 
 **How high can accuracy go?** The score is bounded by the reference. On 4,391 tropical forest cells, Hansen's loss
@@ -381,7 +381,7 @@ disagreements between sources; that list is the program's agenda.
 
 ## 7. What is not shown yet
 
-- Five canopy rules are replicated under rule v2 (the paper, section 5.21): the first memory detector
+- Five canopy rules are replicated under rule v2 (the paper, section 5.22): the first memory detector
   (`lab:memory_optical@1`, +0.21 MCC, forest-dependent), the searched seasonal rule (+0.15), the seasonal NBR rule
   and the desk's rule (both forest-dependent) and the screened registry rule (+0.04). The later memory detectors pool
   higher, +0.17 to +0.34, but their sets of forests disagree too much (I² 96 to 99%) for them to be called better, and
