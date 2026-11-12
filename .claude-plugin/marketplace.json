@@ -12,7 +12,7 @@
       "displayName": "emem",
       "source": "./plugins/emem",
       "description": "Verifiable shared memory for AI agents: one address per place, one signature you check offline.",
-      "version": "2.4.5",
+      "version": "2.4.6",
       "author": {
         "name": "Vortx AI",
         "email": "avijeet@vortx.ai",
@@ -46,7 +46,7 @@
       "displayName": "emem signer",
       "source": "./plugins/emem-signer",
       "description": "Optional local signer for emem memory writes: your key stays in a sensitive option and one local process.",
-      "version": "2.4.5",
+      "version": "2.4.6",
       "author": {
         "name": "Vortx AI",
         "email": "avijeet@vortx.ai",
