@@ -16641,7 +16641,7 @@
      0,
      1
     ],
-    "explanation": "Per field: loss true with the first flagged date and the three medians compared, or loss false."
+    "explanation": "Per field: loss true with the first flagged date and the three medians compared, or loss false. loss is null when the series is too thin to judge any date (dates_judged 0)."
    },
    "when_to_use": "Canopy-loss screening over fields or a grid of cells in tropical forest, for a dated window. Read the date as when the canopy was seen gone, not when it was cut. Confirm a flag with imagery before acting on it.",
    "primitive": "POST /v1/field_series {index: 'nbr', fields: [...], start_date, end_date, canopy_loss: {from, to}}",

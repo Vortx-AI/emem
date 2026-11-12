@@ -2290,14 +2290,21 @@ fn canopy_loss_of(days: &[i64], medians: &[f64], lo: i64, hi: i64) -> JsonValue 
         .collect();
     s.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
     let (d, v): (Vec<i64>, Vec<f64>) = s.into_iter().unzip();
+    let in_window = d.iter().filter(|x| (lo..=hi).contains(*x)).count();
+    let judged = crate::canopy_loss::judged_dates(&d, lo, hi);
     match crate::canopy_loss::seasonal_canopy_loss(&d, &v, lo, hi) {
         Some(l) => {
             let (y, m, dd) = crate::civil_from_days(l.day);
             json!({"loss": true, "date": format!("{y:04}-{m:02}-{dd:02}"),
                    "median_before": round6(l.pre), "median_year_ago": round6(l.year_ago),
-                   "median_after": round6(l.post)})
+                   "median_after": round6(l.post),
+                   "dates_in_window": in_window, "dates_judged": judged})
         }
-        None => json!({"loss": false}),
+        None if judged == 0 => {
+            json!({"loss": null, "dates_in_window": in_window, "dates_judged": 0,
+            "why": "no date in the window had two kept scenes in the 45 days from it, two in the 90 days before and one a year earlier, so the rule judged nothing; send a larger max_scenes, or check how many scenes the field kept"})
+        }
+        None => json!({"loss": false, "dates_in_window": in_window, "dates_judged": judged}),
     }
 }
 
@@ -2410,9 +2417,15 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             "the window is {window_days} days; the cap is {MAX_WINDOW_DAYS}. Split it, or use emem_compare_same_doy for a multi-year same-season comparison."
         )));
     }
+    // The canopy rule compares 45- and 90-day windows, which 24 scenes over
+    // several years leave too thin to judge, so it reads the most by default.
     let asked_scenes = req
         .max_scenes
-        .unwrap_or(DEFAULT_SCENES)
+        .unwrap_or(if canopy.is_some() {
+            MAX_SCENES
+        } else {
+            DEFAULT_SCENES
+        })
         .clamp(3, MAX_SCENES);
     let max_scenes = scenes_within_field_budget(asked_scenes, zones.len());
     let min_clear = req.min_clear_fraction.unwrap_or(0.4).clamp(0.05, 1.0);
@@ -2462,6 +2475,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
                 "reject": if landsat { json!({"qa_pixel_bits": qa_bits}) } else { json!(reject_vec) },
                 "buffer_m": buffer_m, "min_support": min_support,
                 "fields": zones.iter().map(|z| (&z.id, &z.polygon_cid)).collect::<Vec<_>>(),
+                "canopy_loss": canopy,
             }),
             req.memory,
         ),
@@ -3109,6 +3123,27 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         "each field's pixels are the window pixels whose centre lies inside it (and inner_buffer_m inside its edge); a field's scene counts when it meets min_clear_fraction and min_support_px on its own pixels, whatever the window's clear share",
         true,
     );
+    // On a thin series the first date the rule can judge may come months after
+    // the clearing, so a flag can be late and no flag means little.
+    if canopy.is_some() {
+        let thin = fields_block["summary"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter(|f| {
+                        let c = &f["canopy_loss"];
+                        let judged = c["dates_judged"].as_u64().unwrap_or(0);
+                        judged * 2 < c["dates_in_window"].as_u64().unwrap_or(0)
+                    })
+                    .count()
+            })
+            .unwrap_or(0);
+        if thin > 0 {
+            cautions.push(format!(
+                "canopy_loss judged fewer than half of the window's dates on {thin} field(s) (`dates_judged` against `dates_in_window`). On so few passes a flagged date can be months after the clearing, and no flag says little. Send a larger max_scenes."
+            ));
+        }
+    }
 
     // ── sign the series. ──────────────────────────────────────────────────
     let aoi_id = aoi_cid(b)?;
@@ -3225,7 +3260,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
                                 "record": "docs/research/canopy-loss-2026-10.md, section 5.22"},
             "window": [date(lo), date(hi)],
             "rule": crate::canopy_loss::RULE,
-            "read": "each field's median NBR per scene, after the scene check; a suspect scene is left out",
+            "read": "each field's median NBR per scene, after the scene check; a suspect scene is left out. Each field states dates_judged: loss is false only when the rule judged at least one date, and null when the series was too thin to judge any",
             "limits": "Validated at 400 m cells against Hansen's annual loss year, which maps loss from Landsat. At 240 m it found fewer small clearings beyond chance than the memory detectors. A date near the end of the window has too few later passes to be judged",
         }));
     }
@@ -3326,6 +3361,9 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     });
     if let (true, Some(o)) = (landsat, out.as_object_mut()) {
         o.insert("sensor".into(), json!(sensor.key()));
+    }
+    if let (Some(o), Some(c)) = (out.as_object_mut(), record.get("canopy_loss")) {
+        o.insert("canopy_loss".into(), c.clone());
     }
     cache_put(cache_key, out.clone());
     Ok(out)
@@ -4468,6 +4506,51 @@ async fn field_series_areas(req: FieldSeriesReq, s: &AppState) -> Result<JsonVal
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A real series at the density the lab read flags its clearing. Thinned
+    /// to an evenly spaced 12 scenes, it has no date with enough passes around
+    /// it, and the answer must say it judged nothing rather than "no loss".
+    #[test]
+    fn canopy_loss_says_when_it_judged_nothing() {
+        let fx: JsonValue =
+            serde_json::from_str(include_str!("testdata/canopy_loss_parity.json")).unwrap();
+        let case = fx["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["site"] == "apiacas-mato-grosso" && c["cell"] == "r01c00")
+            .unwrap();
+        let days: Vec<i64> = case["days"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_i64().unwrap())
+            .collect();
+        let vals: Vec<f64> = case["values"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_f64().unwrap())
+            .collect();
+        let (lo, hi) = (
+            crate::days_from_civil(2024, 1, 1),
+            crate::days_from_civil(2026, 3, 31),
+        );
+        let full = canopy_loss_of(&days, &vals, lo, hi);
+        assert_eq!(full["loss"], true);
+        assert_eq!(full["date"], "2024-08-21");
+        assert_eq!(full["dates_judged"], 24);
+        let (d, v): (Vec<i64>, Vec<f64>) = spread(days.len(), 12)
+            .into_iter()
+            .map(|i| (days[i], vals[i]))
+            .unzip();
+        let thin = canopy_loss_of(&d, &v, lo, hi);
+        assert_eq!(thin["loss"], JsonValue::Null);
+        assert_eq!(thin["dates_judged"], 0);
+        assert!(thin["why"]
+            .as_str()
+            .is_some_and(|s| s.contains("max_scenes")));
+    }
 
     /// A bare area reads what it asks for; fields share one budget, so the
     /// largest field call signs no more than it did under the old cap of 24.

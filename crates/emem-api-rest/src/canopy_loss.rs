@@ -10,6 +10,8 @@
 //! Python's `statistics.median`: the mean of the two middle values for an even
 //! count.
 
+use std::ops::Range;
+
 pub(crate) const KEY: &str = "canopy_loss_seasonal_nbr@1";
 pub(crate) const LAB_KEY: &str = "lab:seasonal_canopy_loss@1";
 pub(crate) const LAB_SOURCE_BLAKE3: &str =
@@ -44,24 +46,31 @@ fn median(v: &[f64]) -> f64 {
     }
 }
 
+/// The passes the rule compares at the `i`-th date `t`: the 45 days from it,
+/// the 90 days before it and the same 45 days a year earlier. `None` when one
+/// is too thin to judge (fewer than two after, two before, or none a year
+/// earlier).
+fn windows(days: &[i64], i: usize, t: i64) -> Option<[Range<usize>; 3]> {
+    let left = |x: i64| days.partition_point(|d| *d < x);
+    let right = |x: i64| days.partition_point(|d| *d <= x);
+    let post = i..right(t + POST_DAYS).max(i);
+    let pre = left(t - PRE_DAYS).min(i)..i;
+    let a0 = left(t - YEAR_DAYS - YEAR_SLACK_DAYS);
+    let ago = a0..right(t - YEAR_DAYS + POST_DAYS + YEAR_SLACK_DAYS).max(a0);
+    (post.len() >= 2 && pre.len() >= 2 && !ago.is_empty()).then_some([post, pre, ago])
+}
+
 /// `days` ascending (ties allowed), `vals` the cell's median NBR on each.
 /// `lo`..=`hi` is the scoring window, in the same day units.
 pub(crate) fn seasonal_canopy_loss(days: &[i64], vals: &[f64], lo: i64, hi: i64) -> Option<Loss> {
-    let left = |x: i64| days.partition_point(|d| *d < x);
-    let right = |x: i64| days.partition_point(|d| *d <= x);
     for (i, &t) in days.iter().enumerate() {
         if t < lo || t > hi {
             continue;
         }
-        let post = &vals[i..right(t + POST_DAYS).max(i)];
-        let pre = &vals[left(t - PRE_DAYS).min(i)..i];
-        let a0 = left(t - YEAR_DAYS - YEAR_SLACK_DAYS);
-        let a1 = right(t - YEAR_DAYS + POST_DAYS + YEAR_SLACK_DAYS);
-        let ago = &vals[a0..a1.max(a0)];
-        if post.len() < 2 || pre.len() < 2 || ago.is_empty() {
+        let Some([post, pre, ago]) = windows(days, i, t) else {
             continue;
-        }
-        let (mp, ma, mq) = (median(pre), median(ago), median(post));
+        };
+        let (mp, ma, mq) = (median(&vals[pre]), median(&vals[ago]), median(&vals[post]));
         if mp >= FROM_AT_LEAST && mp.min(ma) - mq >= DROP {
             return Some(Loss {
                 day: t,
@@ -72,6 +81,15 @@ pub(crate) fn seasonal_canopy_loss(days: &[i64], vals: &[f64], lo: i64, hi: i64)
         }
     }
     None
+}
+
+/// How many dates of the window the rule can judge. A series too sparse for
+/// its windows flags nothing, and that must not read as "no loss".
+pub(crate) fn judged_dates(days: &[i64], lo: i64, hi: i64) -> usize {
+    days.iter()
+        .enumerate()
+        .filter(|&(i, &t)| (lo..=hi).contains(&t) && windows(days, i, t).is_some())
+        .count()
 }
 
 /// The rule as one sentence, for the record.
@@ -128,6 +146,7 @@ mod tests {
         let days = [0, 30, 60, 100, 120, 130];
         let vals = [0.6, 0.6, 0.6, 0.2, 0.2, 0.2];
         assert_eq!(seasonal_canopy_loss(&days, &vals, 0, 200), None);
+        assert_eq!(judged_dates(&days, 0, 200), 0);
         // The same drop with a year of history at the same level. Day 455 already
         // qualifies: its 45 days hold three passes at 0.2 and one at 0.6.
         let days = [365, 380, 395, 425, 455, 465, 475, 485];
@@ -138,6 +157,8 @@ mod tests {
         v.extend(vals);
         let hit = seasonal_canopy_loss(&d, &v, 400, 600).unwrap();
         assert_eq!(hit.day, 455);
+        // 425, 455, 465 and 475; 485 has one pass after it, 395 is before the window.
+        assert_eq!(judged_dates(&d, 400, 600), 4);
         assert!((hit.pre - 0.6).abs() < 1e-12 && (hit.post - 0.2).abs() < 1e-12);
     }
 
