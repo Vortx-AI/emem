@@ -11,7 +11,12 @@ fails a technical gate is sent back with the report.
 - It asks one question and ends on an honest verdict: TRUE, NOT TRUE, CAN'T TELL or VOID, or it is a plain
   explainer (NONE). A film that cannot fail its own claim does not show a check.
 - Every number on screen comes from a signed fact or a saved, hashed session, and `film.json` names it. Each
-  token resolves on emem.dev, and the value on screen is the signed value.
+  token resolves on emem.dev, and the value on screen is the signed value, rounded no further than it shows.
+- A number that no single fact holds, such as a count over many cells, is cited one of two ways:
+  - Prefer `emem_derive` over its parent facts, where the responder can compute it again.
+  - Otherwise cite it as one unit of the author's signed pointer.v1 index over a facts card: `emem:tree:<cid>#row=<i>`.
+    The unit names the value, the method and the scenes, so anyone can count again. The screen says whose count it
+    is. It is the author's signed claim, not an emem fact.
 - It says what the check does not show. A signature says who signed, not that a claim is true.
 - It shows nothing private: no farm or field outline, no client or partner name, no coordinates of a person.
 - A pixel that decides the verdict is an untouched source pixel from a named pass, stretched only where it says
@@ -66,8 +71,15 @@ docker run --rm -v "$PWD":/w:ro emem-film-qc python3 /w/tools/film_qc.py \
   /w/docs/media/films/<id>/film.mp4 --json /w/docs/media/films/<id>/film.json
 ```
 
-It prints every gate with what it measured, and exits 0 when the film is accepted. Then resolve each token in
-`film.json` with `POST /v1/memory_token/resolve` and compare its `value` with the `value` in the claim.
+It prints every gate with what it measured, and exits 0 when the film is accepted. Then check the claims
+against emem.dev:
+
+```sh
+python3 tools/film_claims.py docs/media/films/<id>/film.json
+```
+
+It resolves each `emem:fact` and compares the value. For each `emem:tree` unit it runs `tree_proof.py check` on
+the row, the note named in `index_note` and the source the note indexes, then compares the unit's `- value:` line.
 
 On 12 November 2026 the gate accepted a test pattern encoded to the spec and rejected a 4 s clip that flashed
 11 times a second. It rejected all five older films in this folder on colour tags, frame size, keyframe interval
