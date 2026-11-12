@@ -226,6 +226,13 @@ The code does not know the offset for items of 2022-02-27 and 2022-02-28, so the
 them (`element84_dn_offset` in `stac.rs`). The node also refuses a scene that states no baseline
 when it needs one. Each fact's `derivation.args` ends with the catalogue and the offset.
 
+Facts signed before that rule went live (2026-11-06 21:39Z) read those Element84 items with
+offset 0. A fact is signed and cannot change, so the node serves each such fact with an `erratum`
+block (`element84_erratum.rs`). The block has status `wrong` and a `corrected_value`, which it
+computes from the DNs in `derivation.args` with the formula a read uses today. For 27 and 28
+February the status is `unknown`. On 12 November 2026 the transparency log held 1,890 such facts
+from 83 items, all of baseline 04.00.
+
 A single cell searches with `intersects: Point`, not `bbox`. A bbox search can match the next
 tile in an MGRS overlap zone. A read over many cells searches once for their bbox. It then keeps,
 for each cell, the items whose footprint holds the point.

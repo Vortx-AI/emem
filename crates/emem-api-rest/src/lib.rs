@@ -51,6 +51,7 @@ mod change_attribution;
 mod decide;
 mod deforestation_alert;
 mod doc_parse;
+mod element84_erratum;
 mod embedding_analytics;
 pub mod enlistment;
 mod eo_runtime;
@@ -14916,6 +14917,9 @@ fn decode_class_value(band: &str, value_json: &JsonValue) -> Option<String> {
 /// positional in a signed array, so the two must move together.
 const S2_FN_KEY_PREFIX: &str = "sentinel2_l2a_";
 const S2_ARGS_SCL_INDEX: usize = 9;
+/// The scene's STAC item id and the DNs read, in the same positional array.
+const S2_ARGS_ITEM_INDEX: usize = 2;
+const S2_ARGS_SAMPLES_INDEX: usize = 5;
 
 /// Is a vegetation index measuring vegetation over this SCL class?
 ///
@@ -15271,6 +15275,11 @@ fn enrich_facts_inner(value: &mut JsonValue, with_band_metadata: bool) {
             if let Some(block) = s2_surface_class_json(scl) {
                 obj.insert("surface_class".into(), block);
             }
+        }
+        // A signed value the responder knows to be wrong says so here; the
+        // value stays the signed one.
+        if let Some(e) = element84_erratum::for_fact(obj) {
+            obj.insert("erratum".into(), e);
         }
         if with_band_metadata {
             let mut meta = band_metadata_for_response(&band);
@@ -24780,14 +24789,30 @@ async fn get_fact(
             .into_response(),
         };
     }
-    let body = serde_json::to_string(&fact).unwrap_or_else(|_| "{}".into());
-    Response::builder()
+    // Re-serialised only when an erratum applies, so every other fact's JSON
+    // stays byte-for-byte what it was. The CBOR above never carries one.
+    let mut erratum_id = None;
+    let body = {
+        let mut v = serde_json::to_value(&fact).unwrap_or(JsonValue::Null);
+        element84_erratum::annotate(&mut v);
+        match v.get("erratum") {
+            Some(e) => {
+                erratum_id = e["id"].as_str().map(str::to_string);
+                serde_json::to_string(&v).unwrap_or_else(|_| "{}".into())
+            }
+            None => serde_json::to_string(&fact).unwrap_or_else(|_| "{}".into()),
+        }
+    };
+    let mut resp = Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "application/json; charset=utf-8")
         .header(ETAG, &etag_value)
         .header(axum::http::header::VARY, "accept")
-        .header(CACHE_CONTROL, "public, max-age=31536000, immutable")
-        .body(axum::body::Body::from(body))
+        .header(CACHE_CONTROL, "public, max-age=31536000, immutable");
+    if let Some(id) = erratum_id {
+        resp = resp.header("x-emem-erratum", id);
+    }
+    resp.body(axum::body::Body::from(body))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
@@ -24850,10 +24875,12 @@ async fn post_fetch(
                 },
             )
         })?;
+        let mut fact_json = serde_json::to_value(&fact).unwrap_or(JsonValue::Null);
+        element84_erratum::annotate(&mut fact_json);
         return Ok(Json(json!({
             "schema": "emem.fetch.v1",
             "cid": cid_in,
-            "fact": serde_json::to_value(&fact).unwrap_or(JsonValue::Null),
+            "fact": fact_json,
             "rest_url": format!("/v1/facts/{cid_in}"),
             "agent_hint": "Fact bytes are byte-identical across responders for the same CID; the CID itself is the validator. Verify the responder's signature with /v1/verify_receipt.",
         })));
@@ -32542,7 +32569,8 @@ async fn mcp_read_resource_dynamic(uri: &str, s: &AppState) -> Result<JsonValue,
                 .next()
                 .flatten()
                 .ok_or_else(|| (-32602, format!("no fact for cid={cid} on this responder")))?;
-            let body = serde_json::to_value(&fact).unwrap_or(JsonValue::Null);
+            let mut body = serde_json::to_value(&fact).unwrap_or(JsonValue::Null);
+            element84_erratum::annotate(&mut body);
             let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_string());
             return Ok(json!({
                 "uri":      uri,
@@ -34777,10 +34805,12 @@ async fn mcp_tool_call_inner(
                     format!("no fact for cid={trimmed}"),
                 )
             })?;
+            let mut fact_json = serde_json::to_value(&fact).unwrap_or(JsonValue::Null);
+            element84_erratum::annotate(&mut fact_json);
             Ok(json!({
                 "schema": "emem.fetch.v1",
                 "cid": trimmed,
-                "fact": serde_json::to_value(&fact).unwrap_or(JsonValue::Null),
+                "fact": fact_json,
                 "rest_url": format!("/v1/facts/{trimmed}"),
                 "agent_hint": "Fact bytes are byte-identical across responders for the same CID; the CID itself is the validator. Verify the responder's signature with /v1/verify_receipt.",
             }))
@@ -39920,6 +39950,11 @@ struct MemoryTokenResolveResp {
     /// working. Removing it would have been a wire break for every existing
     /// parser to buy nothing.
     fact: JsonValue,
+    /// Set when the responder knows this signed value is wrong, or may be
+    /// ([`element84_erratum`]). The same block is inside `fact`, and `value`
+    /// above stays the signed one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    erratum: Option<JsonValue>,
     /// Whether the responder could resolve the fact_cid in its own
     /// store. `true` means the bytes are attached; `false` is paired
     /// with HTTP 404 and is unreachable on a successful response.
@@ -40554,7 +40589,9 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
         });
     }
 
-    let fact_json = serde_json::to_value(&fact).unwrap_or(json!({}));
+    let mut fact_json = serde_json::to_value(&fact).unwrap_or(json!({}));
+    element84_erratum::annotate(&mut fact_json);
+    let erratum = fact_json.get("erratum").cloned();
     let fact_url = format!("https://emem.dev/v1/facts/{}", cid);
     let canonical_token = format!("emem:fact:{cell}:{cid}");
     let signer_b32 = b32_lower(match &fact {
@@ -40609,6 +40646,7 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
         band,
         kind,
         fact: fact_json,
+        erratum,
         resolved: true,
         // NOT hardcoded `true`. The 409 guard above is `if !degraded &&
         // fact_cell != cell`, so a degraded resolve skips the comparison
@@ -56094,6 +56132,247 @@ pub(crate) fn s2_catalogues() -> Vec<&'static str> {
     }
 }
 
+/// A Sentinel-2 value from its DNs, `samples` in the order the band's plan
+/// lists its assets, under `reflectance = (DN + offset) * 1e-4`. The
+/// materializer signs this; [`element84_erratum`] recomputes a signed fact's
+/// value from the DNs it carries with the offset it should have had, so the
+/// correction cannot drift from what a fresh read would sign.
+pub(crate) fn s2_value_from_samples(
+    kind: &str,
+    samples: &[f64],
+    offset: f64,
+    band: &str,
+    item_id: &str,
+) -> Result<(f64, Option<String>), String> {
+    let r = |dn: f64| (dn + offset) * 1e-4;
+    Ok(match kind {
+        "raw_reflectance" => {
+            let raw = samples[0];
+            if raw == 0.0 {
+                return Err(format!(
+                    "nodata at scene={} (band={band} raw={raw})",
+                    item_id
+                ));
+            }
+            let refl = r(raw);
+            (refl, None)
+        }
+        "scl_categorical" => {
+            // SCL is uint8 0..11; treat 0 as no-data per ESA spec.
+            let raw = samples[0];
+            if raw == 0.0 {
+                return Err(format!("scl=0 (no-data) at scene={}", item_id));
+            }
+            (raw, Some("class_index".to_string()))
+        }
+        "index_ndvi" => {
+            let nir = r(samples[0]);
+            let red = r(samples[1]);
+            if nir + red < 1e-6 {
+                return Err("ndvi denom ≈ 0".to_string());
+            }
+            ((nir - red) / (nir + red), None)
+        }
+        "index_ndwi" => {
+            let g = r(samples[0]);
+            let nir = r(samples[1]);
+            if g + nir < 1e-6 {
+                return Err("ndwi denom ≈ 0".to_string());
+            }
+            ((g - nir) / (g + nir), None)
+        }
+        "index_mndwi" => {
+            let g = r(samples[0]);
+            let swir = r(samples[1]);
+            if g + swir < 1e-6 {
+                return Err("mndwi denom ≈ 0".to_string());
+            }
+            ((g - swir) / (g + swir), None)
+        }
+        "index_evi" => {
+            let nir = r(samples[0]);
+            let red = r(samples[1]);
+            let blue = r(samples[2]);
+            let denom = nir + 6.0 * red - 7.5 * blue + 1.0;
+            if denom.abs() < 1e-6 {
+                return Err("evi denom ≈ 0".to_string());
+            }
+            (2.5 * (nir - red) / denom, None)
+        }
+        "index_nbr" => {
+            let nir = r(samples[0]);
+            let swir2 = r(samples[1]);
+            if nir + swir2 < 1e-6 {
+                return Err("nbr denom ≈ 0".to_string());
+            }
+            ((nir - swir2) / (nir + swir2), None)
+        }
+        "index_ndmi" => {
+            let nir = r(samples[0]);
+            let swir1 = r(samples[1]);
+            if nir + swir1 < 1e-6 {
+                return Err("ndmi denom ≈ 0".to_string());
+            }
+            ((nir - swir1) / (nir + swir1), None)
+        }
+        "index_savi" => {
+            let nir = r(samples[0]);
+            let red = r(samples[1]);
+            let l = 0.5;
+            if nir + red + l < 1e-6 {
+                return Err("savi denom ≈ 0".to_string());
+            }
+            ((1.0 + l) * (nir - red) / (nir + red + l), None)
+        }
+        "index_bsi" => {
+            let swir1 = r(samples[0]);
+            let red = r(samples[1]);
+            let nir = r(samples[2]);
+            let blue = r(samples[3]);
+            let num = (swir1 + red) - (nir + blue);
+            let den = (swir1 + red) + (nir + blue);
+            if den.abs() < 1e-6 {
+                return Err("bsi denom ≈ 0".to_string());
+            }
+            (num / den, None)
+        }
+        "index_ndbi" => {
+            let swir1 = r(samples[0]);
+            let nir = r(samples[1]);
+            if swir1 + nir < 1e-6 {
+                return Err("ndbi denom ≈ 0".to_string());
+            }
+            ((swir1 - nir) / (swir1 + nir), None)
+        }
+        "index_ndti" => {
+            // NDTI (Lacaux et al. 2007, RSE 109:66-77): turbidity proxy used
+            // for waterborne-disease vector mapping in the Senegal Valley.
+            let red = r(samples[0]);
+            let green = r(samples[1]);
+            if red + green < 1e-6 {
+                return Err("ndti denom ≈ 0".to_string());
+            }
+            ((red - green) / (red + green), None)
+        }
+        "index_gndvi" => {
+            // GNDVI (Gitelson, Kaufman & Merzlyak 1996, RSE 58:289-298):
+            // chlorophyll-sensitive vegetation index, saturates later than
+            // NDVI over dense canopies, useful for crop nitrogen + pasture.
+            let nir = r(samples[0]);
+            let green = r(samples[1]);
+            if nir + green < 1e-6 {
+                return Err("gndvi denom ≈ 0".to_string());
+            }
+            ((nir - green) / (nir + green), None)
+        }
+        "index_ndre" => {
+            // NDRE (Gitelson & Merzlyak 1996, J Plant Physiol 148:494-500):
+            // red-edge chlorophyll. Sentinel-2's red-edge band B05 (704 nm)
+            // is uniquely mid-range and saturates much later than NIR,
+            // exposing nitrogen status during peak biomass.
+            let nirn = r(samples[0]);
+            let re1 = r(samples[1]);
+            if nirn + re1 < 1e-6 {
+                return Err("ndre denom ≈ 0".to_string());
+            }
+            ((nirn - re1) / (nirn + re1), None)
+        }
+        "index_fai" => {
+            // FAI (Hu 2009, RSE 113:2118-2129): floating algae index.
+            // Linear baseline drawn between red (665 nm) and SWIR1 (1610 nm),
+            // measured at NIR (842 nm). Surface scum reflects strongly in
+            // NIR but not in SWIR (water absorbs SWIR), so positive FAI
+            // identifies HAB scums, sargassum, oil sheens, plastics.
+            let nir = r(samples[0]);
+            let red = r(samples[1]);
+            let swir1 = r(samples[2]);
+            // S2 band centers (nm): B04=665, B08=842, B11=1610.
+            let lambda_baseline = red + (842.0 - 665.0) / (1610.0 - 665.0) * (swir1 - red);
+            (nir - lambda_baseline, None)
+        }
+        "index_tss" => {
+            // TSS (Ouma et al. 2020, J Sensors): empirical regression on
+            // East African reservoirs. Formula: TSS [mg/L] = 14.464·(R/B)
+            // + 16.336. Valid for moderately turbid inland water; clip
+            // to 0 at clearest pixels. Pre-storm vs post-storm Δ is the
+            // pathogen-runoff signal.
+            let red = r(samples[0]);
+            let blue = r(samples[1]);
+            if blue.abs() < 1e-6 {
+                return Err("tss denom (blue) ≈ 0".to_string());
+            }
+            let tss = 14.464_f64 * (red / blue) + 16.336;
+            (tss.max(0.0), Some("mg/L".to_string()))
+        }
+        "index_ndsi" => {
+            // NDSI (Hall, Riggs & Salomonson 1995, RSE 54:127-140): the
+            // canonical snow-cover index. Snow is bright in green and dark
+            // in SWIR. Threshold ~0.4 separates snow from cloud over land.
+            let green = r(samples[0]);
+            let swir1 = r(samples[1]);
+            if green + swir1 < 1e-6 {
+                return Err("ndsi denom ≈ 0".to_string());
+            }
+            ((green - swir1) / (green + swir1), None)
+        }
+        "index_afri1600" => {
+            // AFRI1.6 (Karnieli et al. 2001, RSE 77:10-21): aerosol-free
+            // vegetation index for use under smoke/dust/haze. Uses SWIR
+            // (which is largely transparent to aerosol) instead of red.
+            let nir = r(samples[0]);
+            let swir1 = r(samples[1]);
+            let denom = nir + 0.66 * swir1;
+            if denom.abs() < 1e-6 {
+                return Err("afri1600 denom ≈ 0".to_string());
+            }
+            ((nir - 0.66 * swir1) / denom, None)
+        }
+        "index_savi_l1" => {
+            // SAVI with L=1 (Huete 1988, RSE 25:295-309). Heavier soil
+            // correction than the canonical L=0.5 version, useful for
+            // pasture/desert conditions where bare-soil background is
+            // dominant.
+            let nir = r(samples[0]);
+            let red = r(samples[1]);
+            let l = 1.0;
+            if nir + red + l < 1e-6 {
+                return Err("savi_l1 denom ≈ 0".to_string());
+            }
+            ((1.0 + l) * (nir - red) / (nir + red + l), None)
+        }
+        "index_surface_dryness" => {
+            // SDI = 1 − NDMI, clamped to [0,1]. NDMI > 0 over wet canopy
+            // means SDI < 1; bare/dry surfaces produce SDI ≈ 1. Used as
+            // the multiplicative compound term in heat-stress: high LST ×
+            // high SDI = no evaporative cooling = ER-visit risk.
+            let nir = r(samples[0]);
+            let swir1 = r(samples[1]);
+            if nir + swir1 < 1e-6 {
+                return Err("sdi denom ≈ 0".to_string());
+            }
+            let ndmi = (nir - swir1) / (nir + swir1);
+            (1.0 - ndmi.clamp(0.0, 1.0), None)
+        }
+        "index_urban_canopy" => {
+            // UCI = NDVI · (1 − NDBI). NDVI captures vegetation; (1−NDBI)
+            // dampens the score on built-up pixels so it specifically
+            // surfaces TREE canopy in urban grids, supports the WHO
+            // "3-30-300" rule (3 trees from every window, 30% canopy
+            // cover per neighborhood, 300 m to nearest green space).
+            let nir = r(samples[0]);
+            let red = r(samples[1]);
+            let swir1 = r(samples[2]);
+            if nir + red < 1e-6 || swir1 + nir < 1e-6 {
+                return Err("uci denom ≈ 0".to_string());
+            }
+            let ndvi = (nir - red) / (nir + red);
+            let ndbi = (swir1 - nir) / (swir1 + nir);
+            (ndvi * (1.0 - ndbi), None)
+        }
+        other => return Err(format!("s2 band kind {other} not implemented")),
+    })
+}
+
 /// The additive DN term that turns this scene's DNs into reflectance with
 /// `reflectance = (DN + offset) * 1e-4`, or why no honest one exists.
 ///
@@ -57165,235 +57444,7 @@ async fn materialize_sentinel2_from_scene(
     // path is calibrated for, and there is no version of "wrong catalogue"
     // where signing a fact from it is right.
     let offset = s2_dn_offset(chosen.search_url, &item)?;
-    let r = |dn: f64| (dn + offset) * 1e-4;
-
-    // Compute the band value.
-    let (value, fact_unit) = match kind {
-        "raw_reflectance" => {
-            let raw = samples[0];
-            if raw == 0.0 {
-                return Err(format!(
-                    "nodata at scene={} (band={band} raw={raw})",
-                    item.id
-                ));
-            }
-            let refl = r(raw);
-            (refl, None)
-        }
-        "scl_categorical" => {
-            // SCL is uint8 0..11; treat 0 as no-data per ESA spec.
-            let raw = samples[0];
-            if raw == 0.0 {
-                return Err(format!("scl=0 (no-data) at scene={}", item.id));
-            }
-            (raw, Some("class_index".to_string()))
-        }
-        "index_ndvi" => {
-            let nir = r(samples[0]);
-            let red = r(samples[1]);
-            if nir + red < 1e-6 {
-                return Err("ndvi denom ≈ 0".to_string());
-            }
-            ((nir - red) / (nir + red), None)
-        }
-        "index_ndwi" => {
-            let g = r(samples[0]);
-            let nir = r(samples[1]);
-            if g + nir < 1e-6 {
-                return Err("ndwi denom ≈ 0".to_string());
-            }
-            ((g - nir) / (g + nir), None)
-        }
-        "index_mndwi" => {
-            let g = r(samples[0]);
-            let swir = r(samples[1]);
-            if g + swir < 1e-6 {
-                return Err("mndwi denom ≈ 0".to_string());
-            }
-            ((g - swir) / (g + swir), None)
-        }
-        "index_evi" => {
-            let nir = r(samples[0]);
-            let red = r(samples[1]);
-            let blue = r(samples[2]);
-            let denom = nir + 6.0 * red - 7.5 * blue + 1.0;
-            if denom.abs() < 1e-6 {
-                return Err("evi denom ≈ 0".to_string());
-            }
-            (2.5 * (nir - red) / denom, None)
-        }
-        "index_nbr" => {
-            let nir = r(samples[0]);
-            let swir2 = r(samples[1]);
-            if nir + swir2 < 1e-6 {
-                return Err("nbr denom ≈ 0".to_string());
-            }
-            ((nir - swir2) / (nir + swir2), None)
-        }
-        "index_ndmi" => {
-            let nir = r(samples[0]);
-            let swir1 = r(samples[1]);
-            if nir + swir1 < 1e-6 {
-                return Err("ndmi denom ≈ 0".to_string());
-            }
-            ((nir - swir1) / (nir + swir1), None)
-        }
-        "index_savi" => {
-            let nir = r(samples[0]);
-            let red = r(samples[1]);
-            let l = 0.5;
-            if nir + red + l < 1e-6 {
-                return Err("savi denom ≈ 0".to_string());
-            }
-            ((1.0 + l) * (nir - red) / (nir + red + l), None)
-        }
-        "index_bsi" => {
-            let swir1 = r(samples[0]);
-            let red = r(samples[1]);
-            let nir = r(samples[2]);
-            let blue = r(samples[3]);
-            let num = (swir1 + red) - (nir + blue);
-            let den = (swir1 + red) + (nir + blue);
-            if den.abs() < 1e-6 {
-                return Err("bsi denom ≈ 0".to_string());
-            }
-            (num / den, None)
-        }
-        "index_ndbi" => {
-            let swir1 = r(samples[0]);
-            let nir = r(samples[1]);
-            if swir1 + nir < 1e-6 {
-                return Err("ndbi denom ≈ 0".to_string());
-            }
-            ((swir1 - nir) / (swir1 + nir), None)
-        }
-        "index_ndti" => {
-            // NDTI (Lacaux et al. 2007, RSE 109:66-77): turbidity proxy used
-            // for waterborne-disease vector mapping in the Senegal Valley.
-            let red = r(samples[0]);
-            let green = r(samples[1]);
-            if red + green < 1e-6 {
-                return Err("ndti denom ≈ 0".to_string());
-            }
-            ((red - green) / (red + green), None)
-        }
-        "index_gndvi" => {
-            // GNDVI (Gitelson, Kaufman & Merzlyak 1996, RSE 58:289-298):
-            // chlorophyll-sensitive vegetation index, saturates later than
-            // NDVI over dense canopies, useful for crop nitrogen + pasture.
-            let nir = r(samples[0]);
-            let green = r(samples[1]);
-            if nir + green < 1e-6 {
-                return Err("gndvi denom ≈ 0".to_string());
-            }
-            ((nir - green) / (nir + green), None)
-        }
-        "index_ndre" => {
-            // NDRE (Gitelson & Merzlyak 1996, J Plant Physiol 148:494-500):
-            // red-edge chlorophyll. Sentinel-2's red-edge band B05 (704 nm)
-            // is uniquely mid-range and saturates much later than NIR,
-            // exposing nitrogen status during peak biomass.
-            let nirn = r(samples[0]);
-            let re1 = r(samples[1]);
-            if nirn + re1 < 1e-6 {
-                return Err("ndre denom ≈ 0".to_string());
-            }
-            ((nirn - re1) / (nirn + re1), None)
-        }
-        "index_fai" => {
-            // FAI (Hu 2009, RSE 113:2118-2129): floating algae index.
-            // Linear baseline drawn between red (665 nm) and SWIR1 (1610 nm),
-            // measured at NIR (842 nm). Surface scum reflects strongly in
-            // NIR but not in SWIR (water absorbs SWIR), so positive FAI
-            // identifies HAB scums, sargassum, oil sheens, plastics.
-            let nir = r(samples[0]);
-            let red = r(samples[1]);
-            let swir1 = r(samples[2]);
-            // S2 band centers (nm): B04=665, B08=842, B11=1610.
-            let lambda_baseline = red + (842.0 - 665.0) / (1610.0 - 665.0) * (swir1 - red);
-            (nir - lambda_baseline, None)
-        }
-        "index_tss" => {
-            // TSS (Ouma et al. 2020, J Sensors): empirical regression on
-            // East African reservoirs. Formula: TSS [mg/L] = 14.464·(R/B)
-            // + 16.336. Valid for moderately turbid inland water; clip
-            // to 0 at clearest pixels. Pre-storm vs post-storm Δ is the
-            // pathogen-runoff signal.
-            let red = r(samples[0]);
-            let blue = r(samples[1]);
-            if blue.abs() < 1e-6 {
-                return Err("tss denom (blue) ≈ 0".to_string());
-            }
-            let tss = 14.464_f64 * (red / blue) + 16.336;
-            (tss.max(0.0), Some("mg/L".to_string()))
-        }
-        "index_ndsi" => {
-            // NDSI (Hall, Riggs & Salomonson 1995, RSE 54:127-140): the
-            // canonical snow-cover index. Snow is bright in green and dark
-            // in SWIR. Threshold ~0.4 separates snow from cloud over land.
-            let green = r(samples[0]);
-            let swir1 = r(samples[1]);
-            if green + swir1 < 1e-6 {
-                return Err("ndsi denom ≈ 0".to_string());
-            }
-            ((green - swir1) / (green + swir1), None)
-        }
-        "index_afri1600" => {
-            // AFRI1.6 (Karnieli et al. 2001, RSE 77:10-21): aerosol-free
-            // vegetation index for use under smoke/dust/haze. Uses SWIR
-            // (which is largely transparent to aerosol) instead of red.
-            let nir = r(samples[0]);
-            let swir1 = r(samples[1]);
-            let denom = nir + 0.66 * swir1;
-            if denom.abs() < 1e-6 {
-                return Err("afri1600 denom ≈ 0".to_string());
-            }
-            ((nir - 0.66 * swir1) / denom, None)
-        }
-        "index_savi_l1" => {
-            // SAVI with L=1 (Huete 1988, RSE 25:295-309). Heavier soil
-            // correction than the canonical L=0.5 version, useful for
-            // pasture/desert conditions where bare-soil background is
-            // dominant.
-            let nir = r(samples[0]);
-            let red = r(samples[1]);
-            let l = 1.0;
-            if nir + red + l < 1e-6 {
-                return Err("savi_l1 denom ≈ 0".to_string());
-            }
-            ((1.0 + l) * (nir - red) / (nir + red + l), None)
-        }
-        "index_surface_dryness" => {
-            // SDI = 1 − NDMI, clamped to [0,1]. NDMI > 0 over wet canopy
-            // means SDI < 1; bare/dry surfaces produce SDI ≈ 1. Used as
-            // the multiplicative compound term in heat-stress: high LST ×
-            // high SDI = no evaporative cooling = ER-visit risk.
-            let nir = r(samples[0]);
-            let swir1 = r(samples[1]);
-            if nir + swir1 < 1e-6 {
-                return Err("sdi denom ≈ 0".to_string());
-            }
-            let ndmi = (nir - swir1) / (nir + swir1);
-            (1.0 - ndmi.clamp(0.0, 1.0), None)
-        }
-        "index_urban_canopy" => {
-            // UCI = NDVI · (1 − NDBI). NDVI captures vegetation; (1−NDBI)
-            // dampens the score on built-up pixels so it specifically
-            // surfaces TREE canopy in urban grids, supports the WHO
-            // "3-30-300" rule (3 trees from every window, 30% canopy
-            // cover per neighborhood, 300 m to nearest green space).
-            let nir = r(samples[0]);
-            let red = r(samples[1]);
-            let swir1 = r(samples[2]);
-            if nir + red < 1e-6 || swir1 + nir < 1e-6 {
-                return Err("uci denom ≈ 0".to_string());
-            }
-            let ndvi = (nir - red) / (nir + red);
-            let ndbi = (swir1 - nir) / (swir1 + nir);
-            (ndvi * (1.0 - ndbi), None)
-        }
-        other => return Err(format!("s2 band kind {other} not implemented")),
-    };
+    let (value, fact_unit) = s2_value_from_samples(kind, &samples, offset, band, &item.id)?;
 
     let signed_at = chrono_iso8601_utc();
     let fn_key = format!("sentinel2_l2a_{}@1", band.replace('.', "_"));
