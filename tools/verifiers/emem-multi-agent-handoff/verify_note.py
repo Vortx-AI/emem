@@ -67,7 +67,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
     from emem_crypto import blake3, ed25519_verify, self_test
 except ImportError:
-    sys.stderr.write("emem_crypto.py not found: it ships beside this script in the skill's scripts/ directory\n")
+    sys.stderr.write("emem_crypto.py not found: keep it beside this script\n")
     sys.exit(2)
 
 ORIGIN = "https://emem.dev"

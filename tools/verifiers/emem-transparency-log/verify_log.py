@@ -16,9 +16,13 @@
     verify_log.py --self-test
         Check the bundled BLAKE3 and Ed25519 code against published vectors.
 
+    Add --pubkey KEY (base32) to any check to name the key a head must be
+    signed by. Without it the key is emem.dev's published key. A head names
+    its own signer, so a head signed by any other key, with any root, would
+    otherwise print VALID.
+
 Every argument is a file path. Nothing here touches the network, and the
-only import outside the standard library is emem_crypto.py beside this script, which
-ships with the plugin. Exit 0 when every check passed, 1 when one failed,
+only import outside the standard library is emem_crypto.py beside this script. Exit 0 when every check passed, 1 when one failed,
 2 on bad input.
 
 The rules are ported from crates/emem-attest/src/translog.rs and the STH
@@ -45,7 +49,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
     from emem_crypto import blake3, ed25519_verify, self_test
 except ImportError:
-    sys.stderr.write("emem_crypto.py not found: it ships beside this script in the skill's scripts/ directory\n")
+    sys.stderr.write("emem_crypto.py not found: keep it beside this script\n")
     sys.exit(2)
 
 
@@ -70,7 +74,17 @@ def node(left: bytes, right: bytes) -> bytes:
     return blake3(b"\x01" + left + right).digest()
 
 
+# emem.dev's responder key, as /.well-known/emem.json published it on
+# 12 November 2026 (responder.pubkey_b32).
+EMEM_DEV_PUBKEY = "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka"
+PINNED = [EMEM_DEV_PUBKEY]
+
+
 def verify_sth(sth: dict) -> bool:
+    if sth["responder_pubkey_b32"].strip().lower() != PINNED[0].strip().lower():
+        print(f"sth          INVALID  tree_size={sth['tree_size']} signer={sth['responder_pubkey_b32']} is not the pinned key {PINNED[0]}"
+              " (for another node or a rotated key, pass --pubkey <responder.pubkey_b32 from its /.well-known/emem.json>)")
+        return False
     pk = b32d(sth["responder_pubkey_b32"])
     h = blake3()
     h.update(b"emem.preimage.v1\x00")
@@ -152,7 +166,18 @@ def main() -> int:
     if len(sys.argv) < 3:
         sys.stderr.write(__doc__)
         return 2
-    cmd, args = sys.argv[1], sys.argv[2:]
+    argv = sys.argv[1:]
+    if "--pubkey" in argv:
+        i = argv.index("--pubkey")
+        if i + 1 >= len(argv):
+            sys.stderr.write("--pubkey needs a key\n")
+            return 2
+        PINNED[0] = argv[i + 1]
+        argv = argv[:i] + argv[i + 2:]
+    if len(argv) < 2:
+        sys.stderr.write(__doc__)
+        return 2
+    cmd, args = argv[0], argv[1:]
     try:
         docs = [load(a) for a in args]
     except (OSError, ValueError) as e:
