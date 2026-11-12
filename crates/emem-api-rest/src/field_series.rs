@@ -822,6 +822,18 @@ pub struct FieldSeriesReq {
     /// read, so the cost is the window's, not the field count's.
     #[serde(default)]
     pub fields: Option<JsonValue>,
+    /// Run the registered canopy-loss rule ([`crate::canopy_loss::KEY`]) on each
+    /// field's series over this window. Sentinel-2 NBR with `fields` only; the
+    /// series must start at least a year and ten days before `from`, so every
+    /// date can be compared with the same weeks a year earlier.
+    #[serde(default)]
+    pub canopy_loss: Option<CanopyLossWindow>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CanopyLossWindow {
+    pub from: String,
+    pub to: String,
 }
 
 /// One area of a multi-area request.
@@ -1398,6 +1410,8 @@ struct FieldsAcc {
     series: Vec<(Vec<i64>, Vec<f64>)>,
     /// Add each field's [`seasonal_memory`] to its summary.
     memory: bool,
+    /// Run [`crate::canopy_loss::seasonal_canopy_loss`] over this window of days.
+    canopy: Option<(i64, i64)>,
 }
 
 /// A date is a fault across the window when at least this share of the
@@ -1410,6 +1424,7 @@ impl FieldsAcc {
             rows: Vec::new(),
             series: vec![(Vec::new(), Vec::new()); n],
             memory: false,
+            canopy: None,
         }
     }
 
@@ -1464,6 +1479,7 @@ impl FieldsAcc {
         check_scenes: bool,
     ) -> JsonValue {
         let memory = self.memory;
+        let canopy = self.canopy;
         if zones.is_empty() {
             return JsonValue::Null;
         }
@@ -1524,6 +1540,9 @@ impl FieldsAcc {
                 let mut f = json!({"id": z.id, "polygon_cid": z.polygon_cid, "n_px": px.len(), "scenes_kept": days.len(), "trend": trend});
                 if memory {
                     f["memory"] = seasonal_memory(days, medians).unwrap_or(JsonValue::Null);
+                }
+                if let Some((lo, hi)) = canopy {
+                    f["canopy_loss"] = canopy_loss_of(days, medians, lo, hi);
                 }
                 f
             })
@@ -2233,6 +2252,55 @@ fn block_change_map(
     }))
 }
 
+/// The scoring window in days, refused when the series cannot give every date
+/// its year-ago reference.
+fn canopy_window(
+    w: &CanopyLossWindow,
+    start_day: i64,
+    end_day: i64,
+) -> Result<(i64, i64), ApiError> {
+    let day = |s: &str, what: &str| {
+        parse_ymd(s)
+            .map(|(y, m, d)| crate::days_from_civil(y, m, d))
+            .ok_or_else(|| bad_request(format!("canopy_loss.{what} must be YYYY-MM-DD")))
+    };
+    let (lo, hi) = (day(&w.from, "from")?, day(&w.to, "to")?);
+    if lo > hi || hi > end_day {
+        return Err(bad_request(
+            "canopy_loss needs from <= to <= end_date".to_string(),
+        ));
+    }
+    if lo - start_day < crate::canopy_loss::HISTORY_DAYS {
+        return Err(bad_request(format!(
+            "canopy_loss compares each date with the same weeks a year earlier, so start_date must be at least {} days before canopy_loss.from",
+            crate::canopy_loss::HISTORY_DAYS
+        )));
+    }
+    Ok((lo, hi))
+}
+
+/// One field's canopy-loss answer. The rule reads the medians as the record
+/// prints them (to six decimals) and in date order, as the lab scored them.
+fn canopy_loss_of(days: &[i64], medians: &[f64], lo: i64, hi: i64) -> JsonValue {
+    let mut s: Vec<(i64, f64)> = days
+        .iter()
+        .zip(medians)
+        .filter(|(_, v)| v.is_finite())
+        .map(|(d, v)| (*d, (v * 1e6).round() / 1e6))
+        .collect();
+    s.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
+    let (d, v): (Vec<i64>, Vec<f64>) = s.into_iter().unzip();
+    match crate::canopy_loss::seasonal_canopy_loss(&d, &v, lo, hi) {
+        Some(l) => {
+            let (y, m, dd) = crate::civil_from_days(l.day);
+            json!({"loss": true, "date": format!("{y:04}-{m:02}-{dd:02}"),
+                   "median_before": round6(l.pre), "median_year_ago": round6(l.year_ago),
+                   "median_after": round6(l.post)})
+        }
+        None => json!({"loss": false}),
+    }
+}
+
 fn round6(x: f64) -> JsonValue {
     if x.is_finite() {
         json!((x * 1e6).round() / 1e6)
@@ -2275,6 +2343,14 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     let index_key =
         index_alias(&req.index.as_deref().unwrap_or("ndvi").to_ascii_lowercase()).to_string();
     let sensor = pick_sensor(req.sensor.as_deref(), &index_key)?;
+    if req.canopy_loss.is_some()
+        && (zones.is_empty() || index_key != "nbr" || sensor != Sensor::Sentinel2)
+    {
+        return Err(bad_request(format!(
+            "canopy_loss runs {} on Sentinel-2 NBR per field: send index `nbr`, no `sensor`, and `fields`. It was validated on that input only",
+            crate::canopy_loss::KEY
+        )));
+    }
     if sensor == Sensor::Sentinel1 {
         return Box::pin(radar_series(req, aoi, zones, index_key, s, started)).await;
     }
@@ -2325,6 +2401,10 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         ));
     }
     let window_days = end_day - start_day + 1;
+    let canopy = match &req.canopy_loss {
+        Some(w) => Some(canopy_window(w, start_day, end_day)?),
+        None => None,
+    };
     if window_days > MAX_WINDOW_DAYS {
         return Err(bad_request(format!(
             "the window is {window_days} days; the cap is {MAX_WINDOW_DAYS}. Split it, or use emem_compare_same_doy for a multi-year same-season comparison."
@@ -2666,6 +2746,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     let (zone_px, fields_skipped) = zone_pixels(&zones, &lattice, buffer_m, min_support);
     let mut fields_acc = FieldsAcc::new(zones.len());
     fields_acc.memory = req.memory == Some(true);
+    fields_acc.canopy = canopy;
     let quads = block_quads(&lattice, blocks);
 
     // ── read every picked scene: two bands, each masked by its SCL. ───────
@@ -3131,6 +3212,23 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         "fields": fields_block,
         "sources": sources,
     });
+    if let (Some(o), Some((lo, hi))) = (record.as_object_mut(), canopy) {
+        let date = |d: i64| {
+            let (y, m, dd) = crate::civil_from_days(d);
+            format!("{y:04}-{m:02}-{dd:02}")
+        };
+        o.insert("canopy_loss".into(), json!({
+            "method": crate::canopy_loss::KEY,
+            "registered_from": {"lab_method": crate::canopy_loss::LAB_KEY,
+                                "source_blake3": crate::canopy_loss::LAB_SOURCE_BLAKE3,
+                                "status": "replicated under the methods lab's rule v2 (exploratory): pooled MCC +0.153 over the registry's NDVI-drop rule, 95% interval +0.092 to +0.214, I² 59%, six disjoint sets of forests, against Hansen's loss year",
+                                "record": "docs/research/canopy-loss-2026-10.md, section 5.22"},
+            "window": [date(lo), date(hi)],
+            "rule": crate::canopy_loss::RULE,
+            "read": "each field's median NBR per scene, after the scene check; a suspect scene is left out",
+            "limits": "Validated at 400 m cells against Hansen's annual loss year, which maps loss from Landsat. At 240 m it found fewer small clearings beyond chance than the memory detectors. A date near the end of the window has too few later passes to be judged",
+        }));
+    }
     if let (Some(o), Some(left_out)) = (record.as_object_mut(), left_out) {
         o.insert("sensor".into(), json!(sensor.key()));
         if let Some(sel) = o.get_mut("selection").and_then(|v| v.as_object_mut()) {
@@ -4305,6 +4403,7 @@ async fn field_series_areas(req: FieldSeriesReq, s: &AppState) -> Result<JsonVal
                     areas: None,
                     fields: None,
                     memory: None,
+                    canopy_loss: None,
                 };
                 async move { (id, Box::pin(field_series(one, s)).await) }
             })

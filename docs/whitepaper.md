@@ -1229,7 +1229,7 @@ demand: **46 declared source schemes** and **115 materializer-wired
 measurements**, live at `/v1/sources` and `/v1/bands`, spanning elevation
 and NDVI through weather, forest change, surface water, and the Tessera
 foundation embedding. Earlier versions also ran Clay, Prithvi and Galileo;
-facts they signed still verify. **172 algorithms** and **27 topics**
+facts they signed still verify. **173 algorithms** and **27 topics**
 are enumerated at `/v1/algorithms` and `/v1/topics`.
 
 ![Sentinel-2, Sentinel-1, HLS, MODIS and DEM data go to the responder. It decodes them into spectral indices, SAR backscatter, terrain and surface temperature. Four deterministic decoders read the same place. It signs each value, and each signed value names its source.](/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg)

@@ -29,7 +29,7 @@ Each measurement at a cell is a fact. A fact has a cell, a band (the kind of mea
 The responder encodes the fact in canonical CBOR, hashes the bytes with BLAKE3 and signs the hash with Ed25519. If
 one byte changes, the hash changes.
 
-On 7 November 2026 the registries held 115 wired bands in 43 cube slots, 46 sources and 172 algorithms that combine
+On 12 November 2026 the registries held 115 wired bands in 43 cube slots, 46 sources and 173 algorithms that combine
 bands. The counts come from [`/v1/manifests`](https://emem.dev/v1/manifests) and
 [`/v1/algorithms`](https://emem.dev/v1/algorithms). On 7 November 2026, emem had no reader for five of those
 sources: `dynamic_world.v1`, `openet.30m.daily`, `tropomi.s5p.ch4`, `tropomi.s5p.no2` and `viirs.dnb.monthly`.

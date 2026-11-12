@@ -1532,8 +1532,8 @@ two ways to get the value again:
    applies that op to the parent values in your signed order.
 2. If not, and `fn_key` is the key of a registry algorithm with an
    `evaluation` expression, it evaluates that expression. The expression
-   reads the parent values by band name. On 7 November 2026, 74 of the
-   172 algorithms in `crates/emem-core/data/algorithms-v0.json` have one.
+   reads the parent values by band name. On 12 November 2026, 74 of the
+   173 algorithms in `crates/emem-core/data/algorithms-v0.json` have one.
 
 It evaluates the op or the expression. It never runs your code. If
 it gets your value, it records the derivation as

@@ -7,6 +7,9 @@ to verify.
 
 ## [Unreleased]
 
+- `POST /v1/field_series` takes `canopy_loss: {from, to}` with `index: "nbr"` and `fields`. It runs `canopy_loss_seasonal_nbr@1` on each field: loss on the first date where the median NBR of the next 45 days is at least 0.20 below both the 90 days before and the same weeks a year earlier, from at least 0.4. This is the methods lab's `lab:seasonal_canopy_loss@1`, replicated over six disjoint sets of forests against Hansen's loss year (pooled MCC +0.153 above the registry's NDVI-drop rule, 95% +0.092 to +0.214), and registered by the operator from its record. A parity test holds the port to the lab's code on 40 cells of real series.
+- The registry entry `deforestation_alert_ndvi_drop@1` no longer claims a producer accuracy of about 0.85 against RADD, which emem never measured. It states what the methods lab measured: MCC from -0.08 to 0.30, and a 72% false-alarm rate on stable forest at 240 m cells.
+
 ## [2.4.5] - 2026-11-07
 
 A patch release: no wire change to the signed receipt or the fact preimage. Receipts and facts signed before it verify unchanged. It carries the developer docs (#27), code fixes the docs work found (#37), skill text the plugin scanner accepts (#38), and the data fixes below.

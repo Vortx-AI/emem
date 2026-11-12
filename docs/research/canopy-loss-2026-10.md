@@ -964,7 +964,7 @@ verdicts.
 | method | status (rule v2) | pooled MCC difference, 95% interval | I² | MCC site sets |
 |---|---|---|---|---|
 | `lab:memory_optical@1` | replicated, forest-dependent | +0.209, +0.026 to +0.393 | 92% | 4 |
-| `lab:seasonal_canopy_loss@1` | replicated | +0.153, +0.092 to +0.214 | 59% | 6 |
+| `lab:seasonal_canopy_loss@1` | replicated; registered 12 November as `canopy_loss_seasonal_nbr@1` | +0.153, +0.092 to +0.214 | 59% | 6 |
 | `lab:seasonal_loss_nbr@1` | replicated, forest-dependent | +0.119, +0.037 to +0.201 | 86% | 8 |
 | `desk:vegetation_loss@1` | replicated, forest-dependent | +0.078, +0.012 to +0.144 | 78% | 8 |
 | `registry:deforestation_alert_ndvi_drop@1+screen` | replicated | +0.039, +0.008 to +0.070 | 40% | 8 |
@@ -977,7 +977,7 @@ verdicts.
 | `lab:memory_mv_fusion_emp@3` | not shown better | two site sets | | 2 |
 | the other ten lab, desk and registry rules | not shown better | between -0.03 and +0.09 | | 8 |
 
-Five methods are replicated. The first memory detector, `memory_optical@1`, is replicated and forest-dependent, by +0.21 MCC. The searched seasonal rule is replicated by +0.15 over six site sets. The seasonal NBR rule and the desk's rule are replicated and forest-dependent, and the screened registry rule by a small, steady 0.04. Each proposal note also prints the strict rule's verdict. The later memory detectors pool to the largest differences, +0.17 to +0.34, and are not shown better, because their site sets disagree by far more than their intervals allow (I² 96 to 99%). With four studies the between-study variance is itself poorly estimated. The next paragraph shows where the disagreement comes from.
+Five methods are replicated. On 12 November the operator registered the searched seasonal rule, the one replicated rule whose forests agree (I² 59%), as `canopy_loss_seasonal_nbr@1`: `/v1/field_series` runs it per field with `canopy_loss`, held to the lab's code by a parity test on 40 cells of real series. The first memory detector, `memory_optical@1`, is replicated and forest-dependent, by +0.21 MCC. The searched seasonal rule is replicated by +0.15 over six site sets. The seasonal NBR rule and the desk's rule are replicated and forest-dependent, and the screened registry rule by a small, steady 0.04. Each proposal note also prints the strict rule's verdict. The later memory detectors pool to the largest differences, +0.17 to +0.34, and are not shown better, because their site sets disagree by far more than their intervals allow (I² 96 to 99%). With four studies the between-study variance is itself poorly estimated. The next paragraph shows where the disagreement comes from.
 
 **The replication, completed, and what one clearing does to a pooled score.** The replication of section 5.13 on its
 four unread forests and six new ones (`canopy-loss-memory-fusion-replication-2024-2025-2026-10-29`, plan content id

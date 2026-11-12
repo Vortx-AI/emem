@@ -204,7 +204,7 @@ offsets.
 
 ## emem-algorithms (algorithms-v0.json)
 
-172 composition recipes in three kinds:
+173 composition recipes in three kinds:
 
 | Kind | Count | What it composes |
 |---|---|---|

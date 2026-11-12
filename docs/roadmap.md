@@ -453,7 +453,7 @@ parameter has no `basis`, the registry does not load. The three values are:
 | `operational_default` | A person chose the number. | Nothing more. |
 
 The registry on 7 November 2026 (`crates/emem-core/data/algorithms-v0.json`)
-has 172 algorithms. Eight of them have parameters, 19 parameters in total:
+has 173 algorithms. Eight of them have parameters, 19 parameters in total:
 
 | `basis` | Parameters |
 |---|---|

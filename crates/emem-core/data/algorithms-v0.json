@@ -16221,7 +16221,7 @@
    "deterministic": true,
    "citation": "Hansen et al. (2013) High-resolution global maps of 21st-century forest cover change. GLAD-S2 alert system documentation.",
    "frequency_of_calculation": "Daily (5-day cloud-permitting per cell).",
-   "accuracy_band": "Producer accuracy \u2248 0.85 vs RADD reference dataset (PRODES, GLAD validation).",
+   "accuracy_band": "Measured by the emem methods lab against Hansen's annual loss year, as the baseline every lab method is scored against: MCC from -0.08 to 0.30 across its experiments, and 0.06 at 240 m cells with a 72% false-alarm rate on stable forest. The figure this entry gave before (producer accuracy about 0.85 against RADD) was not measured by emem. canopy_loss_seasonal_nbr@1 is replicated above it (docs/research/canopy-loss-2026-10.md).",
    "multimodal": {
     "delivery_resolution_m": 10,
     "baseline_sources": [
@@ -16621,6 +16621,36 @@
    "documentation_only": true,
    "runtime_path": "/v1/field_series",
    "partial_runtime": true
+  },
+  {
+   "key": "canopy_loss_seasonal_nbr@1",
+   "kind": "solo",
+   "domain": "forest",
+   "inputs": [
+    {
+     "band": "indices.nbr",
+     "role": "nbr_series",
+     "explanation": "Each field's median Sentinel-2 NBR per scene, from /v1/field_series in fields mode, with the scenes its scene check calls suspect left out. The series starts at least 375 days before the scoring window."
+    }
+   ],
+   "formula": "loss on the first date t in the window where median(NBR, t..t+45 d) <= min(median(NBR, t-90 d..t), median(NBR, t-375 d..t-310 d)) - 0.20, and median(NBR, t-90 d..t) >= 0.4",
+   "output": {
+    "kind": "classification",
+    "unit": "loss date or none",
+    "range": [
+     0,
+     1
+    ],
+    "explanation": "Per field: loss true with the first flagged date and the three medians compared, or loss false."
+   },
+   "when_to_use": "Canopy-loss screening over fields or a grid of cells in tropical forest, for a dated window. Read the date as when the canopy was seen gone, not when it was cut. Confirm a flag with imagery before acting on it.",
+   "primitive": "POST /v1/field_series {index: 'nbr', fields: [...], start_date, end_date, canopy_loss: {from, to}}",
+   "deterministic": true,
+   "citation": "emem methods lab, lab:seasonal_canopy_loss@1 (source BLAKE3 908ffad5ce9e619f31bebcc93b35f26197396d9ea95b8755e43270a83cf30d08): picked by the lab's search under MCC (canopy-loss-mcc-replication, 2026-10-29) and replicated under the lab's rule v2; registered by the operator on 2026-11-12 from docs/research/canopy-loss-2026-10.md, section 5.22. Reference: Hansen, M.C. et al. 2013. High-resolution global maps of 21st-century forest cover change. Science 342:850-853. NBR: Key, C.H. & Benson, N.C. 2006. Landscape assessment (LA), FIREMON, USDA Forest Service RMRS-GTR-164-CD.",
+   "accuracy_band": "Against Hansen's annual loss year at 400 m cells: pooled MCC +0.153 above deforestation_alert_ndvi_drop@1 (95% interval +0.092 to +0.214, I2 59%, six disjoint sets of forests). The status is exploratory: the rule that judges it was adopted after the experiments were seen. At 240 m cells it scored MCC 0.10 and found 17 clearings under 1 ha beyond chance, fewer than the lab's memory detectors.",
+   "documentation_only": true,
+   "runtime_path": "/v1/field_series",
+   "honest_limits": "Validated against Hansen, which maps loss from Landsat; the rule reads Sentinel-2. A date near the end of the window has fewer than two passes in the next 45 days and is not judged. It reads each cell's median, so a clearing over a small share of a cell barely moves it."
   }
  ]
 }

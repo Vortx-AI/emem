@@ -1612,6 +1612,13 @@ window. Run it, then read again.
 
 `/v1/field_series` reads an area over time, one row per scene.
 
+With `index: "nbr"` and `fields`, `canopy_loss: {from, to}` runs the registered rule
+`canopy_loss_seasonal_nbr@1` on each field. It flags the first date in the window where the median NBR of
+the next 45 days is at least 0.20 below the 90 days before and below the same weeks a year earlier. Each
+field gets `canopy_loss` with `loss`, the `date` and the three medians. Start the series at least 375
+days before `from`. The rule is replicated against Hansen's loss year in the methods lab (exploratory).
+Confirm a flag with imagery before acting on it.
+
 <img src="media/stills/ndvi-two-seasons.webp" alt="Still from live emem.dev calls on 7 November 2026. A farm box near Ames, Iowa, of 2200 Sentinel-2 pixels. Two true-colour crops: 1 August 2024, median NDVI 0.88, and 22 October 2024, median NDVI 0.26. A chart of median NDVI with the p10 to p90 band for 17 clear scenes from February 2024 to November 2025, with two peaks in July and August. Eight cloudy scenes are marked as left out. The whole series has one token, emem:fact:defi.zb5dd.ze38f.nEzo:gutxcpc54gzyegyuvxr7dkevmixz5k7dnq3sfzckqocfpwbcixma, and verify_receipt returns valid." width="540">
 
 The still above is one `field_series` answer for a box of about 500 m by 440 m.
@@ -1773,7 +1780,7 @@ or a cell nearer the coast. On 7 November 2026, `{"cell": "Santa Monica",
 
 #### Routes for algorithms that the formula engine cannot run
 
-On 7 November 2026, the registry marked 88 of its 172 algorithms
+On 12 November 2026, the registry marked 89 of its 173 algorithms
 `documentation_only`. The scalar formula engine cannot run them. The four
 below need a multi-year series or two scenes, so each has its own route.
 Its registry entry names that route in `runtime_path`. The route signs its
