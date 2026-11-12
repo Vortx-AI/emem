@@ -73,7 +73,10 @@ PATTERNS = [
     ("rfc1918", r"\b(?:10\.\d{1,3}|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}\b"),
     ("container-host", r"host\.docker\.internal"),
     ("host path", r"(?<![\w/])/(?:home|root|srv|var/lib|run|tmp)/[\w./-]{3,}"),
-    ("unix socket", r"[\w./-]*\.sock\b"),
+    # Starts only where a token starts, and caps its length: an unanchored
+    # `[\w./-]*` retried from every offset of a 348 KB base32 value in
+    # /v1/log/entries, and the sweep ran past its own budget inside one regex.
+    ("unix socket", r"(?<![\w./-])[\w./-]{1,200}\.sock\b"),
     ("errno", r"\bos error \d+\b"),
 ]
 COMPILED = [(name, re.compile(p)) for name, p in PATTERNS]
@@ -255,6 +258,7 @@ SELF_TEST = [
      "bind emem-guard.sock before starting", "unix socket"),
     ("the errno beside it",
      "No such file or directory (os error 2)", "errno"),
+    ("a socket after a scheme", "listening on unix:/tmp/emem-guard.sock", "unix socket"),
     # Silence.
     ("an aligned route table", "GET  /v1/bands          , band catalogue", None),
     ("a label and value report line", "fired rate            {0.4231}", None),
@@ -262,6 +266,8 @@ SELF_TEST = [
      "type    | needs\nwhere_is        | description", None),
     ("ordinary prose",
      "Ground cameras see what a satellite cannot: people and vehicles.", None),
+    ("a long encoded value, as the log serves a signed record",
+     "vfswmyldorzydldennuw4zdkmrsxe2lwmf2gs5tf" * 5250, None),
 ]
 
 
