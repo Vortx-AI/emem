@@ -57,7 +57,7 @@ not valid, the process stops with a panic.
 | File | `manifest` field | Entries | Loader |
 |---|---|---|---|
 | `bands-v0.json` | `emem-bands` | 43 bands | `bands::DEFAULT` |
-| `algorithms-v0.json` | `emem-algorithms` | 172 algorithms | `algorithms::DEFAULT` |
+| `algorithms-v0.json` | `emem-algorithms` | 173 algorithms | `algorithms::DEFAULT` |
 | `functions-v0.json` | `emem-functions` | 23 functions | `functions::DEFAULT` |
 | `sources-v0.json` | `emem-sources` | 46 sources | `sources::DEFAULT` |
 | `topics-v0.json` | none | 27 topics | `topics::DEFAULT` |

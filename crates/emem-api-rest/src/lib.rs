@@ -108554,7 +108554,7 @@ mod manifest_covers_tests {
     fn covers_counts_match_the_digested_registries() {
         assert_eq!(
             emem_core::algorithms::DEFAULT.algorithms.len(),
-            172,
+            173,
             "if this moved, `algorithms_cid` covers a different number and any \
              paper citing the old one is now wrong; that is the event this \
              endpoint exists to make visible"
