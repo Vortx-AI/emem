@@ -56,6 +56,12 @@ pub struct StacItem {
     /// every index silently.
     #[serde(default)]
     pub processing_baseline: Option<String>,
+    /// `s2:snow_ice_percentage`: the share of the granule its own scene
+    /// classifier called snow or ice (Sentinel-2 only). Sen2Cor can call a
+    /// snow pixel cloud while it finds snow elsewhere in the scene, so this
+    /// says when a cloud call at one pixel is worth a spectral snow test.
+    #[serde(default)]
+    pub snow_ice_percentage: Option<f64>,
     /// Sun azimuth at the scene centre, degrees clockwise from north, as the
     /// granule recorded it (`view:sun_azimuth`). Not an ephemeris: this is the
     /// value the acquisition carries, so a shadow read out of these pixels and
@@ -482,6 +488,7 @@ fn parse_stac_feature(f: &Value, collection: &str) -> StacItem {
         .get("s2:processing_baseline")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    let snow_ice_percentage = props.get("s2:snow_ice_percentage").and_then(|v| v.as_f64());
     // Illumination and viewing geometry, absent on collections that do not
     // publish it and on any catalogue that names the properties differently.
     // `None` rather than a default for the same reason as the baseline: a
@@ -522,6 +529,7 @@ fn parse_stac_feature(f: &Value, collection: &str) -> StacItem {
         assets,
         collection: collection.to_string(),
         processing_baseline,
+        snow_ice_percentage,
         sun_azimuth,
         sun_elevation,
         view_azimuth,
@@ -1085,6 +1093,23 @@ mod tests {
             s2_baseline_has_boa_offset(item.processing_baseline.as_deref()),
             Some(true)
         );
+        assert_eq!(item.snow_ice_percentage, None);
+    }
+
+    #[test]
+    fn parses_the_s2_snow_ice_percentage_property() {
+        // Planetary Computer's item for the London scene of 2022-12-14.
+        let feat = json!({
+            "id": "S2B_MSIL2A_20221214T110349_R094_T30UYC_20221214T210520",
+            "properties": {
+                "datetime": "2022-12-14T11:03:49.024000Z",
+                "eo:cloud_cover": 35.308054,
+                "s2:snow_ice_percentage": 26.963732
+            },
+            "assets": {}
+        });
+        let item = parse_stac_feature(&feat, "sentinel-2-l2a");
+        assert_eq!(item.snow_ice_percentage, Some(26.963732));
     }
 
     #[test]

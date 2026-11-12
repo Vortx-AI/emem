@@ -25,7 +25,9 @@ claude --plugin-dir ./plugins/emem
 The file `.mcp.json` points to `https://emem.dev/mcp`. It uses streamable
 HTTP and no authentication. One `tools/list` call returns the 18-tool core
 loop on one page (checked on 7 November 2026). The tool `emem_tools`
-lists the other tools. `tools/call` runs any tool by name, listed or not.
+lists the other tools. The server runs any tool by name through
+`tools/call`, listed or not. But a host can refuse a tool that it did not
+list ("No such tool available"). The skills then use the REST route.
 
 ### Nineteen skills
 

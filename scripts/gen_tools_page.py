@@ -91,7 +91,7 @@ def main() -> int:
     sections = [
         (
             f"Core loop ({len(core)})",
-            "What /mcp lists by default: enough to name a thing, ground it to a place, read, cite and verify. Every other tool stays callable by name.",
+            "What /mcp lists by default: enough to name a thing, ground it to a place, read, cite and verify. The server runs every other tool by name, and /mcp/full lists them.",
             core,
         )
     ]
@@ -184,7 +184,7 @@ h2{{font-family:var(--display);font-weight:420;font-size:var(--t-2xl);line-heigh
       <div><dt>A2A</dt><dd><a href="/.well-known/agent-card.json">agent card</a></dd></div>
     </dl>
   </div>
-  <p class="purpose tl-note">This page is rendered from the registry the server serves at <a href="/v1/tools">/v1/tools</a>. Every call below runs without a key. Tools not listed by /mcp stay callable by name through <code>tools/call</code>.</p>
+  <p class="purpose tl-note">This page is rendered from the registry the server serves at <a href="/v1/tools">/v1/tools</a>. Every call below runs without a key. The server runs a tool that /mcp does not list by name through <code>tools/call</code>, but many hosts call only the tools they listed; on such a host connect <code>/mcp/full</code>.</p>
 </header>
 <div class="page tl-body">
 <aside class="tl-side">

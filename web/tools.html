@@ -108,7 +108,7 @@ h2{font-family:var(--display);font-weight:420;font-size:var(--t-2xl);line-height
       <div><dt>A2A</dt><dd><a href="/.well-known/agent-card.json">agent card</a></dd></div>
     </dl>
   </div>
-  <p class="purpose tl-note">This page is rendered from the registry the server serves at <a href="/v1/tools">/v1/tools</a>. Every call below runs without a key. Tools not listed by /mcp stay callable by name through <code>tools/call</code>.</p>
+  <p class="purpose tl-note">This page is rendered from the registry the server serves at <a href="/v1/tools">/v1/tools</a>. Every call below runs without a key. The server runs a tool that /mcp does not list by name through <code>tools/call</code>, but many hosts call only the tools they listed; on such a host connect <code>/mcp/full</code>.</p>
 </header>
 <div class="page tl-body">
 <aside class="tl-side">
@@ -127,7 +127,7 @@ h2{font-family:var(--display);font-weight:420;font-size:var(--t-2xl);line-height
 <main class="tl-list">
 <section class="tgroup" id="sec-0" aria-labelledby="sec-0-h">
 <h2 id="sec-0-h">Core loop (18)</h2>
-<p class="sub">What /mcp lists by default: enough to name a thing, ground it to a place, read, cite and verify. Every other tool stays callable by name.</p>
+<p class="sub">What /mcp lists by default: enough to name a thing, ground it to a place, read, cite and verify. The server runs every other tool by name, and /mcp/full lists them.</p>
 
 <details class="tool" id="emem_tools" data-q="emem_tools what tools exist here, and when to reach for each the map of emem&#x27;s tools, and the one tool that finds all the others. it gives the working loop in order (name, ground, cite, resolve, verify, check for drift). then it groups every other tool by the question it answers, each with a one-line trigger. send `name` for the full schema of one tool and an example that runs. if you see a list of 18 tools, it is a curated subset of 116, not the full surface. hosts remove `_meta`, so this text repeats the count. you can call every catalogued tool by name through tools/call at either endpoint.">
   <summary><code>emem_tools</code><span class="tt">What tools exist here, and when to reach for each</span><span class="tw">Call this FIRST when you do not know which tool answers the question.</span></summary>

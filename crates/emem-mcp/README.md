@@ -69,7 +69,7 @@ gave the same tool counts on that day.
 |---|---|---|
 | `TOOLS` | 116 | One `ToolDescriptor` per tool |
 | Tier `core` | 18 | Tools that `/mcp` shows in `tools/list` |
-| Tier `extended` | 98 | Tools that `/mcp` leaves out of `tools/list` unless the request sets `tier`. `/mcp/full` lists them by default. All tools stay callable by name through `tools/call`. |
+| Tier `extended` | 98 | Tools that `/mcp` leaves out of `tools/list` unless the request sets `tier`. `/mcp/full` lists them by default. The server runs all tools by name through `tools/call`, but a host that calls only listed tools reaches them through `/mcp/full`. |
 | `CORE_LOOP` | 8 | The core loop, in order, with one line on why each step exists |
 | `TOOL_GROUPS` | 10 | Groups for the tools outside the loop, by the question they answer |
 | `TOOL_SHAPES` | 13 | The shape of each answer, for example `scalar`, `raster` or `token`. Each tool has one shape. |

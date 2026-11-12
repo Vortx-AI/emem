@@ -143,6 +143,35 @@ pub struct BandRasterReq {
     pub observed_on: Option<String>,
 }
 
+/// The date a raster was asked for beside the date its scene was taken.
+///
+/// The scene's date sat only in `derivation.sources[0].captured_at` and the
+/// asked date nowhere, so a reply for 2022-12-14 that held pixels of
+/// 2023-01-13 read as an answer for the date asked. Outside the signed record.
+pub(crate) fn scene_dates(asked: Option<&str>, scene_date: &str) -> JsonValue {
+    let day = |d: &str| parse_ymd(d).map(|(y, m, dd)| crate::days_from_civil(y, m, dd));
+    let apart = asked.and_then(day).zip(day(scene_date)).map(|(a, s)| s - a);
+    let note = match (asked, apart) {
+        (Some(a), Some(n)) if n != 0 => Some(format!(
+            "You asked for {a}. These pixels are from {scene_date}, {} day(s) {} it: the scene nearest {a} under the cloud cap of the first search tier that held one.",
+            n.abs(),
+            if n > 0 { "after" } else { "before" }
+        )),
+        _ => None,
+    };
+    json!({
+        "asked": asked,
+        "served": scene_date,
+        "days_from_asked": apart,
+        "rule": if asked.is_some() {
+            "the scene nearest the asked date under the cloud cap of the first search tier that holds one"
+        } else {
+            "no date asked: the newest scene under the cloud cap"
+        },
+        "note": note,
+    })
+}
+
 /// `YYYY-MM-DD` into (year, month, day); the repo's `days_from_civil`
 /// turns it into Unix time without a date crate.
 pub(crate) fn parse_ymd(s: &str) -> Option<(i32, u32, u32)> {
@@ -480,12 +509,14 @@ pub async fn band_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, 
         binding,
     );
 
+    let dates = scene_dates(req.observed_on.as_deref(), &scene_date);
     Ok(json!({
         "schema": "emem.band_raster.v1",
         "algorithm_key": "band_raster@1",
         "aoi_cid": aoi,
         "band": band_key,
         "tslot": tslot,
+        "dates": dates,
         "grid": { "width": width_px, "height": height_px, "epsg": epsg, "native_m": native_m },
         "artifact": {
             "artifact_cid": artifact_cid,

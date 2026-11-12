@@ -66,8 +66,11 @@ emem_recall           # facts at a place, signed, with a receipt
 Find your job in the table. Then go to its section for one call that works.
 The "Tier" column tells you which `tools/list` shows the tool.
 `https://emem.dev/mcp` shows the `core` tools. `https://emem.dev/mcp/full`
-shows all tools, `core` and `extended`. Both endpoints run any tool through `tools/call`,
-so an extended tool also works on `/mcp`.
+shows all tools, `core` and `extended`. The server runs any tool through `tools/call` on
+both endpoints. But many hosts let the model call only the tools that they listed, and
+refuse the rest with "No such tool available". That refusal comes from the host, not from
+emem. On such a host, connect `/mcp/full` and let the host follow `nextCursor` through the
+pages, or send the body to the REST route.
 
 | Job | MCP tool | REST | Tier | Key? |
 |---|---|---|---|---|
@@ -1935,8 +1938,9 @@ in one page (about 77 KB of descriptors).
 `/mcp/full` advertises all 116 (about 342 KB over 8 pages). Send
 `{"tier": "core"}`, `"extended"` or `"all"` to change the list on either
 endpoint. The `extended` and `all` lists come in pages: follow
-`nextCursor`. `tools/call` runs any tool by name on both endpoints, so a
-short list costs you no tools.
+`nextCursor`. The server runs any tool by name through `tools/call` on both
+endpoints. A host that calls only the tools it listed cannot reach the
+others. On such a host, use `/mcp/full`.
 
 Every tool declares one shape in `_meta` under `dev.emem/shape`. The shape
 is the form of the answer. The table lists all 116 tools on 7 November

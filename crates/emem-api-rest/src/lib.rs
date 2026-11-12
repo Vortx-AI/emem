@@ -13659,6 +13659,240 @@ fn cell_needs_materialize(
     }
 }
 
+/// The dates one tslot covers under a tempo: the hour of an hourly band, the
+/// day of a daily one, a first/last day pair for longer slots. `None` for a
+/// static band, whose facts carry tslot 0 and no date.
+fn tslot_dates(tslot: u64, tempo: emem_core::tslot::Tempo) -> Option<String> {
+    let secs = tempo.slot_seconds() as i64;
+    if secs == 0 {
+        return None;
+    }
+    let start = emem_core::tslot::Tslot(tslot).to_unix_start(tempo).max(0);
+    let day = |t: i64| iso8601_utc(t.max(0) as u64)[..10].to_string();
+    Some(if secs < 86_400 {
+        format!("{}Z", &iso8601_utc(start as u64)[..16])
+    } else if secs == 86_400 {
+        day(start)
+    } else {
+        format!("{}/{}", day(start), day(start + secs - 1))
+    })
+}
+
+/// Per band, the date a dated recall asked for and the date it served.
+///
+/// Two things made a dated recall answer another date without saying so.
+/// A tslot counts slots of each band's own tempo, so one number names a
+/// different instant per band (19340 is 2022-12-14 for a daily band and
+/// 1972-03-16T20:00Z for an hourly one). And a materializer may sign another
+/// date than the one asked (the newest clear scene before it), which an exact
+/// tslot then leaves out of `facts`: the reply held `facts: []` beside a note
+/// that said `materialized`, and named neither date. Outside the receipt,
+/// like `materialize_notes`.
+async fn attach_dated_request(v: &mut JsonValue, req: &RecallReq, s: &AppState) {
+    let (bound, exact) = match (req.tslot, req.as_of_tslot) {
+        (Some(t), _) => (t, true),
+        (None, Some(t)) => (t, false),
+        (None, None) => return,
+    };
+    let Some(map) = v.as_object_mut() else {
+        return;
+    };
+    let mut served: std::collections::BTreeMap<String, std::collections::BTreeSet<u64>> =
+        Default::default();
+    let mut slot_of_cid: std::collections::HashMap<String, (String, u64)> = Default::default();
+    let mut with_value: std::collections::HashSet<String> = Default::default();
+    for f in map
+        .get("facts")
+        .and_then(|x| x.as_array())
+        .into_iter()
+        .flatten()
+    {
+        let Some(band) = f.get("band").and_then(|b| b.as_str()) else {
+            continue;
+        };
+        let Some(t) = f.get("tslot").and_then(|t| t.as_u64()).or_else(|| {
+            f.get("tslot_window")?
+                .as_array()?
+                .last()
+                .and_then(|t| t.as_u64())
+        }) else {
+            continue;
+        };
+        served.entry(band.to_string()).or_default().insert(t);
+        if f.get("kind").and_then(|k| k.as_str()) != Some("absence") {
+            with_value.insert(band.to_string());
+        }
+        if let Some(c) = f.get("fact_cid").and_then(|c| c.as_str()) {
+            slot_of_cid.insert(c.to_string(), (band.to_string(), t));
+        }
+    }
+    let outside: Vec<String> = map
+        .get("materialize_notes")
+        .and_then(|n| n.as_array())
+        .into_iter()
+        .flatten()
+        .filter(|n| n.get("status").and_then(|x| x.as_str()) == Some("materialized"))
+        .filter_map(|n| n.get("fact_cid").and_then(|c| c.as_str()))
+        .filter(|c| !slot_of_cid.contains_key(*c))
+        .map(str::to_string)
+        .collect();
+    // band -> (tslot, fact_cid, kind) of what this call signed outside the filter.
+    let mut elsewhere: std::collections::BTreeMap<String, Vec<(u64, String, &'static str)>> =
+        Default::default();
+    if !outside.is_empty() {
+        let cids: Vec<emem_fact::FactCid> = outside
+            .iter()
+            .map(|c| emem_fact::FactCid::new(c.clone()))
+            .collect();
+        let loaded = s.storage.get_facts_many(&cids).await.unwrap_or_default();
+        for (cid, f) in outside.iter().zip(loaded) {
+            let (band, t, kind) = match f {
+                Some(emem_fact::Fact::Primary(p)) => (p.band, p.tslot, "primary"),
+                Some(emem_fact::Fact::Absence(a)) => (a.band, a.tslot, "absence"),
+                _ => continue,
+            };
+            slot_of_cid.insert(cid.clone(), (band.clone(), t));
+            elsewhere
+                .entry(band)
+                .or_default()
+                .push((t, cid.clone(), kind));
+        }
+    }
+    let dates_of = |band: &str, t: u64| band_tempo_for_key(band).and_then(|tp| tslot_dates(t, tp));
+    if let Some(notes) = map
+        .get_mut("materialize_notes")
+        .and_then(|n| n.as_array_mut())
+    {
+        for n in notes.iter_mut() {
+            let Some(cid) = n.get("fact_cid").and_then(|c| c.as_str()) else {
+                continue;
+            };
+            let Some((band, t)) = slot_of_cid.get(cid).cloned() else {
+                continue;
+            };
+            let in_facts = !outside.iter().any(|c| c == cid);
+            if let Some(o) = n.as_object_mut() {
+                o.insert("signed_tslot".into(), json!(t));
+                o.insert("signed_dates".into(), json!(dates_of(&band, t)));
+                o.insert("in_facts".into(), json!(in_facts));
+            }
+        }
+    }
+
+    let mut bands: Vec<String> = match req.bands.as_ref().filter(|b| !b.is_empty()) {
+        Some(b) => b.iter().map(|x| resolve_band_name(x)).collect(),
+        None => served.keys().chain(elsewhere.keys()).cloned().collect(),
+    };
+    bands.sort();
+    bands.dedup();
+    let mut rows: Vec<JsonValue> = Vec::with_capacity(bands.len());
+    let mut lines: Vec<String> = Vec::new();
+    for band in &bands {
+        let tempo = band_tempo_for_key(band);
+        let asked = tempo.and_then(|tp| tslot_dates(bound, tp));
+        let asked_text = asked.clone().unwrap_or_else(|| format!("tslot {bound}"));
+        let got: Vec<u64> = served
+            .get(band)
+            .map(|s| s.iter().copied().collect())
+            .unwrap_or_default();
+        let got_dates: Vec<Option<String>> = got.iter().map(|t| dates_of(band, *t)).collect();
+        let mut row = json!({
+            "band": band,
+            "tempo": tempo,
+            "asked": asked,
+            "served": got_dates,
+        });
+        let (status, note) = if !got.is_empty() && !with_value.contains(band) {
+            let d = got_dates
+                .iter()
+                .flatten()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ");
+            (
+                "absence",
+                Some(format!(
+                    "{band}: what is signed for {asked_text} is an absence ({d}): no usable observation, not a value."
+                )),
+            )
+        } else if !got.is_empty() {
+            let newest = got.iter().max().copied().unwrap_or(bound);
+            // A static band's one fact (tslot 0) holds at every date.
+            let static_band = matches!(tempo, Some(emem_core::tslot::Tempo::Static));
+            if exact || newest == bound || static_band {
+                ("served", None)
+            } else {
+                let d = dates_of(band, newest).unwrap_or_else(|| format!("tslot {newest}"));
+                (
+                    "served_earlier",
+                    Some(format!(
+                        "{band}: the newest fact at or before {asked_text} is from {d}."
+                    )),
+                )
+            }
+        } else if matches!(tempo, Some(emem_core::tslot::Tempo::Static)) {
+            (
+                "static_band",
+                Some(format!(
+                    "{band} does not change with time. Its facts carry tslot 0, so a dated tslot never matches them. Recall it without tslot."
+                )),
+            )
+        } else if let Some(other) = elsewhere.get(band).and_then(|v| v.iter().max()) {
+            let (t, cid, kind) = other;
+            let d = dates_of(band, *t).unwrap_or_else(|| format!("tslot {t}"));
+            if let Some(o) = row.as_object_mut() {
+                o.insert(
+                    "signed_instead".into(),
+                    json!({"tslot": t, "dates": d, "fact_cid": cid, "kind": kind}),
+                );
+            }
+            let what = if *kind == "absence" {
+                "an absence (no usable observation)"
+            } else {
+                "a reading"
+            };
+            (
+                "other_date_signed",
+                Some(format!(
+                    "{band}: nothing is signed for {asked_text}. This call signed {what} for {d} instead (tslot {t}), the nearest date it could serve; your tslot filter leaves it out of facts. Recall with tslot {t} to read it."
+                )),
+            )
+        } else {
+            (
+                "nothing_at_date",
+                Some(format!(
+                    "{band}: nothing is signed for {asked_text}, and this call signed nothing for it. materialize_notes says why."
+                )),
+            )
+        };
+        if let Some(o) = row.as_object_mut() {
+            o.insert("status".into(), json!(status));
+            if let Some(n) = &note {
+                o.insert("note".into(), json!(n));
+            }
+        }
+        if let Some(n) = note {
+            lines.push(n);
+        }
+        rows.push(row);
+    }
+    let summary = if lines.is_empty() {
+        "Every band was served at the date asked.".to_string()
+    } else {
+        lines.join(" ")
+    };
+    map.insert(
+        "dated_request".into(),
+        json!({
+            "tslot": bound,
+            "bound": if exact { "exact" } else { "as_of" },
+            "summary": summary,
+            "bands": rows,
+            "tslot_unit": "A tslot counts slots of each band's own tempo: hours for ultra_fast, days for fast, 8 or 16 days for composites. So one tslot is a different date per band; `asked` is that date for each band.",
+        }),
+    );
+}
+
 async fn get_cell(
     State(s): State<AppState>,
     Path(cell64): Path<String>,
@@ -14240,6 +14474,7 @@ async fn post_recall(
                 JsonValue::String(s.manifests.bands_cid.clone()),
             );
         }
+        attach_dated_request(&mut v, &req, &s).await;
         serde_json::to_vec(&v).unwrap_or_else(|_| b"{}".to_vec())
     };
     Ok(Response::builder()
@@ -14953,8 +15188,9 @@ const S2_ARGS_ITEM_INDEX: usize = 2;
 ///   - 2 cast shadows, 3 cloud shadows → false. Illumination, not surface,
 ///     drives the value.
 ///   - 7 cloud (low probability) → false. The pixel is judged cloud.
-///   - 0, 1, 8, 9, 10 → false, and unreachable here: `s2_scl_is_hard_reject`
-///     turns those into a signed Absence before any value is computed.
+///   - 0, 1, 8, 9, 10 → false: `s2_scl_is_hard_reject` turns those into a
+///     signed Absence before any value is computed, except an 8 or 9 the
+///     spectral snow test overruled, which reads as snow.
 fn s2_scl_vegetation_valid(scl: i64) -> bool {
     matches!(scl, 4 | 5)
 }
@@ -14975,6 +15211,85 @@ fn s2_surface_class_json(scl: i64) -> Option<JsonValue> {
         "label":            label,
         "vegetation_valid": s2_scl_vegetation_valid(scl),
     }))
+}
+
+/// The Sentinel-2 bands whose facts are one surface reflectance, in unit
+/// reflectance: `(DN + offset) * 1e-4`.
+const S2_REFLECTANCE_BANDS: &[&str] = &[
+    "s2.B01", "s2.B02", "s2.B03", "s2.B04", "s2.B05", "s2.B06", "s2.B07", "s2.B08", "s2.B8A",
+    "s2.B09", "s2.B11", "s2.B12",
+];
+
+/// What a Sentinel-2 reflectance fact can be, in the unit it is signed in.
+/// The floor is the encoding's: DN 1, the lowest valid one, under ESA's
+/// -1000 offset is -0.0999, so a value below -0.1 is a scale error, not a
+/// surface. The ceiling is a loose physical one: snow and specular glint can
+/// pass 1, nothing on the ground reaches 2. A DN signed as reflectance (1556
+/// for 0.0556) is refused.
+const S2_REFLECTANCE_RANGE: (f64, f64) = (-0.1, 2.0);
+
+/// A caution for a Sentinel-2 reflectance below zero.
+///
+/// Surface reflectance cannot be negative. L2A has negatives where the
+/// atmospheric correction took away more path radiance than a dark pixel
+/// (water, shadow) reflected, and ESA's BOA offset exists to keep them rather
+/// than clip them at 0, which would bias the mean of a dark target upward. So
+/// the value is signed as the product gives it, and it carried confidence
+/// 0.95 on a clean SCL class with nothing to say it is not a reflectance.
+fn s2_negative_reflectance_caution(
+    band: &str,
+    obj: &serde_json::Map<String, JsonValue>,
+) -> Option<String> {
+    if !S2_REFLECTANCE_BANDS.contains(&band) {
+        return None;
+    }
+    let v = obj
+        .get("value")
+        .or_else(|| obj.get("Primary").and_then(|p| p.get("value")))?
+        .as_f64()?;
+    (v < 0.0).then(|| {
+        format!(
+            "{band} = {v} is below zero, which no surface reflects. Sentinel-2 L2A keeps negative values where the atmospheric correction overshoots on a dark pixel (water, shadow), so that means over dark targets stay unbiased. Read it as a reflectance near 0 with an error at least {:.4}, not as a measurement of the surface; `confidence` scores the pixel's class, not this.",
+            v.abs()
+        )
+    })
+}
+
+/// A caution for a Sentinel-2 fact signed from an input the materializer now
+/// refuses (see `s2_unmeasurable_input`), or from a raw band at the clip
+/// floor. Reads the DNs (`derivation.args[5]`) and the offset (`args[12]`,
+/// absent on facts signed before it was recorded) the fact itself carries, so
+/// it covers facts signed before the refusal.
+fn s2_input_caution(obj: &serde_json::Map<String, JsonValue>) -> Option<String> {
+    let d = obj
+        .get("derivation")
+        .or_else(|| obj.get("Primary").and_then(|p| p.get("derivation")))?;
+    let fn_key = d.get("fn_key")?.as_str()?;
+    if !fn_key.starts_with(S2_FN_KEY_PREFIX) || fn_key.contains("_s2_scl@") {
+        return None;
+    }
+    let args = d.get("args")?.as_array()?;
+    let dns: Vec<f64> = args
+        .get(5)?
+        .as_array()?
+        .iter()
+        .filter_map(|v| v.as_f64())
+        .collect();
+    let offset = args.get(12).and_then(|v| v.as_f64());
+    if fn_key.starts_with("sentinel2_l2a_indices_") {
+        let why = s2_unmeasurable_input("index_any", &dns, offset.unwrap_or(0.0))?;
+        return Some(format!(
+            "{why}. This index was signed before the materializer refused such inputs. It is not a reading of the surface, so `vegetation_valid` is false here."
+        ));
+    }
+    if let Some(why) = s2_unmeasurable_input("raw_reflectance", &dns, 0.0) {
+        return Some(format!(
+            "{why}. The value is the file's, not the surface's."
+        ));
+    }
+    dns.first().is_some_and(|d| *d == 1.0).then(|| {
+        "The band is at the clip floor (DN 1). A catalogue that removes the offset writes 1 for any reflectance at or below zero, so the true reflectance is at or below this value.".to_string()
+    })
 }
 
 /// Read the per-pixel SCL class out of a serialized fact's
@@ -15144,6 +15459,23 @@ fn band_metadata_for_response(band_key: &str) -> JsonValue {
             map.insert("units".into(), json!(u));
         }
     }
+    if S2_REFLECTANCE_BANDS.contains(&band_key) {
+        // The registry states the cube slot's scale, reflectance x 10000 in
+        // 0..10000, and a fact of 0.0556 served beside it read as 5.56e-6.
+        let (lo, hi) = S2_REFLECTANCE_RANGE;
+        map.insert(
+            "units".into(),
+            json!("unit surface reflectance, (DN + BOA offset) x 1e-4; about 0 to 1"),
+        );
+        map.insert("value_range".into(), json!([lo, hi]));
+        map.insert(
+            "text_erratum".into(),
+            json!({
+                "fields": ["units", "value_range"],
+                "why": "the registry gives the scale of the cube slot (reflectance x 10000, 0 to 10000); a Sentinel-2 band fact is signed in unit reflectance, and value_range here is the range enforced at signing",
+            }),
+        );
+    }
     if map.is_empty() {
         JsonValue::Null
     } else {
@@ -15285,7 +15617,22 @@ fn enrich_facts_inner(value: &mut JsonValue, with_band_metadata: bool) {
         // a per-band constant, so the fan-out endpoints that hoist band
         // metadata to the response root must still carry it per fact.
         if let Some(scl) = s2_scl_from_fact_json(obj) {
-            if let Some(block) = s2_surface_class_json(scl) {
+            if let Some(mut block) = s2_surface_class_json(scl) {
+                let snow = obj
+                    .get("derivation")
+                    .or_else(|| obj.get("Primary").and_then(|p| p.get("derivation")))
+                    .and_then(|d| d.get("args"))
+                    .and_then(|a| a.as_array())
+                    .and_then(|a| s2_snow_test_from_args(a))
+                    .map(str::to_string);
+                if let (Some(test), Some(b)) = (snow, block.as_object_mut()) {
+                    // SCL's own class stays at `scl`; the label is what the
+                    // value was taken as, and `scl_label` what SCL said.
+                    let said = b.insert("label".into(), json!("Snow / ice (spectral snow test)"));
+                    b.insert("scl_label".into(), said.unwrap_or(JsonValue::Null));
+                    b.insert("snow_test".into(), json!(test));
+                    b.insert("vegetation_valid".into(), json!(false));
+                }
                 obj.insert("surface_class".into(), block);
             }
         }
@@ -15293,6 +15640,15 @@ fn enrich_facts_inner(value: &mut JsonValue, with_band_metadata: bool) {
         // value stays the signed one.
         if let Some(e) = element84_erratum::any_for_fact(obj) {
             obj.insert("erratum".into(), e);
+        }
+        if let Some(c) = s2_negative_reflectance_caution(&band, obj) {
+            obj.insert("reflectance_caution".into(), json!(c));
+        }
+        if let Some(c) = s2_input_caution(obj) {
+            obj.insert("input_caution".into(), json!(c));
+            if let Some(sc) = obj.get_mut("surface_class").and_then(|v| v.as_object_mut()) {
+                sc.insert("vegetation_valid".into(), json!(false));
+            }
         }
         if with_band_metadata {
             let mut meta = band_metadata_for_response(&band);
@@ -31890,7 +32246,7 @@ fn mcp_tools_list(params: Option<&JsonValue>, default_tier: &str) -> JsonValue {
     // the same class of lie as the count mismatch above.
     let hint = if more || start > 0 {
         format!(
-            "Page: tools {}-{} of {} in profile '{}' ({} registered in total). {} Every tool is callable by name via tools/call at either endpoint whether or not it is listed here; call emem_tools to map the surface without loading it.",
+            "Page: tools {}-{} of {} in profile '{}' ({} registered in total). {} The server runs every tool by name via tools/call at either endpoint, listed here or not, but a host that calls only listed tools reaches the rest by following nextCursor at /mcp/full; call emem_tools to map the surface without loading it.",
             start + 1,
             next_index,
             selection_size,
@@ -31978,7 +32334,7 @@ fn mcp_instructions(default_tier: &str) -> String {
     // A host puts this string in front of the model once, at connect, and
     // may truncate it. Whatever must survive that has to be at the top.
     s.push_str(
-        "READ FIRST: the tools you can see are NOT all of emem. They are a small loop, chosen to keep your context small.\nCall emem_tools to see the rest, search it, or get one tool's schema and a working example.\ntools/call runs ANY tool by name, listed or not. A tool missing from your list is not missing from the server. Look it up instead of guessing its arguments.\n\n",
+        "READ FIRST: the tools you can see are NOT all of emem. They are a small loop, chosen to keep your context small.\nCall emem_tools to see the rest, search it, or get one tool's schema and a working example.\nThe server runs ANY tool by name. Your host may refuse an unlisted one: then use /mcp/full with nextCursor. Look it up instead of guessing its arguments.\n\n",
     );
     // The trust boundary goes SECOND, for the same reason the capability
     // warning goes first: a host shows this string to the model once, at
@@ -33883,6 +34239,38 @@ fn mcp_args_to_query(args: &JsonValue) -> std::collections::HashMap<String, Stri
 /// not exist, so exactly one visible tool has to be able to describe the
 /// rest. The catalog defaults to `tier: all` for that reason: narrowing
 /// discovery is the endpoint's job, and this is the escape hatch from it.
+/// The listed tool that runs an extended one, for a host that calls only the
+/// tools it listed. `emem_intent` is a core tool and runs its plan on the
+/// server, so each intent below reaches the tool it is keyed by. A search for
+/// "overpass" found only `emem_field_series`, which such a host refused, while
+/// `emem_intent` with `area_over_time` would have run it.
+fn listed_route(tool: &str) -> Option<JsonValue> {
+    let args = match tool {
+        "emem_field_series" => json!({
+            "type": "area_over_time",
+            "geometry": {"type": "Polygon", "coordinates": [[[-5.3012, 6.8501], [-5.2988, 6.8501], [-5.2988, 6.8524], [-5.3012, 6.8524], [-5.3012, 6.8501]]]},
+            "index": "ndvi", "start_date": "2025-01-01", "end_date": "2026-09-30",
+        }),
+        "emem_diff" => json!({
+            "type": "did_change", "cell": "defi.zb64a.cAzU.zfa27",
+            "band": "indices.ndvi", "window": [20245, 20620],
+        }),
+        "emem_compare" => json!({
+            "type": "is_like", "a": "defi.zb64a.cAzU.zfa27", "b": "defi.zb4d9.pefa.zf619",
+        }),
+        "emem_verify" => json!({
+            "type": "confirm", "cell": "defi.zb64a.cAzU.zfa27",
+            "claim": {"band": "indices.ndvi", "op": "gt", "value": 0.5, "tslot": 0},
+        }),
+        _ => return None,
+    };
+    Some(json!({
+        "tool": "emem_intent",
+        "args": args,
+        "why": format!("emem_intent is in the core list and runs {tool} on the server, so a host that calls only listed tools still reaches it"),
+    }))
+}
+
 fn tools_catalog(args: &JsonValue) -> JsonValue {
     let want_name = args.get("name").and_then(|v| v.as_str());
     let q = args
@@ -33939,7 +34327,8 @@ fn tools_catalog(args: &JsonValue) -> JsonValue {
                     "openWorldHint": t.open_world_hint,
                 },
             },
-            "callable": "Call it by name through tools/call. Tools dispatch by name at every tier, so a tool absent from your list is still callable if your host will send an unadvertised name; if it will not, reconnect to /mcp/full.",
+            "callable": "The server runs it by name through tools/call at every tier. Many hosts send only the tools they listed and refuse the rest with \"No such tool available\". On such a host, use `listed_route` when there is one, or connect the host to /mcp/full and let it follow nextCursor through the pages.",
+            "listed_route": if t.tier == "core" { JsonValue::Null } else { listed_route(t.name).unwrap_or(JsonValue::Null) },
         });
     }
 
@@ -33986,12 +34375,18 @@ fn tools_catalog(args: &JsonValue) -> JsonValue {
         // tools, far short of loading every descriptor.
         let w = t.when_to_use;
         let cut = w.find(". ").map(|i| i + 1).unwrap_or(w.len().min(240));
-        json!({
+        let mut b = json!({
             "name": t.name,
             "use_when": w[..cut].trim(),
             "returns": emem_mcp::shape_of(t.name),
             "tier": t.tier,
-        })
+        });
+        if t.tier != "core" {
+            if let (Some(r), Some(o)) = (listed_route(t.name), b.as_object_mut()) {
+                o.insert("listed_route".into(), r);
+            }
+        }
+        b
     };
 
     let loop_json: Vec<JsonValue> = emem_mcp::CORE_LOOP
@@ -34075,7 +34470,7 @@ fn tools_catalog(args: &JsonValue) -> JsonValue {
     let unfiltered =
         q.is_empty() && want_cat.is_none() && want_shape.is_none() && want_bundle.is_none();
     let reaching = format!(
-        "This endpoint advertises the {core_count} core loop tools. The other {} are catalogued here and dispatch by name at every tier, so a tool missing from your list is not missing from the server. For a one-shot answer without choosing a primitive, use emem_ask. To have a whole bundle registered as callable tools, call tools/list with {{\"bundle\":\"...\"}}; for the complete catalog, connect to /mcp/full.",
+        "This endpoint advertises the {core_count} core loop tools. The other {} are catalogued here and the server runs each by name through tools/call at every tier, so a tool missing from your list is not missing from the server. Many hosts let the model call only the tools they listed, and refuse the rest with \"No such tool available\"; that refusal is the host's. A host like that lists every tool when it connects to /mcp/full and follows nextCursor through the pages. Where a core tool runs an extended one, the entry names it as `listed_route`: emem_intent runs emem_field_series, emem_diff, emem_compare and emem_verify. For a one-shot answer without choosing a primitive, use emem_ask. To have a whole bundle registered as callable tools, call tools/list with {{\"bundle\":\"...\"}}; for the complete catalog, connect to /mcp/full.",
         emem_mcp::TOOLS.len() - core_count
     );
 
@@ -34814,6 +35209,7 @@ async fn mcp_tool_call_inner(
                     );
                 }
             }
+            attach_dated_request(&mut v, &req, s).await;
             // The request as REST takes it, at the cell it resolved to, so the
             // note's `fetch` returns this same read whole.
             if let Some(m) = fetch_args.as_object_mut() {
@@ -36373,7 +36769,7 @@ fn openapi_spec() -> JsonValue {
                     "provenance":{"type":"object","description":"Tamper-provenance, attached by THIS responder from its own registry at resolve time rather than carried in the token. For a primary fact it describes the band (`class`, `deterministic`, `tamper_evidence`, `trust_rank`); for a derivative it describes the derivation, and `responder_recomputed` is the field that separates what this responder verified from what the attester merely declared. Omitted when the band is unknown here."},
                     "receipt":{"$ref":"#/components/schemas/Receipt"},
                     "offline_verify_at":{"type":"string","description":"Where to re-check the receipt without trusting this responder."},
-                    "degraded":{"type":"boolean","description":"True when a BARE fact_cid was accepted, i.e. the `emem:fact:<descriptor>:` head was missing or the cid was recovered from surrounding text. The bytes and the receipt are as authoritative as any resolve; only the citation was lossy, and a bare cid is responder-scoped so it is ambiguous elsewhere. Re-cite `canonical_token`."},
+                    "degraded":{"type":"boolean","description":"True when a BARE fact_cid was accepted, i.e. the citation named no cell: the `emem:fact:<descriptor>:` head was missing, the token was `emem:fact:<fact_cid>`, or the cid was recovered from surrounding text. Serialized first, with `degraded_reason`, because it changes what `resolved: true` and `cell_matches: false` mean. The bytes and the receipt are as authoritative as any resolve; only the citation was lossy, and a bare cid is responder-scoped so it is ambiguous elsewhere. Re-cite `canonical_token`."},
                     "degraded_reason":{"type":"string","description":"Present only when `degraded`. Names the recovery class and what to do about it."}}},
                 "AskResp":         {"type":"object","description":"Response of /v1/ask. Single envelope combining (a) place resolution, (b) topic-router classification, (c) recalled facts under those topics, (d) applicable algorithm recipes that compose those bands into named scores, (e) optional Sentinel-2 RGB thumbnail URL, and (f) caveats. All facts are signed and content-addressed.","required":["topic_routing","facts","receipt"],"properties":{"place_resolved":{"$ref":"#/components/schemas/LocateResp"},"topic_routing":{"type":"object","properties":{"matched_topics":{"type":"array","items":{"type":"string"}},"matched_keywords":{"type":"array","items":{"type":"object"}},"out_of_scope":{"type":"boolean"},"routing":{"type":"object"}}},"facts":{"type":"object","properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"}}}},"algorithms_for_question":{"type":"array","items":{"type":"object","properties":{"key":{"type":"string"},"topic":{"type":"string"},"formula":{"type":"string"}}}},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"answer":{"type":"string","description":"Short natural-language summary of what the responder found, synthesised deterministically from the structured fields (every cited value traces to a fact_cid in the receipt). On a cold cell whose bands are not yet materialized it states that plainly and points at `next_steps`; never an LLM call."},"answer_md":{"type":"string","description":"Markdown variant of `answer`."},"next_steps":{"type":"array","description":"Present when the routed algorithms could not evaluate because their input bands are not materialized at this cell. Each item is a literal follow-up call (e.g. POST /v1/recall with the exact missing bands) the agent can issue, then re-ask.","items":{"type":"object","properties":{"action":{"type":"string"},"why":{"type":"string"},"method":{"type":"string"},"path":{"type":"string"},"url":{"type":"string"},"body":{"type":"object"}}}},"caveats":{"type":"array","items":{"type":"string"}},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "FieldBoundariesResp":{"type":"object","description":"Response of /v1/field_boundaries. `fields` is an array of per-field GeoJSON-Polygon features from Fields of The World (CC-BY-4.0). `attribution` and `license` must be surfaced with any rendered map.","required":["fields","license","attribution"],"properties":{"fields":{"type":"array","items":{"type":"object","properties":{"geometry":{"type":"object","description":"GeoJSON Polygon."},"area_ha":{"type":"number"},"country":{"type":"string"},"confidence":{"type":"number"}}}},"license":{"type":"string","example":"CC-BY-4.0"},"attribution":{"type":"string","example":"Fields of The World / Taylor Geospatial Institute"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
@@ -40744,6 +41140,29 @@ struct MemoryTokenResolveReq {
 
 #[derive(Debug, Serialize)]
 struct MemoryTokenResolveResp {
+    /// `true` when this resolve accepted a BARE fact_cid, i.e. a citation
+    /// that named no cell: the `emem:fact:<descriptor>:` head was dropped,
+    /// the cell between head and cid was missing, or the cid was found in
+    /// surrounding text.
+    ///
+    /// The same benchmark measured that at 7 of 32 dereference attempts
+    /// (21.9%): models keep the opaque base32 tail and discard the
+    /// structured head. Refusing outright is defensible (a bare cid is
+    /// responder-scoped, so it is ambiguous across responders) but leaves no
+    /// recovery path, so the resolve succeeds and says plainly that it was
+    /// degraded. A caller that requires an unambiguous citation should treat
+    /// `degraded: true` as a failure; one that just needs the bytes can
+    /// proceed, and `canonical_token` carries the full handle to cite next time.
+    ///
+    /// First in the body, with its reason, because it changes how to read
+    /// `resolved: true` and `cell_matches: false` below; at the end, after
+    /// the signed body and the receipt, a reader had already taken the
+    /// resolve as a checked citation.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    degraded: bool,
+    /// Why the resolve was degraded, when it was. Absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    degraded_reason: Option<String>,
     /// Echoed token exactly as received.
     token: String,
     /// The token rewritten to the canonical grammar
@@ -40897,22 +41316,6 @@ struct MemoryTokenResolveResp {
     /// Absent for non-scalar values (vectors, enums, absences).
     #[serde(skip_serializing_if = "Option::is_none")]
     value_verbatim: Option<String>,
-    /// `true` when this resolve accepted a BARE fact_cid, i.e. a citation
-    /// whose `emem:fact:<descriptor>:` head was dropped.
-    ///
-    /// The same benchmark measured that at 7 of 32 dereference attempts
-    /// (21.9%): models keep the opaque base32 tail and discard the
-    /// structured head. Refusing outright is defensible (a bare cid is
-    /// responder-scoped, so it is ambiguous across responders) but leaves no
-    /// recovery path, so the resolve succeeds and says plainly that it was
-    /// degraded. A caller that requires an unambiguous citation should treat
-    /// `degraded: true` as a failure; one that just needs the bytes can
-    /// proceed, and `canonical_token` carries the full handle to cite next time.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    degraded: bool,
-    /// Why the resolve was degraded, when it was. Absent otherwise.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    degraded_reason: Option<String>,
 }
 
 /// A bare 52-character fact_cid: base32-nopad-lowercase with the
@@ -40955,6 +41358,17 @@ fn recover_fact_cid(token: &str) -> Option<(String, &'static str)> {
         return Some((t, "bare_cid"));
     }
 
+    // The head is there and the cell is not: `emem:fact:<cid>`. Named apart
+    // from text recovery, whose reason (a leaked reasoning preamble) was the
+    // wrong story for a token one field short.
+    for head in ["emem:fact:", "memt:"] {
+        if let Some(rest) = t.strip_prefix(head) {
+            if rest.len() == 52 && rest.bytes().all(is_c) {
+                return Some((rest.to_string(), "no_cell"));
+            }
+        }
+    }
+
     // A cid embedded in surrounding text. The 2026-07-20 re-measurement found
     // the one remaining hard failure was a model leaking a reasoning preamble
     // into its emission ("thought\n<52-char cid>"). Recovering that is the same
@@ -40979,6 +41393,31 @@ fn recover_fact_cid(token: &str) -> Option<(String, &'static str)> {
         }
     }
     None
+}
+
+/// What a degraded resolve says first: what `resolved: true` and
+/// `cell_matches: false` mean when the token named no cell, then how the cid
+/// was recovered.
+fn degraded_resolve_reason(how: &str) -> String {
+    let what = match how {
+        "no_cell" => {
+            "The token was `emem:fact:<fact_cid>`: it had no cell between the head and the cid"
+        }
+        "embedded_cid" => {
+            "The fact_cid was found inside surrounding text (a model emitted it beside other \
+             output, for example a leaked reasoning preamble)"
+        }
+        _ => "The token was a bare fact_cid: the `emem:fact:<cell64>:` head was missing",
+    };
+    format!(
+        "This citation named no cell. `resolved: true` says only that this responder holds these \
+         bytes; `cell_matches: false` says no cell was checked, and `cell` is the one in the \
+         signed body. {what}. A bare cid is responder-scoped, so it names these bytes HERE but \
+         is ambiguous at another responder. The bytes and the receipt are exactly as \
+         authoritative as any resolve; only the CITATION was lossy, so this is a recovery and \
+         not a success. A caller that requires an unambiguous citation should treat it as a \
+         failure and re-cite `canonical_token`. Recovery class: `{how}`."
+    )
 }
 
 /// The fact's payload, unwrapping the serde-tagged variant if present.
@@ -41524,21 +41963,7 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
         offline_verify_at: "/verify",
         value_verbatim,
         degraded,
-        degraded_reason: degraded.then(|| {
-            let how = if degraded_how == "embedded_cid" {
-                "recovered a fact_cid embedded in surrounding text (a model emitted it alongside \
-                 other output, e.g. a leaked reasoning preamble)"
-            } else {
-                "accepted a bare fact_cid: the `emem:fact:<descriptor>:` head was missing"
-            };
-            format!(
-                "{how}. A bare cid is responder-scoped, so it names these bytes HERE but is \
-                 ambiguous at another responder. The bytes and the receipt are exactly as \
-                 authoritative as any resolve; only the CITATION was lossy, so this is a recovery \
-                 and not a success. A caller that requires an unambiguous citation should treat it \
-                 as a failure and re-cite `canonical_token`. Recovery class: `{degraded_how}`."
-            )
-        }),
+        degraded_reason: degraded.then(|| degraded_resolve_reason(degraded_how)),
     })
 }
 
@@ -55715,6 +56140,15 @@ async fn materialize_cams_band(
     sign_and_persist(s, fact, &signed_at).await
 }
 
+/// The instant a recall's ERA5 read targets: the last second of the bound's
+/// hourly slot, never past now. `None` (no bound) is now.
+fn era5_target_unix(bound_tslot: Option<u64>, now_unix: i64) -> i64 {
+    let hour = emem_core::tslot::Tempo::UltraFast;
+    bound_tslot
+        .map(|t| emem_core::tslot::Tslot(t).to_unix_start(hour) + hour.slot_seconds() as i64 - 1)
+        .map_or(now_unix, |t| t.min(now_unix))
+}
+
 /// Materialize an Open-Meteo ERA5 reanalysis fact at a single lat/lng.
 /// Free, no API key, CC BY 4.0; ECMWF ERA5 (~9 km downscaled), hourly,
 /// 1940-present.
@@ -56764,6 +57198,26 @@ fn s2_band_plan(band: &str) -> Option<(Vec<&'static [&'static str]>, &'static st
     }
 }
 
+/// The item captured nearest `target_unix`; between two at one time (two
+/// tiles of one pass) the lower cloud cover, then the catalogue's order.
+/// With no target, the first item, which a newest-first search makes the
+/// newest.
+fn s2_nearest_item(
+    items: Vec<emem_fetch::stac::StacItem>,
+    target_unix: Option<i64>,
+) -> Option<emem_fetch::stac::StacItem> {
+    let Some(t) = target_unix else {
+        return items.into_iter().next();
+    };
+    let gap = |i: &emem_fetch::stac::StacItem| {
+        parse_iso8601_unix(&i.datetime).map_or(i64::MAX, |u| (u - t).abs())
+    };
+    let cloud = |i: &emem_fetch::stac::StacItem| i.cloud_cover.unwrap_or(100.0);
+    items
+        .into_iter()
+        .min_by(|a, b| gap(a).cmp(&gap(b)).then(cloud(a).total_cmp(&cloud(b))))
+}
+
 /// Sentinel-2 search with cloudy-region fallback ladder.
 ///
 /// Tries (cloud_pct, lookback_days) in escalating tiers and returns the
@@ -56821,11 +57275,20 @@ pub(crate) async fn s2_search_with_fallback(
         );
         let mut failures: Vec<String> = Vec::new();
         let mut answered = false;
+        // A dated search reads the whole window and takes the scene nearest
+        // the date. One newest-first result took the far end of the window:
+        // a raster asked for 2022-12-14 came from 2023-01-13 while 14
+        // December had a scene under the same cap. Undated, newest is nearest.
+        let page = if target_unix.is_some() {
+            s2_items_bound(&datetime, None)
+        } else {
+            1
+        };
         for host in s2_catalogues() {
-            match s2_candidates(cli, host, lng, lat, &datetime, cloud, 1).await {
+            match s2_candidates(cli, host, lng, lat, &datetime, cloud, page).await {
                 Ok(items) => {
                     answered = true;
-                    if let Some(item) = items.into_iter().next() {
+                    if let Some(item) = s2_nearest_item(items, target_unix) {
                         return Ok((item, cloud, days, host));
                     }
                     break;
@@ -56919,6 +57382,106 @@ fn s2_scl_reject_label(class: u8) -> Option<&'static str> {
     }
 }
 
+/// A pixel SCL called cloud (8 or 9) that the spectral snow test calls snow.
+///
+/// Sen2Cor confuses bright snow with cloud. Over London on 2022-12-14, the
+/// clearest snow day of that winter, SCL put class 8 on the pixel in both
+/// tiles of the pass while each tile reported 27 % and 41 % snow elsewhere,
+/// and the reflectances were snow's: green 0.49, NIR 0.48, SWIR-1 0.13,
+/// NDSI 0.59. So the picker skipped the day for an older scene. Cloud is
+/// bright in SWIR-1 as well as in green, so its NDSI sits near zero; snow
+/// absorbs SWIR-1.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct S2SnowTest {
+    pub(crate) scl: u8,
+    pub(crate) ndsi: f64,
+    pub(crate) nir: f64,
+}
+
+/// The SNOMAP thresholds (Hall et al. 1995) on surface reflectance.
+const S2_SNOW_NDSI_MIN: f64 = 0.4;
+const S2_SNOW_NIR_MIN: f64 = 0.11;
+/// The snow share a granule must report before a cloud call at one pixel is
+/// worth three more reads. Winter granules with no snow on the ground still
+/// report a few thousandths of a percent (London, 2022-12-09: 0.006 %).
+const S2_SNOW_SCENE_MIN_PCT: f64 = 1.0;
+
+/// Marker the test leaves in a fact's `derivation.args`, after the positional
+/// ones. `s2_snow_test_from_args` reads it back.
+const S2_SNOW_TEST_ARG: &str = "scl_snow_test@1";
+
+/// The SCL classes a snow test may overrule. Not 10 (thin cirrus): that call
+/// rests on the 1375 nm band, which surface snow does not reach.
+fn s2_scl_may_be_snow(class: u8) -> bool {
+    matches!(class, 8 | 9)
+}
+
+fn s2_snow_test(scl: u8, green: f64, nir: f64, swir1: f64) -> Option<S2SnowTest> {
+    let sum = green + swir1;
+    if !(sum.is_finite() && nir.is_finite() && sum > 1e-6) {
+        return None;
+    }
+    let ndsi = (green - swir1) / sum;
+    (ndsi > S2_SNOW_NDSI_MIN && nir > S2_SNOW_NIR_MIN).then_some(S2SnowTest { scl, ndsi, nir })
+}
+
+fn s2_scene_reports_snow(item: &emem_fetch::stac::StacItem) -> bool {
+    item.snow_ice_percentage
+        .is_some_and(|p| p >= S2_SNOW_SCENE_MIN_PCT)
+}
+
+/// Run the snow test at one pixel of one scene, when SCL called it cloud and
+/// the scene's classifier found snow in at least 1 % of the granule. Three more
+/// range reads (green, NIR, SWIR-1); `None` on any failed read, so a failure
+/// keeps the cloud call.
+async fn s2_probe_snow(
+    cli: &reqwest::Client,
+    item: &emem_fetch::stac::StacItem,
+    scl: Option<u8>,
+    search_url: &str,
+    lat: f64,
+    lng: f64,
+) -> Option<S2SnowTest> {
+    let scl = scl.filter(|c| s2_scl_may_be_snow(*c))?;
+    if !s2_scene_reports_snow(item) {
+        return None;
+    }
+    let offset = s2_dn_offset(search_url, item).ok()?;
+    let utm = emem_fetch::proj::latlng_to_utm_with_epsg(lat, lng, item.epsg?)?;
+    let mut dn = [0.0f64; 3];
+    for (slot, aliases) in dn
+        .iter_mut()
+        .zip([["green", "B03"], ["nir", "B08"], ["swir16", "B11"]])
+    {
+        let url = aliases.iter().find_map(|a| item.assets.get(*a))?;
+        let prof = emem_fetch::cog::open_profile(cli, url).await.ok()?;
+        let v = emem_fetch::cog::sample_pixel(cli, url, &prof, utm.easting, utm.northing)
+            .await
+            .ok()?;
+        if !(v.is_finite() && v > 0.0) {
+            return None;
+        }
+        *slot = v;
+    }
+    let r = |v: f64| (v + offset) * 1e-4;
+    s2_snow_test(scl, r(dn[0]), r(dn[1]), r(dn[2]))
+}
+
+/// The signed marker for a snow test that overruled SCL.
+fn s2_snow_test_arg(t: &S2SnowTest) -> String {
+    format!(
+        "{S2_SNOW_TEST_ARG}:scl={};ndsi={:.4};nir={:.4}",
+        t.scl, t.ndsi, t.nir
+    )
+}
+
+/// The snow-test marker in a fact's `derivation.args`, if it has one.
+fn s2_snow_test_from_args(args: &[JsonValue]) -> Option<&str> {
+    args.iter()
+        .filter_map(|a| a.as_str())
+        .find(|a| a.starts_with(S2_SNOW_TEST_ARG))
+}
+
 /// How many candidate scenes [`s2_pick_clear_scene`] SCL-probes at once
 /// within one tier. Defaults to 4, matching the default `EMEM_S2_MAX_SCENES`
 /// so a tier's candidates clear in a single wave; tunable via
@@ -56997,8 +57560,53 @@ pub(crate) fn s2_catalogues() -> Vec<&'static str> {
     }
 }
 
+/// Prefix of the error [`s2_value_from_samples`] returns for an input it
+/// cannot turn into a value; the materializer signs that as an Absence.
+const S2_UNMEASURABLE: &str = "s2_input_unmeasurable";
+
+/// The DN a catalogue writes for a saturated pixel: the top of uint16.
+const S2_SATURATED_DN: f64 = 65_535.0;
+
+/// Why these DNs give no value for this kind, or `None` when they do.
+///
+/// An index over an input at or below zero reflectance is not a reading. A
+/// harmonised catalogue clips a negative reflectance to DN 1, so a red that
+/// Planetary Computer serves as 973 (-0.0027 under its -1000 offset) comes
+/// from Element84 as 1 (0.0001 under offset 0), and NDVI read 0.9993 with
+/// `vegetation_valid: true`. From the unclipped copy the same pixel gave an
+/// NDVI above 1, which the valid range refused. Both copies now give the same
+/// answer: no index at this pixel. DN 0 is no data and the top of uint16 is
+/// saturated, in either copy. A raw band keeps its value at the clip floor
+/// (it is the file's, and served with a caution), but not when saturated.
+pub(crate) fn s2_unmeasurable_input(kind: &str, samples: &[f64], offset: f64) -> Option<String> {
+    if kind == "scl_categorical" {
+        return None;
+    }
+    if let Some(dn) = samples.iter().find(|d| **d >= S2_SATURATED_DN) {
+        return Some(format!("an input band is saturated (DN {dn})"));
+    }
+    if !kind.starts_with("index_") {
+        return None;
+    }
+    samples.iter().find_map(|dn| {
+        let refl = (dn + offset) * 1e-4;
+        if *dn <= 1.0 {
+            Some(format!(
+                "an input band is at the clip floor or no data (DN {dn}, offset {offset}), so its reflectance is not known"
+            ))
+        } else if refl <= 0.0 {
+            Some(format!(
+                "an input band reads {refl:.4} reflectance (DN {dn}, offset {offset}), at or below zero, which no surface reflects"
+            ))
+        } else {
+            None
+        }
+    })
+}
+
 /// A Sentinel-2 value from its DNs, `samples` in the order the band's plan
-/// lists its assets, under `reflectance = (DN + offset) * 1e-4`.
+/// lists its assets, under `reflectance = (DN + offset) * 1e-4`. Inputs
+/// [`s2_unmeasurable_input`] rejects are an `S2_UNMEASURABLE` error.
 pub(crate) fn s2_value_from_samples(
     kind: &str,
     samples: &[f64],
@@ -57006,6 +57614,9 @@ pub(crate) fn s2_value_from_samples(
     band: &str,
     item_id: &str,
 ) -> Result<(f64, Option<String>), String> {
+    if let Some(why) = s2_unmeasurable_input(kind, samples, offset) {
+        return Err(format!("{S2_UNMEASURABLE}: {why}"));
+    }
     let r = |dn: f64| (dn + offset) * 1e-4;
     Ok(match kind {
         "raw_reflectance" => {
@@ -57345,6 +57956,9 @@ pub(crate) struct S2ChosenScene {
     pub(crate) clear: bool,
     /// How many candidate scenes were SCL-probed to reach this decision.
     pub(crate) scenes_tried: usize,
+    /// Set when SCL called the pixel cloud and the spectral snow test called
+    /// it snow, which is why a cloud class was taken as clear.
+    pub(crate) snow: Option<S2SnowTest>,
 }
 
 /// SCL-first multi-scene picker for the Sentinel-2 value path. Where
@@ -57545,19 +58159,21 @@ async fn s2_pick_clear_scene_uncached(
         use futures_util::StreamExt as _;
         let mut probes = futures_util::stream::iter(items.into_iter().map(|item| async move {
             let scl = s2_sample_scl(cli, &item, lat, lng).await;
-            (item, scl)
+            let snow = s2_probe_snow(cli, &item, scl, host, lat, lng).await;
+            (item, scl, snow)
         }))
         .buffered(s2_scl_probe_concurrency());
-        while let Some((item, scl)) = probes.next().await {
+        while let Some((item, scl, snow)) = probes.next().await {
             scenes_tried += 1;
             if newest_seen.is_none() {
                 newest_seen = Some((item.clone(), cloud, days, scl, host));
             }
             // A hard-reject SCL means a cloudy/unusable pixel, try the next
-            // (older) candidate. Anything else (clear class, or SCL simply
-            // unavailable so we fall back to scene cloud_cover) is usable.
+            // (older) candidate, unless the snow test overruled a cloud call.
+            // Anything else (clear class, or SCL simply unavailable so we
+            // fall back to scene cloud_cover) is usable.
             match scl {
-                Some(c) if s2_scl_is_hard_reject(c) => continue,
+                Some(c) if s2_scl_is_hard_reject(c) && snow.is_none() => continue,
                 _ => {
                     return Ok(S2ChosenScene {
                         item,
@@ -57567,6 +58183,7 @@ async fn s2_pick_clear_scene_uncached(
                         scl,
                         clear: true,
                         scenes_tried,
+                        snow,
                     });
                 }
             }
@@ -57583,6 +58200,7 @@ async fn s2_pick_clear_scene_uncached(
             scl,
             clear: false,
             scenes_tried,
+            snow: None,
         });
     }
     Err(last_err.unwrap_or_else(|| "no Sentinel-2 L2A scene found".into()))
@@ -58092,12 +58710,13 @@ async fn s2_backfill_by_pass(
         let cli = cli.clone();
         async move {
             let scl = s2_sample_scl(&cli, &item, lat, lng).await;
-            (tslot, at, item, scl)
+            let snow = s2_probe_snow(&cli, &item, scl, host, lat, lng).await;
+            (tslot, at, item, scl, snow)
         }
     }))
     .buffered(s2_scl_probe_concurrency());
     let secs = materializer_timeout_secs();
-    while let Some((tslot, at, item, scl)) = probes.next().await {
+    while let Some((tslot, at, item, scl, snow)) = probes.next().await {
         // A slot holds one fact. Two tiles of one acquisition compete for
         // it, and so do two acquisitions on one day (two satellites minutes
         // apart), which are different observations with different values.
@@ -58117,7 +58736,7 @@ async fn s2_backfill_by_pass(
             break;
         }
         if let Some(label) = scl
-            .filter(|c| s2_scl_is_hard_reject(*c))
+            .filter(|c| s2_scl_is_hard_reject(*c) && snow.is_none())
             .and_then(s2_scl_reject_label)
         {
             skipped += 1;
@@ -58140,6 +58759,7 @@ async fn s2_backfill_by_pass(
             scl,
             clear: true,
             scenes_tried: 1,
+            snow,
         };
         let r = tokio::time::timeout(
             std::time::Duration::from_secs(secs),
@@ -58306,7 +58926,33 @@ async fn materialize_sentinel2_from_scene(
     // path is calibrated for, and there is no version of "wrong catalogue"
     // where signing a fact from it is right.
     let offset = s2_dn_offset(chosen.search_url, &item)?;
-    let (value, fact_unit) = s2_value_from_samples(kind, &samples, offset, band, &item.id)?;
+    let (value, fact_unit) = match s2_value_from_samples(kind, &samples, offset, band, &item.id) {
+        Ok(v) => v,
+        // The pixel was read and holds no value for this band: an Absence,
+        // which the next recall reads instead of reading the scene again.
+        Err(e) if e.starts_with(S2_UNMEASURABLE) => {
+            let signed_at = chrono_iso8601_utc();
+            return sign_band_absence(
+                cell64,
+                s,
+                band,
+                tslot,
+                "sentinel_s2_l2a",
+                &asset_urls
+                    .iter()
+                    .map(|u| s2_url_for_record(u))
+                    .collect::<Vec<_>>()
+                    .join(" ; "),
+                &signed_at,
+                &format!(
+                    "{e} at scene {} ({}); the scene was read and this band has no value at this pixel. DNs read: {samples:?}",
+                    item.id, item.datetime
+                ),
+            )
+            .await;
+        }
+        Err(e) => return Err(e),
+    };
 
     let signed_at = chrono_iso8601_utc();
     let fn_key = format!("sentinel2_l2a_{}@1", band.replace('.', "_"));
@@ -58315,6 +58961,9 @@ async fn materialize_sentinel2_from_scene(
     // to scene-cloud_cover when SCL is unavailable; finally to 0.50
     // ("scene quality unknown") when neither signal is present.
     let confidence: f32 = match scl_value {
+        // SCL called it cloud and the snow test called it snow: two
+        // classifiers disagree, so not the 0.95 of a pixel SCL calls snow.
+        Some(_) if chosen.snow.is_some() => 0.75,
         Some(4) | Some(5) | Some(6) | Some(11) => 0.95, // veg / soil / water / snow, clear
         Some(7) => 0.75,                                // cloud (low probability)
         Some(2) | Some(3) => 0.65,                      // cast shadows / cloud shadows
@@ -58363,25 +59012,37 @@ async fn materialize_sentinel2_from_scene(
             // back to this clear one). Lets a downstream verifier re-fetch
             // the SCL band and audit both the confidence derivation and the
             // scene-selection.
-            args: Some(ciborium::Value::Array(vec![
-                ciborium::Value::Float(lat),
-                ciborium::Value::Float(lng),
-                ciborium::Value::Text(item.id.clone()),
-                ciborium::Value::Integer((epsg as i64).into()),
-                ciborium::Value::Text(formula_note.into()),
-                ciborium::Value::Array(
-                    samples.iter().map(|v| ciborium::Value::Float(*v)).collect(),
-                ),
-                ciborium::Value::Float(item.cloud_cover.unwrap_or(-1.0)),
-                ciborium::Value::Float(used_cloud),
-                ciborium::Value::Integer(used_days.into()),
-                ciborium::Value::Integer(scl_value.map(|c| c as i64).unwrap_or(-1).into()),
-                ciborium::Value::Integer((chosen.scenes_tried as i64).into()),
-                // Appended, so every earlier position keeps its meaning: the
-                // catalogue the DNs came from and the offset applied to them.
-                ciborium::Value::Text(chosen.search_url.into()),
-                ciborium::Value::Float(offset),
-            ])),
+            args: Some(ciborium::Value::Array(
+                vec![
+                    ciborium::Value::Float(lat),
+                    ciborium::Value::Float(lng),
+                    ciborium::Value::Text(item.id.clone()),
+                    ciborium::Value::Integer((epsg as i64).into()),
+                    ciborium::Value::Text(formula_note.into()),
+                    ciborium::Value::Array(
+                        samples.iter().map(|v| ciborium::Value::Float(*v)).collect(),
+                    ),
+                    ciborium::Value::Float(item.cloud_cover.unwrap_or(-1.0)),
+                    ciborium::Value::Float(used_cloud),
+                    ciborium::Value::Integer(used_days.into()),
+                    ciborium::Value::Integer(scl_value.map(|c| c as i64).unwrap_or(-1).into()),
+                    ciborium::Value::Integer((chosen.scenes_tried as i64).into()),
+                    // Appended, so every earlier position keeps its meaning: the
+                    // catalogue the DNs came from and the offset applied to them.
+                    ciborium::Value::Text(chosen.search_url.into()),
+                    ciborium::Value::Float(offset),
+                ]
+                .into_iter()
+                // Only when the snow test overruled a cloud call at index 9, so
+                // every other fact keeps its args byte for byte.
+                .chain(
+                    chosen
+                        .snow
+                        .as_ref()
+                        .map(|t| ciborium::Value::Text(s2_snow_test_arg(t))),
+                )
+                .collect(),
+            )),
         },
         privacy_class: "public".into(),
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
@@ -62517,6 +63178,11 @@ fn band_valid_range(band: &str) -> Option<(f64, f64, &'static str)> {
             (-1.0, 1.0, "ratio")
         }
         "modis.ndvi_mean" => (-0.2, 1.0, "ratio"),
+        b if S2_REFLECTANCE_BANDS.contains(&b) => (
+            S2_REFLECTANCE_RANGE.0,
+            S2_REFLECTANCE_RANGE.1,
+            "reflectance",
+        ),
         "modis.lst_day_8day" | "modis.lst_night_8day" => (180.0, 350.0, "K"),
         "modis.et_8day" => (0.0, 100.0, "kg/m^2 per composite"),
         "modis.lai_8day" => (0.0, 10.0, "m^2/m^2"),
@@ -65789,13 +66455,17 @@ async fn materialize_bands_once(
                 }
             }
             // Open-Meteo Archive ERA5. Recall path: the newest hour the archive
-            // holds, which runs several days behind real time.
+            // holds, which runs several days behind real time. A dated recall
+            // reads the newest hour at or before the end of its slot, which
+            // for an hourly slot is that hour; this ignored the bound and
+            // signed this week's hour under a 2022 query.
             b_name if b_name.starts_with("era5.") => {
                 let now_unix = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0);
-                match materialize_era5_band(cell64, s, b, now_unix, true).await {
+                let target = era5_target_unix(bound_tslot, now_unix);
+                match materialize_era5_band(cell64, s, b, target, true).await {
                     Ok(cid) => {
                         tracing::info!(
                             target: "emem::materialize",
@@ -97828,6 +98498,11 @@ mod tests {
         assert!(out_of_valid_range(&fact("modis.lst_day_8day", 15_000.0, "u")).is_some());
         assert!(out_of_valid_range(&fact("indices.ndvi", 1.3, "u")).is_some());
         assert!(out_of_valid_range(&fact("unranged.band", 1e9, "u")).is_none());
+        // A Sentinel-2 DN signed as a reflectance is refused. A dark pixel's
+        // negative reflectance is signed, and cautioned where it is served.
+        assert!(out_of_valid_range(&fact("s2.B04", 1556.0, "u")).is_some());
+        assert!(out_of_valid_range(&fact("s2.B04", -0.11, "u")).is_some());
+        assert!(out_of_valid_range(&fact("s2.B04", -0.0843, "u")).is_none());
     }
 
     #[test]
@@ -106839,6 +107514,17 @@ mod tests {
             Some((cid.to_string(), "embedded_cid"))
         );
 
+        // The head with no cell is its own class, not "embedded in text", and
+        // its reason leads with what resolved:true and cell_matches:false mean.
+        for t in [format!("emem:fact:{cid}"), format!("memt:{cid}")] {
+            assert_eq!(recover_fact_cid(&t), Some((cid.to_string(), "no_cell")));
+        }
+        let why = degraded_resolve_reason("no_cell");
+        assert!(why.starts_with("This citation named no cell."), "{why}");
+        assert!(why.contains("`emem:fact:<fact_cid>`"), "{why}");
+        assert!(!why.contains("reasoning preamble"), "{why}");
+        assert!(degraded_resolve_reason("embedded_cid").contains("reasoning preamble"));
+
         // Never recovered: too short, too long, or no base32 run of exactly 52.
         assert!(recover_fact_cid(&cid[..51]).is_none());
         assert!(
@@ -106846,6 +107532,371 @@ mod tests {
             "a 57-char run must not be truncated into a plausible cid"
         );
         assert!(recover_fact_cid("no cid here at all").is_none());
+    }
+
+    #[test]
+    fn a_tslot_reads_as_the_dates_it_covers() {
+        use emem_core::tslot::Tempo;
+        assert_eq!(
+            tslot_dates(19_340, Tempo::Fast).as_deref(),
+            Some("2022-12-14")
+        );
+        assert_eq!(
+            tslot_dates(464_580, Tempo::UltraFast).as_deref(),
+            Some("2022-12-31T12:00Z")
+        );
+        // The same number under an hourly tempo is another year.
+        assert_eq!(
+            tslot_dates(19_340, Tempo::UltraFast).as_deref(),
+            Some("1972-03-16T20:00Z")
+        );
+        assert_eq!(
+            tslot_dates(2_417, Tempo::Composite8Day).as_deref(),
+            Some("2022-12-10/2022-12-17")
+        );
+        assert_eq!(tslot_dates(5, Tempo::Static), None);
+    }
+
+    /// The ERA5 arm signed this week's hour under a query for 2022.
+    #[test]
+    fn a_dated_era5_read_targets_the_hour_asked() {
+        let now = 1_794_000_000;
+        assert_eq!(
+            era5_target_unix(Some(464_580), now),
+            464_580 * 3_600 + 3_599
+        );
+        assert_eq!(era5_target_unix(None, now), now);
+        assert_eq!(era5_target_unix(Some(10_000_000), now), now);
+    }
+
+    /// Reproduces the reply that read as an answer: `tslot` 19340 for a
+    /// daily band, `facts: []`, and a note saying `materialized` about a
+    /// fact of 2022-12-09.
+    #[tokio::test]
+    async fn a_dated_recall_names_the_date_asked_and_the_date_signed() {
+        let s = test_app_state();
+        let cell = "defi.zb64a.pArI.zfe39";
+        let other = seed_ndvi_fact(
+            &s,
+            cell,
+            19_335,
+            [7u8; 32],
+            0.31,
+            0.95,
+            "2026-11-12T20:24:35Z",
+        )
+        .await;
+        let req = RecallReq {
+            cell: cell.into(),
+            bands: Some(vec![
+                "indices.ndvi".into(),
+                "era5.t2m".into(),
+                "copdem30m.elevation_mean".into(),
+            ]),
+            tslot: Some(19_340),
+            ..Default::default()
+        };
+        let mut v = json!({"facts": [], "materialize_notes": [
+            {"band": "indices.ndvi", "status": "materialized", "fact_cid": other}
+        ]});
+        attach_dated_request(&mut v, &req, &s).await;
+        let d = v["dated_request"].clone();
+        assert_eq!(d["bound"], "exact");
+        let row = |b: &str| {
+            d["bands"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|r| r["band"] == b)
+                .cloned()
+                .unwrap()
+        };
+        let ndvi = row("indices.ndvi");
+        assert_eq!(ndvi["asked"], "2022-12-14");
+        assert_eq!(ndvi["status"], "other_date_signed");
+        assert_eq!(ndvi["signed_instead"]["dates"], "2022-12-09");
+        assert_eq!(ndvi["signed_instead"]["tslot"], 19_335);
+        assert!(
+            d["summary"]
+                .as_str()
+                .unwrap()
+                .contains("Recall with tslot 19335"),
+            "{d}"
+        );
+        assert_eq!(row("era5.t2m")["asked"], "1972-03-16T20:00Z");
+        assert_eq!(row("era5.t2m")["status"], "nothing_at_date");
+        assert_eq!(row("copdem30m.elevation_mean")["status"], "static_band");
+        let note = &v["materialize_notes"][0];
+        assert_eq!(note["in_facts"], false);
+        assert_eq!(note["signed_dates"], "2022-12-09");
+
+        let req = RecallReq {
+            tslot: Some(19_335),
+            bands: Some(vec!["indices.ndvi".into()]),
+            ..req
+        };
+        let mut v =
+            json!({"facts": [{"band": "indices.ndvi", "tslot": 19_335, "fact_cid": other}]});
+        attach_dated_request(&mut v, &req, &s).await;
+        assert_eq!(v["dated_request"]["bands"][0]["status"], "served");
+        assert_eq!(
+            v["dated_request"]["summary"],
+            "Every band was served at the date asked."
+        );
+        let mut v =
+            json!({"facts": [{"band": "indices.ndvi", "kind": "absence", "tslot": 19_335}]});
+        attach_dated_request(&mut v, &req, &s).await;
+        assert_eq!(v["dated_request"]["bands"][0]["status"], "absence");
+
+        let req = RecallReq {
+            tslot: None,
+            as_of_tslot: Some(19_340),
+            ..req
+        };
+        let mut v =
+            json!({"facts": [{"band": "indices.ndvi", "tslot": 19_335, "fact_cid": other}]});
+        attach_dated_request(&mut v, &req, &s).await;
+        assert_eq!(v["dated_request"]["bound"], "as_of");
+        assert_eq!(v["dated_request"]["bands"][0]["status"], "served_earlier");
+        assert_eq!(v["dated_request"]["bands"][0]["served"][0], "2022-12-09");
+
+        let mut v = json!({"facts": []});
+        let req = RecallReq {
+            as_of_tslot: None,
+            ..req
+        };
+        attach_dated_request(&mut v, &req, &s).await;
+        assert!(v.get("dated_request").is_none());
+    }
+
+    /// band_raster took the newest scene of a ±30 day window, so a raster
+    /// asked for 2022-12-14 came from 2023-01-13.
+    #[test]
+    fn a_dated_scene_search_takes_the_nearest_scene() {
+        let item = |id: &str, at: &str, cloud: f64| -> emem_fetch::stac::StacItem {
+            serde_json::from_value(json!({
+                "id": id, "cloud_cover": cloud, "datetime": at,
+                "assets": {}, "collection": "sentinel-2-l2a",
+            }))
+            .unwrap()
+        };
+        let items = || {
+            vec![
+                item("jan13", "2023-01-13T11:03:19Z", 11.6),
+                item("dec14_xc", "2022-12-14T11:03:49Z", 39.0),
+                item("dec14_yc", "2022-12-14T11:03:49Z", 35.3),
+                item("dec09", "2022-12-09T11:04:41Z", 39.4),
+            ]
+        };
+        let noon = days_from_civil(2022, 12, 14) * 86_400 + 43_200;
+        assert_eq!(s2_nearest_item(items(), Some(noon)).unwrap().id, "dec14_yc");
+        assert_eq!(s2_nearest_item(items(), None).unwrap().id, "jan13");
+        let asked = days_from_civil(2023, 1, 10) * 86_400 + 43_200;
+        assert_eq!(s2_nearest_item(items(), Some(asked)).unwrap().id, "jan13");
+        assert!(s2_nearest_item(Vec::new(), Some(noon)).is_none());
+
+        let d = band_raster::scene_dates(Some("2022-12-14"), "2023-01-13");
+        assert_eq!(d["days_from_asked"], 30);
+        assert!(
+            d["note"].as_str().unwrap().contains("30 day(s) after"),
+            "{d}"
+        );
+        let same = band_raster::scene_dates(Some("2022-12-14"), "2022-12-14");
+        assert!(same["note"].is_null());
+        assert!(band_raster::scene_dates(None, "2023-01-13")["asked"].is_null());
+    }
+
+    /// The pixel at defi.zb64a.pArI.zfe39 on 2022-12-14 (tile T30UYC,
+    /// Planetary Computer, offset -1000): SCL 8, spectra of snow.
+    #[test]
+    fn the_snow_test_takes_back_a_snow_pixel_scl_called_cloud() {
+        let r = |dn: f64| (dn - 1000.0) * 1e-4;
+        let t = s2_snow_test(8, r(5916.0), r(5760.0), r(2281.0)).expect("snow");
+        assert!((t.ndsi - 0.5866).abs() < 1e-3, "{t:?}");
+        assert!(
+            s2_snow_test(8, 0.50, 0.52, 0.45).is_none(),
+            "cloud is bright in SWIR-1 too"
+        );
+        assert!(
+            s2_snow_test(8, 0.05, 0.03, 0.01).is_none(),
+            "a dark pixel fails on NIR"
+        );
+        assert!(s2_scl_may_be_snow(8) && s2_scl_may_be_snow(9));
+        let granule = |pct: Option<f64>| -> emem_fetch::stac::StacItem {
+            serde_json::from_value(json!({"id": "g", "datetime": "2022-12-14T11:03:49Z",
+                "assets": {}, "collection": "sentinel-2-l2a", "snow_ice_percentage": pct}))
+            .unwrap()
+        };
+        assert!(s2_scene_reports_snow(&granule(Some(26.96))));
+        assert!(
+            !s2_scene_reports_snow(&granule(Some(0.006))),
+            "winter noise"
+        );
+        assert!(!s2_scene_reports_snow(&granule(None)));
+        assert!(!s2_scl_may_be_snow(10) && !s2_scl_may_be_snow(3));
+        let arg = s2_snow_test_arg(&t);
+        assert_eq!(arg, "scl_snow_test@1:scl=8;ndsi=0.5866;nir=0.4760");
+
+        let mut v = json!({"facts": [{"band": "s2.B04", "value": 0.4628, "derivation": {
+            "fn_key": "sentinel2_l2a_s2_B04@1",
+            "args": [51.5, -0.04, "S2B_x", 32630, "B04", [5628.0], 35.3, 40.0, 30, 8, 1,
+                     "mpc", -1000.0, arg, "reader=cog-pixel-floor@2"]}}]});
+        enrich_facts_inner(&mut v, false);
+        let sc = &v["facts"][0]["surface_class"];
+        assert_eq!(sc["scl"], 8);
+        assert_eq!(sc["scl_label"], "Cloud (medium probability)");
+        assert!(
+            sc["label"].as_str().unwrap().starts_with("Snow / ice"),
+            "{sc}"
+        );
+        assert_eq!(sc["vegetation_valid"], false);
+        assert_eq!(
+            sc["snow_test"],
+            "scl_snow_test@1:scl=8;ndsi=0.5866;nir=0.4760"
+        );
+
+        // A fact without the marker keeps SCL's own reading.
+        let mut v = json!({"facts": [{"band": "s2.B04", "value": 0.0556, "derivation": {
+            "fn_key": "sentinel2_l2a_s2_B04@1",
+            "args": [51.5, -0.04, "S2A_x", 32630, "B04", [1556.0], 39.4, 40.0, 30, 3, 2]}}]});
+        enrich_facts_inner(&mut v, false);
+        assert_eq!(v["facts"][0]["surface_class"]["label"], "Cloud shadows");
+        assert!(v["facts"][0]["surface_class"].get("snow_test").is_none());
+    }
+
+    /// Element84's copy of a scene wrote red as DN 1 under offset 0, and NDVI
+    /// read 0.9993 with `vegetation_valid: true`; Planetary Computer's copy
+    /// of the same pixel holds 973 under -1000.
+    #[test]
+    fn an_index_over_a_clipped_or_saturated_input_is_no_reading() {
+        let read = |kind: &str, dns: &[f64], offset: f64| {
+            s2_value_from_samples(kind, dns, offset, "b", "scene")
+        };
+        let e = read("index_ndvi", &[2900.0, 1.0], 0.0).unwrap_err();
+        assert!(
+            e.starts_with(S2_UNMEASURABLE) && e.contains("clip floor"),
+            "{e}"
+        );
+        let e = read("index_ndvi", &[3900.0, 973.0], -1000.0).unwrap_err();
+        assert!(
+            e.starts_with(S2_UNMEASURABLE) && e.contains("at or below zero"),
+            "{e}"
+        );
+        let e = read("index_ndvi", &[65535.0, 1500.0], -1000.0).unwrap_err();
+        assert!(e.contains("saturated"), "{e}");
+        assert!(read("raw_reflectance", &[65535.0], -1000.0)
+            .unwrap_err()
+            .starts_with(S2_UNMEASURABLE));
+        // A raw band keeps its value at the floor; SCL is a class.
+        assert!(read("raw_reflectance", &[1.0], 0.0).is_ok());
+        assert!(read("scl_categorical", &[1.0], 0.0).is_ok());
+        let (v, _) = read("index_ndvi", &[3900.0, 1556.0], -1000.0).unwrap();
+        assert!((v - (0.29 - 0.0556) / (0.29 + 0.0556)).abs() < 1e-9, "{v}");
+
+        // A fact signed from the clipped copy is flagged where it is served.
+        let mut v = json!({"facts": [{"band": "indices.ndvi", "value": 0.9993, "derivation": {
+            "fn_key": "sentinel2_l2a_indices_ndvi@1",
+            "args": [51.5, -0.04, "S2B_x", 32630, "NDVI", [2900.0, 1.0], 8.2, 40.0, 30, 4, 1,
+                     "https://earth-search.aws.element84.com/v1/search", 0.0]}}]});
+        enrich_facts_inner(&mut v, false);
+        let f = &v["facts"][0];
+        assert!(
+            f["input_caution"].as_str().unwrap().contains("clip floor"),
+            "{f}"
+        );
+        assert_eq!(f["surface_class"]["scl"], 4);
+        assert_eq!(f["surface_class"]["vegetation_valid"], false);
+
+        // An ordinary index fact is left alone.
+        let mut v = json!({"facts": [{"band": "indices.ndvi", "value": 0.68, "derivation": {
+            "fn_key": "sentinel2_l2a_indices_ndvi@1",
+            "args": [51.5, -0.04, "S2B_x", 32630, "NDVI", [3900.0, 1556.0], 8.2, 40.0, 30, 4, 1,
+                     "https://planetarycomputer.microsoft.com/api/stac/v1/search", -1000.0]}}]});
+        enrich_facts_inner(&mut v, false);
+        assert!(v["facts"][0].get("input_caution").is_none());
+        assert_eq!(v["facts"][0]["surface_class"]["vegetation_valid"], true);
+    }
+
+    /// A search for "overpass" found only `emem_field_series`, which a host
+    /// that calls only listed tools refused, while the listed `emem_intent`
+    /// runs it.
+    #[test]
+    fn a_search_names_the_listed_route_to_an_unlisted_tool() {
+        let r = tools_catalog(&json!({"q": "overpass"}));
+        let found: Vec<JsonValue> = r["groups"]
+            .as_object()
+            .unwrap()
+            .values()
+            .flat_map(|g| g["tools"].as_array().cloned().unwrap_or_default())
+            .collect();
+        let fs = found
+            .iter()
+            .find(|t| t["name"] == "emem_field_series")
+            .expect("overpass finds emem_field_series");
+        assert_eq!(fs["tier"], "extended");
+        assert_eq!(fs["listed_route"]["tool"], "emem_intent");
+        assert_eq!(fs["listed_route"]["args"]["type"], "area_over_time");
+
+        let one = tools_catalog(&json!({"name": "emem_field_series"}));
+        assert_eq!(one["listed_route"]["tool"], "emem_intent");
+        assert!(one["callable"].as_str().unwrap().contains("/mcp/full"));
+        assert!(tools_catalog(&json!({"name": "emem_recall"}))["listed_route"].is_null());
+
+        // Every route is a core tool, and its example runs the tool it is
+        // keyed by.
+        let core: Vec<&str> = emem_mcp::tools_at_tier("core")
+            .iter()
+            .map(|t| t.name)
+            .collect();
+        for t in emem_mcp::TOOLS {
+            let Some(route) = listed_route(t.name) else {
+                continue;
+            };
+            assert_eq!(t.tier, "extended", "{} is listed already", t.name);
+            let via = route["tool"].as_str().unwrap();
+            assert!(core.contains(&via), "{via} is not a core tool");
+            let intent: emem_intent::Intent =
+                serde_json::from_value(route["args"].clone()).expect("example parses");
+            assert!(
+                emem_intent::plan(&intent)
+                    .calls
+                    .iter()
+                    .any(|c| c.primitive == t.name),
+                "the {via} example does not run {}",
+                t.name
+            );
+        }
+    }
+
+    #[test]
+    fn a_negative_reflectance_is_cautioned_and_served_in_its_signed_scale() {
+        let caution = |band: &str, v: f64| {
+            let f = json!({"band": band, "value": v});
+            s2_negative_reflectance_caution(band, f.as_object().unwrap())
+        };
+        assert!(caution("s2.B04", -0.0843).unwrap().contains("below zero"));
+        assert!(caution("s2.B04", 0.0556).is_none());
+        assert!(caution("indices.ndvi", -0.2).is_none());
+
+        let mut v = json!({"facts": [{"band": "s2.B04", "value": -0.0843}]});
+        enrich_facts_inner(&mut v, false);
+        assert!(v["facts"][0]["reflectance_caution"].is_string());
+
+        // The registry gives the cube slot's scale, 0..10000; the fact is a
+        // unit reflectance.
+        let m = band_metadata_for_response("s2.B04");
+        assert_eq!(m["value_range"], json!([-0.1, 2.0]));
+        assert!(
+            m["units"]
+                .as_str()
+                .unwrap()
+                .starts_with("unit surface reflectance"),
+            "{m}"
+        );
+        assert_eq!(
+            valid_range_json("s2.B04")["enforced_at_signing"],
+            json!(true)
+        );
     }
 
     /// U3: the verbatim value must survive as an EXACT string, because the

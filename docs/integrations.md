@@ -30,8 +30,10 @@ For a host with native Streamable HTTP, the config has one entry:
 
 `/mcp` advertises the 18 core tools in `tools/list`, so the host registers about 75 KB of descriptors
 rather than about 346 KB for all 116. Both sizes are from 7 November 2026 (1 KB = 1024 bytes). The other 98
-tools stay callable by name. `emem_tools` searches them and returns the schema of one tool. To register all 116
-tools at the start, use `https://emem.dev/mcp/full`. It returns them in more than one page, so follow `nextCursor`.
+tools stay on the server, and it runs each by name through `tools/call`. `emem_tools` searches them and returns
+the schema of one tool. But many hosts let the model call only the tools that they listed, and refuse the rest
+with "No such tool available". To register all 116 tools at the start, use `https://emem.dev/mcp/full`. It
+returns them in more than one page, so the host must follow `nextCursor`.
 
 ### VS Code and GitHub Copilot
 
