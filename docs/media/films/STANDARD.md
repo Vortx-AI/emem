@@ -14,6 +14,15 @@ fails a technical gate is sent back with the report.
   token resolves on emem.dev, and the value on screen is the signed value.
 - It says what the check does not show. A signature says who signed, not that a claim is true.
 - It shows nothing private: no farm or field outline, no client or partner name, no coordinates of a person.
+- A pixel that decides the verdict is an untouched source pixel from a named pass, stretched only where it says
+  so. A drape, a model, an interpolated frame or a composite is an illustration: the screen says "drawing of
+  data" while it is up, and the verdict stamp never sits on one. In a time-lapse, every frame is a real pass with
+  its date on it.
+- A synthetic voice says so on screen at its first line, and in the captions. Its watermark check is a claim in
+  `film.json`.
+- A character never shows a feeling about a verdict, and is never on screen with the evidence. Its seal moves only
+  when the real check returns. It stays out of homepage and verification cuts.
+- No prompt to guess before the check. Say what would decide it instead.
 
 ## 2. Technical gates, measured by `tools/film_qc.py`
 
@@ -44,7 +53,10 @@ One folder per film, `docs/media/films/<id>/`:
 - `captions.vtt` for a voiced cut, with lines of 42 characters at most, each on screen for 1 to 6 s;
 - `film.json`: `id`, `version`, `verdict`, `privacy_check: true`, and `claims`, one entry per claim on screen,
   each with `text`, `token` (an `emem:` token) and, for a value, the `value` shown and the `session_sha256` of
-  the saved session that checked it.
+  the saved session that checked it;
+- in `film.json` when the film has them: `segments`, each `{start, end, role: "evidence" | "illustration",
+  scenes: [...]}` (an evidence segment names its scenes), and `voice: {synthetic, model, consent, watermark,
+  watermark_check_sha256}`.
 
 ## 4. How to run the gate
 

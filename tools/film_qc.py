@@ -135,6 +135,16 @@ def main():
         gate("verdict stated", str(meta.get("verdict", "")).upper() in ("TRUE", "NOT TRUE", "CAN'T TELL", "VOID", "NONE"),
              meta.get("verdict"), "TRUE, NOT TRUE, CAN'T TELL, VOID or NONE (an explainer)")
         gate("privacy check recorded", meta.get("privacy_check") is True, meta.get("privacy_check"), "true")
+        segs = meta.get("segments")
+        if segs is not None:
+            bad = [i for i, g in enumerate(segs) if g.get("role") not in ("evidence", "illustration")
+                   or (g.get("role") == "evidence" and not g.get("scenes"))]
+            gate("segments labelled", isinstance(segs, list) and not bad, bad or len(segs),
+                 "each segment evidence (with its scenes) or illustration")
+        voice = meta.get("voice")
+        if voice and voice.get("synthetic"):
+            miss = [k for k in ("model", "consent", "watermark", "watermark_check_sha256") if not voice.get(k)]
+            gate("synthetic voice disclosed", not miss, miss or "complete", "model, consent, watermark and its check")
     hard_fail = [r for r in res if r["hard"] and not r["pass"]]
     print(json.dumps({"film": Path(path).name, "duration_s": round(dur, 2), "size_mb": round(size_mb, 3),
                       "accepted": not hard_fail, "gates": res}, indent=1))
