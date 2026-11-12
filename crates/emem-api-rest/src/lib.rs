@@ -4409,6 +4409,11 @@ fn docs_book_mime(rel: &str) -> &'static str {
         "otf" => "font/otf",
         "txt" => "text/plain; charset=utf-8",
         "md" => "text/markdown; charset=utf-8",
+        // Served as octet-stream under nosniff, a film downloaded instead of
+        // playing when its link was opened.
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "vtt" => "text/vtt; charset=utf-8",
         _ => "application/octet-stream",
     }
 }
@@ -65841,6 +65846,8 @@ mod reported_bug_tests {
             "image/webp"
         );
         assert_eq!(docs_book_mime("media/x.bin"), "application/octet-stream");
+        assert_eq!(docs_book_mime("media/films/emem-one-byte.mp4"), "video/mp4");
+        assert_eq!(docs_book_mime("media/films/loop.webm"), "video/webm");
     }
 
     /// crop_stress_score@1 in algorithms-v0.json is a fixed weighted sum.
