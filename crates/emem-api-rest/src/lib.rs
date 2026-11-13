@@ -44,6 +44,7 @@
 
 use std::sync::{Arc, LazyLock};
 
+mod ask_agent;
 mod ask_foundation;
 mod band_raster;
 mod canopy_loss;
@@ -20129,6 +20130,107 @@ fn inject_confidence_from_locate(place_resolved: &mut JsonValue, locate_body: &J
     );
 }
 
+/// Geocoder classes for a business or a building, which a place name can
+/// resolve to when the business is named after the place.
+const POI_CLASSES: &[&str] = &[
+    "tourism",
+    "amenity",
+    "shop",
+    "office",
+    "building",
+    "craft",
+    "healthcare",
+];
+
+/// Say so when a place name resolved to a point of interest named after it.
+///
+/// "Palm Jumeirah, Dubai" resolved to the Waldorf Astoria Dubai Palm Jumeirah,
+/// a hotel, and the answer read "At Waldorf Astoria ... elevation -5.51 m" with
+/// nothing to say the island had become one building. The geocoder offered
+/// the island itself as the second candidate. The rule: the resolved name
+/// carries every word of the name asked for, adds words of its own, and its
+/// class is a business or a building. "Eiffel Tower" resolving to "Tour
+/// Eiffel" does not match, because the asked name is not inside it.
+fn note_poi_substitution(place_resolved: &mut JsonValue, input: &str, locate_body: &JsonValue) {
+    let Some(sel) = locate_body.get("selected") else {
+        return;
+    };
+    let class = sel.get("class").and_then(|v| v.as_str()).unwrap_or("");
+    let kind = sel.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    let label = sel
+        .get("label")
+        .or_else(|| locate_body.get("place_label"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let Some(m) = place_resolved.as_object_mut() else {
+        return;
+    };
+    if !class.is_empty() {
+        m.insert("class".into(), json!(class));
+        m.insert("type".into(), json!(kind));
+    }
+    if !POI_CLASSES.contains(&class) || label.is_empty() {
+        return;
+    }
+    let words = |s: &str| -> std::collections::BTreeSet<String> {
+        s.to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty() && !matches!(*w, "the" | "of" | "and" | "de" | "la" | "le"))
+            .map(str::to_string)
+            .collect()
+    };
+    let head = input.split(',').next().unwrap_or(input);
+    let first = label.split(',').next().unwrap_or(label);
+    let name = first.split(" (").next().unwrap_or(first);
+    let asked = words(head);
+    let named = words(name);
+    if asked.is_empty() || !asked.is_subset(&named) || named.len() <= asked.len() {
+        return;
+    }
+    // The first candidate that is an area rather than a business, if the
+    // geocoder offered one, so the caller has the cell to ask about instead.
+    let area = locate_body
+        .get("alternatives")
+        .and_then(|v| v.as_array())
+        .and_then(|alts| {
+            alts.iter().find(|a| {
+                matches!(
+                    a.get("class").and_then(|v| v.as_str()),
+                    Some("place" | "boundary" | "natural" | "landuse")
+                )
+            })
+        });
+    let mut note = format!(
+        "`{input}` resolved to a point of interest, {name} ({kind}), not to the area the name \
+         covers. These readings are for that {kind}'s cell."
+    );
+    if let Some(a) = area {
+        let alabel = a.get("label").and_then(|v| v.as_str()).unwrap_or("");
+        if let Some(acell) = a.get("cell64").and_then(|v| v.as_str()) {
+            note.push_str(&format!(
+                " The geocoder also offers {alabel} at cell {acell}; send that as `cell` to ask \
+                 about it."
+            ));
+        }
+    }
+    m.insert(
+        "resolved_to_poi".into(),
+        json!({
+            "input": input,
+            "resolved_name": name,
+            "class": class,
+            "type": kind,
+            "area_alternative": area.map(|a| json!({
+                "label": a.get("label"),
+                "cell64": a.get("cell64"),
+                "class": a.get("class"),
+                "type": a.get("type"),
+            })),
+            "note": note,
+        }),
+    );
+}
+
 async fn post_compare(
     State(s): State<AppState>,
     EmemJson(mut req): EmemJson<CompareReq>,
@@ -27239,6 +27341,9 @@ fn mcp_project_ask(v: JsonValue) -> JsonValue {
         "algorithm_outcomes_summary",
         "scene_url",
         "research_nearby",
+        "direct_answer",
+        "asked",
+        "context",
     ] {
         if let Some(val) = src.get(k) {
             out.insert(k.to_string(), val.clone());
@@ -27270,7 +27375,14 @@ fn mcp_project_ask(v: JsonValue) -> JsonValue {
     // The address, without the resolver's deliberation.
     if let Some(pr) = src.get("place_resolved") {
         let mut place = serde_json::Map::new();
-        for k in ["cell64", "lat", "lng", "label", "is_high_confidence"] {
+        for k in [
+            "cell64",
+            "lat",
+            "lng",
+            "label",
+            "is_high_confidence",
+            "resolved_to_poi",
+        ] {
             if let Some(val) = pr.get(k) {
                 place.insert(k.to_string(), val.clone());
             }
@@ -30172,6 +30284,7 @@ async fn a2a_task_json(
             // no skill_id is a question, not a protocol error. emem_ask
             // answers it signed, with no language model in the loop.
             let mut resolved_cell: Option<String> = None;
+            let mut reply_ctx: Option<String> = None;
             let (skill, args) = match (skill_id, data_part, text_part) {
                 (Some(skill), Some(data), _) => (skill, data),
                 (Some(skill), None, Some(text)) => {
@@ -30201,25 +30314,59 @@ async fn a2a_task_json(
                     // geocoder must be confident, or we refuse in a way that
                     // teaches, rather than answering about a village that
                     // happens to be spelled like the greeting.
-                    let ctx = params
+                    let client_ctx = params
                         .get("message")
                         .and_then(|m| m.get("contextId"))
                         .and_then(|c| c.as_str())
                         .or_else(|| params.get("contextId").and_then(|c| c.as_str()))
                         .unwrap_or("")
                         .to_string();
-                    match a2a_ctx_cell(&ctx) {
-                        Some(cell) => {
+                    // One id for the whole thread, used by this door, by
+                    // emem_ask's own thread memory and in the reply. A client
+                    // that sent none gets one minted here, so the contextId it
+                    // reads back is the one that continues the conversation.
+                    let ctx = if client_ctx.is_empty() {
+                        ask_agent::mint_context_id(&text)
+                    } else {
+                        client_ctx.clone()
+                    };
+                    reply_ctx = Some(ctx.clone());
+                    let known = a2a_ctx_cell(&ctx);
+                    // A thread emem_ask already holds is left to emem_ask: it
+                    // reads a place the follow-up names, keeps the thread's
+                    // place when there is none, and keeps the question when
+                    // the follow-up names no subject. Before, the inherited
+                    // cell won outright, so "and in Paris?" was answered about
+                    // the previous place; and gating the whole follow-up here
+                    // geocoded "and on 1 February 2023?" to a new cell.
+                    let who = REQUESTER.try_with(|r| r.clone()).unwrap_or_default();
+                    let ask_holds_thread = ask_agent::thread_get(&format!("{who}|{ctx}")).is_some();
+                    let gated = if known.is_none() {
+                        Some(a2a_place_gate(&text, &s).await)
+                    } else {
+                        None
+                    };
+                    let ask_args = |cell: &str| json!({"q": text, "cell": cell, "context_id": ctx});
+                    match (known, gated) {
+                        (_, Some(Ok(cell))) => {
+                            a2a_ctx_remember(&ctx, &cell);
                             resolved_cell = Some(cell.clone());
-                            ("emem_ask".to_string(), json!({"q": text, "cell": cell}))
+                            ("emem_ask".to_string(), ask_args(&cell))
                         }
-                        None => match a2a_place_gate(&text, &s).await {
-                            Ok(cell) => {
-                                a2a_ctx_remember(&ctx, &cell);
-                                resolved_cell = Some(cell.clone());
-                                ("emem_ask".to_string(), json!({"q": text, "cell": cell}))
-                            }
-                            Err(detail) => {
+                        (Some(_), _) if ask_holds_thread => (
+                            "emem_ask".to_string(),
+                            json!({"q": text, "context_id": ctx}),
+                        ),
+                        (Some(cell), _) => {
+                            resolved_cell = Some(cell.clone());
+                            ("emem_ask".to_string(), ask_args(&cell))
+                        }
+                        (None, gated) => {
+                            let detail = match gated {
+                                Some(Err(d)) => d,
+                                _ => "no_place|".to_string(),
+                            };
+                            {
                                 let (reason, label) =
                                     detail.split_once('|').unwrap_or((detail.as_str(), ""));
                                 let guess = if label.is_empty() {
@@ -30234,13 +30381,14 @@ async fn a2a_task_json(
                                         .into(),
                                     json!({
                                         "schema": "emem.error.v1",
+                                        "code": "no_geocoder_match",
                                         "confidence_reason": reason,
                                         "message": format!("Every emem answer is about one address on the ground, so a question with no confident place has nothing to be about.{guess} Name a place, pass a cell64, or continue an existing thread by sending its contextId and I will inherit the ground it established."),
                                         "skills": "/v1/a2a/skills?q=locate",
                                     }),
                                 );
                             }
-                        },
+                        }
                     }
                 }
                 (None, Some(data), None) => {
@@ -30311,7 +30459,7 @@ async fn a2a_task_json(
                     };
                     Ok(Json(json!({
                         "jsonrpc": "2.0", "id": rpc_id,
-                        "result": a2a_message_result_ctx(&s, &skill, result, resolved_cell.as_deref()),
+                        "result": a2a_message_result_ctx(&s, &skill, result, resolved_cell.as_deref(), reply_ctx.as_deref()),
                     })))
                 }
                 Ok(Err((code, msg))) => {
@@ -30401,8 +30549,24 @@ fn a2a_message_result_ctx(
     skill: &str,
     result: JsonValue,
     remember_cell: Option<&str>,
+    thread: Option<&str>,
 ) -> JsonValue {
-    let out = a2a_message_result(s, skill, result);
+    let mut out = a2a_message_result(s, skill, result);
+    // The thread's id, not a fresh one per reply. A2A lets the client name
+    // the context, and a reply that renames it splits the conversation: the
+    // follow-up sent under the client's id found nothing under the new one.
+    if let Some(ctx) = thread {
+        if let Some(m) = out.as_object_mut() {
+            m.insert("contextId".into(), json!(ctx));
+        }
+        if let Some(msg) = out
+            .get_mut("status")
+            .and_then(|st| st.get_mut("message"))
+            .and_then(|m| m.as_object_mut())
+        {
+            msg.insert("contextId".into(), json!(ctx));
+        }
+    }
     if let (Some(cell), Some(ctx)) = (remember_cell, out.get("contextId").and_then(|c| c.as_str()))
     {
         a2a_ctx_remember(ctx, cell);
@@ -35504,7 +35668,7 @@ fn openapi_spec() -> JsonValue {
                 "TrajectoryReq":   {"type":"object","required":["band"],"properties":{"cell":{"type":"string","description":"cell64 or place name; or give place, or lat+lng"},"cell64":{"type":"string"},"place":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"[start_tslot, end_tslot]; or give from_date+to_date"},"from_date":{"type":"string","description":"YYYY-MM-DD"},"to_date":{"type":"string","description":"YYYY-MM-DD"},"as_of_tslot":{"type":"integer","minimum":0},"as_of_signed_at":{"type":"string","format":"date-time"},"scope":{"type":"object"}}},
                 "VerifyReq":       {"type":"object","required":["claim","cell"],"properties":{"cell":{"type":"string"},"mode":{"type":"string","enum":["fast","resolve"]},"claim":{"$ref":"#/components/schemas/Claim"}}},
                 "Claim":           {"type":"object","required":["band","op","value"],"properties":{"band":{"type":"string","description":"Band key (e.g. `indices.ndvi`, `copdem30m.elevation_mean`)"},"op":{"type":"string","enum":["eq","ne","lt","le","gt","ge","in","ni","exists","absent"],"description":"Comparison or membership operator"},"value":{"description":"Right-hand value, band-typed (number for scalar bands, array for vector bands, set for in/ni). Required even for exists/absent where it is ignored."},"tslot":{"type":"integer","description":"Specific tslot; one of `tslot` or `window` MUST be set"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Inclusive [start, end] u64 Unix-epoch range"},"agg":{"type":"string","enum":["any","all","mean","min","max"],"description":"Aggregation over `window`"}}},
-                "AskReq":          {"type":"object","description":"Send the question as `q`, or as its alias `question` or `query`. Send only one of the three.","anyOf":[{"required":["q"]},{"required":["question"]},{"required":["query"]}],"properties":{"q":{"type":"string","description":"The natural-language question."},"question":{"type":"string","description":"Alias for `q`."},"query":{"type":"string","description":"Alias for `q`."},"place":{"type":"string","description":"Free-text place name. Optional: the place can also be inside `q`."},"cell":{"type":"string","description":"cell64 string, an alternative to `place`."},"include":{"type":"array","items":{"type":"string","enum":["band_observations","algorithm_outcomes","facts_full","temporal_composition","scene","inventory","reasoning","algorithms"]},"description":"Opt-in sections of the REST envelope. Ignored when `verbose` is true."},"model":{"type":"string","description":"Optional. Compose an extra prose answer with a named model, returned as `model_answer` BESIDE the deterministic `answer` rather than instead of it. `answer` never calls a model, so every number in it traces to a fact_cid; `model_answer` carries provenance.class = model_output. Name by base_model (nvidia/Cosmos3-Edge), by family (cosmos3_edge, gemma), or by any fragment that picks out exactly one of them (cosmos). A fragment matching several is refused and names them; an unroutable name is refused with the routable list; a routable model whose service is not answering is refused as busy or down, never substituted."},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false},"verbose":{"type":"boolean","default":false,"description":"When false (default), trim per-algorithm formulas + per-fact band_metadata + long _explanation prose. The signed receipt stays intact in either mode. The MCP projection of an answer is small (about 7 KB); this REST envelope is larger."}}},
+                "AskReq":          {"type":"object","description":"Send the question as `q`, or as its alias `question` or `query`. Send only one of the three.","anyOf":[{"required":["q"]},{"required":["question"]},{"required":["query"]}],"properties":{"q":{"type":"string","description":"The natural-language question."},"question":{"type":"string","description":"Alias for `q`."},"query":{"type":"string","description":"Alias for `q`."},"place":{"type":"string","description":"Free-text place name. Optional: the place can also be inside `q`."},"cell":{"type":"string","description":"cell64 string, an alternative to `place`."},"include":{"type":"array","items":{"type":"string","enum":["band_observations","algorithm_outcomes","facts_full","temporal_composition","scene","inventory","reasoning","algorithms"]},"description":"Opt-in sections of the REST envelope. Ignored when `verbose` is true."},"model":{"type":"string","description":"Optional. Compose an extra prose answer with a named model, returned as `model_answer` BESIDE the deterministic `answer` rather than instead of it. `answer` never calls a model, so every number in it traces to a fact_cid; `model_answer` carries provenance.class = model_output. Name by base_model (nvidia/Cosmos3-Edge), by family (cosmos3_edge, gemma), or by any fragment that picks out exactly one of them (cosmos). A fragment matching several is refused and names them; an unroutable name is refused with the routable list; a routable model whose service is not answering is refused as busy or down, never substituted."},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false},"verbose":{"type":"boolean","default":false,"description":"When false (default), trim per-algorithm formulas + per-fact band_metadata + long _explanation prose. The signed receipt stays intact in either mode. The MCP projection of an answer is small (about 7 KB); this REST envelope is larger."},"context_id":{"type":"string","maxLength":128,"description":"The `context.context_id` of an earlier answer. A follow-up that names no place keeps that place; one that names no subject keeps that question, and its date unless it says now. Aliases: contextId, thread_id, session."},"date":{"type":"string","description":"The date the question is about: YYYY-MM-DD, YYYY-MM or YYYY. Overrides a date written in `q`. A past date is answered from a reading of that date or refused as cannot_tell; it is never answered from the newest reading. Aliases: at, on."}}},
                 "HuntReq":         {"type":"object","required":["event"],"properties":{
                     "event":{"type":"string","enum":["algal_bloom","deforestation","flood_extent","wildfire","urban_heat_island","methane_plume","landslide","drought","soil_salinity","crop_stress","water_turbidity","oil_slick"],"description":"Event keyword. Maps to one registered detection algorithm. Aliases accepted (case-insensitive): bloom/algae_bloom/chlorophyll_bloom → algal_bloom; forest_loss/tree_loss → deforestation; flood/inundation/flooded_fields → flood_extent; fire/bushfire/burn_severity → wildfire; uhi/heat_island/heat → urban_heat_island; methane/ghg_leak/super_emitter → methane_plume; mudslide/debris_flow/slope_failure → landslide; dry_spell/rainfall_deficit → drought; salinity → soil_salinity; crop_damage/stressed_crops → crop_stress; turbidity/sediment_plume → water_turbidity; oil_spill → oil_slick. The classifier in /v1/ask accepts the same set on free-text input."},
                     "region":{"type":"string","description":"Free-text region. Resolved through the same geocoder as /v1/locate. REQUIRED unless `polygon_bbox` is provided."},
@@ -67374,6 +67538,19 @@ struct AskReq {
     /// `verbose: true`.
     #[serde(default)]
     include: Option<Vec<String>>,
+    /// A conversation this question continues. A follow-up that names no
+    /// place keeps the place the thread established, and one that names no
+    /// subject ("and on 1 February 2023?") keeps the question it follows.
+    /// Every answer returns the id under `context.context_id`, minted when
+    /// none was sent, so any caller can continue.
+    #[serde(default, alias = "contextId", alias = "thread_id", alias = "session")]
+    context_id: Option<String>,
+    /// The date the question is about, as `YYYY-MM-DD`, `YYYY-MM` or
+    /// `YYYY`. Overrides a date written in `q`. A past date is answered from
+    /// a reading of that date or refused; it is never answered from the
+    /// newest reading.
+    #[serde(default, alias = "at", alias = "on")]
+    date: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -69647,11 +69824,42 @@ async fn post_ask(
         .and_then(|v| v.to_str().ok())
         .is_some_and(|a| a.contains("text/event-stream"))
     {
+        // The same refusal the JSON path gives, as a status rather than as a
+        // stage: the stream otherwise answered about "this image" by name.
+        if req.attached_media.is_some() {
+            return Err(ask_media_refusal());
+        }
         return Ok(ask_streamed(s, req));
     }
     post_ask_json(State(s), req)
         .await
         .map(|j| j.into_response())
+}
+
+/// `/v1/ask` reads text about a place; an attached image, audio or video is
+/// refused by name rather than answered around. See `AskReq::attached_media`.
+fn ask_media_refusal() -> ApiError {
+    ApiError(
+        StatusCode::BAD_REQUEST,
+        ErrorBody {
+            code: ErrorCode::InvalidArgument,
+            message: "/v1/ask takes a text question about a place and cannot read an \
+                      attached image, audio or video. `include_image` is an OUTPUT flag \
+                      and does not make this endpoint accept one."
+                .into(),
+            details: Some(json!({
+                "next_steps": [
+                    "POST /v1/ocr (MCP tool emem_ocr) reads text from an image by url or base64.",
+                    "If you know where the image was taken, ask about that place by name, \
+                     or pass `cell`, or pass `lat` + `lng`.",
+                ],
+                "why": "A question naming an image but no place has no place to anchor to. \
+                        Answering it would mean geocoding a phrase like \"this image\", which \
+                        resolves to whatever business happens to share those words, and \
+                        signing the result.",
+            })),
+        },
+    )
 }
 
 async fn post_ask_json(
@@ -69662,27 +69870,7 @@ async fn post_ask_json(
     // for what silence cost. A typed refusal that names the tool which does
     // take an image is a redirect; a 200 about the wrong place is not.
     if req.attached_media.is_some() {
-        return Err(ApiError(
-            StatusCode::BAD_REQUEST,
-            ErrorBody {
-                code: ErrorCode::InvalidArgument,
-                message: "/v1/ask takes a text question about a place and cannot read an \
-                          attached image, audio or video. `include_image` is an OUTPUT flag \
-                          and does not make this endpoint accept one."
-                    .into(),
-                details: Some(json!({
-                    "next_steps": [
-                        "POST /v1/ocr (MCP tool emem_ocr) reads text from an image by url or base64.",
-                        "If you know where the image was taken, ask about that place by name, \
-                         or pass `cell`, or pass `lat` + `lng`.",
-                    ],
-                    "why": "A question naming an image but no place has no place to anchor to. \
-                            Answering it would mean geocoding a phrase like \"this image\", which \
-                            resolves to whatever business happens to share those words, and \
-                            signing the result.",
-                })),
-            },
-        ));
+        return Err(ask_media_refusal());
     }
     // Overall request budget, bounds the four-classifier fan-out so a
     // single slow downstream (LST 8-day, MODIS, met.no) doesn't drag the
@@ -70775,6 +70963,59 @@ fn sources_json(srcs: &[emem_fact::Source]) -> JsonValue {
 ///
 /// None rather than zero on a parse failure, for the same reason the clip age
 /// is absent rather than zero: an unknown age must not render as "just now".
+/// Add when a reading was OBSERVED to its observation entry, beside `age_s`,
+/// which is when it was signed.
+///
+/// The two were one number, and it was the wrong one for the prose. A 30 m
+/// DEM fetched two days ago was "measured 2 days ago", and a Sentinel-2 scene
+/// from a fortnight back read as thirteen minutes old because that is when it
+/// was signed. A product with a release date is a static layer with no
+/// observation date; a scene carries its acquisition time in its source
+/// record; any other slotted band has at least the start of its slot.
+fn with_observation_fields(
+    band: &str,
+    tslot: u64,
+    sources: &[emem_fact::Source],
+    mut entry: JsonValue,
+) -> JsonValue {
+    let Some(m) = entry.as_object_mut() else {
+        return entry;
+    };
+    let tempo = band_tempo_for_key(band);
+    let slot_s = tempo.map_or(0, |t| t.slot_seconds() as i64);
+    if matches!(tempo, Some(emem_core::tslot::Tempo::Static)) || static_release_date(band).is_some()
+    {
+        m.insert("observed_basis".into(), json!("static_layer"));
+        m.insert("static_release".into(), json!(static_release_date(band)));
+        m.insert(
+            "static_source".into(),
+            json!(ask_agent::static_layer_source(band)),
+        );
+        m.insert("slot_s".into(), json!(0));
+        return entry;
+    }
+    let from_source = sources
+        .iter()
+        .find_map(|src| src.captured_at.as_deref().and_then(rfc3339_to_unix_secs));
+    let (at, basis) = match from_source {
+        Some(t) => (Some(t), "source_capture_time"),
+        None if tslot > 0 && slot_s > 0 => (Some(tslot as i64 * slot_s), "slot_start"),
+        None => (None, "unknown"),
+    };
+    m.insert("observed_unix".into(), json!(at));
+    m.insert(
+        "observed_at".into(),
+        json!(at.map(|t| iso8601_utc(t.max(0) as u64))),
+    );
+    m.insert(
+        "observed_age_s".into(),
+        json!(at.map(|t| (now_unix_s() - t).max(0))),
+    );
+    m.insert("observed_basis".into(), json!(basis));
+    m.insert("slot_s".into(), json!(slot_s));
+    entry
+}
+
 fn fact_age_s(signed_at: &str) -> Option<i64> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -70875,34 +71116,39 @@ fn band_observations_from_recall(
             "body":   { "cell": cell64, "bands": [band] },
         });
         match fact {
-            emem_fact::Fact::Primary(p) => json!({
-                "band_key":          band,
-                "topic_matched":     topic_matched,
-                "routing_via":       routing_via,
-                "value":             ciborium_to_json(&p.value),
-                "unit":              p.unit,
-                "tslot":             p.tslot,
-                "confidence":        p.confidence,
-                "fact_cid":          cid,
-                "signed_at":         p.signed_at,
-                // How old this reading is, in seconds, computed here so a
-                // consumer does not have to parse a timestamp and pick the
-                // right field to find out.
-                //
-                // `current_by_band` means "the newest we hold", which is not
-                // the same as "fresh", and nothing in a response ever said so.
-                // A cold cell returns a confidently signed number that can be a
-                // season out of date and renders identically to one taken this
-                // morning: London's centre cell answers 29.5 degC from a fact
-                // signed six weeks earlier, which is plausible enough that only
-                // a fresher neighbouring cell gives it away.
-                "age_s":             fact_age_s(&p.signed_at),
-                "derivation_fn_key": p.derivation.fn_key,
-                "sources":           sources_json(&p.sources),
-                "data_url":          data_url,
-                "recall_post":       recall_post,
-                "materialize_notes": notes_for(band),
-            }),
+            emem_fact::Fact::Primary(p) => with_observation_fields(
+                band,
+                p.tslot,
+                &p.sources,
+                json!({
+                    "band_key":          band,
+                    "topic_matched":     topic_matched,
+                    "routing_via":       routing_via,
+                    "value":             ciborium_to_json(&p.value),
+                    "unit":              p.unit,
+                    "tslot":             p.tslot,
+                    "confidence":        p.confidence,
+                    "fact_cid":          cid,
+                    "signed_at":         p.signed_at,
+                    // How old this reading is, in seconds, computed here so a
+                    // consumer does not have to parse a timestamp and pick the
+                    // right field to find out.
+                    //
+                    // `current_by_band` means "the newest we hold", which is not
+                    // the same as "fresh", and nothing in a response ever said so.
+                    // A cold cell returns a confidently signed number that can be a
+                    // season out of date and renders identically to one taken this
+                    // morning: London's centre cell answers 29.5 degC from a fact
+                    // signed six weeks earlier, which is plausible enough that only
+                    // a fresher neighbouring cell gives it away.
+                    "age_s":             fact_age_s(&p.signed_at),
+                    "derivation_fn_key": p.derivation.fn_key,
+                    "sources":           sources_json(&p.sources),
+                    "data_url":          data_url,
+                    "recall_post":       recall_post,
+                    "materialize_notes": notes_for(band),
+                }),
+            ),
             emem_fact::Fact::Absence(a) => json!({
                 "band_key":          band,
                 "topic_matched":     topic_matched,
@@ -77641,6 +77887,8 @@ async fn post_explain(
                 "band_observations".to_string(),
                 "algorithm_outcomes".to_string(),
             ]),
+            context_id: None,
+            date: None,
         };
         ask_inner(s.clone(), ar).await?
     } else {
@@ -77861,9 +78109,12 @@ fn ask_streamed(s: AppState, req: AskReq) -> Response {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<JsonValue>();
     let trace = AskTrace::streaming(tx.clone());
     let state = s.clone();
+    // Task-locals do not cross spawn; the caller's identity keys its threads.
+    let who = REQUESTER.try_with(|r| r.clone()).unwrap_or_default();
     tokio::spawn(async move {
         let q = req.q.clone();
-        let out = match ask_inner_traced(state.clone(), req, trace).await {
+        let run = REQUESTER.scope(who, ask_inner_traced(state.clone(), req, trace));
+        let out = match run.await {
             Ok(mut v) => {
                 finish_ask(&mut v, &q, &state).await;
                 json!({
@@ -77877,10 +78128,18 @@ fn ask_streamed(s: AppState, req: AskReq) -> Response {
             // stream that simply stops is indistinguishable from a network
             // fault, and a consumer cannot tell a refused question from a lost
             // one.
+            // The wire code, `invalid_argument`, as every other error carries
+            // it. The Debug spelling `InvalidArgument` matched nothing in
+            // GET /v1/errors.
             Err(e) => json!({
                 "schema": "emem.ask_stage.v1",
                 "stage": "failed",
-                "detail": {"code": format!("{:?}", e.1.code), "message": e.1.message},
+                "detail": {
+                    "schema": "emem.error.v1",
+                    "code": serde_json::to_value(e.1.code).unwrap_or(JsonValue::Null),
+                    "message": e.1.message,
+                    "details": e.1.details,
+                },
             }),
         };
         let _ = tx.send(out);
@@ -78318,6 +78577,12 @@ fn band_observations_summary(band_observations: &[JsonValue]) -> JsonValue {
             // one reader most likely to take a number at face value is the
             // one who asked for the small answer.
             "age_s": o.get("age_s").cloned().unwrap_or(JsonValue::Null),
+            // When it was observed, which is what the prose states. `age_s`
+            // above is when it was signed.
+            "observed_at": o.get("observed_at").cloned().unwrap_or(JsonValue::Null),
+            "observed_unix": o.get("observed_unix").cloned().unwrap_or(JsonValue::Null),
+            "observed_basis": o.get("observed_basis").cloned().unwrap_or(JsonValue::Null),
+            "static_release": o.get("static_release").cloned().unwrap_or(JsonValue::Null),
         }));
         if bands.len() >= SUMMARY_BAND_CAP {
             break;
@@ -78747,6 +79012,73 @@ async fn ask_inner_traced(
             },
         ));
     }
+    // MCP and the intent path reach here without passing post_ask_json, so the
+    // media refusal is repeated where every form of ask goes through.
+    if req.attached_media.is_some() {
+        return Err(ask_media_refusal());
+    }
+    // WHAT THE QUESTION ASKS, read before anything is fetched: the thread it
+    // continues, the time it is about, the form its answer takes and the
+    // quantity that answers it. See `ask_agent` for why each one exists.
+    let now = now_unix_s();
+    let context_id = req
+        .context_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| ask_agent::valid_context_id(c))
+        .map(String::from)
+        .unwrap_or_else(|| ask_agent::mint_context_id(&req.q));
+    // A thread is kept per caller as well as per id. A context id is a name
+    // the caller chose, and a second caller who sends the same name must not
+    // inherit the first one's place and question.
+    let thread_key = format!(
+        "{}|{context_id}",
+        REQUESTER.try_with(|r| r.clone()).unwrap_or_default()
+    );
+    let prior = ask_agent::thread_get(&thread_key);
+    // A follow-up that names no subject of its own continues the question
+    // before it: "and on 1 February 2023?" asks the same thing on a new date.
+    let continuation = prior.as_ref().is_some_and(|_| {
+        ask_agent::is_continuation(&req.q, route_question_to_topics(&req.q).len())
+    });
+    let routing_q: String = match (&prior, continuation) {
+        (Some(p), true) => p.question.clone(),
+        _ => req.q.clone(),
+    };
+    let mut inherited: Vec<&'static str> = Vec::new();
+    if continuation {
+        inherited.push("question");
+    }
+    let asked_time = match req.date.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+        Some(d) => Some(ask_agent::asked_time_field(d).ok_or_else(|| {
+            ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!("ask: `date` must be YYYY-MM-DD, YYYY-MM or YYYY; got `{d}`"),
+                    details: Some(json!({"field": "date", "example": "2022-12-14"})),
+                },
+            )
+        })?),
+        None => ask_agent::asked_time(&req.q, now).or_else(|| {
+            // A follow-up with no date of its own keeps the thread's date,
+            // unless it says it is about now.
+            let t = (continuation && !ask_agent::says_now(&req.q))
+                .then(|| ask_agent::asked_time(&routing_q, now))
+                .flatten();
+            if t.is_some() {
+                inherited.push("time");
+            }
+            t
+        }),
+    };
+    // A point in the past, which the newest reading cannot answer.
+    let dated: Option<ask_agent::AskedTime> = asked_time
+        .clone()
+        .filter(|t| !t.change_window && t.is_past(now));
+    let answer_form = ask_agent::answer_form(&routing_q);
+    let quantity = ask_agent::asked_quantity(&routing_q);
+
     // Self-describe short-circuit. A meta question about emem itself ("what
     // are you", "how do I use you as memory") must not be geocoded into a
     // greedy place grab; answer with what emem is and the primary loop. Only
@@ -78754,7 +79086,9 @@ async fn ask_inner_traced(
     if !(req.cell.is_some() || req.lat.is_some() || req.lng.is_some() || req.place.is_some())
         && is_meta_self_question(&req.q)
     {
-        return Ok(emem_self_describe());
+        let mut r = emem_self_describe();
+        tag_ask_route(&mut r, "self_describe");
+        return Ok(r);
     }
     // Did the CALLER pin a location, or are we about to greedily extract one
     // from the question text? Captured before any lat/lng/place promotion
@@ -78801,7 +79135,12 @@ async fn ask_inner_traced(
     // "how dense is your corpus over sub-saharan africa". The reply
     // points at /v1/coverage_map.svg, /v1/coverage, and
     // /v1/coverage_matrix where the actual data lives.
-    if req.cell.is_none() && req.lat.is_none() && req.lng.is_none() && req.place.is_none() {
+    if req.cell.is_none()
+        && req.lat.is_none()
+        && req.lng.is_none()
+        && req.place.is_none()
+        && !continuation
+    {
         if let Some(audit) = ask_foundation::classify_corpus_audit(&req.q) {
             let mut r = corpus_audit_response(audit, &req.q);
             tag_ask_route(&mut r, "corpus_audit");
@@ -78948,6 +79287,7 @@ async fn ask_inner_traced(
             "via":    "cell_field_parsed_as_place",
         });
         inject_confidence_from_locate(&mut pr, &body);
+        note_poi_substitution(&mut pr, p, &body);
         (cell.clone(), pr)
     } else if let (Some(la), Some(lo)) = (req.lat, req.lng) {
         let body = locate_inner(LocateReq {
@@ -79006,6 +79346,7 @@ async fn ask_inner_traced(
             "via": via, "polygon_bbox": polygon_bbox,
         });
         inject_confidence_from_locate(&mut pr, &body);
+        note_poi_substitution(&mut pr, p, &body);
         (cell.clone(), pr)
     } else {
         // No explicit location field. Before falling back to the soft
@@ -79023,11 +79364,34 @@ async fn ask_inner_traced(
         // bar, kept so the refusal can name it instead of claiming nothing
         // was found. (candidate, label, reason, cell)
         let mut low_confidence: Option<(String, String, String, String)> = None;
-        let (place_candidates, concept_skipped) = question_place_candidates(&req.q);
-        if place_candidates.is_empty() && !concept_skipped.is_empty() {
-            return Ok(conceptual_question_response(&req.q, &concept_skipped));
+        // The date is not a place: "and on 1 February 2023?" was geocoded on
+        // "February".
+        let q_for_place = match asked_time.as_ref() {
+            Some(t) => ask_agent::without_time_phrase(&req.q, t),
+            None => req.q.clone(),
+        };
+        let (place_candidates, concept_skipped) = question_place_candidates(&q_for_place);
+        // A thread that already established ground keeps it when this turn
+        // names no place of its own.
+        if place_candidates.is_empty() {
+            if let Some(p) = prior.as_ref() {
+                inherited.push("place");
+                let mut pr = p.place_resolved.clone();
+                if let Some(m) = pr.as_object_mut() {
+                    m.insert("via_context".into(), json!(context_id));
+                }
+                hit = Some((p.cell.clone(), pr));
+            }
+        }
+        if hit.is_none() && place_candidates.is_empty() && !concept_skipped.is_empty() {
+            let mut r = conceptual_question_response(&req.q, &concept_skipped);
+            tag_ask_route(&mut r, "concept");
+            return Ok(r);
         }
         for cand in place_candidates {
+            if hit.is_some() {
+                break;
+            }
             match locate_inner(LocateReq {
                 lat: None,
                 lng: None,
@@ -79119,23 +79483,43 @@ async fn ask_inner_traced(
                             .get("polygon_bbox")
                             .cloned()
                             .unwrap_or(JsonValue::Null);
-                        hit = Some((
-                            cell_str.clone(),
-                            json!({
-                                "cell64": cell_str,
-                                "input": cand,
-                                "label": label,
-                                "lat":   lat,
-                                "lng":   lng,
-                                "via":   via,
-                                "polygon_bbox": polygon_bbox,
-                                "extracted_from_question": true,
-                            }),
-                        ));
+                        let mut pr = json!({
+                            "cell64": cell_str,
+                            "input": cand,
+                            "label": label,
+                            "lat":   lat,
+                            "lng":   lng,
+                            "via":   via,
+                            "polygon_bbox": polygon_bbox,
+                            "extracted_from_question": true,
+                        });
+                        note_poi_substitution(&mut pr, &cand, &body.0);
+                        hit = Some((cell_str.clone(), pr));
                         break;
                     }
                 }
                 Err(_) => continue,
+            }
+        }
+        // A follow-up with no subject of its own ("and on 1 February 2023?")
+        // keeps the thread's place even when the extractor found a span it
+        // distrusts: "and on" geocoded to a village in Yorkshire. The span is
+        // named in the answer, so the choice is visible. A follow-up that asks
+        // something new about a doubtful place is still refused below.
+        if hit.is_none() && (low_confidence.is_none() || continuation) {
+            if let Some(p) = prior.as_ref() {
+                inherited.push("place");
+                let mut pr = p.place_resolved.clone();
+                if let Some(m) = pr.as_object_mut() {
+                    m.insert("via_context".into(), json!(context_id));
+                    if let Some((cand, label, why, _)) = low_confidence.take() {
+                        m.insert(
+                            "distrusted_span".into(),
+                            json!({"extracted": cand, "closest_match": label, "confidence_reason": why}),
+                        );
+                    }
+                }
+                hit = Some((p.cell.clone(), pr));
             }
         }
         if let Some(h) = hit {
@@ -79208,18 +79592,21 @@ async fn ask_inner_traced(
     // that cascade would be the call that pushes a working answer over the
     // budget. Started now, it overlaps the EO work and costs approximately
     // nothing on the wall clock.
-    let perception = {
+    //
+    // Not for a question about a past date: a camera sees this minute, and a
+    // clip minutes old was the answer to "was there snow on 14 December 2022".
+    let perception = dated.is_none().then(|| {
         let cell = cell.clone();
         let q = req.q.clone();
         tokio::spawn(async move { fetch_live_perception(&cell, &q).await })
-    };
+    });
 
     trace.stage(
         "located",
         json!({"cell": cell, "place_resolved": place_resolved, "q": req.q}),
     );
 
-    let topics = route_question_to_topics(&req.q);
+    let topics = route_question_to_topics(&routing_q);
     trace.stage(
         "routed",
         json!({
@@ -79259,7 +79646,7 @@ async fn ask_inner_traced(
         .map(|v| v != "0")
         .unwrap_or(true);
     let narrowed_to: Vec<String> = if fastpath_on && !want_bands.is_empty() {
-        let detected: Vec<String> = concrete_bands_in_question(&req.q)
+        let detected: Vec<String> = concrete_bands_in_question(&routing_q)
             .into_iter()
             .map(String::from)
             .filter(|b| want_bands.contains(b))
@@ -79308,6 +79695,56 @@ async fn ask_inner_traced(
         }
         ordered
     };
+    // The reading that answers the question goes first, so the cold-band cap
+    // below never defers it behind bands that only sit beside it. The first
+    // lead band is added even when no topic claimed it; the others only when
+    // a topic already asked for them, so a question does not buy a radar
+    // read it may not need.
+    let mut bands_vec = bands_vec;
+    if let Some(qt) = quantity {
+        let has_lead = qt
+            .lead_bands
+            .iter()
+            .any(|b| bands_vec.iter().any(|x| x == b));
+        let mut front: Vec<String> = Vec::new();
+        for (i, b) in qt.lead_bands.iter().enumerate() {
+            let present = bands_vec.iter().any(|x| x == b);
+            if present || (i == 0 && !(narrowed && has_lead)) {
+                front.push((*b).to_string());
+            }
+        }
+        front.extend(qt.context_bands.iter().map(|b| (*b).to_string()));
+        bands_vec.retain(|b| !front.contains(b));
+        front.append(&mut bands_vec);
+        bands_vec = front;
+    }
+    // A question about a past date reads facts of that date. One cadence per
+    // recall, because a slot number means a day for one band and a year for
+    // another; static layers have no date and stay.
+    let mut dated_dropped: Vec<String> = Vec::new();
+    let mut dated_bound: Option<u64> = None;
+    if let Some(t) = dated.as_ref() {
+        let is_static = |b: &str| {
+            matches!(band_tempo_for_key(b), Some(emem_core::tslot::Tempo::Static))
+                || static_release_date(b).is_some()
+        };
+        let lead_tempo = quantity
+            .and_then(|qt| qt.lead_bands.first().copied())
+            .map(String::from)
+            .into_iter()
+            .chain(bands_vec.iter().cloned())
+            .filter(|b| !is_static(b))
+            .find_map(|b| band_tempo_for_key(&b));
+        if let Some(tempo) = lead_tempo {
+            let (keep, drop): (Vec<String>, Vec<String>) = bands_vec
+                .into_iter()
+                .partition(|b| is_static(b) || band_tempo_for_key(b) == Some(tempo));
+            bands_vec = keep;
+            dated_dropped = drop;
+            dated_bound =
+                Some(emem_core::tslot::Tslot::from_unix(t.end_unix.saturating_sub(1), tempo).0);
+        }
+    }
 
     let recall_req = RecallReq {
         cell: cell.clone(),
@@ -79317,6 +79754,7 @@ async fn ask_inner_traced(
             Some(bands_vec.clone())
         },
         tslot: None,
+        as_of_tslot: dated_bound,
         ..Default::default()
     };
     // Cap cold-band materialisation on the ask path: the topic union can be
@@ -79331,8 +79769,35 @@ async fn ask_inner_traced(
     } else {
         Some(ask_cold_band_cap())
     };
-    let (recall_resp, materialize_notes) =
+    let (mut recall_resp, mut materialize_notes) =
         recall_with_auto_materialize_capped(&recall_req, &s, ask_cap).await?;
+    // A bounded recall counts ANY older reading as answering, so a question
+    // about 1 February 2023 was answered from a scene of 9 December 2022 that
+    // an earlier question had fetched, and no pass nearer the date was looked
+    // for. When the lead band's newest reading under the bound is not near the
+    // date, fetch it for the date once, then read again.
+    if let (Some(t), Some(bound), Some(lead)) = (
+        dated.as_ref(),
+        dated_bound,
+        quantity.and_then(|q| q.lead_bands.first().copied()),
+    ) {
+        let slot = band_tempo_for_key(lead).map_or(0, |tp| tp.slot_seconds() as i64);
+        let near_date = slot > 0
+            && recall_resp.facts.iter().any(|f| match f {
+                emem_fact::Fact::Primary(p) if p.band == lead => !matches!(
+                    t.timing(p.tslot as i64 * slot, slot),
+                    ask_agent::Timing::Outside(_)
+                ),
+                _ => false,
+            });
+        if slot > 0 && !near_date && bands_vec.iter().any(|b| b == lead) {
+            let outcomes = try_materialize_bands(&cell, &[lead.to_string()], Some(bound), &s).await;
+            materialize_notes.extend(outcomes.iter().filter_map(MaterializeOutcome::to_note));
+            if outcomes.iter().any(|o| o.fact_cid.is_some()) {
+                recall_resp = recall(&recall_req, &s).await?;
+            }
+        }
+    }
     // The receipt is where this response's fact_cids already live, in the
     // order they were cited, so the trace reads them from there rather than
     // re-deriving a second list that could disagree with the one the envelope
@@ -79407,7 +79872,9 @@ async fn ask_inner_traced(
     // backfills antecedent rainfall + recent radar water + NDVI baseline
     // alongside the snapshot, and the agent reads `temporal_composition`
     // to compose a real flood answer.
-    let temporal_composition = if algorithm_keys_with_recipe.is_empty() {
+    // A recipe composes a window that ends now, so it says nothing about a
+    // past date and is not run for one.
+    let temporal_composition = if algorithm_keys_with_recipe.is_empty() || dated.is_some() {
         Vec::new()
     } else {
         // Backstop: even parallelised, a cold multi-recipe fan-out must not eat
@@ -79671,7 +80138,7 @@ async fn ask_inner_traced(
     // above the threshold so the agent (and humans debugging) can see
     // the alternatives the router considered.
     let router = topic_router::TopicRouter::global();
-    let topic_matches = router.route(&req.q);
+    let topic_matches = router.route(&routing_q);
     let topics_matched_full: Vec<JsonValue> = topic_matches
         .iter()
         .map(|m| {
@@ -79692,7 +80159,7 @@ async fn ask_inner_traced(
     let topic_routing = if verbose {
         json!({
             "matched_topics":   topics,
-            "matched_keywords": matched_keywords(&req.q),
+            "matched_keywords": matched_keywords(&routing_q),
             "out_of_scope":     topics_empty,
             "routing": {
                 "method":         router.backend_name(),
@@ -79708,7 +80175,7 @@ async fn ask_inner_traced(
     } else {
         json!({
             "matched_topics":   topics,
-            "matched_keywords": matched_keywords(&req.q),
+            "matched_keywords": matched_keywords(&routing_q),
             "out_of_scope":     topics_empty,
             "routing": {
                 "method":         router.backend_name(),
@@ -80039,6 +80506,138 @@ async fn ask_inner_traced(
         .unwrap_or(0);
     let cold_cell = !missing_bands.is_empty() && (ask_fact_count == 0 || skipped_outcomes > 0);
 
+    // THE ANSWER TO THE QUESTION ASKED, in the form it was asked, from the
+    // reading that measures it, or a plain statement of why there is none.
+    // Composed before the readings summary, which then supports it instead of
+    // standing in for it.
+    let place_label: String = place_resolved
+        .get("label")
+        .and_then(|v| v.as_str())
+        .or_else(|| place_resolved.get("input").and_then(|v| v.as_str()))
+        .map(|l| l.split(',').next().unwrap_or(l).trim().to_string())
+        .unwrap_or_else(|| format!("cell {cell}"));
+    let mut place_notes: Vec<String> = Vec::new();
+    if let Some(n) = place_resolved
+        .get("resolved_to_poi")
+        .and_then(|p| p.get("note"))
+        .and_then(|v| v.as_str())
+    {
+        place_notes.push(n.to_string());
+    }
+    if let Some(b) = place_resolved.get("polygon_bbox").filter(|b| b.is_object()) {
+        let span = |lo: &str, hi: &str| {
+            b.get(hi).and_then(|v| v.as_f64()).unwrap_or(0.0)
+                - b.get(lo).and_then(|v| v.as_f64()).unwrap_or(0.0)
+        };
+        if span("min_lat", "max_lat") > 0.002 || span("min_lng", "max_lng") > 0.002 {
+            place_notes.push(format!(
+                "{place_label} covers more than one cell. This is the reading at the one cell the name resolves to, not a value over the whole place."
+            ));
+        }
+    }
+    if inherited.contains(&"place") {
+        place_notes.push(format!(
+            "The place, {place_label}, comes from earlier in this conversation."
+        ));
+    }
+    let readings: Vec<ask_agent::Reading> = band_observations
+        .iter()
+        .filter_map(ask_agent::Reading::from_observation)
+        .collect();
+    let direct = ask_agent::direct_answer(&ask_agent::AnswerInputs {
+        form: &answer_form,
+        quantity,
+        time: asked_time.as_ref(),
+        readings: &readings,
+        place: &place_label,
+        place_notes: &place_notes,
+        now_unix: now,
+    });
+    // One pixel in a channel is water at every tide. What shows the tide is
+    // the foreshore around it, so an undecided high-or-low answer names the
+    // area read that can decide it: the green and SWIR rasters MNDWI is made
+    // of, over a box about a kilometre across.
+    let direct = direct.map(|mut d| {
+        let undecided = d.get("verdict").and_then(|v| v.as_str()) == Some("cannot_tell");
+        let tide = quantity.is_some_and(|q| q.key == "surface_water")
+            && matches!(answer_form, ask_agent::AnswerForm::Choice(..));
+        let at = (
+            place_resolved.get("lat").and_then(|v| v.as_f64()),
+            place_resolved.get("lng").and_then(|v| v.as_f64()),
+        );
+        if let (true, true, (Some(la), Some(lo))) = (undecided, tide, at) {
+            let bbox = json!({
+                "min_lat": la - 0.005, "max_lat": la + 0.005,
+                "min_lng": lo - 0.005, "max_lng": lo + 0.005,
+            });
+            if let Some(m) = d.as_object_mut() {
+                m.insert(
+                    "next_steps".into(),
+                    json!([
+                        {"tool": "emem_band_raster", "method": "POST", "path": "/v1/band_raster",
+                         "body": {"bbox": bbox, "band": "s2.B03"},
+                         "why": "green reflectance over the place, the first half of MNDWI = (B03 - B11) / (B03 + B11)"},
+                        {"tool": "emem_band_raster", "method": "POST", "path": "/v1/band_raster",
+                         "body": {"bbox": bbox, "band": "s2.B11"},
+                         "why": "SWIR reflectance from the same scene, the second half; water where MNDWI > 0. Compare the wet extent with surface_water.occurrence on the foreshore."},
+                    ]),
+                );
+            }
+        }
+        d
+    });
+    // The readings that support the direct answer: the bands that measure the
+    // quantity, not every band recalled beside them. Omitted when the lead
+    // reading is the only one, or when there is no lead reading to support.
+    let supporting: Option<String> = match (quantity, &direct) {
+        (Some(qt), Some(d)) if d.get("band").is_some_and(|b| !b.is_null()) => {
+            let keep: Vec<JsonValue> = band_observations
+                .iter()
+                .filter(|o| {
+                    o.get("band_key").and_then(|b| b.as_str()).is_some_and(|b| {
+                        qt.lead_bands.contains(&b) || qt.context_bands.contains(&b)
+                    }) && o.get("value").is_some_and(|v| !v.is_null())
+                })
+                .cloned()
+                .collect();
+            (keep.len() > 1).then(|| {
+                let mut m = serde_json::Map::new();
+                m.insert("place_resolved".into(), place_resolved.clone());
+                m.insert("band_observations".into(), JsonValue::Array(keep));
+                synthesise_ask_answer(&m)
+            })
+        }
+        _ => None,
+    };
+    if let Some(m) = body.as_object_mut() {
+        m.insert(
+            "asked".into(),
+            json!({
+                "schema": "emem.ask_asked.v1",
+                "form": answer_form.as_str(),
+                "quantity": quantity.map(|q| q.key),
+                "lead_bands": quantity.map(|q| q.lead_bands),
+                "time": asked_time.as_ref().map(ask_agent::AskedTime::to_json),
+                "dated_recall": dated_bound.is_some(),
+                "bands_left_out_of_dated_recall": dated_dropped,
+                "change_question": asked_time.as_ref().is_some_and(|t| t.change_window),
+                "_means": "how this responder read the question before fetching: the form the answer takes, the quantity that answers it, and the time it is about. A past date is read from facts of that date (`dated_recall`), never from the newest reading.",
+            }),
+        );
+        if asked_time.as_ref().is_some_and(|t| t.change_window) {
+            m.insert(
+                "change_question_next_step".into(),
+                json!({
+                    "tool": "emem_intent",
+                    "why": "this question asks how something changed over a span; /v1/ask answers one point in time. emem_intent with did_change compares two dates and signs the comparison.",
+                    "method": "POST",
+                    "path": "/v1/intent",
+                    "body": {"intent": "did_change", "cell": cell, "q": req.q},
+                }),
+            );
+        }
+    }
+
     // Deterministic answer synthesis. /v1/ask had been emitting the
     // structured summaries (facts_summary / band_observations_summary /
     // algorithm_outcomes_summary) without ever populating the `answer` or
@@ -80057,7 +80656,10 @@ async fn ask_inner_traced(
         // whatever facts did land still ships (signed, but plainly not an
         // answer to this question). With an explicit anchor we fall through and
         // answer as normal, a topic-miss at a place the caller chose is real.
-        let suppress_out_of_scope = topics_empty && !location_explicit;
+        let suppress_out_of_scope = topics_empty
+            && quantity.is_none()
+            && !location_explicit
+            && !inherited.contains(&"place");
         if suppress_out_of_scope {
             let almost = map
                 .get("place_resolved")
@@ -80081,6 +80683,34 @@ async fn ask_inner_traced(
             || map.get("answer").map(|v| v.is_null()).unwrap_or(true)
         {
             let synth = synthesise_ask_answer(map);
+            let synth = match direct.as_ref() {
+                Some(d) => {
+                    let mut parts: Vec<String> = Vec::new();
+                    if let Some(sent) = d.get("sentence").and_then(|v| v.as_str()) {
+                        parts.push(sent.to_string());
+                    }
+                    let limits: Vec<&str> = d
+                        .get("limits")
+                        .and_then(|v| v.as_array())
+                        .map(|a| a.iter().filter_map(|x| x.as_str()).collect())
+                        .unwrap_or_default();
+                    if !limits.is_empty() {
+                        parts.push(format!("Limits: {}", limits.join(" ")));
+                    }
+                    match (&supporting, quantity) {
+                        (Some(sup), _) if !sup.is_empty() => parts.push(sup.clone()),
+                        // No known quantity: the readings are the evidence the
+                        // caller judges from.
+                        (_, None) if !synth.is_empty() => parts.push(synth.clone()),
+                        _ => {}
+                    }
+                    parts.join("\n\n")
+                }
+                None => synth,
+            };
+            if let Some(d) = direct.clone() {
+                map.insert("direct_answer".into(), d);
+            }
             if !synth.is_empty() {
                 map.insert("answer".into(), JsonValue::String(synth.clone()));
                 if !map.contains_key("answer_md")
@@ -80191,19 +80821,41 @@ async fn ask_inner_traced(
         .and_then(|v| v.parse().ok())
         .unwrap_or(12)
         .clamp(0, 60);
-    if let Ok(Ok(Some(block))) =
-        tokio::time::timeout(std::time::Duration::from_secs(grace_s), perception).await
-    {
-        // The trace gains the camera's half of the place, if there was one.
-        if let Some(live) = block.as_object().map(|_| block.clone()) {
-            if let Some(trace) = body.get_mut("spatial_trace") {
-                spatial_trace_add_ground(trace, &live);
+    if let Some(handle) = perception {
+        if let Ok(Ok(Some(block))) =
+            tokio::time::timeout(std::time::Duration::from_secs(grace_s), handle).await
+        {
+            // The trace gains the camera's half of the place, if there was one.
+            if let Some(live) = block.as_object().map(|_| block.clone()) {
+                if let Some(trace) = body.get_mut("spatial_trace") {
+                    spatial_trace_add_ground(trace, &live);
+                }
             }
+            apply_live_perception(&mut body, block);
         }
-        apply_live_perception(&mut body, block);
     }
     attach_imagery(&mut body, cell.as_str());
     attach_freshness(&mut body, &req.q, &band_observations);
+    // The thread this answer belongs to, so a follow-up can lean on it. Only an
+    // answer establishes ground: an out-of-scope guess must not become the
+    // place the next turn inherits.
+    let answered = body.get("routed_to").and_then(|v| v.as_str()) == Some("answer");
+    let turn = if answered {
+        ask_agent::thread_put(&thread_key, &cell, &place_resolved, &routing_q)
+    } else {
+        prior.as_ref().map_or(0, |p| p.turn)
+    };
+    if let Some(m) = body.as_object_mut() {
+        m.insert(
+            "context".into(),
+            json!({
+                "context_id": context_id,
+                "turn": turn,
+                "inherited": inherited,
+                "_means": "send `context_id` with the next question to continue this thread. A follow-up that names no place keeps this place; one that names no subject (\"and on 1 February 2023?\") keeps this question, and keeps its date unless it says now. Threads live in memory for 30 minutes and a restart clears them.",
+            }),
+        );
+    }
     Ok(body)
 }
 
@@ -80247,8 +80899,16 @@ fn question_wants_live_scene(q: &str) -> bool {
         "burn",
         "air quality",
         "population",
+        "snow",
+        "tide",
+        "tidal",
     ];
     if EO_SUBJECT.iter().any(|s| ql.contains(s)) {
+        return false;
+    }
+    // A question about a named past date is not about this minute, whatever
+    // else it says: a clip seven minutes old cannot answer it.
+    if ask_agent::asked_time(q, now_unix_s()).is_some() {
         return false;
     }
 
@@ -80290,7 +80950,12 @@ fn question_wants_live_scene(q: &str) -> bool {
     // request ("what does it look like now"). One signal is enough for the
     // former; the latter needs the temporal cue to avoid capturing every
     // question that happens to contain the word "now".
-    SCENE_SUBJECT.iter().any(|s| ql.contains(s)) || NOW_CUE.iter().any(|c| ql.contains(c))
+    //
+    // Whole words only. A substring test read "snow" as "now", "known" as
+    // "now" and "olive" as "live", so a question about snow on a past date
+    // was answered with a car count from a clip minutes old.
+    SCENE_SUBJECT.iter().any(|s| ask_agent::has_term(&ql, s))
+        || NOW_CUE.iter().any(|c| ask_agent::has_term(&ql, c))
 }
 
 /// Attach live camera perception to an `/v1/ask` answer when the place has
@@ -81468,7 +82133,17 @@ fn attach_freshness(body: &mut JsonValue, question: &str, observations: &[JsonVa
     let mut stale: Vec<JsonValue> = Vec::new();
     let mut oldest: Option<i64> = None;
     for o in obs {
-        let Some(age) = o.get("age_s").and_then(|v| v.as_i64()) else {
+        // When the reading was observed, not when it was signed: a scene two
+        // weeks old signed a minute ago is two weeks stale. A static layer has
+        // no observation time and is not stale for a question about now.
+        if o.get("observed_basis").and_then(|v| v.as_str()) == Some("static_layer") {
+            continue;
+        }
+        let Some(age) = o
+            .get("observed_age_s")
+            .and_then(|v| v.as_i64())
+            .or_else(|| o.get("age_s").and_then(|v| v.as_i64()))
+        else {
             continue;
         };
         oldest = Some(oldest.map_or(age, |m: i64| m.max(age)));
@@ -81862,6 +82537,11 @@ fn band_display_label(band: &str) -> String {
         "weather.precipitation_mm" => "precipitation".into(),
         "weather.cloud_cover" => "cloud cover".into(),
         "copdem30m.elevation_mean" => "elevation".into(),
+        "indices.ndsi" => "snow index (NDSI)".into(),
+        "indices.ndwi" => "water index (NDWI)".into(),
+        "indices.mndwi" => "water index (MNDWI)".into(),
+        "sentinel1_raw" => "radar backscatter (VV)".into(),
+        "surface_water.occurrence" => "water occurrence 1984-2021".into(),
         "surface_water.recurrence" => "surface water".into(),
         "overture.buildings.count" => "buildings".into(),
         "overture.places.count" => "places".into(),
@@ -81889,53 +82569,63 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
         })
         .unwrap_or("the requested cell");
 
+    // One reading as the prose needs it: band, value, unit, when it was
+    // observed (None for a static layer or an unknown time), and whether it is
+    // a static layer.
+    struct Said {
+        band: String,
+        value: JsonValue,
+        unit: Option<String>,
+        observed_unix: Option<i64>,
+        is_static: bool,
+    }
+    let said = |m: &serde_json::Map<String, JsonValue>| -> Option<Said> {
+        // The FULL band_observations entries key the band as `band_key`; the
+        // slim summary uses `band`. Accept either, else every full entry was
+        // dropped and the answer lost its readings (the "Scored: …" with no
+        // PM2.5 bug).
+        let band = m
+            .get("band")
+            .or_else(|| m.get("band_key"))?
+            .as_str()?
+            .to_string();
+        let basis = m.get("observed_basis").and_then(|x| x.as_str());
+        Some(Said {
+            value: m.get("value").cloned().unwrap_or(JsonValue::Null),
+            unit: m.get("unit").and_then(|x| x.as_str()).map(String::from),
+            // Observation time, not signing time. A reading signed two minutes
+            // ago from a scene two weeks old is two weeks old.
+            observed_unix: m.get("observed_unix").and_then(|x| x.as_i64()).or_else(|| {
+                // An entry from before observation fields existed: the signing
+                // age is all there is, and it is still better than nothing.
+                basis
+                    .is_none()
+                    .then(|| m.get("age_s").and_then(|x| x.as_i64()))
+                    .flatten()
+                    .map(|a| now_unix_s() - a)
+            }),
+            is_static: basis == Some("static_layer"),
+            band,
+        })
+    };
+
     // Pull band observations (either the full array or the slim summary).
     // NOTE the `.filter(non-empty)`: when `band_observations` is present but an
     // EMPTY array, `as_array().map(...)` would return `Some(vec![])` and shadow
     // the summary fallback, so the answer came back with algorithm keys and no
     // readings. Falling through on empty fixes the "aqi_class@1 2; ..." answers.
-    let bands: Vec<(String, JsonValue, Option<String>, Option<i64>)> = body
+    let bands: Vec<Said> = body
         .get("band_observations")
         .and_then(|v| v.as_array())
         .filter(|arr| !arr.is_empty())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|o| {
-                    let m = o.as_object()?;
-                    // The FULL band_observations entries key the band as
-                    // `band_key`; the slim summary uses `band`. Accept either,
-                    // else every full entry was dropped and the answer lost its
-                    // readings (the "Scored: …" with no PM2.5 bug).
-                    let b = m
-                        .get("band")
-                        .or_else(|| m.get("band_key"))?
-                        .as_str()?
-                        .to_string();
-                    let v = m.get("value").cloned().unwrap_or(JsonValue::Null);
-                    let u = m.get("unit").and_then(|x| x.as_str()).map(String::from);
-                    let age = m.get("age_s").and_then(|x| x.as_i64());
-                    Some((b, v, u, age))
-                })
-                .collect()
-        })
+        .map(|arr| arr.iter().filter_map(|o| said(o.as_object()?)).collect())
         .or_else(|| {
             // Slim path: band_observations_summary has shape
-            // { bands: [{band, value, unit}], count: N }
+            // { bands: [{band, value, unit, observed_*}], count: N }
             body.get("band_observations_summary")
                 .and_then(|v| v.get("bands"))
                 .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|o| {
-                            let m = o.as_object()?;
-                            let b = m.get("band")?.as_str()?.to_string();
-                            let v = m.get("value").cloned().unwrap_or(JsonValue::Null);
-                            let u = m.get("unit").and_then(|x| x.as_str()).map(String::from);
-                            let age = m.get("age_s").and_then(|x| x.as_i64());
-                            Some((b, v, u, age))
-                        })
-                        .collect()
-                })
+                .map(|arr| arr.iter().filter_map(|o| said(o.as_object()?)).collect())
         })
         .unwrap_or_default();
 
@@ -82010,23 +82700,29 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
             format!("{x:.2}")
         }
     }
+    let now = now_unix_s();
     let band_count = bands.len();
     let band_phrases: Vec<String> = bands
         .iter()
         .take(6)
-        .map(|(band, value, unit, age_s)| {
-            let label = band_display_label(band);
-            let base = match unit {
+        .map(|r| {
+            let label = band_display_label(&r.band);
+            let base = match r.unit.as_deref() {
                 Some(u) if !u.is_empty() && u != "1" => {
-                    format!("{label} {} {u}", fmt_value(value))
+                    format!("{label} {} {u}", fmt_value(&r.value))
                 }
-                _ => format!("{label} {}", fmt_value(value)),
+                _ => format!("{label} {}", fmt_value(&r.value)),
             };
             // Append the registry value range so a bare number carries
             // scale. Factual, not a fabricated "low/high" label (those
-            // mislead on skewed ranges). Only for numeric values.
-            let base = match (value.is_number(), band_value_range(band)) {
-                (true, Some((lo, hi))) => {
+            // mislead on skewed ranges). Only for numeric values, and only
+            // when the value is on the range's scale: a reflectance of 0.06
+            // printed beside "range 0..10000" says the range belongs to
+            // another encoding of the band, not where this value sits.
+            let base = match (r.value.as_f64(), band_value_range(&r.band)) {
+                (Some(v), Some((lo, hi)))
+                    if v >= lo && v <= hi && !(hi - lo >= 100.0 && v.abs() < (hi - lo) * 1e-3) =>
+                {
                     format!("{base} (range {}..{})", fmt_num(lo), fmt_num(hi))
                 }
                 _ => base,
@@ -82044,8 +82740,19 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
             // that gets left behind -- the same reason a stale value is dropped
             // rather than captioned elsewhere in this file. Attaching the age to
             // the phrase means whatever survives the quoting carries it.
-            match age_s {
-                Some(a) if *a > 86_400 => format!("{base}, measured {} days ago", a / 86_400),
+            //
+            // The age is the OBSERVATION's. A static layer has none, and says
+            // so instead of giving the age of its signature: a 30 m DEM was
+            // "measured 2 days ago" because that is when it was fetched.
+            if r.is_static {
+                return format!("{base} (static layer)");
+            }
+            match r.observed_unix {
+                Some(t) if now - t > 86_400 => format!(
+                    "{base}, observed {} ({} days ago)",
+                    iso8601_utc(t.max(0) as u64).get(..10).unwrap_or(""),
+                    (now - t) / 86_400
+                ),
                 _ => base,
             }
         })
@@ -82065,12 +82772,19 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
     // reading, so a bare number means something ("NDVI: higher is denser
     // vegetation"). Pulled verbatim from `interpretation` (first sentence) -
     // never a fabricated low/high judgement.
-    let interp = bands.first().and_then(|(band, _, _, _)| {
-        band_metadata_for_response(band)
+    //
+    // Only when the sentence is about THIS band. The registry keeps one
+    // interpretation per family, so a snow index was glossed "NDVI < 0 = water
+    // / snow" and a red reflectance "B04 + B08 feed NDVI": true of the family,
+    // and beside the reading they read as a claim about it.
+    let interp = bands.first().and_then(|r| {
+        let short = r.band.rsplit('.').next().unwrap_or(&r.band).to_lowercase();
+        band_metadata_for_response(&r.band)
             .get("interpretation")
             .and_then(|v| v.as_str())
             .map(|s| s.split(['.', ';']).next().unwrap_or(s).trim().to_string())
             .filter(|s| !s.is_empty() && s.len() <= 160)
+            .filter(|s| interpretation_is_about(s, &short))
     });
 
     let mut parts = Vec::new();
@@ -82117,19 +82831,38 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
         // Found by the TfL session, 2026-09-11, reading the envelope cold.
         let oldest_days = bands
             .iter()
-            .filter_map(|(_, _, _, age_s)| *age_s)
+            .filter(|r| !r.is_static)
+            .filter_map(|r| r.observed_unix)
+            .map(|t| (now - t).max(0) / 86_400)
             .max()
-            .map(|s| s / 86_400)
             .unwrap_or(0);
         if oldest_days >= 1 {
             parts.push(format!(
-                "{it}. As last measured, not as of now: the oldest reading above is {oldest_days} days old, and `freshness.stale_bands` names every one."
+                "{it}. As last observed, not as of now: the oldest dated reading above is {oldest_days} days old."
             ));
         } else {
             parts.push(format!("{it}."));
         }
     }
     parts.join(" ")
+}
+
+/// Whether a registry interpretation sentence is about the band `short`
+/// names, rather than about its family. The registry keeps one
+/// interpretation per family, so the snow index inherited "NDVI < 0 = water /
+/// snow" and the red band "B04 + B08 feed NDVI".
+fn interpretation_is_about(sentence: &str, short: &str) -> bool {
+    let l = sentence.to_lowercase();
+    if !ask_agent::has_term(&l, short) {
+        return false;
+    }
+    // Names this band, but as an input to another index: about that index.
+    let other_index = [
+        "ndvi", "ndwi", "ndsi", "ndbi", "ndmi", "nbr", "evi", "mndwi",
+    ]
+    .iter()
+    .any(|ix| *ix != short && ask_agent::has_term(&l, ix));
+    !other_index
 }
 
 /// `selected` is `alternatives[0]`, so the flags must say the same. The Wikidata
@@ -82167,6 +82900,92 @@ mod mark_selected_tests {
         assert_eq!(flags, vec![true, false, false]);
         let ranks: Vec<u64> = alts.iter().map(|a| a["rank"].as_u64().unwrap()).collect();
         assert_eq!(ranks, vec![0, 1, 2]);
+    }
+}
+
+#[cfg(test)]
+mod ask_wiring_tests {
+    use super::*;
+
+    /// The locate body emem.dev returned for "Palm Jumeirah, Dubai" on
+    /// 2026-11-12, cut to the fields the rule reads.
+    fn palm_locate_body() -> JsonValue {
+        json!({
+            "place_label": "Waldorf Astoria Dubai Palm Jumeirah (hotel), Dubai",
+            "selected": {
+                "class": "tourism", "type": "hotel",
+                "label": "Waldorf Astoria Dubai Palm Jumeirah (hotel), Dubai",
+                "cell64": "defi.zb51d.zf9e9.zcdf4",
+            },
+            "alternatives": [
+                {"label": "Waldorf Astoria Dubai Palm Jumeirah (hotel), Dubai",
+                 "class": "tourism", "type": "hotel", "cell64": "defi.zb51d.zf9e9.zcdf4"},
+                {"label": "نخلة الجميرة (island), دبي", "class": "place", "type": "island",
+                 "cell64": "defi.zb51d.ximo.zcc81"},
+            ],
+        })
+    }
+
+    #[test]
+    fn a_place_name_that_became_a_hotel_says_so_and_names_the_island() {
+        let mut pr = json!({"cell64": "defi.zb51d.zf9e9.zcdf4"});
+        note_poi_substitution(&mut pr, "Palm Jumeirah, Dubai", &palm_locate_body());
+        let poi = &pr["resolved_to_poi"];
+        assert_eq!(poi["type"], "hotel");
+        assert_eq!(poi["area_alternative"]["cell64"], "defi.zb51d.ximo.zcc81");
+        let note = poi["note"].as_str().unwrap();
+        assert!(note.contains("point of interest") && note.contains("defi.zb51d.ximo.zcc81"));
+    }
+
+    #[test]
+    fn a_landmark_asked_for_by_name_is_not_a_substitution() {
+        // The asked name is the resolved name: nothing stood in for anything.
+        let body = json!({"selected": {"class": "tourism", "type": "museum",
+                                       "label": "British Museum (museum), London"}});
+        let mut pr = json!({});
+        note_poi_substitution(&mut pr, "British Museum, London", &body);
+        assert!(pr.get("resolved_to_poi").is_none(), "{pr}");
+        // A park is not a business, so its class is not in the rule.
+        let park = json!({"selected": {"class": "leisure", "type": "park",
+                                       "label": "Victoria Park (park), London"}});
+        let mut pr = json!({});
+        note_poi_substitution(&mut pr, "Victoria Park, London", &park);
+        assert!(pr.get("resolved_to_poi").is_none(), "{pr}");
+    }
+
+    /// Measured on emem.dev 2026-11-12: "Was there snow on the ground on 14
+    /// December 2022?" led with a car count from a clip a minute old, because
+    /// "snow" contains "now".
+    #[test]
+    fn a_dated_snow_question_never_reaches_the_cameras() {
+        assert!(!question_wants_live_scene(
+            "Was there snow on the ground on 14 December 2022?"
+        ));
+        assert!(!question_wants_live_scene("Is the olive grove well known?"));
+        assert!(question_wants_live_scene("how busy is it right now"));
+        assert!(question_wants_live_scene("what does it look like now"));
+    }
+
+    #[test]
+    fn a_static_layer_carries_no_observation_date() {
+        let dem = with_observation_fields("copdem30m.elevation_mean", 0, &[], json!({}));
+        assert_eq!(dem["observed_basis"], "static_layer");
+        assert!(dem.get("observed_unix").is_none());
+        let s2 = with_observation_fields(
+            "indices.ndsi",
+            20_757,
+            &[emem_fact::Source {
+                scheme: "stac".into(),
+                id: "S2B_x".into(),
+                cid: None,
+                hash: None,
+                captured_at: Some("2026-10-30T11:03:21.024Z".into()),
+                url: None,
+            }],
+            json!({}),
+        );
+        assert_eq!(s2["observed_basis"], "source_capture_time");
+        assert_eq!(s2["observed_at"], "2026-10-30T11:03:21Z");
     }
 }
 
@@ -82962,6 +83781,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     hits
                 };
                 place_first_for_qualified_query(p, &mut hits);
+                place_over_business_named_after_it(p, &mut hits);
 
                 let mut hit = hits
                     .first()
@@ -84001,6 +84821,70 @@ fn is_facility_class(osm_class: &str) -> bool {
     )
 }
 
+/// A business named after the place asked for does not answer for the place.
+///
+/// "Palm Jumeirah, Dubai" resolved to the Waldorf Astoria Dubai Palm Jumeirah,
+/// a hotel, with Photon's own island one rank below it; the class prior that
+/// breaks near ties scores a hotel and an island 0.02 apart, so the hotel won.
+/// The rule: the first candidate is a business, its name carries every word of
+/// the name asked for but does not start with them (it is "<brand> <place>",
+/// not the place itself), and a settlement or area within 25 km either sits
+/// right behind it or is named by the query. Then the area leads. Its name
+/// cannot always be compared, because Photon gives the island only in Arabic,
+/// so rank stands in for it; an area named by the business's OTHER words is
+/// where the business is, not what was asked ("JW Marriott Marquis Downtown
+/// Dubai" for "Marriott Downtown, Dubai" keeps the hotel). A query that starts
+/// the business's name keeps it: "Waldorf Astoria, Dubai".
+fn place_over_business_named_after_it(query: &str, hits: &mut [NominatimHit]) {
+    const BUSINESS: &[&str] = &[
+        "tourism",
+        "amenity",
+        "shop",
+        "office",
+        "craft",
+        "healthcare",
+    ];
+    let words = |s: &str| -> Vec<String> {
+        s.to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|t| !t.is_empty())
+            .map(str::to_string)
+            .collect()
+    };
+    let head = words(query.split(',').next().unwrap_or(query));
+    let Some(top) = hits
+        .first()
+        .filter(|h| BUSINESS.contains(&h.class_.as_str()))
+    else {
+        return;
+    };
+    if head.is_empty() {
+        return;
+    }
+    let first = top.label.split(',').next().unwrap_or("");
+    let name = words(first.split(" (").next().unwrap_or(first));
+    let carries_all = head.iter().all(|w| name.contains(w));
+    let starts_with_head = name.len() >= head.len() && name[..head.len()] == head[..];
+    if !carries_all || starts_with_head || name.len() <= head.len() {
+        return;
+    }
+    let (t_lat, t_lng) = (top.lat, top.lng);
+    let other: Vec<&String> = name.iter().filter(|w| !head.contains(w)).collect();
+    let pick = hits.iter().enumerate().position(|(i, h)| {
+        let first = h.label.split(',').next().unwrap_or("");
+        let own = words(first.split(" (").next().unwrap_or(first));
+        let named_by_query = !own.is_empty() && own.iter().all(|w| head.contains(w));
+        let where_it_is = !own.is_empty() && own.iter().all(|w| other.contains(&w));
+        matches!(h.class_.as_str(), "place" | "boundary")
+            && haversine_km(h.lat, h.lng, t_lat, t_lng) < 25.0
+            && (i == 1 || named_by_query)
+            && !where_it_is
+    });
+    if let Some(i) = pick {
+        hits[..=i].rotate_right(1);
+    }
+}
+
 /// The decision stage that answers the place over a facility named after it
 /// skips a query with a qualifier ("Aurangabad, Maharashtra"), so the same
 /// rule runs here on the geocoder's own candidates. When the first is a
@@ -84958,7 +85842,10 @@ fn polygon_source_static(s: &str) -> Option<&'static str> {
 ///     ("Aurangabad, Maharashtra" resolved to the city's airport), and a row
 ///     stores its candidate list so a cache hit can show it. Generation-16
 ///     rows hold the facility and no candidates.
-const LOCATE_RESOLVER_VERSION: u32 = 17;
+/// 18: a business named after the place asked for gives way to the place
+///     ("Palm Jumeirah, Dubai" resolved to a hotel on the island, with the
+///     island one rank below). Generation-17 rows hold the hotel.
+const LOCATE_RESOLVER_VERSION: u32 = 18;
 
 /// 30 d TTL, place-name → centroid is stable. Nominatim's caching
 /// policy explicitly allows long retention. Override via
@@ -89775,22 +90662,63 @@ mod tests {
         ] {
             let prose = synthesise_ask_answer(body.as_object().expect("obj"));
             assert!(
-                prose.contains("measured 46 days ago"),
+                prose.contains("(46 days ago)"),
                 "{label}: a 46-day-old reading is quoted with no age: {prose}"
             );
             // The control. Without it this test passes just as well against a
             // build that stamps an age onto everything, which would be its own
             // kind of lie and would train a reader to ignore the marker.
             assert!(
-                !prose.contains("measured 0 days ago"),
+                !prose.contains("(0 days ago)"),
                 "{label}: a fresh reading was aged: {prose}"
             );
-            let aged = prose.matches("measured ").count();
+            let aged = prose.matches("observed ").count();
             assert_eq!(
                 aged, 1,
                 "{label}: expected exactly the stale reading to be aged, got {aged}: {prose}"
             );
         }
+    }
+
+    /// The age in the sentence is the OBSERVATION's, not the signature's.
+    ///
+    /// Measured on emem.dev 2026-11-12: a Copernicus DEM elevation over Palm
+    /// Jumeirah was "measured 2 days ago" because it was fetched two days
+    /// earlier, and a Sentinel-2 scene acquired 13 days earlier carried an age
+    /// of 787 seconds because that is when it was signed.
+    #[test]
+    fn the_sentence_ages_a_reading_by_when_it_was_observed() {
+        let now = now_unix_s();
+        let body = json!({
+            "place_resolved": { "label": "Thames Barrier" },
+            "band_observations_summary": { "count": 2, "bands": [
+                { "band": "indices.mndwi", "value": 0.49, "age_s": 787,
+                  "observed_unix": now - 13 * 86_400, "observed_basis": "source_capture_time" },
+                { "band": "copdem30m.elevation_mean", "value": -5.51, "unit": "m",
+                  "age_s": 214_186, "observed_basis": "static_layer" },
+                { "band": "s2.B02", "value": 0.0588, "age_s": 787,
+                  "observed_unix": now - 13 * 86_400, "observed_basis": "source_capture_time" },
+            ]},
+        });
+        let prose = synthesise_ask_answer(body.as_object().expect("obj"));
+        assert!(prose.contains("(13 days ago)"), "{prose}");
+        assert!(prose.contains("-5.51 m (static layer)"), "{prose}");
+        assert!(!prose.contains("2 days ago"), "{prose}");
+        // A reflectance of 0.06 is not on the 0..10000 scale its range names.
+        assert!(!prose.contains("range 0..10000"), "{prose}");
+    }
+
+    #[test]
+    fn a_family_interpretation_is_not_quoted_for_a_band_it_is_not_about() {
+        assert!(!interpretation_is_about("NDVI < 0 = water / snow", "ndsi"));
+        assert!(!interpretation_is_about(
+            "B04 (red, 665 nm) + B08 (NIR, 842 nm) feed NDVI",
+            "b04"
+        ));
+        assert!(interpretation_is_about(
+            "NDVI: higher is denser vegetation",
+            "ndvi"
+        ));
     }
 
     /// The A2A card is what a host reads to decide whether to connect, so its
@@ -99574,6 +100502,101 @@ mod tests {
         bare.rotate_left(1);
         place_first_for_qualified_query("Aurangabad", &mut bare);
         assert_eq!(bare[0].class_, "aeroway");
+    }
+
+    /// Photon's first candidates for "Palm Jumeirah, Dubai" on 2026-11-12.
+    #[test]
+    fn a_hotel_named_after_an_island_gives_way_to_the_island() {
+        let mut hits = vec![
+            photon_hit(
+                "Waldorf Astoria Dubai Palm Jumeirah (hotel), Dubai",
+                "tourism",
+                25.1346,
+                55.1504,
+            ),
+            photon_hit("نخلة الجميرة (island), دبي", "place", 25.1002, 55.1185),
+            photon_hit(
+                "Marriott Resort Palm Jumeirah, Dubai (hotel)",
+                "tourism",
+                25.1066,
+                55.1457,
+            ),
+        ];
+        place_over_business_named_after_it("Palm Jumeirah, Dubai", &mut hits);
+        assert_eq!(hits[0].class_, "place", "{}", hits[0].label);
+        assert_eq!(hits[1].class_, "tourism");
+        assert_eq!(hits.len(), 3);
+
+        // A query that starts the business's name asks for the business.
+        let mut brand = vec![
+            photon_hit(
+                "Waldorf Astoria Dubai Palm Jumeirah (hotel), Dubai",
+                "tourism",
+                25.1346,
+                55.1504,
+            ),
+            photon_hit("Dubai (city), United Arab Emirates", "place", 25.2, 55.27),
+        ];
+        place_over_business_named_after_it("Waldorf Astoria, Dubai", &mut brand);
+        assert_eq!(brand[0].class_, "tourism");
+
+        // The city a hotel is in is not the place its brand name asks for.
+        let mut marquis = vec![
+            photon_hit(
+                "JW Marriott Marquis Downtown Dubai (hotel), Dubai",
+                "tourism",
+                25.186,
+                55.258,
+            ),
+            photon_hit("Dubai (city), United Arab Emirates", "place", 25.2, 55.27),
+        ];
+        place_over_business_named_after_it("Marriott Downtown, Dubai", &mut marquis);
+        assert_eq!(marquis[0].class_, "tourism");
+
+        // An area two ranks down, not named by the query, is too weak a sign.
+        let mut far = vec![
+            photon_hit(
+                "Waldorf Astoria Dubai Palm Jumeirah (hotel), Dubai",
+                "tourism",
+                25.1346,
+                55.1504,
+            ),
+            photon_hit(
+                "Hilton Dubai Palm Jumeirah (hotel)",
+                "tourism",
+                25.105,
+                55.147,
+            ),
+            photon_hit("نخلة الجميرة (island), دبي", "place", 25.1002, 55.1185),
+        ];
+        place_over_business_named_after_it("Palm Jumeirah, Dubai", &mut far);
+        assert_eq!(far[0].class_, "tourism");
+
+        // An airport is not a business here, and its own rule still holds.
+        let mut heathrow = vec![
+            photon_hit(
+                "London Heathrow Airport (aerodrome), London, United Kingdom",
+                "aeroway",
+                51.470,
+                -0.454,
+            ),
+            photon_hit(
+                "London (city), England, United Kingdom",
+                "place",
+                51.507,
+                -0.128,
+            ),
+        ];
+        place_over_business_named_after_it("Heathrow Airport, London", &mut heathrow);
+        assert_eq!(heathrow[0].class_, "aeroway");
+
+        // The name asked for is the business: nothing gives way.
+        let mut museum = vec![
+            photon_hit("British Museum (museum), London", "tourism", 51.519, -0.127),
+            photon_hit("Bloomsbury (suburb), London", "place", 51.52, -0.125),
+        ];
+        place_over_business_named_after_it("British Museum", &mut museum);
+        assert_eq!(museum[0].class_, "tourism");
     }
 
     #[test]

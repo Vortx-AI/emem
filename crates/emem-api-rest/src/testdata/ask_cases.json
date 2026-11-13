@@ -1,0 +1,139 @@
+{
+  "schema": "emem.ask_cases.v1",
+  "about": "The fixed question set for /v1/ask. `expect` is checked offline by `ask_agent::tests::question_set_classifies_as_expected` (form, quantity, time, live_scene) against a clock fixed at 2026-11-12T18:40Z. `live` is checked against a running node by scripts/ask_check.py: routed_to, verdict, the band that answered, words the answer must and must not carry. A live check that depends on upstream data is marked `needs_upstream`; the runner reports those apart from the rest.",
+  "cases": [
+    {
+      "id": "dated_snow",
+      "q": "Was there snow on the ground on 14 December 2022?",
+      "place": "Victoria Park, London",
+      "source": "partner measurement 2026-11-12, failure 1",
+      "expect": {"form": "yes_no", "quantity": "snow_cover", "time_from": "2022-12-14", "change_window": false, "live_scene": false},
+      "live": {"routed_to": "answer", "verdict_in": ["yes", "no", "cannot_tell"], "must_mention": ["14 December 2022"], "must_not_mention": ["car", "ground camera", "NDVI < 0"], "no_live_perception": true, "needs_upstream": true}
+    },
+    {
+      "id": "thames_tide",
+      "q": "Is the Thames at high or low water in the latest clear satellite picture?",
+      "place": "Thames Barrier, London",
+      "source": "partner measurement 2026-11-12, failure 2",
+      "expect": {"form": "choice", "quantity": "surface_water", "live_scene": false},
+      "live": {"routed_to": "answer", "verdict_in": ["high", "low", "cannot_tell"], "band_in": ["indices.mndwi", "indices.ndwi", "sentinel1_raw"], "must_not_mention": ["range 0..10000", "feed NDVI"], "needs_upstream": true}
+    },
+    {
+      "id": "palm_elevation",
+      "q": "What is the ground elevation here?",
+      "place": "Palm Jumeirah, Dubai",
+      "source": "partner measurement 2026-11-12, failure 3",
+      "expect": {"form": "value", "quantity": "ground_elevation", "live_scene": false},
+      "live": {"routed_to": "answer", "band_in": ["copdem30m.elevation_mean"], "must_mention": ["static layer"], "must_not_mention": ["measured 2 days ago", "days ago"], "needs_upstream": true}
+    },
+    {
+      "id": "snow_now",
+      "q": "Is there snow on the ground right now?",
+      "place": "Zermatt",
+      "expect": {"form": "yes_no", "quantity": "snow_cover", "live_scene": false},
+      "live": {"routed_to": "answer", "verdict_in": ["yes", "no", "cannot_tell"], "band_in": ["indices.ndsi"], "needs_upstream": true}
+    },
+    {
+      "id": "elevation_fuji",
+      "q": "How high is Mount Fuji above sea level?",
+      "place": "Mount Fuji",
+      "expect": {"form": "value", "quantity": "ground_elevation", "live_scene": false},
+      "live": {"routed_to": "answer", "band_in": ["copdem30m.elevation_mean"], "must_mention": ["static layer"], "needs_upstream": true}
+    },
+    {
+      "id": "ndvi_month",
+      "q": "What was the NDVI in March 2021?",
+      "place": "Ludhiana",
+      "expect": {"form": "value", "quantity": "vegetation", "time_from": "2021-03-01", "change_window": false},
+      "live": {"routed_to": "answer", "must_mention": ["March 2021"], "needs_upstream": true}
+    },
+    {
+      "id": "change_since",
+      "q": "How has the forest changed since 2020?",
+      "place": "Rondonia, Brazil",
+      "expect": {"form": "value", "time_from": "2020-01-01", "change_window": true}
+    },
+    {
+      "id": "change_between",
+      "q": "Did NDVI drop between 2019 and 2021?",
+      "expect": {"form": "yes_no", "quantity": "vegetation", "time_from": "2019-01-01", "change_window": true}
+    },
+    {
+      "id": "future_snow",
+      "q": "Will there be snow on 1 January 2030?",
+      "place": "Zermatt",
+      "expect": {"form": "yes_no", "quantity": "snow_cover", "time_from": "2030-01-01"},
+      "live": {"routed_to": "answer", "verdict_in": ["cannot_tell"], "must_mention": ["future"]}
+    },
+    {
+      "id": "flood_risk_not_flooded",
+      "q": "Is this neighbourhood flood-prone for a flat purchase?",
+      "place": "Ashok Nagar, Ranchi",
+      "expect": {"form": "yes_no", "quantity": null}
+    },
+    {
+      "id": "flooded_now",
+      "q": "Is the field flooded?",
+      "place": "Katihar, Bihar",
+      "expect": {"form": "yes_no", "quantity": "surface_water"},
+      "live": {"routed_to": "answer", "verdict_in": ["yes", "no", "cannot_tell"], "needs_upstream": true}
+    },
+    {
+      "id": "busy_now",
+      "q": "How busy is Trafalgar Square right now?",
+      "expect": {"form": "value", "quantity": null, "live_scene": true}
+    },
+    {
+      "id": "known_is_not_now",
+      "q": "Is the olive grove well known?",
+      "expect": {"quantity": null, "live_scene": false}
+    },
+    {
+      "id": "count_is_not_year",
+      "q": "Are there 2000 buildings here?",
+      "expect": {"form": "yes_no"}
+    },
+    {
+      "id": "iso_date",
+      "q": "NDWI on 2023-07-04 at the reservoir",
+      "expect": {"form": "value", "quantity": "surface_water", "time_from": "2023-07-04"}
+    },
+    {
+      "id": "us_date",
+      "q": "Was it raining on July 4, 2023?",
+      "expect": {"form": "yes_no", "quantity": "precipitation", "time_from": "2023-07-04"}
+    },
+    {
+      "id": "air_quality",
+      "q": "What is the air quality in Delhi?",
+      "expect": {"form": "value", "quantity": "fine_particulates"}
+    },
+    {
+      "id": "building_height_not_elevation",
+      "q": "How high is the tallest building here?",
+      "expect": {"form": "value", "quantity": null}
+    },
+    {
+      "id": "empty_q",
+      "q": " ",
+      "live": {"http_status": 400, "error_code": "invalid_argument"}
+    },
+    {
+      "id": "meta",
+      "q": "what are you and how do I use you as memory",
+      "live": {"routed_to_not": "answer"}
+    },
+    {
+      "id": "no_place",
+      "q": "what is the meaning of life",
+      "live": {"routed_to_in": ["needs_location", "out_of_scope", "self_describe", "concept"]}
+    },
+    {
+      "id": "follow_up_date",
+      "q": "and on 1 February 2023?",
+      "follows": "dated_snow",
+      "expect": {"time_from": "2023-02-01", "quantity": null},
+      "live": {"routed_to": "answer", "context_inherits": ["place", "question"], "must_mention": ["1 February 2023"], "needs_upstream": true}
+    }
+  ]
+}
