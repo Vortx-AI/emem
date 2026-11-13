@@ -1136,10 +1136,14 @@ provenance classes by name, for example
   the block, and `GET /v1/facts/{cid}` also sends the header
   `x-emem-erratum`. The CBOR bytes of a fact never carry it. A fact you get
   by cid also has `replaced_by` when the node has read its address again:
-  cite that fact instead. On 12 November 2026 one erratum existed,
-  `s2-element84-boa-offset-2022`. It covers Sentinel-2 facts read before
-  6 November 2026 from Element84 items acquired from 25 January to
-  28 February 2022: their reflectance is 0.1 too high.
+  cite that fact instead. On 12 November 2026 two errata existed:
+  - `s2-element84-boa-offset-2022` covers Sentinel-2 facts read before
+    6 November 2026 from Element84 items acquired from 25 January to
+    28 February 2022. Their reflectance is 0.1 too high.
+  - `cog-pixel-read-before-2026-09-28` covers point reads from a GeoTIFF
+    signed before 28 September 2026. For about 3 points in 4, the reader
+    took the south-east neighbour pixel. Its status is `unknown`, because
+    the fact does not say which point it read.
 - `attested_execution` is a device reading. You trust it through the
   device's verified execution trace and platform attestation, not through a
   new computation.

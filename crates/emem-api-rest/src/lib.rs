@@ -15290,7 +15290,7 @@ fn enrich_facts_inner(value: &mut JsonValue, with_band_metadata: bool) {
         }
         // A signed value the responder knows to be wrong says so here; the
         // value stays the signed one.
-        if let Some(e) = element84_erratum::for_fact(obj) {
+        if let Some(e) = element84_erratum::any_for_fact(obj) {
             obj.insert("erratum".into(), e);
         }
         if with_band_metadata {
@@ -24732,7 +24732,7 @@ async fn annotate_fact_erratum(s: &AppState, cid: &str, v: &mut JsonValue) {
         && !superseded_read(&p)
         && fresh_json
             .as_object()
-            .is_none_or(|o| element84_erratum::for_fact(o).is_none());
+            .is_none_or(|o| element84_erratum::any_for_fact(o).is_none());
     if fresh {
         v["erratum"]["replaced_by"] = json!({
             "cid": now.as_str(),

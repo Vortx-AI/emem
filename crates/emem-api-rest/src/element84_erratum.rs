@@ -142,9 +142,55 @@ pub(crate) fn for_fact(obj: &Map<String, JsonValue>) -> Option<JsonValue> {
     Some(e)
 }
 
-/// Adds `erratum` to a served fact object when [`for_fact`] applies.
+pub(crate) const PIXEL_ID: &str = "cog-pixel-read-before-2026-09-28";
+
+/// A point read from a GeoTIFF before the pixel fix (dba347b) took the
+/// south-east neighbour for about 3 points in 4. The fact does not say where in
+/// its pixel the point fell, so which ones did is not known: status `unknown`.
+fn pixel_for_fact(obj: &Map<String, JsonValue>) -> Option<JsonValue> {
+    let f = ["Primary", "primary"]
+        .iter()
+        .find_map(|k| obj.get(*k).and_then(|v| v.as_object()))
+        .unwrap_or(obj);
+    let kind = f.get("kind").and_then(|v| v.as_str()).unwrap_or("primary");
+    if !kind.eq_ignore_ascii_case("primary") || f.get("signed_at")?.as_str()? >= crate::PIXEL_FIX_AT
+    {
+        return None;
+    }
+    let tif = f.get("sources")?.as_array()?.iter().any(|src| {
+        ["url", "id"].iter().any(|k| {
+            src.get(*k).and_then(|v| v.as_str()).is_some_and(|u| {
+                u.split(" ; ").any(|one| {
+                    let one = one
+                        .split(['?', '#'])
+                        .next()
+                        .unwrap_or(one)
+                        .to_ascii_lowercase();
+                    one.ends_with(".tif") || one.ends_with(".tiff")
+                })
+            })
+        })
+    });
+    tif.then(|| {
+        json!({
+            "id": PIXEL_ID,
+            "status": "unknown",
+            "what": format!("read from a GeoTIFF before {}, when the point reader rounded the pixel position: for about 3 points in 4 it read the south-east neighbour. Whether this fact read its own pixel is not known from the fact.", crate::PIXEL_FIX_AT),
+            "fixed": format!("in dba347b, live from {}: a read after it takes the pixel that contains the point", crate::PIXEL_FIX_AT),
+            "remedy": "a recall of this cell reads it again. Served by cid, `replaced_by` names the fresh fact when there is one",
+        })
+    })
+}
+
+/// The erratum that applies to a served fact, if any. The Element84 one comes
+/// first: it covers its facts' pixel as well.
+pub(crate) fn any_for_fact(obj: &Map<String, JsonValue>) -> Option<JsonValue> {
+    for_fact(obj).or_else(|| pixel_for_fact(obj))
+}
+
+/// Adds `erratum` to a served fact object when [`any_for_fact`] applies.
 pub(crate) fn annotate(fact: &mut JsonValue) {
-    if let Some(e) = fact.as_object().and_then(for_fact) {
+    if let Some(e) = fact.as_object().and_then(any_for_fact) {
         if let Some(o) = fact.as_object_mut() {
             o.insert("erratum".into(), e);
         }
@@ -190,14 +236,15 @@ mod tests {
         let mut f = ndvi_fact("S2B_43RGP_20220208_0_L2A", "2026-11-07T00:00:00Z");
         annotate(&mut f);
         assert!(f.get("erratum").is_none());
-        // An item from after Element84 removed the offset.
-        let mut f = ndvi_fact("S2B_43RGP_20220310_0_L2A", "2026-07-14T17:55:50Z");
+        // An item from after Element84 removed the offset. Signed after the pixel
+        // fix, so the pixel erratum does not apply either.
+        let mut f = ndvi_fact("S2B_43RGP_20220310_0_L2A", "2026-10-01T00:00:00Z");
         annotate(&mut f);
         assert!(f.get("erratum").is_none());
         // A Planetary Computer item of an affected day: never matched.
         let mut f = ndvi_fact(
             "S2B_MSIL2A_20220208T054039_R005_T43RGP_20220208T080000",
-            "2026-07-14T17:55:50Z",
+            "2026-10-01T00:00:00Z",
         );
         f["sources"] = json!([]);
         annotate(&mut f);
@@ -222,6 +269,37 @@ mod tests {
         annotate(&mut f);
         assert_eq!(f["erratum"]["status"], "wrong");
         assert_eq!(f["erratum"]["items"], json!(["S2A_43SFS_20220127_1_L2A"]));
+    }
+
+    #[test]
+    fn a_tif_read_before_the_pixel_fix_is_marked_unknown() {
+        let tif = |signed_at: &str, url: &str| {
+            json!({"kind": "primary", "band": "copdem30m.elevation_mean", "cell": "defi.zb592.nUkO.zEzE",
+                   "tslot": 0, "value": 3539.0, "signed_at": signed_at,
+                   "derivation": {"fn_key": "copdem30m_elevation@1"},
+                   "sources": [{"scheme": "copdem30m", "id": url}]})
+        };
+        let mut f = tif(
+            "2026-09-01T00:00:00Z",
+            "https://example.org/Copernicus_DSM_30_N35_00_E138_00_DEM.tif",
+        );
+        annotate(&mut f);
+        assert_eq!(f["erratum"]["id"], PIXEL_ID);
+        assert_eq!(f["erratum"]["status"], "unknown");
+        // After the fix, or not a GeoTIFF: nothing to say.
+        let mut f = tif("2026-09-29T00:00:00Z", "https://example.org/x.tif");
+        annotate(&mut f);
+        assert!(f.get("erratum").is_none());
+        let mut f = tif(
+            "2026-09-01T00:00:00Z",
+            "https://api.open-meteo.com/v1/forecast?x=1",
+        );
+        annotate(&mut f);
+        assert!(f.get("erratum").is_none());
+        // An Element84 fact keeps its own erratum, which names the pixel too.
+        let mut f = ndvi_fact("S2B_43RGP_20220208_0_L2A", "2026-07-14T17:55:50Z");
+        annotate(&mut f);
+        assert_eq!(f["erratum"]["id"], ID);
     }
 
     #[test]

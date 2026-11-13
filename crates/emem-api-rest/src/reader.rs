@@ -724,6 +724,7 @@ async fn doc_parse(
     pb.seg(doc_tag::PARSED_AT, parsed_at.as_bytes());
     pb.seg(doc_tag::RESPONDER_PUBKEY, &pk);
     let sig = s.identity.signing.sign(&pb.finalize()).to_bytes();
+    let typed = ocr.as_ref().is_none_or(|v| v.is_null());
     Json(json!({
         "schema": "emem.doc_parse.v1",
         "signal": kind,
@@ -734,7 +735,11 @@ async fn doc_parse(
         "ocr": ocr,
         "parsed_at": parsed_at,
         "provenance_class": "deterministic_index",
-        "reading": "Each value carries its line and byte offset in the text; the text hashes to text_blake3_b32, which the OCR receipt signs against the image. The parser reads what the document prints. It does not check a residue against the EU MRL database, a land record against its registry, or a signature for authenticity.",
+        "reading": if typed {
+            "Each value carries its line and byte offset in the text, which hashes to text_blake3_b32. No OCR receipt: the text came typed or pasted, so nothing ties it to a document image. The parser reads what the text prints. It does not check a residue against the EU MRL database, a land record against its registry, or a signature for authenticity."
+        } else {
+            "Each value carries its line and byte offset in the text; the text hashes to text_blake3_b32, which the OCR receipt signs against the image. The parser reads what the document prints. It does not check a residue against the EU MRL database, a land record against its registry, or a signature for authenticity."
+        },
         "receipt": {
             "domain": DOC_PARSE_DOMAIN,
             "preimage": "PreimageV1(\"emem.doc_parse.v1\"){1:kind, 2:text_blake3, 3:result_blake3 (blake3 of the serialised result), 4:parser, 5:parsed_at, 6:responder_pubkey}",

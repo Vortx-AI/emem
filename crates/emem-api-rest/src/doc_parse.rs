@@ -90,7 +90,10 @@ pub struct LabReport {
     pub accreditation: Vec<Located<String>>,
     pub methods: Vec<Located<String>>,
     pub verdict: &'static str,
-    pub exceedances: usize,
+    /// Rows above the printed MRL, or `None` when no row's MRL was read: a
+    /// signed 0 there read as "checked, none above" to a program that reads
+    /// the field and not the verdict.
+    pub exceedances: Option<usize>,
 }
 
 /// A unit token and its factor to mg/kg.
@@ -563,13 +566,17 @@ pub fn parse_lab_report(text: &str) -> LabReport {
         .find(|w| low.contains(**w))
         .map(|w| w.to_uppercase())
     });
-    let exceedances = rows
+    let exceeding = rows
         .iter()
         .filter(|r| r.exceeds_printed_mrl == Some(true))
         .count();
+    let exceedances = rows
+        .iter()
+        .any(|r| r.mrl_mg_kg.is_some())
+        .then_some(exceeding);
     let verdict = if rows.is_empty() {
         "no_rows_found"
-    } else if exceedances > 0 {
+    } else if exceeding > 0 {
         "exceeds_printed_mrl"
     } else if rows
         .iter()
@@ -1137,7 +1144,7 @@ Total                                          \n";
         assert!(matches!(r.rows[2].result, Measured::NotDetected { .. }));
         assert_eq!(r.rows[3].result_mg_kg, Some(0.08), "comma decimals");
         assert_eq!(r.verdict, "exceeds_printed_mrl");
-        assert_eq!(r.exceedances, 1);
+        assert_eq!(r.exceedances, Some(1));
         assert_eq!(
             r.sample_id.as_ref().map(|s| s.value.as_str()),
             Some("EF-2026-00417")
@@ -1219,6 +1226,10 @@ Total                                          \n";
         assert_eq!(r.rows[0].result_mg_kg, Some(0.012));
         assert_eq!(r.rows[0].loq_mg_kg, Some(0.01));
         assert_eq!(r.verdict, "no_mrl_printed");
+        assert_eq!(
+            r.exceedances, None,
+            "no MRL was read, so nothing was counted"
+        );
         assert_eq!(
             parse_lab_report("nothing tabular here").verdict,
             "no_rows_found"

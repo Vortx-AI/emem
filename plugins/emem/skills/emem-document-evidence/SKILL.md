@@ -130,7 +130,7 @@ for a land record, the default language is `eng+hin+mar`.
 |---|---|
 | `rows[]` | One row for each analyte: `analyte`, `result` (`kind` is `value`, `not_detected` or `below_limit`, with `raw`), `result_mg_kg`, `loq_mg_kg`, `mrl_mg_kg`, `exceeds_printed_mrl`, `unit`. |
 | `verdict` | `exceeds_printed_mrl`, `within_printed_mrls`, `undetermined_rows` (a row has a printed MRL that the parser cannot compare), `no_mrl_printed` or `no_rows_found`. A `product` lookup that finds an exceedance sets `exceeds_eu_mrl`. |
-| `exceedances` | The number of rows above the printed MRL. |
+| `exceedances` | The number of rows above the printed MRL, or null when no MRL was read. |
 | `sample_id`, `report_date` | The labelled value, or null when no label says so. |
 | `dates[]` | Each date on each line, with its `label` and a day-first `iso` reading. `iso` is null for a date that does not exist. |
 | `accreditation`, `methods`, `columns`, `header_line_no` | What the report prints about the laboratory, the methods and the table header. |
