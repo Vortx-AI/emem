@@ -67,7 +67,26 @@ FROZEN = (
 # matched nothing at all. Twelve commands on the homepage, none of them seen.
 CURL_START = re.compile(r"(?:^|[\s>])(?P<c>curl\b)")
 
-PLACEHOLDER = re.compile(r"<[a-z_][a-z_ ]*>|\{[a-z_0-9]+\}|YOUR_|\.\.\.|…|\$\{|\bexample\.com\b|xxxx", re.I)
+# The dot is for a placeholder that names a field of an earlier answer, such as
+# `<tokens.cube from the call above>`. Without it that example was sent as
+# written and failed with a 400 every run from 7 November 2026.
+PLACEHOLDER = re.compile(r"<[a-z_][a-z_. ]*>|\{[a-z_0-9]+\}|YOUR_|\.\.\.|…|\$\{|\bexample\.com\b|xxxx", re.I)
+
+# A PUBLISHED REFUSAL.
+#
+# Some examples are the first half of a signed write. The page sends the body
+# with no signature on purpose, because the refusal is where a caller gets the
+# digest to sign. Run as an ordinary example, it "fails" for doing what the page
+# says it does: production truth was red from 7 November 2026 on two of them.
+# Skipping them would stop checking the thing the page promises, which is the
+# refusal itself. So the page states it on a line above the fence:
+#
+#     <!-- example_check: refuses 401 derive_attestation_required -->
+#
+# and the example passes only when the responder refuses with that status and
+# that code, at the top level or in `details.code`. An unsigned write that
+# starts to succeed fails here, and that is a regression worth hearing about.
+EXPECT = re.compile(r"<!--\s*example_check:\s*refuses\s+(\d{3})\s+([a-z_]+)\s*-->")
 
 
 def where(path) -> str:
@@ -177,6 +196,7 @@ def _extract_from(text: str):
                 continue
             break
         joined = " ".join(p for p in parts if p).strip()
+        expect = _expected_refusal(lines, start)
         # EVERY command on the line, not the first.
         #
         # A file puts one command per block, so taking the first `curl` and
@@ -207,8 +227,46 @@ def _extract_from(text: str):
             cmd = re.sub(r"</?(?:span|code|pre|b|i|em|strong|a|kbd|samp|var|p|li|td|th|tr|ul|ol|dd|dt|h[1-6]|small|sup|sub|u|s)\b[^>]*>", "", cmd)
             cmd = html.unescape(cmd).strip()
             if "http" in cmd:
-                out.append((start + 1, cmd))
+                out.append((start + 1, cmd, expect))
     return out
+
+
+def _expected_refusal(lines, start):
+    """(status, code) when the lines just above a command declare a refusal.
+
+    Looks back over blank lines and the opening fence only, so a marker binds
+    to the one block under it and never to a later example in the section.
+    """
+    i = start - 1
+    while i >= 0 and i >= start - 4:
+        s = lines[i].strip()
+        m = EXPECT.search(s)
+        if m:
+            return m.group(1), m.group(2)
+        if s and not s.startswith("```"):
+            return None
+        i -= 1
+    return None
+
+
+def verdict_refusal(status, body, expect):
+    """For a declared refusal: that status, an error envelope, that code."""
+    want_status, want_code = expect
+    if status is None:
+        return "unrun"
+    try:
+        doc = json.loads(body)
+    except Exception:
+        doc = None
+    if not (isinstance(doc, dict) and doc.get("schema") == "emem.error.v1"):
+        return (f"{status} with no emem.error.v1 envelope; the page says it is "
+                f"refused with {want_status} {want_code}")
+    details = doc.get("details") if isinstance(doc.get("details"), dict) else {}
+    codes = [c for c in (doc.get("code"), details.get("code")) if c]
+    if status != want_status or want_code not in codes:
+        return (f"{status} {'/'.join(codes) or 'no code'}; the page says it is "
+                f"refused with {want_status} {want_code}")
+    return "ok"
 
 
 def runnable(cmd: str):
@@ -326,18 +384,23 @@ def main() -> int:
     args = ap.parse_args()
 
     found, skipped = [], []
+    expects = {}
     for path in sources():
-        for line, cmd in extract(path):
+        for line, cmd, expect in extract(path):
             ok, why = runnable(cmd)
             (found if ok else skipped).append((path, line, cmd, why))
+            if ok and expect:
+                expects[(str(path), line)] = expect
 
     # And the commands that only exist once the responder has filled the page
     # in. The homepage's film strip is twelve of them, each carrying a real
     # cell64, and none of them appears in any file in this repository.
     for label, body in served_sources(args.origin):
-        for line, cmd in _extract_from(body):
+        for line, cmd, expect in _extract_from(body):
             ok, why = runnable(cmd)
             (found if ok else skipped).append((label, line, cmd, why))
+            if ok and expect:
+                expects[(str(label), line)] = expect
 
     if not found:
         print("MATCHED NOTHING: no runnable curl example found. Either the docs "
@@ -377,7 +440,8 @@ def main() -> int:
             except Exception as e:  # a worker that died is a finding, not a pass
                 failures.append((path, line, cmd, f"checker error: {e}"))
                 continue
-            v = verdict(status, body)
+            expect = expects.get((str(path), line))
+            v = verdict_refusal(status, body, expect) if expect else verdict(status, body)
             if v != "ok":
                 # `unrun` on its own does not say WHY, and `run` already knows:
                 # it returns "timed out after Ns" or "could not run: ...". Those
@@ -403,7 +467,8 @@ def main() -> int:
 
     print(f"example check: {len(found)} runnable example(s) across "
           f"{len({p for p, _, _, _ in found})} file(s); {len(skipped)} skipped "
-          f"for placeholders or pipes")
+          f"for placeholders or pipes; {len(expects)} of the runnable ones are "
+          f"refusals the page declares, checked for that status and code")
     if failures:
         print("\nA PUBLISHED EXAMPLE DOES NOT DO WHAT IT SAYS:")
         for path, line, cmd, v in failures:
@@ -415,8 +480,8 @@ def main() -> int:
                 msg = f"{v} :: {cmd[:200]}".replace("\r", " ").replace("\n", " ")
                 print(f"::error file={where(path)},line={line}::{msg}")
         return 1
-    print("Every runnable example we publish answers, and none of them answers "
-          "with an error envelope.")
+    print("Every runnable example we publish answers, none of them answers with "
+          "an error envelope, and every declared refusal refuses as the page says.")
     return 0
 
 

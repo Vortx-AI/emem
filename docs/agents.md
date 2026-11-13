@@ -780,6 +780,7 @@ Make a new identity only when no candidate fits.
 {"name": "emem_entity", "arguments": {"label": "Mount Fuji summit", "kind": "mountain", "place": "Mount Fuji"}}
 ```
 
+<!-- example_check: refuses 403 level_too_low -->
 ```bash
 curl -s -X POST https://emem.dev/v1/entity \
   -H 'content-type: application/json' \
@@ -1048,6 +1049,7 @@ below is the example from the tool schema. We did not send it to emem.dev.
 {"name": "emem_derive", "arguments": {"fn_key": "same_doy_ndvi_delta@1", "inputs": ["emem:fact:defi.zb493.xoso.zcb6a:cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"], "cell": "defi.zb493.xoso.zcb6a", "band": "indices.ndvi", "tslot_window": [19723, 20634], "op": "delta", "value": 0.14, "confidence": 0.9, "provenance_class": "model_output"}}
 ```
 
+<!-- example_check: refuses 401 derive_attestation_required -->
 ```bash
 curl -s -X POST https://emem.dev/v1/derive \
   -H 'content-type: application/json' \
