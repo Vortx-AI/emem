@@ -287,8 +287,9 @@ call waits for the first one and does not start a new fetch.
 The responder key signs each materialized fact. Its
 `derivation.fn_key` names the function that made the value.
 
-On 7 November 2026, `GET /v1/materializers` lists 113 bands. The
-`agent_card` reports 115 materializer-wired band names. In the 113 listed
+The `agent_card` reports 116 materializer-wired band names. It reported 115
+until `era5.snow_depth` was added on 13 November 2026. On 7 November 2026,
+`GET /v1/materializers` listed 113 bands. In those 113 listed
 bands, the largest prefix families are `indices.*` (19), `s2.*` (13),
 `weather.*` (8), `modis.*`, `power.*`, `cams.*` and `era5.*` (7 each), and
 `soilgrids.*` (6). The code also has `chirps.*` and `geotessera.*`
