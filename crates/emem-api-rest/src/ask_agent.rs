@@ -1222,6 +1222,10 @@ pub(crate) struct Thread {
 
 const THREAD_TTL_MS: u64 = 30 * 60 * 1000;
 const THREAD_CAP: usize = 4096;
+/// The most of a question a thread keeps. A request body may be 16 MB, and
+/// THREAD_CAP of those would hold gigabytes; a follow-up needs the subject,
+/// which is in the first words.
+const THREAD_QUESTION_MAX: usize = 1024;
 
 type ThreadMap = std::collections::HashMap<String, Thread>;
 
@@ -1278,12 +1282,21 @@ pub(crate) fn thread_put(id: &str, cell: &str, place_resolved: &JsonValue, quest
         Thread {
             cell: cell.to_string(),
             place_resolved: place_resolved.clone(),
-            question: question.to_string(),
+            question: question[..cut_at_char(question, THREAD_QUESTION_MAX)].to_string(),
             turn,
             at_ms: now,
         },
     );
     turn
+}
+
+/// The longest prefix of `s` that is at most `max` bytes and ends on a char.
+fn cut_at_char(s: &str, max: usize) -> usize {
+    let mut end = s.len().min(max);
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    end
 }
 
 /// A follow-up that names no subject of its own ("and on 1 February 2023?")
@@ -1657,6 +1670,19 @@ mod tests {
         );
         assert_eq!(thread_get(&id).unwrap().cell, "defi.zb64a.quno.zfe73");
         assert!(thread_get("ask-unknown").is_none());
+
+        // A thread keeps at most THREAD_QUESTION_MAX bytes of the question,
+        // cut on a char: a 16 MB body must not live on in the thread map.
+        let long = format!(
+            "{}é{}",
+            "a".repeat(THREAD_QUESTION_MAX - 1),
+            "b".repeat(4096)
+        );
+        let id2 = mint_context_id("long");
+        thread_put(&id2, "defi.zb64a.quno.zfe73", &json!({}), &long);
+        let kept = thread_get(&id2).unwrap().question;
+        assert_eq!(kept.len(), THREAD_QUESTION_MAX - 1);
+        assert!(long.starts_with(&kept));
         assert!(is_continuation("and on 1 February 2023?", 0));
         assert!(!is_continuation("and the elevation?", 0));
     }
