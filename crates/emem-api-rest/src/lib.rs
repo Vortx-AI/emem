@@ -13420,11 +13420,10 @@ async fn recall_with_auto_materialize_capped(
     }
 
     // Temporal intent for date-addressable cold materialization (TerraGround
-    // feedback #1): prefer the exact valid-time bucket (`tslot`), else the
-    // as-of upper bound (`as_of_tslot`). `as_of_signed_at` is transaction-time
-    //, what emem *knew* as of a system date, NOT an acquisition epoch, so it
-    // is deliberately never mapped to a scene date.
-    let bound_tslot: Option<u64> = req.tslot.or(req.as_of_tslot);
+    // feedback #1) is `date_bound` below: the exact valid-time bucket
+    // (`tslot`), else the as-of upper bound (`as_of_tslot`). `as_of_signed_at`
+    // is transaction-time, what emem *knew* as of a system date, NOT an
+    // acquisition epoch, so it is deliberately never mapped to a scene date.
 
     // A past transaction-time bound cannot be satisfied by materializing.
     //
@@ -13463,7 +13462,15 @@ async fn recall_with_auto_materialize_capped(
     }
 
     if !candidates.is_empty() {
-        let outcomes = try_materialize_bands(&req.cell, &candidates, bound_tslot, s).await;
+        let date_bound = match (req.tslot, req.as_of_tslot) {
+            (Some(tslot), _) => Some(DateBound { tslot, exact: true }),
+            (None, Some(tslot)) => Some(DateBound {
+                tslot,
+                exact: false,
+            }),
+            (None, None) => None,
+        };
+        let outcomes = try_materialize_bands_at(&req.cell, &candidates, date_bound, s).await;
         let materialized_any = outcomes.iter().any(|o| o.fact_cid.is_some());
         materialize_notes.extend(outcomes.iter().filter_map(MaterializeOutcome::to_note));
         if materialized_any {
@@ -13678,6 +13685,23 @@ fn tslot_dates(tslot: u64, tempo: emem_core::tslot::Tempo) -> Option<String> {
     })
 }
 
+/// Days from slot `from` to slot `to` under the band's tempo: whole days
+/// for daily and longer slots, two decimals for shorter ones. `None` for a
+/// static or unknown band.
+fn days_between_slots(band: &str, from: u64, to: u64) -> Option<JsonValue> {
+    let tempo = band_tempo_for_key(band)?;
+    let secs = tempo.slot_seconds() as i64;
+    if secs == 0 {
+        return None;
+    }
+    let gap = (to as i64 - from as i64) * secs;
+    Some(if secs >= 86_400 {
+        json!(gap / 86_400)
+    } else {
+        json!((gap as f64 / 86_400.0 * 100.0).round() / 100.0)
+    })
+}
+
 /// Per band, the date a dated recall asked for and the date it served.
 ///
 /// Two things made a dated recall answer another date without saying so.
@@ -13785,6 +13809,20 @@ async fn attach_dated_request(v: &mut JsonValue, req: &RecallReq, s: &AppState) 
     };
     bands.sort();
     bands.dedup();
+    // Bands whose source keeps no past for this date, with the reason given.
+    let no_archive: std::collections::HashMap<String, String> = map
+        .get("materialize_notes")
+        .and_then(|n| n.as_array())
+        .into_iter()
+        .flatten()
+        .filter(|n| n.get("reason_class").and_then(|c| c.as_str()) == Some("no_archive"))
+        .filter_map(|n| {
+            let band = n.get("band")?.as_str()?.to_string();
+            let why = n.get("reason")?.as_str()?;
+            let why = why.strip_prefix(NO_ARCHIVE).unwrap_or(why);
+            Some((band, why.trim_start_matches(':').trim().to_string()))
+        })
+        .collect();
     let mut rows: Vec<JsonValue> = Vec::with_capacity(bands.len());
     let mut lines: Vec<String> = Vec::new();
     for band in &bands {
@@ -13802,6 +13840,19 @@ async fn attach_dated_request(v: &mut JsonValue, req: &RecallReq, s: &AppState) 
             "asked": asked,
             "served": got_dates,
         });
+        // Days from the date asked to the date served (or signed instead),
+        // so a reader does not have to subtract two dates to judge the gap.
+        let near = got.iter().max().copied().or_else(|| {
+            elsewhere
+                .get(band)
+                .and_then(|v| v.iter().max())
+                .map(|e| e.0)
+        });
+        if let Some(days) = near.and_then(|t| days_between_slots(band, bound, t)) {
+            if let Some(o) = row.as_object_mut() {
+                o.insert("days_from_asked".into(), days);
+            }
+        }
         let (status, note) = if !got.is_empty() && !with_value.contains(band) {
             let d = got_dates
                 .iter()
@@ -13857,6 +13908,8 @@ async fn attach_dated_request(v: &mut JsonValue, req: &RecallReq, s: &AppState) 
                     "{band}: nothing is signed for {asked_text}. The nearest date this call could serve is {d} (tslot {t}, {what}), and your tslot filter leaves it out of facts. Recall with tslot {t} to read it."
                 )),
             )
+        } else if let Some(why) = no_archive.get(band) {
+            ("no_archive", Some(why.clone()))
         } else {
             (
                 "nothing_at_date",
@@ -53998,9 +54051,14 @@ fn ornl_qc_confidence(product: &str, byte: i64) -> f32 {
 /// ORNL DAAC, no auth, free, supports up to 160 days per call.
 async fn materialize_modis_ndvi_window(
     cell64: &str,
-    target_unix: Option<i64>,
+    pick: DatedPick,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
+    let target_unix = match pick {
+        DatedPick::Nearest(t) => Some(t),
+        DatedPick::Slot { start, end, .. } => Some((start + end) / 2),
+        DatedPick::Newest => None,
+    };
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
@@ -54010,13 +54068,18 @@ async fn materialize_modis_ndvi_window(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    let (start_unix, end_unix) = match target_unix {
-        Some(t) => {
-            let lo = (t - 32 * 86400).max(0);
-            let hi = (t + 32 * 86400).min(now);
-            (lo, hi.max(lo + 86400))
-        }
-        None => (now - 90 * 86400, now),
+    // A slot's window reaches 32 days past each edge (64 back for an as-of
+    // bound), so the composite that holds its date is in it.
+    let (start_unix, end_unix) = match pick {
+        DatedPick::Slot { .. } => pick.window(32, now),
+        _ => match target_unix {
+            Some(t) => {
+                let lo = (t - 32 * 86400).max(0);
+                let hi = (t + 32 * 86400).min(now);
+                (lo, hi.max(lo + 86400))
+            }
+            None => (now - 90 * 86400, now),
+        },
     };
     let start_str = unix_to_modis_date(start_unix);
     let end_str = unix_to_modis_date(end_unix);
@@ -54097,7 +54160,8 @@ async fn materialize_modis_ndvi_window(
     // unconditional fallback path. When QA succeeded but a specific
     // composite was missing from the QA subset, the entry is rejected
     // (we never silently waive the gate per-composite).
-    let mut best: Option<(i64, f64, String, Option<i64>)> = None;
+    type Best = ((u8, i64), f64, String, Option<i64>);
+    let mut best: Option<Best> = None;
     let mut rejected_for_qa = 0_usize;
     for entry in subset.iter() {
         let raw = entry
@@ -54133,10 +54197,11 @@ async fn materialize_modis_ndvi_window(
             None
         };
         let entry_unix = modis_calendar_to_unix(&cal).unwrap_or(0);
-        let priority = match target_unix {
-            Some(t) => (entry_unix - t).abs(),
-            // Current mode: prefer most recent → priority is age (lower = better).
-            None => i64::MAX - entry_unix,
+        // The composite's first day: inside a slot is the composite of that
+        // slot (its tslot), so it comes first; then the nearest; an as-of
+        // bound takes the newest at or before it.
+        let Some(priority) = pick.rank(entry_unix) else {
+            continue;
         };
         if best
             .as_ref()
@@ -54152,8 +54217,8 @@ async fn materialize_modis_ndvi_window(
         } else {
             String::new()
         };
-        if let Some(t) = target_unix {
-            format!("no valid NDVI observation in 64-day window around {t}; cell may be permanently cloudy or off-coverage{suffix}")
+        if target_unix.is_some() {
+            format!("no valid NDVI observation from {start_str} to {end_str}; cell may be permanently cloudy or off-coverage{suffix}")
         } else {
             format!("no valid NDVI observation in last 90 days; cell may be permanently cloudy or off-coverage{suffix}")
         }
@@ -54188,6 +54253,14 @@ async fn materialize_modis_ndvi_window(
     // collides adjacent granules into the same tslot.
     let tslot =
         emem_core::tslot::Tslot::from_unix(cal_unix, emem_core::tslot::Tempo::Composite16Day).0;
+    // The composite already signed here is the same observation.
+    if !force_resign() {
+        if let Some(cid) =
+            existing_same_acquisition(s, cell64, "modis.ndvi_mean", tslot, &cal_date).await
+        {
+            return Ok(cid);
+        }
+    }
 
     let signed_at = chrono_iso8601_utc();
     let fact = Fact::Primary(PrimaryFact {
@@ -54248,13 +54321,6 @@ async fn materialize_modis_ndvi_window(
     cids.into_iter()
         .next()
         .ok_or_else(|| "put_attestation (modis) returned no fact_cid".to_string())
-}
-
-/// On-recall materializer: latest 16-day composite. Wraps the windowed
-/// fetcher in current-mode for backwards compatibility (existing call
-/// sites pass no target).
-async fn materialize_modis_ndvi(cell64: &str, s: &AppState) -> Result<emem_fact::FactCid, String> {
-    materialize_modis_ndvi_window(cell64, None, s).await
 }
 
 /// Sample a single 128-D Tessera embedding pixel for the cell's centroid
@@ -56154,9 +56220,10 @@ async fn materialize_cams_band(
     sign_and_persist(s, fact, &signed_at).await
 }
 
-/// The instant a recall's ERA5 read targets: the last second of the bound's
-/// hourly slot, never past now. `None` (no bound) is now.
-fn era5_target_unix(bound_tslot: Option<u64>, now_unix: i64) -> i64 {
+/// The instant a recall's hourly read (ERA5, marine) targets: the last
+/// second of the bound's hourly slot, never past now. `None` (no bound) is
+/// now.
+fn hourly_target_unix(bound_tslot: Option<u64>, now_unix: i64) -> i64 {
     let hour = emem_core::tslot::Tempo::UltraFast;
     bound_tslot
         .map(|t| emem_core::tslot::Tslot(t).to_unix_start(hour) + hour.slot_seconds() as i64 - 1)
@@ -57327,6 +57394,45 @@ pub(crate) async fn s2_search_with_fallback(
 /// (radar sees through cloud), but revisit gaps still happen, pole
 /// crossings, sensor outages, polar darkness for ascending orbits, so
 /// the same ladder pattern applies. Defaults: 15 d → 30 d → 60 d.
+/// The Sentinel-1 RTC pass a dated read takes: every pass in a widening
+/// window (15, 30, 60 days) around the date, chosen by `pick`. A dated
+/// recall read the newest pass, whatever date it asked for.
+async fn s1_search_dated(
+    cli: &reqwest::Client,
+    lng: f64,
+    lat: f64,
+    pick: DatedPick,
+    now_unix: i64,
+) -> Result<(emem_fetch::stac::StacItem, i64), String> {
+    let base_days: i64 = std::env::var("EMEM_S1_LOOKBACK_DAYS")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .filter(|d| (1..=365).contains(d))
+        .unwrap_or(15);
+    let mut last_err = None;
+    for days in [base_days, base_days * 2, base_days * 4] {
+        let (lo, hi) = pick.window(days, now_unix);
+        let datetime = format!("{}/{}", iso8601_utc(lo as u64), iso8601_utc(hi as u64));
+        let items = emem_fetch::stac::search_many_at(
+            cli,
+            emem_fetch::stac::STAC_MPC_V1,
+            "sentinel-1-rtc",
+            lng,
+            lat,
+            &datetime,
+            None,
+            s2_items_bound(&datetime, None),
+        )
+        .await
+        .map_err(|e| format!("stac: {e}"))?;
+        if let Some(item) = pick.pick(items, |i| parse_iso8601_unix(&i.datetime)) {
+            return Ok((item, days));
+        }
+        last_err = Some(format!("no Sentinel-1 RTC pass in {datetime}"));
+    }
+    Err(last_err.unwrap_or_else(|| "no Sentinel-1 RTC pass found".into()))
+}
+
 async fn s1_search_with_fallback(
     cli: &reqwest::Client,
     lng: f64,
@@ -59082,6 +59188,17 @@ async fn materialize_sentinel1_vv(
     s: &AppState,
     target_unix: Option<i64>,
 ) -> Result<emem_fact::FactCid, String> {
+    materialize_sentinel1_vv_at(cell64, s, target_unix, None).await
+}
+
+/// As [`materialize_sentinel1_vv`]; with `dated`, the pass that pick takes
+/// from its window ([`s1_search_dated`]) instead of the newest one.
+async fn materialize_sentinel1_vv_at(
+    cell64: &str,
+    s: &AppState,
+    target_unix: Option<i64>,
+    dated: Option<DatedPick>,
+) -> Result<emem_fact::FactCid, String> {
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
@@ -59095,7 +59212,34 @@ async fn materialize_sentinel1_vv(
     // Widening-window fallback (Katihar lesson, radar revisit gaps
     // happen even though clouds don't). Override base via
     // EMEM_S1_LOOKBACK_DAYS. Tiers: 15d → 30d → 60d.
-    let (item, used_days) = s1_search_with_fallback(&cli, lng, lat, target_unix, now_unix).await?;
+    let (item, used_days) = match dated {
+        Some(pick) if pick != DatedPick::Newest => {
+            s1_search_dated(&cli, lng, lat, pick, now_unix).await?
+        }
+        _ => s1_search_with_fallback(&cli, lng, lat, target_unix, now_unix).await?,
+    };
+    // tslot from the STAC item's actual acquisition datetime, snapped to
+    // `sentinel1_raw`'s registered tempo (currently `fast` = daily). The
+    // previous tslot:0 collapsed every RTC observation onto the static-
+    // band sentinel and broke /v1/trajectory for every SAR-derived band.
+    let captured_unix = parse_iso8601_unix(&item.datetime).ok_or_else(|| {
+        format!(
+            "sentinel-1 item.datetime not parseable as ISO-8601: {:?}",
+            item.datetime
+        )
+    })?;
+    let tempo = band_tempo_for_key("sentinel1_raw")
+        .ok_or_else(|| "band sentinel1_raw missing from registry; cannot pick tempo".to_string())?;
+    let tslot = emem_core::tslot::Tslot::from_unix(captured_unix, tempo).0;
+    // The pass already signed here is the same observation: each read of it
+    // signed a copy with a new cid.
+    if !force_resign() {
+        if let Some(cid) =
+            existing_same_acquisition(s, cell64, "sentinel1_raw", tslot, &item.datetime).await
+        {
+            return Ok(cid);
+        }
+    }
     let vv_url_raw = item
         .assets
         .get("vv")
@@ -59128,19 +59272,6 @@ async fn materialize_sentinel1_vv(
     let vv_db = 10.0 * vv_lin.log10();
 
     let signed_at = chrono_iso8601_utc();
-    // tslot from the STAC item's actual acquisition datetime, snapped to
-    // `sentinel1_raw`'s registered tempo (currently `fast` = daily). The
-    // previous tslot:0 collapsed every RTC observation onto the static-
-    // band sentinel and broke /v1/trajectory for every SAR-derived band.
-    let captured_unix = parse_iso8601_unix(&item.datetime).ok_or_else(|| {
-        format!(
-            "sentinel-1 item.datetime not parseable as ISO-8601: {:?}",
-            item.datetime
-        )
-    })?;
-    let tempo = band_tempo_for_key("sentinel1_raw")
-        .ok_or_else(|| "band sentinel1_raw missing from registry; cannot pick tempo".to_string())?;
-    let tslot = emem_core::tslot::Tslot::from_unix(captured_unix, tempo).0;
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "sentinel1_raw".into(),
@@ -63801,6 +63932,9 @@ impl MaterializeOutcome {
 fn classify_skip_reason(reason: &str) -> (&'static str, bool) {
     if reason.starts_with(BUDGET_DEFERRED) {
         ("deferred", true)
+    } else if reason.starts_with(NO_ARCHIVE) {
+        // Asking again cannot help: the source keeps no past.
+        ("no_archive", false)
     } else if reason.starts_with("topic_name_used_as_band") {
         // A topic key such as `vegetation_condition.ndvi` is not in the band
         // registry. The note lists the topic's real bands, and every retry of
@@ -64825,7 +64959,7 @@ async fn materialize_band_at(
     // tslot=0 regardless of target.
     match band {
         "modis.ndvi_mean" => {
-            return materialize_modis_ndvi_window(cell64, Some(target_unix), s).await
+            return materialize_modis_ndvi_window(cell64, DatedPick::Nearest(target_unix), s).await
         }
         "copdem30m.elevation_mean" => {
             return match materialize_elevation_mean(cell64, s).await {
@@ -65601,13 +65735,165 @@ fn materialize_inflight_remove(key: &str) {
         .remove(key);
 }
 
+/// A recall's date bound, as the materializers read it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct DateBound {
+    tslot: u64,
+    /// `tslot` (this slot) rather than `as_of_tslot` (at or before it).
+    exact: bool,
+}
+
+/// How a dated read picks among the observations its window holds.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum DatedPick {
+    /// No date: the newest.
+    Newest,
+    /// The observation nearest one instant (a backfill's target).
+    Nearest(i64),
+    /// A recall's slot: one inside it first, nearest its middle, then the
+    /// nearest to it. With `at_or_before` (an as-of bound), the newest at or
+    /// before `end` and none after it.
+    Slot {
+        start: i64,
+        end: i64,
+        at_or_before: bool,
+    },
+}
+
+impl DatedPick {
+    /// The pick for a recall bound under the band's tempo.
+    fn for_bound(bound: Option<DateBound>, band: &str) -> Self {
+        let (Some(b), Some(tempo)) = (bound, band_tempo_for_key(band)) else {
+            return Self::Newest;
+        };
+        let secs = tempo.slot_seconds() as i64;
+        if secs == 0 {
+            return Self::Newest;
+        }
+        let start = emem_core::tslot::Tslot(b.tslot).to_unix_start(tempo);
+        Self::Slot {
+            start,
+            end: start + secs - 1,
+            at_or_before: !b.exact,
+        }
+    }
+
+    /// Rank of an observation taken at `at`: lower is better, `None` excludes.
+    fn rank(&self, at: i64) -> Option<(u8, i64)> {
+        match *self {
+            Self::Newest => Some((0, i64::MAX - at)),
+            Self::Nearest(t) => Some((0, (at - t).abs())),
+            Self::Slot {
+                end,
+                at_or_before: true,
+                ..
+            } => (at <= end).then_some((0, end - at)),
+            Self::Slot { start, end, .. } if (start..=end).contains(&at) => {
+                Some((0, (at - (start + end) / 2).abs()))
+            }
+            Self::Slot { start, end, .. } => {
+                Some((1, if at < start { start - at } else { at - end }))
+            }
+        }
+    }
+
+    /// The `[lo, hi]` a search covers, `days` either side, never past now.
+    fn window(&self, days: i64, now: i64) -> (i64, i64) {
+        let d = days * 86_400;
+        let (lo, hi) = match *self {
+            Self::Newest => (now - d, now),
+            Self::Nearest(t) => (t - d, t + d),
+            Self::Slot {
+                start,
+                end,
+                at_or_before: true,
+            } => (start - 2 * d, end),
+            Self::Slot { start, end, .. } => (start - d, end + d),
+        };
+        let lo = lo.max(0);
+        (lo, hi.min(now).max(lo + 86_400))
+    }
+
+    /// The best of `items` by when each was taken.
+    fn pick<T>(&self, items: Vec<T>, at: impl Fn(&T) -> Option<i64>) -> Option<T> {
+        items
+            .into_iter()
+            .filter_map(|i| Some((self.rank(at(&i)?)?, i)))
+            .min_by(|a, b| a.0.cmp(&b.0))
+            .map(|(_, i)| i)
+    }
+}
+
+/// The ERA5 band that holds past hours of a met.no band, if there is one.
+fn era5_for_weather(band: &str) -> Option<&'static str> {
+    Some(match band {
+        "weather.temperature_2m" => "era5.t2m",
+        "weather.precipitation_mm" => "era5.precip",
+        "weather.relative_humidity_2m" => "era5.rh2m",
+        "weather.wind_speed_10m" => "era5.windspeed_10m",
+        "weather.cloud_cover" => "era5.cloudcover",
+        "weather.dew_point_2m" => "era5.dewpoint_2m",
+        "weather.air_pressure_msl" => "era5.surface_pressure",
+        _ => return None,
+    })
+}
+
+/// Why a now-only band cannot answer this bound, when the bound's hour has
+/// passed. met.no serves now and a forecast and keeps no past, so the
+/// materializer read now and signed it under a 2022 query. `None` for the
+/// current hour, a future one, or no bound: the now path is unchanged.
+fn now_only_past_refusal(band: &str, bound: Option<DateBound>, now: i64) -> Option<String> {
+    let b = bound?;
+    let meta = band_materializer_meta(band)?;
+    if !matches!(meta.kind, BandKind::NowOnly) {
+        return None;
+    }
+    let tempo = meta.tempo;
+    let secs = tempo.slot_seconds() as i64;
+    let end = emem_core::tslot::Tslot(b.tslot).to_unix_start(tempo) + secs.max(1) - 1;
+    if end >= now - now.rem_euclid(secs.max(1)) {
+        return None;
+    }
+    let asked = tslot_dates(b.tslot, tempo).unwrap_or_else(|| format!("tslot {}", b.tslot));
+    let instead = match era5_for_weather(band) {
+        Some("era5.surface_pressure") => {
+            " For a past hour, recall era5.surface_pressure: ERA5 reanalysis, hourly from 1940, about five days behind, and pressure at the surface rather than at sea level.".to_string()
+        }
+        Some(e) => format!(
+            " For a past hour, recall {e}: ERA5 reanalysis, hourly from 1940, about five days behind."
+        ),
+        None => " No era5.* band carries this quantity.".to_string(),
+    };
+    Some(format!(
+        "{NO_ARCHIVE}: {band} has no archive here. Its source (met.no) serves now and a nine-day forecast and keeps no past, so {asked} cannot be read, and a reading of now is not signed in its place.{instead}"
+    ))
+}
+
+/// Prefix of a skip reason for a date the band's source does not keep.
+const NO_ARCHIVE: &str = "no_archive";
+
+/// As [`try_materialize_bands_at`], with `bound_tslot` an as-of bound.
 async fn try_materialize_bands(
     cell64: &str,
     bands: &[String],
     bound_tslot: Option<u64>,
     s: &AppState,
 ) -> Vec<MaterializeOutcome> {
-    let out = materialize_bands_once(cell64, bands, bound_tslot, s).await;
+    let bound = bound_tslot.map(|tslot| DateBound {
+        tslot,
+        exact: false,
+    });
+    try_materialize_bands_at(cell64, bands, bound, s).await
+}
+
+async fn try_materialize_bands_at(
+    cell64: &str,
+    bands: &[String],
+    bound: Option<DateBound>,
+    s: &AppState,
+) -> Vec<MaterializeOutcome> {
+    let bound_tslot = bound.map(|b| b.tslot);
+    let out = materialize_bands_once(cell64, bands, bound, s).await;
     // Only an unbounded ask checks for the newest; an answer (a new fact, or
     // the pass already held) is a check, an upstream failure is not.
     if bound_tslot.is_none() {
@@ -65621,12 +65907,13 @@ async fn try_materialize_bands(
 async fn materialize_bands_once(
     cell64: &str,
     bands: &[String],
-    bound_tslot: Option<u64>,
+    bound: Option<DateBound>,
     s: &AppState,
 ) -> Vec<MaterializeOutcome> {
     if !auto_materialize_enabled() {
         return Vec::new();
     }
+    let bound_tslot = bound.map(|b| b.tslot);
     // Backstop on the amplification a read can drive.
     //
     // The per-IP limiter admits a 1200-request burst before it throttles,
@@ -65694,7 +65981,7 @@ async fn materialize_bands_once(
             // read still running joins it instead of starting a second one and
             // taking a second permit: without this, every retry the hard-cap
             // note invites stacked another 120 s read on the same tile.
-            let flight_key = format!("{cell64}|{b}|{bound_tslot:?}|{}", force_resign());
+            let flight_key = format!("{cell64}|{b}|{bound:?}|{}", force_resign());
             if let Some(running) = materialize_inflight_get(&flight_key) {
                 return match tokio::time::timeout(cap, running).await {
                     Ok(out) => out,
@@ -65740,7 +66027,13 @@ async fn materialize_bands_once(
             let b = &b_own;
             let mut out: Vec<MaterializeOutcome> = Vec::with_capacity(1);
             match b.as_str() {
-            "modis.ndvi_mean" => match materialize_modis_ndvi(cell64, s).await {
+            "modis.ndvi_mean" => match materialize_modis_ndvi_window(
+                cell64,
+                DatedPick::for_bound(bound, b),
+                s,
+            )
+            .await
+            {
                 Ok(cid) => {
                     tracing::info!(
                         target: "emem::materialize",
@@ -65855,6 +66148,14 @@ async fn materialize_bands_once(
                         });
                     }
                 }
+            }
+            // A past hour of a now-only band: refused, not answered with now.
+            b_name if now_only_past_refusal(b_name, bound, now_unix_s()).is_some() => {
+                out.push(MaterializeOutcome {
+                    band: b.clone(),
+                    fact_cid: None,
+                    skip_reason: now_only_past_refusal(b_name, bound, now_unix_s()),
+                });
             }
             "weather.temperature_2m"
             | "weather.cloud_cover"
@@ -66062,7 +66363,14 @@ async fn materialize_bands_once(
                     }
                 }
             }
-            "sentinel1_raw" => match materialize_sentinel1_vv(cell64, s, None).await {
+            "sentinel1_raw" => match materialize_sentinel1_vv_at(
+                cell64,
+                s,
+                None,
+                bound.map(|_| DatedPick::for_bound(bound, b)),
+            )
+            .await
+            {
                 Ok(cid) => {
                     tracing::info!(
                         target: "emem::materialize",
@@ -66478,7 +66786,7 @@ async fn materialize_bands_once(
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0);
-                let target = era5_target_unix(bound_tslot, now_unix);
+                let target = hourly_target_unix(bound_tslot, now_unix);
                 match materialize_era5_band(cell64, s, b, target, true).await {
                     Ok(cid) => {
                         tracing::info!(
@@ -66509,9 +66817,12 @@ async fn materialize_bands_once(
                     }
                 }
             }
-            // Open-Meteo Marine ECMWF WAM. Recall path: current hour.
+            // Open-Meteo Marine. Recall path: the current hour, or the hour a
+            // dated recall asks for: the API serves past hours too (2021-12-31
+            // and 2022-12-31 both answered with values on 2026-11-13).
             b_name if b_name.starts_with("marine.") => {
-                match materialize_marine_band(cell64, s, b, None).await {
+                let target = bound.map(|_| hourly_target_unix(bound_tslot, now_unix_s()));
+                match materialize_marine_band(cell64, s, b, target).await {
                     Ok(cid) => {
                         tracing::info!(
                             target: "emem::materialize",
@@ -107581,11 +107892,197 @@ mod tests {
     fn a_dated_era5_read_targets_the_hour_asked() {
         let now = 1_794_000_000;
         assert_eq!(
-            era5_target_unix(Some(464_580), now),
+            hourly_target_unix(Some(464_580), now),
             464_580 * 3_600 + 3_599
         );
-        assert_eq!(era5_target_unix(None, now), now);
-        assert_eq!(era5_target_unix(Some(10_000_000), now), now);
+        assert_eq!(hourly_target_unix(None, now), now);
+        assert_eq!(hourly_target_unix(Some(10_000_000), now), now);
+    }
+
+    /// A dated Sentinel-1 read took the newest pass of a window around the
+    /// date. Passes over Trafalgar Square around 2026-11-11 (17:49 UTC).
+    #[test]
+    fn a_dated_s1_read_takes_the_pass_of_the_date() {
+        let at = |d: &str| parse_iso8601_unix(d).unwrap();
+        let passes = || {
+            vec![
+                "2026-11-16T17:57:10Z",
+                "2026-11-13T06:05:00Z",
+                "2026-11-11T17:49:02Z",
+                "2026-11-07T06:13:00Z",
+            ]
+        };
+        let pick = |p: DatedPick| p.pick(passes(), |d| parse_iso8601_unix(d));
+        let day = DateBound {
+            tslot: 20_768,
+            exact: true,
+        };
+        let exact = DatedPick::for_bound(Some(day), "sentinel1_raw");
+        assert_eq!(
+            exact,
+            DatedPick::Slot {
+                start: at("2026-11-11T00:00:00Z"),
+                end: at("2026-11-11T23:59:59Z"),
+                at_or_before: false,
+            }
+        );
+        assert_eq!(pick(exact), Some("2026-11-11T17:49:02Z"));
+        // The newest pass, the old rule, is five days later.
+        assert_eq!(pick(DatedPick::Newest), Some("2026-11-16T17:57:10Z"));
+        // A day with no pass: the nearest either side for `tslot`, never one
+        // after the day for `as_of_tslot`.
+        let next_day = DateBound {
+            tslot: 20_769,
+            exact: true,
+        };
+        assert_eq!(
+            pick(DatedPick::for_bound(Some(next_day), "sentinel1_raw")),
+            Some("2026-11-13T06:05:00Z")
+        );
+        let as_of = DateBound {
+            tslot: 20_769,
+            exact: false,
+        };
+        assert_eq!(
+            pick(DatedPick::for_bound(Some(as_of), "sentinel1_raw")),
+            Some("2026-11-11T17:49:02Z")
+        );
+        assert_eq!(
+            DatedPick::for_bound(None, "sentinel1_raw"),
+            DatedPick::Newest
+        );
+        // The search window holds the date and never reaches past now.
+        let now = at("2026-11-13T12:00:00Z");
+        let (lo, hi) = exact.window(15, now);
+        assert!(lo <= at("2026-11-11T00:00:00Z") && hi == now, "{lo} {hi}");
+        let (lo, hi) = DatedPick::for_bound(Some(as_of), "sentinel1_raw").window(15, now);
+        assert_eq!(hi, at("2026-11-12T23:59:59Z"));
+        assert_eq!(lo, at("2026-10-13T00:00:00Z"));
+    }
+
+    /// MOD13Q1 composites start on day 1, 17, 33... of each year; emem's
+    /// 16-day slots count from 1970, so a slot holds at most one start.
+    #[test]
+    fn a_dated_modis_read_takes_the_composite_of_the_date() {
+        let at = |d: &str| modis_calendar_to_unix(d).unwrap();
+        let starts = || vec!["2026-10-16", "2026-10-31", "2026-11-16", "2026-12-02"];
+        let slot = emem_core::tslot::Tslot::from_unix(
+            at("2026-10-31"),
+            emem_core::tslot::Tempo::Composite16Day,
+        )
+        .0;
+        let pick = |exact: bool| {
+            DatedPick::for_bound(Some(DateBound { tslot: slot, exact }), "modis.ndvi_mean")
+                .pick(starts(), |d| modis_calendar_to_unix(d))
+        };
+        // The composite whose first day is in the slot: the fact at that tslot.
+        assert_eq!(pick(true), Some("2026-10-31"));
+        assert_eq!(pick(false), Some("2026-10-31"));
+        assert_eq!(
+            DatedPick::Newest.pick(starts(), |d| modis_calendar_to_unix(d)),
+            Some("2026-12-02")
+        );
+    }
+
+    /// met.no keeps no past: a dated recall read now and signed it under a
+    /// 2022 query.
+    #[test]
+    fn a_past_hour_of_a_now_only_band_is_refused_with_its_archive() {
+        let now = parse_iso8601_unix("2026-11-13T12:20:00Z").unwrap();
+        let hour = |d: &str, exact: bool| {
+            Some(DateBound {
+                tslot: (parse_iso8601_unix(d).unwrap() / 3_600) as u64,
+                exact,
+            })
+        };
+        let why = now_only_past_refusal(
+            "weather.temperature_2m",
+            hour("2022-12-31T12:00:00Z", true),
+            now,
+        )
+        .expect("refused");
+        assert!(why.starts_with(NO_ARCHIVE), "{why}");
+        assert!(
+            why.contains("2022-12-31T12:00Z") && why.contains("era5.t2m"),
+            "{why}"
+        );
+        assert_eq!(classify_skip_reason(&why), ("no_archive", false));
+        assert!(now_only_past_refusal(
+            "weather.wind_direction_10m",
+            hour("2022-12-31T12:00:00Z", false),
+            now
+        )
+        .unwrap()
+        .contains("No era5.* band"));
+        // The current hour, a future hour and no date keep the now path.
+        assert!(now_only_past_refusal(
+            "weather.temperature_2m",
+            hour("2026-11-13T12:00:00Z", true),
+            now
+        )
+        .is_none());
+        assert!(now_only_past_refusal(
+            "weather.temperature_2m",
+            hour("2026-11-14T12:00:00Z", true),
+            now
+        )
+        .is_none());
+        assert!(now_only_past_refusal("weather.temperature_2m", None, now).is_none());
+        // Marine and ERA5 keep a past, so they read the hour asked instead.
+        assert!(now_only_past_refusal(
+            "marine.wave_height",
+            hour("2022-12-31T12:00:00Z", true),
+            now
+        )
+        .is_none());
+        assert!(
+            now_only_past_refusal("era5.t2m", hour("2022-12-31T12:00:00Z", true), now).is_none()
+        );
+
+        assert_eq!(
+            days_between_slots("sentinel1_raw", 20_768, 20_771),
+            Some(json!(3))
+        );
+        assert_eq!(
+            days_between_slots("modis.ndvi_mean", 1_276, 1_275),
+            Some(json!(-16))
+        );
+        assert_eq!(
+            days_between_slots("era5.t2m", 464_580, 464_586),
+            Some(json!(0.25))
+        );
+        assert_eq!(days_between_slots("copdem30m.elevation_mean", 0, 5), None);
+    }
+
+    #[tokio::test]
+    async fn a_dated_recall_names_a_band_with_no_archive() {
+        let s = test_app_state();
+        let bound = DateBound {
+            tslot: 464_580,
+            exact: true,
+        };
+        let why = now_only_past_refusal("weather.temperature_2m", Some(bound), now_unix_s())
+            .expect("a 2022 hour is past");
+        let (class, retryable) = classify_skip_reason(&why);
+        let mut v = json!({"facts": [], "materialize_notes": [{
+            "band": "weather.temperature_2m", "status": "skipped", "reason": why,
+            "reason_class": class, "retryable": retryable, "absence": false}]});
+        let req = RecallReq {
+            cell: "defi.zb64a.pArI.zfe39".into(),
+            bands: Some(vec!["weather.temperature_2m".into()]),
+            tslot: Some(464_580),
+            ..Default::default()
+        };
+        attach_dated_request(&mut v, &req, &s).await;
+        let row = &v["dated_request"]["bands"][0];
+        assert_eq!(row["status"], "no_archive");
+        assert_eq!(row["asked"], "2022-12-31T12:00Z");
+        let note = row["note"].as_str().unwrap();
+        assert!(
+            note.starts_with("weather.temperature_2m has no archive here"),
+            "{note}"
+        );
+        assert!(note.contains("era5.t2m"), "{note}");
     }
 
     /// Reproduces the reply that read as an answer: `tslot` 19340 for a
@@ -107635,6 +108132,7 @@ mod tests {
         assert_eq!(ndvi["status"], "other_date_signed");
         assert_eq!(ndvi["signed_instead"]["dates"], "2022-12-09");
         assert_eq!(ndvi["signed_instead"]["tslot"], 19_335);
+        assert_eq!(ndvi["days_from_asked"], -5);
         assert!(
             d["summary"]
                 .as_str()
