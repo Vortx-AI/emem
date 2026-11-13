@@ -1704,11 +1704,13 @@ def measure_mcp_list_bytes(responder: str) -> dict | None:
         if res.get("nextCursor"):
             return None  # core split across pages; a different check owns that
         core = len(raw)
-        total, cursor, pages = 0, None, 0
+        total, cursor, pages, timed = 0, None, 0, 0
         while True:
             raw, res = page("/mcp/full", cursor)
             total += len(raw)
             pages += 1
+            timed += sum(1 for t in res.get("tools", [])
+                         if (t.get("_meta") or {}).get("dev.emem/observed_latency"))
             cursor = res.get("nextCursor")
             if not cursor or pages > 20:
                 break
@@ -1728,7 +1730,7 @@ def measure_mcp_list_bytes(responder: str) -> dict | None:
             with patient(req, timeout=60) as r:
                 return len(r.read())
 
-        return {"core": core, "full": total, "pages": pages,
+        return {"core": core, "full": total, "pages": pages, "timed": timed,
                 "menu": call({}), "one_tool": call({"name": "emem_ndvi"})}
     except Exception:
         return None
@@ -1760,16 +1762,32 @@ def verify_mcp_byte_claims(responder: str) -> list[str]:
 
     # How many pages `/mcp/full` takes. Stated in one place and checked by
     # nothing, it sat at 7 while the responder sent 8.
+    #
+    # The count depends on the node's history, not only on the code. A tool
+    # that has run since boot carries `dev.emem/observed_latency` in `_meta`.
+    # On 13 November 2026 that entry was 115 bytes, 111 tools carried one, and
+    # emem.dev sent 9 pages while every fresh CI node still sent 8. CI measures
+    # a node that has run few tools, so the prose was checked against a number
+    # production never served. The prose now states both, and the check
+    # compares with the one that matches what it measured: a node that has run
+    # no tool must send the first, and one that has run some may send anything
+    # from the first to the second.
     pages_claim = REPO / "docs" / "agents.md"
     if pages_claim.exists() and "pages" in measured:
-        m = re.search(r"advertises all " + str(CANON["mcp_tools"]) + r" \(about \d+ KB over (\d+)",
-                      pages_claim.read_text(encoding="utf-8"))
-        if not m:
+        text = pages_claim.read_text(encoding="utf-8")
+        m = re.search(r"advertises all " + str(CANON["mcp_tools"]) + r" \(about \d+ KB over (\d+)", text)
+        w = re.search(r"a\s+busy\s+node\s+sends\s+more\s+pages:\s+on\s+[^,]+,\s+emem\.dev\s+sent\s+(\d+)", text)
+        if not m or not w:
             hits.append("docs/agents.md: the /mcp/full page-count claim no longer "
                         "matches its pattern; the prose moved and this check went blind.")
-        elif int(m.group(1)) != measured["pages"]:
-            hits.append(f"docs/agents.md: says /mcp/full is {m.group(1)} pages; "
-                        f"the responder sent {measured['pages']}.")
+        else:
+            fresh, busy, got = int(m.group(1)), int(w.group(1)), measured["pages"]
+            if measured.get("timed", 0) == 0 and got != fresh:
+                hits.append(f"docs/agents.md: says /mcp/full is {fresh} pages on a node "
+                            f"that has run no tool; this one has run none and sent {got}.")
+            elif measured.get("timed", 0) and not fresh <= got <= busy:
+                hits.append(f"docs/agents.md: says /mcp/full is {fresh} to {busy} pages; "
+                            f"the responder, with {measured['timed']} tools timed, sent {got}.")
     return hits
 
 

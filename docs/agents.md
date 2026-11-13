@@ -1937,7 +1937,10 @@ Look at `/v1/data_availability` before you select a window.
 
 On 7 November 2026, `tools/list` on `/mcp` gives the 18 `core` tools
 in one page (about 77 KB of descriptors).
-`/mcp/full` advertises all 116 (about 342 KB over 8 pages). Send
+`/mcp/full` advertises all 116 (about 342 KB over 8 pages). A tool
+that a node has run since it started also carries its measured latency
+in `_meta` as `dev.emem/observed_latency`, about 70 bytes. So a busy
+node sends more pages: on 13 November 2026, emem.dev sent 9. Send
 `{"tier": "core"}`, `"extended"` or `"all"` to change the list on either
 endpoint. The `extended` and `all` lists come in pages: follow
 `nextCursor`. The server runs any tool by name through `tools/call` on both
