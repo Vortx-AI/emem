@@ -144,6 +144,18 @@ An MCP answer has a size limit of 24,000 bytes by default
 If `fetch` is `null`, send the same arguments to the REST route. REST has no
 size limit.
 
+A field that the tool's output schema requires keeps its type. If it does not
+fit, it is empty (`[]`, `{}`), and its `omitted_fields` entry has
+`_served_empty: true`.
+
+A cut `emem_recall` keeps the newest fact of each band first, then older facts
+while they fit, in `fact_order`. `_emem_truncation.bands_cut` gives the kept
+and total count for each band. The receipt in a cut recall is a new receipt,
+under the same key, over the facts in the answer: `_emem_truncation.receipt`
+says `covers: facts_served`. Over MCP, the `emem_ask` receipt signs the facts
+that the trace points cite, and `_projection.receipt` says so. `POST /v1/recall`
+and `POST /v1/ask` return a receipt over every fact that the read matched.
+
 Sometimes the full text fits, but the text and `structuredContent` together do
 not. Then a tool without an output schema sends the full text and no
 `structuredContent`. That answer has no `_emem_truncation` block. Read the

@@ -591,7 +591,7 @@ const OUT_ASK: &str = r#"{"type":"object","required":["schema","spatial_trace"],
 "layer":{"type":"string","enum":["surface","built","now","embedding","other","ground"]},
 "points":{"type":"array","description":"One per signed reading.","items":{"type":"object","required":["band","value"],"properties":{
 "band":{"type":"string"},
-"value":{"type":["number","string","boolean","null"],"description":"The measured value, in the band's own units. `null` where the band was looked for and not found: an absence is a reading."},
+"value":{"type":["number","string","boolean","null"],"description":"A scalar, in the band's units. null for a vector or record: see value_kind and value_summary."},
 "unit":{"type":"string"},
 "age_s":{"type":"integer","description":"How old the reading was when this answer was written."},
 "class":{"type":"string","description":"Provenance class: direct_sensor, deterministic_index, estimator, model_output, attested_execution, human_curated, unclassified. What KIND of claim this is."},

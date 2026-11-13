@@ -27030,6 +27030,7 @@ fn mcp_slim_both_copies(inner: JsonValue, tool: &str, budget: usize) -> (String,
         // smaller answer of the DECLARED SHAPE rather than a refusal to shrink.
         let (mut slimmed, _note) = mcp_slim_inner_to_budget_for(inner.clone(), room, tool);
         mcp_shorten_rather_than_empty(&mut slimmed, &inner, &required, room);
+        mcp_required_keys_keep_their_type(&mut slimmed, &inner, tool);
         let mirror = mcp_mirror_for_schema(&slimmed, &required);
         let text = serde_json::to_string(&slimmed).unwrap_or_else(|_| "{}".to_string());
         let on_the_wire = mcp_text_wire_len(&text)
@@ -27042,6 +27043,87 @@ fn mcp_slim_both_copies(inner: JsonValue, tool: &str, budget: usize) -> (String,
         room = room.saturating_sub(on_the_wire - budget).max(512);
     }
     last
+}
+
+/// The declared JSON types of each required top-level key of `tool`'s
+/// outputSchema, as `(key, types)`.
+fn schema_required_types(tool: &str) -> Vec<(String, Vec<String>)> {
+    let Some(schema) = emem_mcp::output_schema_of(tool)
+        .and_then(|raw| serde_json::from_str::<JsonValue>(raw).ok())
+    else {
+        return Vec::new();
+    };
+    schema_required_keys(tool)
+        .into_iter()
+        .map(|k| {
+            let types = match schema.pointer(&format!("/properties/{k}/type")) {
+                Some(JsonValue::String(t)) => vec![t.clone()],
+                Some(JsonValue::Array(ts)) => ts
+                    .iter()
+                    .filter_map(|t| t.as_str().map(String::from))
+                    .collect(),
+                _ => Vec::new(),
+            };
+            (k, types)
+        })
+        .collect()
+}
+
+/// The last guard between the slimmer and a strict client: a required key
+/// leaves here with a type its schema allows, or not at all changed.
+///
+/// `mcp_shorten_rather_than_empty` puts back what fits. What does not fit
+/// stayed null, and null is not a type OUT_RECALL allows for `facts` or
+/// `fact_order`. A client that validates `structuredContent` against the
+/// published schema then rejected the whole recall, so the agent got nothing
+/// where a short answer was on offer. So a required key that is still null
+/// becomes the empty value of its declared type, and a short scalar comes
+/// back whole: restoring an identifier whole is not mangling it. The
+/// `_emem_truncation` entry for the key says it is served empty, so `[]`
+/// cannot read as "nothing there".
+fn mcp_required_keys_keep_their_type(slimmed: &mut JsonValue, original: &JsonValue, tool: &str) {
+    for (key, types) in schema_required_types(tool) {
+        let null_now = slimmed.get(&key).is_some_and(|v| v.is_null());
+        if !null_now || types.is_empty() || types.iter().any(|t| t == "null") {
+            continue;
+        }
+        let Some(whole) = original.get(&key).filter(|v| !v.is_null()) else {
+            continue;
+        };
+        let allows = |t: &str| types.iter().any(|d| d == t);
+        let replacement = match whole {
+            JsonValue::String(s) if allows("string") && s.len() <= NEVER_DROP_SCALAR_BYTES => {
+                whole.clone()
+            }
+            JsonValue::Number(_) if allows("number") || allows("integer") => whole.clone(),
+            JsonValue::Bool(_) if allows("boolean") => whole.clone(),
+            _ if allows("array") => json!([]),
+            _ if allows("object") => json!({}),
+            _ if allows("string") => json!(""),
+            _ => continue,
+        };
+        let emptied = matches!(&replacement, JsonValue::Array(a) if a.is_empty())
+            || matches!(&replacement, JsonValue::Object(o) if o.is_empty())
+            || replacement == json!("");
+        if let Some(map) = slimmed.as_object_mut() {
+            map.insert(key.clone(), replacement);
+        }
+        let Some(listed) = slimmed
+            .pointer_mut("/_emem_truncation/omitted_fields")
+            .and_then(|o| o.as_array_mut())
+        else {
+            continue;
+        };
+        if emptied {
+            if let Some(entry) = listed.iter_mut().find(|d| d["field"] == json!(key)) {
+                entry["stub"]["_kept"] = json!(0);
+                entry["stub"]["_served_empty"] = json!(true);
+            }
+        } else {
+            // Served whole, so it is no longer an omission.
+            listed.retain(|d| d["field"] != json!(key));
+        }
+    }
 }
 
 /// Is this string free text that may lose its tail, or an identity that may not?
@@ -27319,7 +27401,17 @@ fn mcp_text_block(text: String) -> JsonValue {
 /// set verifies offline), `facts_summary` counts, the derived
 /// `algorithm_outcomes_summary`, and a small perception summary naming the
 /// detector behind any ground counts.
+#[cfg(test)]
 fn mcp_project_ask(v: JsonValue) -> JsonValue {
+    mcp_project_ask_signed(v, &|_, _| None)
+}
+
+/// [`mcp_project_ask`], with a signer for the receipt over the cited facts.
+///
+/// `resign` signs a receipt again over a subset of its fact cids (see
+/// [`mcp_resign_receipt_over`]). When it returns None, the receipt the answer
+/// came with is kept as it is.
+fn mcp_project_ask_signed(v: JsonValue, resign: &ReceiptResigner<'_>) -> JsonValue {
     let JsonValue::Object(src) = v else {
         return v;
     };
@@ -27428,7 +27520,535 @@ fn mcp_project_ask(v: JsonValue) -> JsonValue {
             "rest": format!("{}/v1/ask", public_origin().unwrap_or_else(|| "https://emem.dev".into())),
         }),
     );
+    mcp_ask_receipt_over_cited(&mut out, resign);
     JsonValue::Object(mcp_fit_ask_to_budget(out))
+}
+
+/// Signs a receipt again over a subset of its fact cids, or says it cannot.
+type ReceiptResigner<'a> = dyn Fn(&JsonValue, &[String]) -> Option<JsonValue> + 'a;
+
+/// Whether this receipt can be signed again over fewer facts with nothing
+/// else about it changed: a recall receipt with no field binding.
+fn mcp_receipt_can_narrow(receipt: &JsonValue) -> bool {
+    receipt.get("primitive").and_then(|p| p.as_str()) == Some("emem.recall")
+        && receipt.get("field").is_none_or(|f| f.is_null())
+        && receipt.get("fact_cids").is_some_and(|c| c.is_array())
+}
+
+/// A new receipt over `cids`, with every other bound of `receipt` kept: the
+/// same primitive, cells, intent, scope, as_of bound and edge cids.
+///
+/// The receipt is signed, so the wire budget cannot cut it. On a busy cell it
+/// lists every fact the read matched: 3,484 cids, 195 KB, on one MCP ask at
+/// Trafalgar Square against a 24,000-byte budget. A signature binds every cid
+/// in it, so a shorter copy of it does not verify. A new receipt over the
+/// facts the reply carries does, offline, under the same key. The reply says
+/// what it covers and that REST signs the full set.
+///
+/// `sign_receipt` and the preimage are not changed: this calls the signer the
+/// recall itself used, with fewer cids.
+fn mcp_resign_receipt_over(
+    s: &AppState,
+    receipt: &JsonValue,
+    cids: &[String],
+    started: std::time::Instant,
+) -> Option<JsonValue> {
+    if !mcp_receipt_can_narrow(receipt) {
+        return None;
+    }
+    let r: emem_fact::Receipt = serde_json::from_value(receipt.clone()).ok()?;
+    let bound = emem_storage::AsOfBound {
+        valid_time: r.as_of.as_ref().and_then(|a| a.valid_time),
+        transaction_time: r.as_of.as_ref().and_then(|a| a.transaction_time.clone()),
+    };
+    let signed = s.sign_receipt_with_edges(
+        "emem.recall",
+        r.cells.clone(),
+        cids.iter()
+            .map(|c| emem_fact::FactCid::new(c.as_str()))
+            .collect(),
+        r.cost.was_cached,
+        started,
+        r.intent.clone(),
+        r.scope.clone(),
+        &bound,
+        &r.edge_cids,
+    );
+    serde_json::to_value(&signed).ok()
+}
+
+/// Over MCP, the ask receipt signs the facts the answer cites.
+///
+/// The answer cites its trace points: each carries `f`, an index into
+/// `receipt.fact_cids`. The receipt the recall signed lists every fact the
+/// read matched, every tslot of every band, and that list can be larger than
+/// the whole wire budget. So the receipt is signed again over the cited facts
+/// only, each `f` is renumbered into the new list, and `_projection.receipt`
+/// says so. POST /v1/ask still returns the receipt over every fact read.
+///
+/// Only when the envelope's cid list is the receipt's own: a different list
+/// could name a fact the first receipt never covered.
+fn mcp_ask_receipt_over_cited(
+    out: &mut serde_json::Map<String, JsonValue>,
+    resign: &ReceiptResigner<'_>,
+) {
+    if out
+        .get("_projection")
+        .and_then(|p| p.get("fact_cids_at"))
+        .and_then(|a| a.as_str())
+        != Some("receipt.fact_cids")
+    {
+        return;
+    }
+    let Some(receipt) = out.get("receipt").filter(|r| mcp_receipt_can_narrow(r)) else {
+        return;
+    };
+    let listed: Vec<String> = receipt["fact_cids"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|c| c.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    let points = |out: &serde_json::Map<String, JsonValue>| -> Vec<usize> {
+        out.get("spatial_trace")
+            .and_then(|t| t.get("layers"))
+            .and_then(|l| l.as_array())
+            .map(|ls| {
+                ls.iter()
+                    .filter_map(|l| l.get("points")?.as_array())
+                    .flatten()
+                    .filter_map(|p| p.get("f")?.as_u64())
+                    .map(|f| f as usize)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let cited: std::collections::BTreeSet<usize> = points(out)
+        .into_iter()
+        .filter(|f| *f < listed.len())
+        .collect();
+    if cited.is_empty() || cited.len() >= listed.len() {
+        return;
+    }
+    let kept: Vec<usize> = cited.into_iter().collect();
+    let cids: Vec<String> = kept.iter().map(|&i| listed[i].clone()).collect();
+    let Some(signed) = resign(receipt, &cids) else {
+        return;
+    };
+    let renumber: std::collections::HashMap<usize, usize> = kept
+        .iter()
+        .enumerate()
+        .map(|(new, &old)| (old, new))
+        .collect();
+    if let Some(layers) = out
+        .get_mut("spatial_trace")
+        .and_then(|t| t.get_mut("layers"))
+        .and_then(|l| l.as_array_mut())
+    {
+        for p in layers
+            .iter_mut()
+            .filter_map(|l| l.get_mut("points")?.as_array_mut())
+            .flatten()
+        {
+            let Some(f) = p.get("f").and_then(|f| f.as_u64()) else {
+                continue;
+            };
+            match renumber.get(&(f as usize)) {
+                Some(new) => p["f"] = json!(new),
+                None => {
+                    if let Some(m) = p.as_object_mut() {
+                        m.remove("f");
+                    }
+                }
+            }
+        }
+    }
+    out.insert("receipt".into(), signed);
+    if let Some(p) = out.get_mut("_projection").and_then(|p| p.as_object_mut()) {
+        p.insert(
+            "receipt".into(),
+            json!({
+                "covers": "cited",
+                "facts_cited": cids.len(),
+                "facts_read": listed.len(),
+                "means": "this receipt signs the facts the trace points cite. It is a new receipt under the same key and verifies offline. POST /v1/ask returns the receipt over every fact the answer read.",
+            }),
+        );
+    }
+}
+
+/// Bytes a result costs on the wire when it rides as a text block AND as an
+/// identical `structuredContent` mirror.
+fn mcp_two_copy_cost(v: &JsonValue) -> usize {
+    let text = serde_json::to_string(v).unwrap_or_default();
+    mcp_text_wire_len(&text)
+        .saturating_add(text.len())
+        .saturating_add(MCP_RESULT_OVERHEAD_BYTES)
+}
+
+/// The order a cut recall keeps its facts in: the newest fact of every band,
+/// then the second newest of every band, and so on.
+///
+/// The cut used to keep a prefix of the list. The list is tslot ascending, so
+/// a prefix is the OLDEST facts, and an agent read "no recent data" off a
+/// recall whose newest readings were the ones cut. Within one rank, smaller
+/// facts go first, so the most bands keep a current reading; then bands go by
+/// name. Tslots of different bands are in different units and cannot be
+/// compared, so recency never decides between two bands.
+fn recall_keep_order(facts: &[JsonValue]) -> Vec<usize> {
+    let band = |f: &JsonValue| {
+        f.get("band")
+            .and_then(|b| b.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    let when = |f: &JsonValue| {
+        f.get("tslot")
+            .and_then(|t| t.as_u64())
+            .or_else(|| {
+                f.get("tslot_window")
+                    .and_then(|w| w.get(1))
+                    .and_then(|t| t.as_u64())
+            })
+            .unwrap_or(0)
+    };
+    let mut by_band: std::collections::BTreeMap<String, Vec<usize>> = Default::default();
+    for (i, f) in facts.iter().enumerate() {
+        by_band.entry(band(f)).or_default().push(i);
+    }
+    let size = |f: &JsonValue| serde_json::to_string(f).map(|t| t.len()).unwrap_or(0);
+    let mut ranked: Vec<(usize, usize, String, usize)> = Vec::with_capacity(facts.len());
+    for (b, mut idx) in by_band {
+        idx.sort_by_key(|&i| std::cmp::Reverse((when(&facts[i]), i)));
+        for (rank, i) in idx.into_iter().enumerate() {
+            ranked.push((rank, size(&facts[i]), b.clone(), i));
+        }
+    }
+    ranked.sort();
+    ranked.into_iter().map(|(_, _, _, i)| i).collect()
+}
+
+/// Which receipt a cut recall carries.
+#[derive(Clone, Copy)]
+enum CutReceipt<'a> {
+    /// The receipt the recall signed, over every fact it matched.
+    Original,
+    /// The original with `fact_cids` cut to the kept facts. For sizing only:
+    /// it is never served, because its signature does not cover that list.
+    Placeholder,
+    /// A receipt signed over exactly the kept facts.
+    Signed(&'a JsonValue),
+}
+
+/// Everything a cut recall is built from, so each candidate size is measured
+/// on the reply that would actually be sent.
+struct RecallCut<'a> {
+    facts: &'a [JsonValue],
+    cids: &'a [String],
+    order: &'a [usize],
+    bands_total: std::collections::BTreeMap<String, usize>,
+    receipt: &'a JsonValue,
+    fetch_args: &'a JsonValue,
+    budget: usize,
+    origin: String,
+    /// No more facts than this can fit: their own bytes, once, already fill
+    /// the budget. Bounds the search so a 3,484-fact recall is not
+    /// serialised whole a dozen times.
+    most_possible: usize,
+}
+
+impl RecallCut<'_> {
+    /// The reply with the first `k` facts of `order`, `dropped` optional
+    /// fields named in the note, and the receipt `which` says.
+    fn build(
+        &self,
+        map: &serde_json::Map<String, JsonValue>,
+        dropped: &[(String, &'static str)],
+        k: usize,
+        which: CutReceipt<'_>,
+    ) -> JsonValue {
+        let n = self.facts.len();
+        let cut = k < n;
+        let mut idx: Vec<usize> = self.order[..k].to_vec();
+        idx.sort_unstable();
+        let mut m = map.clone();
+        m.insert(
+            "facts".into(),
+            JsonValue::Array(idx.iter().map(|&i| self.facts[i].clone()).collect()),
+        );
+        let narrowed = match which {
+            CutReceipt::Original => false,
+            CutReceipt::Placeholder => {
+                let mut r = self.receipt.clone();
+                r["fact_cids"] = json!(idx.iter().map(|&i| &self.cids[i]).collect::<Vec<_>>());
+                m.insert("receipt".into(), r);
+                true
+            }
+            CutReceipt::Signed(r) => {
+                m.insert("receipt".into(), r.clone());
+                true
+            }
+        };
+        if narrowed {
+            // Contested notes name facts by cid; keep the ones still served.
+            if let Some(JsonValue::Array(notes)) = m.get_mut("contested") {
+                let served: std::collections::HashSet<&str> =
+                    idx.iter().map(|&i| self.cids[i].as_str()).collect();
+                notes.retain(|c| c["fact_cid"].as_str().is_some_and(|x| served.contains(x)));
+            }
+        }
+        let mut kept_by_band: std::collections::BTreeMap<&str, usize> = Default::default();
+        for &i in &idx {
+            *kept_by_band
+                .entry(self.facts[i]["band"].as_str().unwrap_or(""))
+                .or_default() += 1;
+        }
+        let mut bands_cut: Vec<JsonValue> = Vec::new();
+        let mut most_cut: Option<(&str, usize)> = None;
+        for (b, total) in &self.bands_total {
+            let kept = kept_by_band.get(b.as_str()).copied().unwrap_or(0);
+            if kept < *total {
+                bands_cut.push(json!({"band": b, "kept": kept, "of": total}));
+                if most_cut.is_none_or(|(_, m)| total - kept > m) {
+                    most_cut = Some((b.as_str(), total - kept));
+                }
+            }
+        }
+        const LISTED_BANDS: usize = 12;
+        let unlisted = bands_cut.len().saturating_sub(LISTED_BANDS);
+        bands_cut.truncate(LISTED_BANDS);
+        let mut omitted: Vec<JsonValue> = Vec::new();
+        if cut {
+            omitted.push(json!({"field": "facts", "stub": {
+                "_truncated": true, "_kind": "array", "_kept": k, "_len": n,
+                "_kept_rule": "newest_per_band_first",
+            }}));
+        }
+        for (field, kind) in dropped {
+            omitted.push(json!({"field": field, "stub": {"_omitted": true, "_kind": kind}}));
+        }
+        let mut next: Vec<JsonValue> = Vec::new();
+        if let (Some((b, _)), Some(cell)) = (most_cut, self.fetch_args.get("cell")) {
+            next.push(next_step::step(
+                "emem_recall",
+                "facts",
+                json!({"cell": cell, "bands": [b]}),
+            ));
+        }
+        next.push(next_step::step(
+            "POST /v1/recall",
+            "omitted_fields",
+            self.fetch_args.clone(),
+        ));
+        let reason = match (cut, narrowed) {
+            (true, true) => "This result was over the MCP wire budget. `facts` keeps the newest fact of each band first, then older facts while they fit, in fact_order. The receipt is signed again over exactly the facts served here.",
+            (true, false) => "This result was over the MCP wire budget. `facts` keeps the newest fact of each band first, then older facts while they fit, in fact_order. The receipt covers every fact the read matched.",
+            (false, _) => "This result was over the MCP wire budget. Every fact is here. The listed fields are omitted.",
+        };
+        let mut note = json!({
+            "reason": reason,
+            "budget_bytes": self.budget,
+            "omitted_fields": omitted,
+            "fetch": {
+                "method": "POST",
+                "path": "/v1/recall",
+                "url": format!("{}/v1/recall", self.origin),
+                "body": self.fetch_args.clone(),
+                "why": format!("returns all {n} facts under one receipt; REST has no wire budget"),
+            },
+            "next": next,
+        });
+        if cut {
+            note["bands_cut"] = JsonValue::Array(bands_cut);
+            if unlisted > 0 {
+                note["bands_cut_not_listed"] = json!(unlisted);
+            }
+            note["receipt"] = json!({
+                "covers": if narrowed { "facts_served" } else { "facts_matched" },
+                "facts_signed": if narrowed { k } else { n },
+                "facts_matched": n,
+            });
+        }
+        m.insert("_emem_truncation".into(), note);
+        JsonValue::Object(m)
+    }
+
+    /// The most facts that fit beside `map`, or None when not even zero do.
+    fn most_that_fit(
+        &self,
+        map: &serde_json::Map<String, JsonValue>,
+        dropped: &[(String, &'static str)],
+        which: CutReceipt<'_>,
+    ) -> Option<usize> {
+        // A receipt signed later can carry a longer inclusion proof than the
+        // placeholder measured here; this much slack keeps one signature enough.
+        const RESIGN_SLACK: usize = 768;
+        let fits = |k: usize| {
+            mcp_two_copy_cost(&self.build(map, dropped, k, which)) + RESIGN_SLACK <= self.budget
+        };
+        if !fits(0) {
+            return None;
+        }
+        let (mut lo, mut hi) = (0usize, self.most_possible.min(self.facts.len()));
+        while lo < hi {
+            let mid = (lo + hi).div_ceil(2);
+            if fits(mid) {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        Some(lo)
+    }
+}
+
+/// Fit an `emem_recall` result to the MCP wire budget, by meaning.
+///
+/// The generic slimmer cut `facts` to a prefix of a tslot-ascending list,
+/// which kept the oldest readings. When the receipt alone filled the budget,
+/// it nulled `facts` and `fact_order`, which broke OUT_RECALL for a client
+/// that validates `structuredContent`. Here the newest fact of each band goes
+/// first (see [`recall_keep_order`]), the kept facts stay in `fact_order`,
+/// and the receipt is signed again over exactly the facts served, so a large
+/// receipt cannot crowd out the facts it signs. `_emem_truncation` says what
+/// was cut, per band, and names the narrower call and the uncapped route.
+///
+/// `fetch_args` are the arguments to send to POST /v1/recall for the whole
+/// result. A result that fits is returned unchanged.
+fn mcp_fit_recall_to_budget(
+    v: JsonValue,
+    fetch_args: JsonValue,
+    resign: &ReceiptResigner<'_>,
+) -> JsonValue {
+    let budget = mcp_response_budget_bytes();
+    if mcp_two_copy_cost(&v) <= budget {
+        return v;
+    }
+    let JsonValue::Object(mut map) = v else {
+        return v;
+    };
+    if !map
+        .get("facts")
+        .is_some_and(|f| f.as_array().is_some_and(|a| !a.is_empty()))
+        || !map.get("receipt").is_some_and(|r| r.is_object())
+    {
+        return JsonValue::Object(map);
+    }
+    let receipt = map.get("receipt").cloned().unwrap_or_default();
+    // Out of the map, so each candidate below clones only what it keeps.
+    let facts: Vec<JsonValue> = match map.remove("facts") {
+        Some(JsonValue::Array(a)) => a,
+        _ => Vec::new(),
+    };
+    let whole = |mut map: serde_json::Map<String, JsonValue>, facts: Vec<JsonValue>| {
+        map.insert("facts".into(), JsonValue::Array(facts));
+        JsonValue::Object(map)
+    };
+    let n = facts.len();
+    let cids: Option<Vec<String>> = facts
+        .iter()
+        .map(|f| f.get("fact_cid").and_then(|c| c.as_str()).map(String::from))
+        .collect();
+    let mut narrow = cids.is_some() && mcp_receipt_can_narrow(&receipt);
+    let cids = cids.unwrap_or_default();
+    let order = recall_keep_order(&facts);
+    let mut bands_total: std::collections::BTreeMap<String, usize> = Default::default();
+    for f in &facts {
+        *bands_total
+            .entry(f["band"].as_str().unwrap_or("").to_string())
+            .or_default() += 1;
+    }
+    let first_rank = bands_total.len().min(n);
+    let cut = RecallCut {
+        facts: &facts,
+        cids: &cids,
+        order: &order,
+        bands_total,
+        receipt: &receipt,
+        fetch_args: &fetch_args,
+        budget,
+        origin: public_origin().unwrap_or_else(|| "https://emem.dev".into()),
+        most_possible: {
+            let mut used = 0usize;
+            order
+                .iter()
+                .take_while(|&&i| {
+                    used += serde_json::to_string(&facts[i])
+                        .map(|t| t.len() + 1)
+                        .unwrap_or(0);
+                    used <= budget
+                })
+                .count()
+        },
+    };
+    let sizing = |narrow: bool| {
+        if narrow {
+            CutReceipt::Placeholder
+        } else {
+            CutReceipt::Original
+        }
+    };
+
+    // Facts before the optional extras: the newest fact of every band goes
+    // ahead of materialize notes and the band inventory. Optional fields are
+    // removed, not nulled: the mirror is validated, and an absent optional
+    // field is valid where a null one is not.
+    const KEEP: &[&str] = &["facts", "receipt", "fact_order", "current_by_band"];
+    let mut dropped: Vec<(String, &'static str)> = Vec::new();
+    let mut k = cut.most_that_fit(&map, &dropped, sizing(narrow));
+    while k.is_none_or(|k| k < first_rank) {
+        let heaviest = map
+            .iter()
+            .filter(|(key, v)| {
+                !KEEP.contains(&key.as_str())
+                    && matches!(v, JsonValue::Array(_) | JsonValue::Object(_))
+            })
+            .max_by_key(|(_, v)| serde_json::to_string(v).map(|t| t.len()).unwrap_or(0))
+            .map(|(key, v)| (key.clone(), if v.is_array() { "array" } else { "object" }));
+        let Some((key, kind)) = heaviest else {
+            break;
+        };
+        map.remove(&key);
+        dropped.push((key, kind));
+        k = cut.most_that_fit(&map, &dropped, sizing(narrow));
+    }
+    let Some(mut k) = k.filter(|k| *k > 0) else {
+        // Not even one fact fits beside the receipt. The generic slimmer
+        // takes it from here and keeps every required key typed.
+        return whole(map, facts);
+    };
+    if k == n {
+        return cut.build(&map, &dropped, k, CutReceipt::Original);
+    }
+    // Sign over what is served, measure the real reply, and cut further only
+    // if the real receipt came out longer than the placeholder.
+    let mut last: Option<JsonValue> = None;
+    while narrow {
+        let mut idx: Vec<usize> = order[..k].to_vec();
+        idx.sort_unstable();
+        let served: Vec<String> = idx.iter().map(|&i| cids[i].clone()).collect();
+        let Some(signed) = resign(&receipt, &served) else {
+            // No signer here: serve the original receipt and size for it.
+            narrow = false;
+            break;
+        };
+        let candidate = cut.build(&map, &dropped, k, CutReceipt::Signed(&signed));
+        let over = mcp_two_copy_cost(&candidate) > budget;
+        last = Some(candidate);
+        if !over || k == 1 {
+            break;
+        }
+        k -= (k / 10).max(1);
+    }
+    if let Some(signed) = last {
+        return signed;
+    }
+    match cut.most_that_fit(&map, &dropped, sizing(narrow)) {
+        Some(k) if k > 0 => cut.build(&map, &dropped, k, CutReceipt::Original),
+        _ => whole(map, facts),
+    }
 }
 
 /// Make a projected answer FIT, by meaning, before anything sizes it blind.
@@ -33849,7 +34469,9 @@ async fn mcp_tool_call_inner(
                     .saturating_sub(3);
                 attach_model_answer(&mut v, &q_for_model, &want, s, left).await;
             }
-            Ok(mcp_project_ask(v))
+            Ok(mcp_project_ask_signed(v, &|r, cids| {
+                mcp_resign_receipt_over(s, r, cids, started)
+            }))
         }
         "emem_hunt" => {
             // Structured hunter-mode: caller picks the event keyword
@@ -34145,6 +34767,8 @@ async fn mcp_tool_call_inner(
             // recall match every band at the cell instead of the asked-for
             // one (we saw this with `band: "geotessera.2020"` returning a
             // cached weather fact instead of materialising Tessera 2020).
+            let started = std::time::Instant::now();
+            let mut fetch_args = args.clone();
             let api_req: RecallApiReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             // Through the SAME helper REST uses. Calling `.into()` here was
@@ -34190,7 +34814,19 @@ async fn mcp_tool_call_inner(
                     );
                 }
             }
-            Ok(attach_resolved_env(v))
+            // The request as REST takes it, at the cell it resolved to, so the
+            // note's `fetch` returns this same read whole.
+            if let Some(m) = fetch_args.as_object_mut() {
+                for k in ["cell64", "place", "lat", "lng"] {
+                    m.remove(k);
+                }
+                m.insert("cell".into(), json!(req.cell));
+            }
+            Ok(mcp_fit_recall_to_budget(
+                attach_resolved_env(v),
+                fetch_args,
+                &|r, cids| mcp_resign_receipt_over(s, r, cids, started),
+            ))
         }
         // ── Memory substrate (state vectors + memory tokens) ─────────
         // Without these arms, tools/list advertises a tool that
@@ -78729,27 +79365,44 @@ fn spatial_trace_add_ground(trace: &mut JsonValue, live: &JsonValue) {
 /// matters is `truncated`, and it is computed from totals taken BEFORE the cap:
 /// a number derived from an already-capped list cannot witness its own capping,
 /// which is a fault this repo shipped twice in one week.
-/// A trace point's value as a model should read it. A scalar passes through.
-/// A learned embedding does not: one Prithvi vector is 768 floats, about 14 KB
-/// of digits in an answer budgeted at 7 KB, and no reasoning reads it
-/// coordinate by coordinate. It becomes its dimension and L2 norm; the vector
+/// A trace point's value as a model should read it, and as `OUT_ASK` declares
+/// it: a scalar, or null.
+///
+/// A scalar passes through. A vector or a record does not go in `value`. The
+/// declared type of `value` is number, string, boolean or null, and an MCP
+/// client that validates `structuredContent` refused the whole answer when a
+/// GeoTessera point carried an object there. So a non-scalar reading is
+/// `value: null`, `value_kind` names what it is, and `value_summary` gives its
+/// shape. A learned embedding is never inlined: one Prithvi vector is 768
+/// floats, about 14 KB of digits, and no reasoning reads it coordinate by
+/// coordinate. A short vector keeps its numbers in the summary. The reading
 /// itself is one resolve of the point's fact away.
-fn splat_value(value: &JsonValue) -> JsonValue {
+///
+/// Returns `(value, Some((value_kind, value_summary)))` for a non-scalar.
+fn splat_value(value: &JsonValue) -> (JsonValue, Option<(&'static str, JsonValue)>) {
     const VECTOR_INLINE_MAX: usize = 16;
-    match value.as_array() {
-        Some(a) if a.len() > VECTOR_INLINE_MAX => {
+    match value {
+        JsonValue::Array(a) => {
             let l2 = a
                 .iter()
                 .filter_map(|x| x.as_f64())
                 .map(|x| x * x)
                 .sum::<f64>()
                 .sqrt();
-            json!({
-                "vector": { "dim": a.len(), "l2_norm": l2 },
-                "_means": "an embedding, summarised: resolve this point's fact (`f`) for the full vector",
-            })
+            let mut summary = json!({ "dim": a.len(), "l2_norm": l2 });
+            if a.len() <= VECTOR_INLINE_MAX {
+                summary["values"] = value.clone();
+            }
+            (JsonValue::Null, Some(("vector", summary)))
         }
-        _ => value.clone(),
+        JsonValue::Object(o) => {
+            let keys: Vec<&String> = o.keys().take(VECTOR_INLINE_MAX).collect();
+            (
+                JsonValue::Null,
+                Some(("record", json!({ "fields": o.len(), "keys": keys }))),
+            )
+        }
+        _ => (value.clone(), None),
     }
 }
 
@@ -78810,7 +79463,12 @@ fn spatial_trace(
         }
         let mut point = serde_json::Map::new();
         point.insert("band".into(), json!(band));
-        point.insert("value".into(), splat_value(value));
+        let (scalar, shape) = splat_value(value);
+        point.insert("value".into(), scalar);
+        if let Some((kind, summary)) = shape {
+            point.insert("value_kind".into(), json!(kind));
+            point.insert("value_summary".into(), summary);
+        }
         if let Some(u) = o.get("unit").filter(|v| !v.is_null()) {
             point.insert("unit".into(), u.clone());
         }
@@ -78893,7 +79551,7 @@ fn spatial_trace(
             "absent_shown": absent.len(),
         },
         "truncated": truncated,
-        "_means": "a spatial memory trace: what this responder has measured at this place, as primitives for a model to reason over rather than a picture for a person. Points are grouped into layers: `surface` is what the ground is, `built` is what stands on it, `now` is what is happening there, `embedding` is the vectors that answer similarity. Each point carries band, value, unit, age, provenance class, and `f`, the index into this envelope's `fact_cids`. `absent` lists bands this responder looked for and did not find, so coverage is stated rather than assumed.",
+        "_means": "a spatial memory trace: what this responder has measured at this place, as primitives for a model to reason over rather than a picture for a person. Points are grouped into layers: `surface` is what the ground is, `built` is what stands on it, `now` is what is happening there, `embedding` is the vectors that answer similarity. Each point carries band, value, unit, age, provenance class, and `f`, the index into this envelope's `fact_cids`. `value` is a scalar; a vector or record reading has value null, with `value_kind` and `value_summary`, and resolving `f` gives it whole. `absent` lists bands this responder looked for and did not find, so coverage is stated rather than assumed.",
     })
 }
 
@@ -93108,11 +93766,27 @@ mod tests {
                 }
             })
             .collect();
-        let s = splat_value(&json!(v));
-        assert_eq!(s["vector"]["dim"], json!(768));
-        assert_eq!(s["vector"]["l2_norm"], json!(5.0));
-        assert_eq!(splat_value(&json!(0.4)), json!(0.4));
-        assert_eq!(splat_value(&json!([1.0, 2.0])), json!([1.0, 2.0]));
+        let (value, shape) = splat_value(&json!(v));
+        assert_eq!(
+            value,
+            JsonValue::Null,
+            "a vector is never the point's value"
+        );
+        let (kind, s) = shape.expect("a vector carries its shape");
+        assert_eq!(kind, "vector");
+        assert_eq!(s["dim"], json!(768));
+        assert_eq!(s["l2_norm"], json!(5.0));
+        assert!(
+            s.get("values").is_none(),
+            "768 digits stay out of the trace"
+        );
+        assert_eq!(splat_value(&json!(0.4)), (json!(0.4), None));
+        let (value, shape) = splat_value(&json!([1.0, 2.0]));
+        assert_eq!(value, JsonValue::Null);
+        assert_eq!(shape.expect("short vector").1["values"], json!([1.0, 2.0]));
+        let (value, shape) = splat_value(&json!({"a": 1, "b": 2}));
+        assert_eq!(value, JsonValue::Null);
+        assert_eq!(shape.map(|s| s.0), Some("record"));
     }
 
     /// A charted point needs a date and a handle to check it; a tslot is
@@ -110003,5 +110677,670 @@ mod deictic_candidate_tests {
             got.iter().any(|c| c.to_lowercase().contains("fuji")),
             "the place was dropped along with the pointers: {got:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod mcp_strict_client_tests {
+    //! A strict MCP client validates `structuredContent` against the tool's
+    //! published `outputSchema` and refuses the whole result when it does not
+    //! conform. These tests are that client, for every core tool that declares
+    //! a schema, on a result that fits the wire budget and on one far over it.
+
+    use super::*;
+
+    const CELL: &str = "defi.zb64a.cAzU.zfa27";
+
+    /// Every way `value` fails `schema`, by path. Covers the keywords the
+    /// published output schemas use, and refuses any other keyword, so a
+    /// schema that grows one cannot pass here by being half read.
+    fn violations(value: &JsonValue, schema: &JsonValue, at: &str, out: &mut Vec<String>) {
+        let s = schema.as_object().expect("a schema is an object");
+        for k in s.keys() {
+            assert!(
+                matches!(
+                    k.as_str(),
+                    "type"
+                        | "required"
+                        | "properties"
+                        | "items"
+                        | "const"
+                        | "enum"
+                        | "anyOf"
+                        | "description"
+                ),
+                "{at}: this validator does not know the `{k}` keyword"
+            );
+        }
+        if let Some(t) = s.get("type") {
+            let types: Vec<&str> = match t {
+                JsonValue::String(t) => vec![t.as_str()],
+                JsonValue::Array(ts) => ts.iter().filter_map(|t| t.as_str()).collect(),
+                other => panic!("{at}: type is {other}"),
+            };
+            let ok = types.iter().any(|t| match *t {
+                "object" => value.is_object(),
+                "array" => value.is_array(),
+                "string" => value.is_string(),
+                "number" => value.is_number(),
+                "integer" => {
+                    value.is_i64()
+                        || value.is_u64()
+                        || value.as_f64().is_some_and(|f| f.fract() == 0.0)
+                }
+                "boolean" => value.is_boolean(),
+                "null" => value.is_null(),
+                other => panic!("{at}: unknown type {other}"),
+            });
+            if !ok {
+                let shown: String = value.to_string().chars().take(80).collect();
+                out.push(format!("{at}: {shown} is not {types:?}"));
+                return;
+            }
+        }
+        if let Some(c) = s.get("const") {
+            if value != c {
+                out.push(format!("{at}: {value} is not the const {c}"));
+            }
+        }
+        if let Some(e) = s.get("enum").and_then(|e| e.as_array()) {
+            if !e.contains(value) {
+                out.push(format!("{at}: {value} is not one of {e:?}"));
+            }
+        }
+        if let (Some(req), Some(m)) = (
+            s.get("required").and_then(|r| r.as_array()),
+            value.as_object(),
+        ) {
+            for r in req.iter().filter_map(|r| r.as_str()) {
+                if !m.contains_key(r) {
+                    out.push(format!("{at}: required `{r}` is missing"));
+                }
+            }
+        }
+        if let (Some(props), Some(m)) = (
+            s.get("properties").and_then(|p| p.as_object()),
+            value.as_object(),
+        ) {
+            for (k, ps) in props {
+                if let Some(x) = m.get(k) {
+                    violations(x, ps, &format!("{at}.{k}"), out);
+                }
+            }
+        }
+        if let (Some(items), Some(a)) = (s.get("items"), value.as_array()) {
+            for (i, x) in a.iter().enumerate() {
+                violations(x, items, &format!("{at}[{i}]"), out);
+            }
+        }
+        if let Some(any) = s.get("anyOf").and_then(|a| a.as_array()) {
+            let one_holds = any.iter().any(|branch| {
+                let mut o = Vec::new();
+                violations(value, branch, at, &mut o);
+                o.is_empty()
+            });
+            if !one_holds {
+                out.push(format!("{at}: matches no anyOf branch"));
+            }
+        }
+    }
+
+    fn schema_of(tool: &str) -> JsonValue {
+        serde_json::from_str(emem_mcp::output_schema_of(tool).expect("declares a schema"))
+            .expect("the schema parses")
+    }
+
+    /// What a strict client checks: a successful result, a text block that is
+    /// whole JSON, and `structuredContent` that conforms.
+    fn strict_client_accepts(tool: &str, wrapped: &JsonValue) -> Result<(), String> {
+        if wrapped["isError"] == json!(true) {
+            return Err(format!("{tool}: isError on a success path: {wrapped}"));
+        }
+        let text = wrapped["content"][0]["text"]
+            .as_str()
+            .ok_or_else(|| format!("{tool}: no text block"))?;
+        serde_json::from_str::<JsonValue>(text)
+            .map_err(|e| format!("{tool}: the text block is not whole JSON: {e}"))?;
+        let sc = wrapped
+            .get("structuredContent")
+            .filter(|v| !v.is_null())
+            .ok_or_else(|| format!("{tool}: no structuredContent"))?;
+        let mut out = Vec::new();
+        violations(sc, &schema_of(tool), tool, &mut out);
+        if out.is_empty() {
+            Ok(())
+        } else {
+            Err(out.join("\n"))
+        }
+    }
+
+    fn cid(i: usize) -> String {
+        // 52 characters, the length of a real fact cid.
+        format!("b{i:0>51}")
+    }
+
+    fn signed_receipt(s: &AppState, cids: &[String]) -> JsonValue {
+        let r = s.sign_receipt(
+            "emem.recall",
+            vec![CELL.into()],
+            cids.iter()
+                .map(|c| emem_fact::FactCid::new(c.as_str()))
+                .collect(),
+            true,
+            std::time::Instant::now(),
+            None,
+        );
+        serde_json::to_value(r).expect("a receipt serialises")
+    }
+
+    async fn receipt_verifies(s: &AppState, receipt: &JsonValue) -> bool {
+        let r: emem_fact::Receipt =
+            serde_json::from_value(receipt.clone()).expect("a served receipt parses");
+        let req = VerifyReceiptReq {
+            receipt: r,
+            pubkey_b32: None,
+            current_responder_epoch: None,
+            facts: None,
+        };
+        let Json(body) = post_verify_receipt(State(s.clone()), Ok(Json(req)))
+            .await
+            .expect("the verifier answers");
+        body["valid"] == json!(true)
+    }
+
+    fn recall_fact(band: &str, tslot: u64, i: usize) -> JsonValue {
+        let c = cid(i);
+        json!({
+            "kind": "primary", "band": band, "cell": CELL, "tslot": tslot,
+            "value": -12.25, "value_verbatim": "-12.25", "unit": "dB", "confidence": 0.9,
+            "sources": [{"uri": format!("https://example.org/scene/{band}/{tslot}.tif"),
+                         "captured_at": "2026-10-01T10:32:00Z"}],
+            "derivation": {"fn_key": "cog_pixel_read@2", "args": [51.508, -0.128, "EPSG:32630", "reader=cog-pixel-floor@2"]},
+            "signed_at": "2026-10-01T11:00:00Z",
+            "fact_cid": c, "memory_token": format!("emem:fact:{CELL}:{c}"),
+        })
+    }
+
+    /// A recall shaped as the MCP arm builds it, over `bands`: (band, facts).
+    fn recall_result(s: &AppState, bands: &[(&str, usize)]) -> JsonValue {
+        let mut facts = Vec::new();
+        let mut current = serde_json::Map::new();
+        let mut i = 0usize;
+        for (band, count) in bands {
+            for t in 0..*count {
+                let tslot = 20_000 + t as u64;
+                facts.push(recall_fact(band, tslot, i));
+                current.insert(band.to_string(), json!(cid(i)));
+                i += 1;
+            }
+        }
+        // tslot ascending across the list, as the primitive returns it.
+        facts.sort_by_key(|f| f["tslot"].as_u64());
+        let cids: Vec<String> = facts
+            .iter()
+            .map(|f| f["fact_cid"].as_str().unwrap().to_string())
+            .collect();
+        json!({
+            "facts": facts,
+            "receipt": signed_receipt(s, &cids),
+            "fact_order": "tslot_ascending",
+            "current_by_band": current,
+            "bands_already_attested_at_cell": (0..30).map(|i| format!("family_{i}.band")).collect::<Vec<_>>(),
+            "materialize_notes": (0..4).map(|i| json!({"band": format!("b{i}"), "status": "cached", "note": "x".repeat(120)})).collect::<Vec<_>>(),
+        })
+    }
+
+    /// What the `emem_recall` arm serves: fit by meaning, then wrapped.
+    fn served_recall(s: &AppState, v: JsonValue) -> JsonValue {
+        let fitted = mcp_fit_recall_to_budget(v, json!({"cell": CELL}), &|r, c| {
+            mcp_resign_receipt_over(s, r, c, std::time::Instant::now())
+        });
+        mcp_wrap_call_tool_result_for(fitted, "emem_recall")
+    }
+
+    fn served_text(wrapped: &JsonValue) -> JsonValue {
+        serde_json::from_str(wrapped["content"][0]["text"].as_str().expect("text")).expect("json")
+    }
+
+    /// Row 102: a recall too big for the wire still conforms to OUT_RECALL,
+    /// fits the budget, and its receipt signs exactly the facts served.
+    /// Row 104: the newest fact of each band survives the cut, not the oldest.
+    #[tokio::test]
+    async fn a_recall_over_budget_conforms_keeps_the_newest_and_signs_what_it_serves() {
+        let s = crate::tests::test_app_state();
+        let budget = mcp_response_budget_bytes();
+        for bands in [
+            vec![("sentinel1_raw", 193usize)],
+            vec![
+                ("sentinel1_raw", 193),
+                ("indices.ndvi", 40),
+                ("weather.temperature_2m", 1),
+            ],
+            // E1-sized: a receipt over 3,484 cids is about 195 KB on its own.
+            vec![
+                ("sentinel1_raw", 1_800),
+                ("s2.B04", 1_200),
+                ("indices.ndvi", 484),
+            ],
+        ] {
+            let v = recall_result(&s, &bands);
+            let n = v["facts"].as_array().unwrap().len();
+            let current = v["current_by_band"].clone();
+            let out = served_recall(&s, v);
+            strict_client_accepts("emem_recall", &out).unwrap_or_else(|e| panic!("{n} facts: {e}"));
+            let total = serde_json::to_string(&out).unwrap().len();
+            assert!(total <= budget, "{n} facts: {total} bytes against {budget}");
+
+            let served = served_text(&out);
+            assert_eq!(served["fact_order"], json!("tslot_ascending"));
+            let facts = served["facts"].as_array().expect("facts is an array");
+            assert!(!facts.is_empty(), "{n} facts: none served");
+            let got: Vec<&str> = facts
+                .iter()
+                .filter_map(|f| f["fact_cid"].as_str())
+                .collect();
+            for (band, newest) in current.as_object().unwrap() {
+                assert!(
+                    got.contains(&newest.as_str().unwrap()),
+                    "{n} facts: the newest {band} fact was cut"
+                );
+            }
+            let tslots: Vec<u64> = facts.iter().filter_map(|f| f["tslot"].as_u64()).collect();
+            assert!(tslots.windows(2).all(|w| w[0] <= w[1]), "fact_order broken");
+            assert!(
+                !got.contains(&cid(0).as_str()),
+                "{n} facts: the oldest reading survived a cut that kept a prefix"
+            );
+
+            let receipt = &served["receipt"];
+            let signed: Vec<&str> = receipt["fact_cids"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|c| c.as_str())
+                .collect();
+            assert_eq!(
+                signed, got,
+                "the receipt must sign exactly the facts served"
+            );
+            assert!(
+                receipt_verifies(&s, receipt).await,
+                "{n} facts: receipt fails"
+            );
+            assert_eq!(
+                served["_emem_truncation"]["receipt"]["covers"],
+                json!("facts_served")
+            );
+            assert_eq!(
+                served["_emem_truncation"]["receipt"]["facts_matched"],
+                json!(n)
+            );
+            let stub = &served["_emem_truncation"]["omitted_fields"][0]["stub"];
+            assert_eq!(stub["_kept_rule"], json!("newest_per_band_first"));
+            assert_eq!(stub["_len"], json!(n));
+            assert!(served["_emem_truncation"]["bands_cut"][0]["band"].is_string());
+        }
+    }
+
+    /// The newest fact of every band is offered before any older one, smaller
+    /// first within a rank, and bands are never compared by tslot.
+    #[test]
+    fn a_cut_recall_offers_the_newest_of_every_band_first() {
+        let f = |band: &str, t: u64, pad: usize| json!({"band": band, "tslot": t, "pad": "x".repeat(pad)});
+        let facts = vec![
+            f("b", 1, 0),
+            f("a", 1, 0),
+            f("b", 3, 0),
+            f("a", 2, 900),
+            f("c", 5, 10),
+        ];
+        let order = recall_keep_order(&facts);
+        assert_eq!(
+            &order[..3],
+            &[2, 4, 3],
+            "the newest of each band, smaller first"
+        );
+        assert_eq!(
+            &order[3..],
+            &[1, 0],
+            "then the next newest, by band name on a tie"
+        );
+    }
+
+    /// A recall that fits is served as it came: no cut, no second signature.
+    #[tokio::test]
+    async fn a_recall_that_fits_is_not_touched() {
+        let s = crate::tests::test_app_state();
+        let mut v = recall_result(&s, &[("indices.ndvi", 3)]);
+        if let Some(m) = v.as_object_mut() {
+            m.remove("materialize_notes");
+            m.remove("bands_already_attested_at_cell");
+        }
+        let before = v.clone();
+        let fitted = mcp_fit_recall_to_budget(v, json!({"cell": CELL}), &|_, _| {
+            panic!("a result that fits must not be signed again")
+        });
+        assert_eq!(fitted, before);
+        strict_client_accepts(
+            "emem_recall",
+            &mcp_wrap_call_tool_result_for(fitted, "emem_recall"),
+        )
+        .unwrap();
+    }
+
+    /// The generic path alone, which still serves any recall the fit hands
+    /// on: required keys keep their declared types even when no fact fits.
+    #[test]
+    fn the_generic_slimmer_never_nulls_a_required_key() {
+        let cids: Vec<String> = (0..193).map(cid).collect();
+        let v = json!({
+            "facts": (0..193).map(|i| recall_fact("sentinel1_raw", 20_000 + i as u64, i)).collect::<Vec<_>>(),
+            // Unsigned and huge on purpose: nothing can re-sign it here.
+            "receipt": {"primitive": "other", "fact_cids": cids, "signature_b32": "s".repeat(103)},
+            "fact_order": "tslot_ascending",
+        });
+        let out = mcp_wrap_call_tool_result_for(v, "emem_recall");
+        strict_client_accepts("emem_recall", &out).unwrap();
+        let sc = &out["structuredContent"];
+        assert_eq!(sc["fact_order"], json!("tslot_ascending"), "served whole");
+        assert!(sc["facts"].is_array());
+    }
+
+    fn ask_envelope(s: &AppState, n_read: usize) -> JsonValue {
+        let cids: Vec<String> = (0..n_read).map(cid).collect();
+        let mut obs: Vec<JsonValue> = (0..40)
+            .map(|i| {
+                json!({"band_key": format!("weather.band_{i}"), "value": 11.5, "unit": "degC",
+                       "age_s": 600, "tslot": 4211, "confidence": 0.9,
+                       "fact_cid": cids[i * (n_read / 60)]})
+            })
+            .collect();
+        // Row 103: a 128-D embedding, a short vector and a record, each a point.
+        obs.push(
+            json!({"band_key": "geotessera.bin128", "value": (0..128).collect::<Vec<_>>(),
+                        "age_s": 9, "fact_cid": cids[n_read - 1]}),
+        );
+        obs.push(
+            json!({"band_key": "s2.rgb", "value": [0.1, 0.2, 0.3], "fact_cid": cids[n_read - 2]}),
+        );
+        obs.push(
+            json!({"band_key": "overture.place", "value": {"name": "x", "kind": "y"},
+                        "fact_cid": cids[n_read - 3]}),
+        );
+        obs.push(
+            json!({"band_key": "hansen.loss_year", "kind": "absence", "value": JsonValue::Null}),
+        );
+        let place =
+            json!({"cell64": CELL, "lat": 51.508, "lng": -0.128, "label": "Trafalgar Square"});
+        let fact_cids = json!(cids);
+        json!({
+            "schema": "emem.ask.v1",
+            "routed_to": "answer",
+            "question": "what is here?",
+            "answer": "x".repeat(1400),
+            "place_resolved": place,
+            "receipt": signed_receipt(s, &cids),
+            "fact_cids": fact_cids,
+            "spatial_trace": spatial_trace(&obs, CELL, &place, Some(&fact_cids)),
+            "facts_summary": {"counts": {"present": n_read}, "fact_count": n_read,
+                              "bands_present": vec!["weather.some_long_band_name"; 40]},
+            "algorithm_outcomes_summary": (0..90)
+                .map(|i| json!({"algorithm_key": format!("alg_{i}@1"), "skip_reason": null, "value": 1.0}))
+                .collect::<Vec<_>>(),
+        })
+    }
+
+    /// E1 and row 103: an ask whose receipt lists 3,484 facts fits the budget,
+    /// its receipt signs the facts the trace cites and verifies, every `f`
+    /// still names the fact it named, and no point value is a vector.
+    #[tokio::test]
+    async fn an_ask_with_a_huge_receipt_fits_and_signs_what_it_cites() {
+        let s = crate::tests::test_app_state();
+        let budget = mcp_response_budget_bytes();
+        let n_read = 3_484;
+        let v = ask_envelope(&s, n_read);
+        let original: Vec<String> = v["fact_cids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c.as_str().unwrap().to_string())
+            .collect();
+        let before: std::collections::BTreeMap<String, String> = v["spatial_trace"]["layers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|l| l["points"].as_array().unwrap().iter())
+            .filter_map(|p| {
+                Some((
+                    p["band"].as_str()?.to_string(),
+                    original[p["f"].as_u64()? as usize].clone(),
+                ))
+            })
+            .collect();
+
+        // The control: without a signer the receipt cannot shrink, and the
+        // answer is the 200 KB result the strict host received.
+        let unsigned = mcp_wrap_call_tool_result_for(mcp_project_ask(v.clone()), "emem_ask");
+        assert!(
+            serde_json::to_string(&unsigned).unwrap().len() > budget,
+            "the control no longer reproduces the overflow, so this test proves nothing"
+        );
+
+        let projected = mcp_project_ask_signed(v, &|r, c| {
+            mcp_resign_receipt_over(&s, r, c, std::time::Instant::now())
+        });
+        let out = mcp_wrap_call_tool_result_for(projected, "emem_ask");
+        strict_client_accepts("emem_ask", &out).unwrap();
+        let total = serde_json::to_string(&out).unwrap().len();
+        assert!(total <= budget, "{total} bytes against {budget}");
+
+        let served = served_text(&out);
+        let receipt = &served["receipt"];
+        assert!(
+            receipt_verifies(&s, receipt).await,
+            "the narrowed receipt fails"
+        );
+        let signed: Vec<&str> = receipt["fact_cids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|c| c.as_str())
+            .collect();
+        assert!(signed.len() < 60, "{} cids signed", signed.len());
+        assert_eq!(served["_projection"]["receipt"]["covers"], json!("cited"));
+        assert_eq!(
+            served["_projection"]["receipt"]["facts_read"],
+            json!(n_read)
+        );
+        assert_eq!(
+            served["_projection"]["fact_cids_at"],
+            json!("receipt.fact_cids")
+        );
+        for layer in served["spatial_trace"]["layers"].as_array().unwrap() {
+            for p in layer["points"].as_array().unwrap() {
+                let band = p["band"].as_str().unwrap();
+                assert!(
+                    !p["value"].is_array() && !p["value"].is_object(),
+                    "{band}: a point value is not a scalar: {}",
+                    p["value"]
+                );
+                if let Some(f) = p["f"].as_u64() {
+                    assert_eq!(
+                        signed[f as usize], before[band],
+                        "{band}: `f` names a different fact after the receipt was narrowed"
+                    );
+                }
+            }
+        }
+        let tessera = served["spatial_trace"]["layers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|l| l["points"].as_array().unwrap().iter())
+            .find(|p| p["band"] == json!("geotessera.bin128"));
+        if let Some(p) = tessera {
+            assert_eq!(p["value_kind"], json!("vector"));
+            assert_eq!(p["value_summary"]["dim"], json!(128));
+        }
+    }
+
+    /// The validator can fail: both reported faults are violations here.
+    #[test]
+    fn the_strict_validator_rejects_the_reported_faults() {
+        let mut out = Vec::new();
+        violations(
+            &json!({"facts": null, "fact_order": null, "receipt": {}}),
+            &schema_of("emem_recall"),
+            "emem_recall",
+            &mut out,
+        );
+        assert_eq!(out.len(), 2, "{out:?}");
+        let mut out = Vec::new();
+        let point = json!({"band": "geotessera.bin128", "value": {"vector": {"dim": 128}}});
+        violations(
+            &json!({"schema": "emem.ask_structured.v1", "spatial_trace": {
+                "schema": "emem.spatial_trace.v1", "counts": {},
+                "layers": [{"layer": "embedding", "points": [point]}]}}),
+            &schema_of("emem_ask"),
+            "emem_ask",
+            &mut out,
+        );
+        assert_eq!(out.len(), 1, "{out:?}");
+    }
+
+    /// One small and one over-budget result per core tool with a schema,
+    /// through the path the dispatcher serves it on.
+    fn fixtures(s: &AppState, tool: &str) -> Vec<JsonValue> {
+        let token = format!("emem:fact:{CELL}:{}", cid(7));
+        let one_receipt = signed_receipt(s, &[cid(7)]);
+        match tool {
+            "emem_recall" => vec![
+                recall_result(s, &[("indices.ndvi", 2)]),
+                recall_result(s, &[("sentinel1_raw", 193), ("indices.ndvi", 40)]),
+            ],
+            "emem_ask" => vec![ask_envelope(s, 64), ask_envelope(s, 3_484)],
+            "emem_locate" => {
+                let base = |inv: usize| {
+                    json!({"cell64": CELL, "place_label": "Trafalgar Square",
+                           "selected": {"is_high_confidence": true, "confidence_reason": "exact name"},
+                           "data_at_this_cell": {"bands": (0..inv).map(|i| json!({"band": format!("family.band_{i}"), "facts": 3, "note": "y".repeat(80)})).collect::<Vec<_>>()},
+                           "next": [{"verb": "emem_recall", "noun": "facts", "args": {"cell": CELL}}]})
+                };
+                vec![
+                    base(2),
+                    base(400),
+                    json!({"status": "needs_location", "next": ["name a place"]}),
+                ]
+            }
+            "emem_memory_token" => vec![
+                json!({"memory_token": token, "cell": CELL, "fact_cid": cid(7), "grammar": "emem:fact:<cell64>:<fact_cid>"}),
+                json!({"memory_token": token, "cell": CELL, "fact_cid": cid(7), "docs": "d".repeat(40_000)}),
+            ],
+            "emem_memory_token_resolve" => {
+                let base = |dim: usize| {
+                    json!({"canonical_token": token, "cell": CELL, "fact_cid": cid(7),
+                           "band": "geotessera.bin128", "kind": "primary",
+                           "value": (0..dim).collect::<Vec<_>>(),
+                           "fact": {"tslot": 4211, "signed_at": "2026-10-01T11:00:00Z", "value": (0..dim).collect::<Vec<_>>()},
+                           "fact_url": format!("https://emem.dev/v1/facts/{}", cid(7)),
+                           "receipt": one_receipt})
+                };
+                vec![base(4), base(4_000)]
+            }
+            "emem_echo_verify" => vec![
+                json!({"matches": true, "drift": null, "token": token, "claimed_value": "0.41",
+                       "resolved_value_verbatim": "0.41", "fact_cid": cid(7), "receipt": one_receipt}),
+                json!({"matches": false, "drift": "wrong", "token": token, "claimed_value": "0.41",
+                       "resolved_value_verbatim": "0.52", "fact_cid": cid(7), "receipt": one_receipt,
+                       "explanation": "e".repeat(40_000)}),
+            ],
+            "emem_guard_verdict" => {
+                let base = |n: usize| {
+                    json!({"action": "allow", "advisory": true, "checked": n, "citations_found": n,
+                           "citations_verified_here": n,
+                           "citations": (0..n).map(|i| json!({"token": format!("emem:fact:{CELL}:{}", cid(i)), "state": "verified", "sentence": "z".repeat(160)})).collect::<Vec<_>>(),
+                           "receipt": one_receipt})
+                };
+                vec![base(2), base(300)]
+            }
+            "search" => {
+                let base = |n: usize| {
+                    json!({"results": (0..n).map(|i| json!({"id": format!("emem:fact:{CELL}:{}", cid(i)),
+                        "title": format!("weather.band_{i} at Trafalgar Square: 11.5 {}", "t".repeat(200)),
+                        "url": format!("https://emem.dev/v1/facts/{}", cid(i))})).collect::<Vec<_>>()})
+                };
+                vec![base(3), base(200)]
+            }
+            "fetch" => {
+                let base = |len: usize| {
+                    json!({"id": token, "title": "weather at Trafalgar Square", "text": "line\n".repeat(len / 5),
+                           "url": format!("https://emem.dev/v1/facts/{}", cid(7)),
+                           "metadata": {"cell": CELL, "band": "weather.temperature_2m"}})
+                };
+                vec![base(400), base(60_000)]
+            }
+            other => panic!("no fixture for `{other}`; add one so its schema is checked"),
+        }
+    }
+
+    /// The dispatcher's own shaping step for a tool, before the wrapper.
+    fn as_dispatched(s: &AppState, tool: &str, inner: JsonValue) -> JsonValue {
+        match tool {
+            "emem_recall" => mcp_fit_recall_to_budget(inner, json!({"cell": CELL}), &|r, c| {
+                mcp_resign_receipt_over(s, r, c, std::time::Instant::now())
+            }),
+            "emem_ask" => mcp_project_ask_signed(inner, &|r, c| {
+                mcp_resign_receipt_over(s, r, c, std::time::Instant::now())
+            }),
+            "emem_memory_token_resolve"
+            | "emem_locate"
+            | "emem_guard_verdict"
+            | "search"
+            | "fetch"
+            | "emem_memory_token"
+            | "emem_echo_verify" => inner,
+            other => panic!("no dispatch step for `{other}`"),
+        }
+    }
+
+    /// Every core tool that declares an outputSchema, small and over budget:
+    /// a strict client accepts the result, and it fits the wire budget.
+    #[test]
+    fn every_core_tool_conforms_to_its_schema_at_any_size() {
+        let s = crate::tests::test_app_state();
+        let budget = mcp_response_budget_bytes();
+        let declaring: Vec<&str> = emem_mcp::tools_at_tier("core")
+            .into_iter()
+            .filter(|t| t.output_schema.is_some())
+            .map(|t| t.name)
+            .collect();
+        assert!(
+            declaring.len() >= 9,
+            "only {} core tools declare a schema; the catalogue read is broken",
+            declaring.len()
+        );
+        let mut failures = Vec::new();
+        for tool in &declaring {
+            let cases = fixtures(&s, tool);
+            let mut over = 0;
+            for (i, inner) in cases.into_iter().enumerate() {
+                if serde_json::to_string(&inner).unwrap().len() > budget {
+                    over += 1;
+                }
+                let out = mcp_wrap_call_tool_result_for(as_dispatched(&s, tool, inner), tool);
+                if let Err(e) = strict_client_accepts(tool, &out) {
+                    failures.push(format!("{tool} case {i}: {e}"));
+                }
+                let total = serde_json::to_string(&out).unwrap().len();
+                if total > budget {
+                    failures.push(format!("{tool} case {i}: {total} bytes over {budget}"));
+                }
+            }
+            assert!(
+                over > 0,
+                "{tool}: no fixture exceeds the budget, so slimming is untested"
+            );
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 }

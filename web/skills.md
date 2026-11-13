@@ -100,10 +100,12 @@ print("cite:", fact["memory_token"])
 ### MCP (JSON-RPC over `POST /mcp`)
 
 The MCP reply puts the result JSON as text in `result.content[0].text`.
-It keeps that text below 12,000 bytes. If `facts[]` is longer, the text
-has an `_emem_truncation` block. The kept facts are the oldest, and
-the text can omit `current_by_band`. For the latest reading, send the same
-arguments to `POST /v1/recall`. That route has no size limit.
+The whole reply stays below the 24,000-byte MCP limit. If `facts[]` does not
+fit, the reply keeps the newest fact of each band first, then older facts
+while they fit, and has an `_emem_truncation` block. Its `bands_cut` gives the
+kept and total count per band. The receipt is signed again over the facts in
+the reply. For every fact under one receipt, send the same arguments to
+`POST /v1/recall`. That route has no size limit.
 
 ```json
 { "jsonrpc": "2.0", "id": 1, "method": "tools/call",
