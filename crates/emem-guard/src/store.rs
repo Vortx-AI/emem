@@ -70,7 +70,11 @@ pub struct FileLog {
 struct Tail {
     seq: u64,
     chain: String,
-    /// `request_id -> byte offset of its line`.
+    /// `(request_id, input_digest) -> byte offset of its line`.
+    ///
+    /// The input digest is part of the key. A request id alone made one id
+    /// one verdict, whatever the input, and a hook that sends its session id
+    /// as the request id got the session's first verdict for every input.
     ///
     /// Without this, a replay check reads the WHOLE log: O(n) per request and
     /// O(n squared) over the life of the file. A node answering 100 verdicts
@@ -80,7 +84,7 @@ struct Tail {
     /// Offsets rather than records: the key is the only thing held in memory,
     /// so a million verdicts cost about 30 MB of ids instead of gigabytes of
     /// bodies, and a hit is one seek and one line.
-    index: std::collections::HashMap<String, u64>,
+    index: std::collections::HashMap<ReplayKey, u64>,
     /// Byte offset of each entry, indexed by sequence number.
     ///
     /// A `Vec` rather than a second map because sequence numbers are dense and
@@ -126,7 +130,7 @@ impl FileLog {
                     continue;
                 }
                 if let Ok(v) = serde_json::from_str::<LoggedVerdict>(&line) {
-                    tail.index.insert(v.record.request_id.clone(), here);
+                    tail.index.insert(replay_key(&v.record), here);
                     // Recorded by position rather than by the entry's own seq,
                     // so a file whose sequence numbers were tampered with
                     // cannot make a lookup return the wrong line. The seq is
@@ -174,21 +178,29 @@ impl FileLog {
         self.len() == 0
     }
 
-    /// Look up a previously logged verdict by the checkpoint's request id.
+    /// Look up a previously logged verdict for the same request id AND the
+    /// same input.
     ///
     /// Used for idempotency: the platform retries once on a connection
     /// failure with the SAME id, and re-evaluating would let a replay produce
-    /// a different answer than the one already recorded and acted on.
-    pub fn find_by_request_id(&self, request_id: &str) -> Option<LoggedVerdict> {
+    /// a different answer than the one already recorded and acted on. A
+    /// different input under the same id is a new request, never a replay.
+    pub fn find_replay(
+        &self,
+        request_id: &str,
+        input_digest: Option<&str>,
+    ) -> Option<LoggedVerdict> {
         // Index hit or nothing: an id we have never seen costs a hash lookup
         // rather than a file read, which is the common case by far since most
         // requests are not replays.
-        let offset = *self.state.lock().ok()?.index.get(request_id)?;
+        let key = (request_id.to_string(), input_digest.map(str::to_string));
+        let offset = *self.state.lock().ok()?.index.get(&key)?;
         let v = self.read_at(offset)?;
         // The offset came from our own index, but a truncated or rewritten
         // file could point it at the wrong line. Confirm rather than trust:
         // returning another request's verdict would be worse than re-deciding.
-        (v.record.request_id == request_id).then_some(v)
+        (v.record.request_id == request_id && v.record.input_digest.as_deref() == input_digest)
+            .then_some(v)
     }
 
     /// Fetch one entry by its sequence number.
@@ -478,9 +490,16 @@ impl VerdictLog for FileLog {
             .lock()
             .map_err(|_| LogError::Unavailable("log mutex poisoned".into()))?
             .index
-            .insert(record.request_id.clone(), byte_offset);
+            .insert(replay_key(record), byte_offset);
         Ok(format!("leaf_{seq}"))
     }
+}
+
+/// What a replay must match: the request id and the input digest.
+type ReplayKey = (String, Option<String>);
+
+fn replay_key(r: &VerdictRecord) -> ReplayKey {
+    (r.request_id.clone(), r.input_digest.clone())
 }
 
 /// Sign with the node key.
@@ -511,9 +530,14 @@ mod tests {
     }
 
     fn rec(id: &str) -> VerdictRecord {
+        rec_for(id, Some("input-a"))
+    }
+
+    fn rec_for(id: &str, input: Option<&str>) -> VerdictRecord {
         VerdictRecord::new(
             "cp",
             id,
+            input,
             &Decision::block(
                 DenyCode::ProvSig,
                 Some("emem:fact:a:b".into()),
@@ -638,10 +662,46 @@ mod tests {
         log.append(&r, &sign(&r.preimage())).unwrap();
 
         let found = log
-            .find_by_request_id("req_dedupe")
+            .find_replay("req_dedupe", Some("input-a"))
             .expect("the replay must find it");
         assert_eq!(found.record.outcome, "deny");
-        assert!(log.find_by_request_id("never_seen").is_none());
+        assert!(log.find_replay("never_seen", Some("input-a")).is_none());
+        // The same id with another input is a new request, not a replay.
+        assert!(log.find_replay("req_dedupe", Some("input-b")).is_none());
+        assert!(log.find_replay("req_dedupe", None).is_none());
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// One id, two inputs: both verdicts stay findable, each under its own
+    /// input, and the index rebuilt at open agrees with the one kept live.
+    /// A record from before v4 has no input digest and is found only as one.
+    #[test]
+    fn one_request_id_with_two_inputs_keeps_two_verdicts() {
+        let path = tmp("replay-two-inputs");
+        let k = key();
+        let sign = signer(&k);
+        {
+            let log = FileLog::open(&path, key().verifying_key()).unwrap();
+            for r in [
+                rec_for("session-1", Some("input-a")),
+                rec_for("session-1", Some("input-b")),
+                rec_for("legacy", None),
+            ] {
+                log.append(&r, &sign(&r.preimage())).unwrap();
+            }
+        }
+        let log = FileLog::open(&path, key().verifying_key()).unwrap();
+        assert_eq!(
+            log.find_replay("session-1", Some("input-a")).unwrap().seq,
+            0
+        );
+        assert_eq!(
+            log.find_replay("session-1", Some("input-b")).unwrap().seq,
+            1
+        );
+        assert_eq!(log.find_replay("legacy", None).unwrap().seq, 2);
+        assert!(log.find_replay("legacy", Some("input-a")).is_none());
+        assert!(FileLog::audit(&path).unwrap().is_intact());
         std::fs::remove_file(&path).ok();
     }
 }

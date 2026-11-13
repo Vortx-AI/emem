@@ -29,8 +29,11 @@
 //!   - **Answer inside the budget.** The tightest floor we have seen an
 //!     operator able to configure is 1000 ms for the whole exchange, so
 //!     [`SELF_BUDGET`] is 800 ms and everything inside it is bounded.
-//!   - **Deduplicate on the request id.** Retries reuse it, and re-evaluating
-//!     could return a different answer than the one already acted on.
+//!   - **Deduplicate on the request id AND the input.** Retries reuse both,
+//!     and re-evaluating could return a different answer than the one already
+//!     acted on. The id alone is not enough: a Claude Code hook sends its
+//!     session id for every input, so an id-only key replayed the session's
+//!     first verdict for every later input.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -100,6 +103,13 @@ pub struct Guard {
     pub modules_may_read_text: bool,
     pub log: FileLog,
     pub signing: ed25519_dalek::SigningKey,
+    /// The key for every digest that reaches the open log.
+    ///
+    /// A separate secret, never the signing key. `/log/entries` needs no
+    /// auth, and an unkeyed BLAKE3 of a short prompt or a matched string is a
+    /// guess test: hash the guess and look for it. Under this key only the
+    /// operator can test a guess.
+    pub digest_key: [u8; 32],
     /// Secrets accepted right now. More than one during a rotation.
     ///
     /// Empty means no secret is configured yet, which is a real state: the
@@ -116,6 +126,31 @@ pub struct Guard {
 }
 
 impl Guard {
+    /// A keyed BLAKE3 digest, hex, under [`Guard::digest_key`].
+    ///
+    /// `domain` keeps digests of different things apart, and every part is
+    /// length-prefixed so `["ab", "c"]` and `["a", "bc"]` differ.
+    fn keyed_digest(&self, domain: &str, parts: &[&[u8]]) -> String {
+        let mut h = blake3::Hasher::new_keyed(&self.digest_key);
+        h.update(&(domain.len() as u64).to_le_bytes());
+        h.update(domain.as_bytes());
+        for p in parts {
+            h.update(&(p.len() as u64).to_le_bytes());
+            h.update(p);
+        }
+        h.finalize().to_hex().to_string()
+    }
+
+    /// The keyed digest of the texts a verdict judges.
+    ///
+    /// The second half of the idempotency key, and signed into the record so
+    /// the operator, who holds the key, can show which input a verdict was
+    /// about.
+    fn input_digest(&self, texts: &[&str]) -> String {
+        let parts: Vec<&[u8]> = texts.iter().map(|t| t.as_bytes()).collect();
+        self.keyed_digest("emem.guard.input.v1", &parts)
+    }
+
     /// Resolve every citation in a transcript against LOCAL state only.
     ///
     /// The hard rule from the devspec: the verdict path touches warm cache
@@ -196,8 +231,13 @@ impl Guard {
         // Modules run over the evidence gathered so far, on the same thread and
         // inside the same budget. `enforcing` is what keeps a slow module off
         // the blocking path; the registry, not this call site, decides.
-        let joined = texts.join("\n");
-        let text_digest = blake3::hash(joined.as_bytes()).to_hex().to_string();
+        //
+        // The text digest is keyed. A `digests_only` module is not shown the
+        // text, and an unkeyed hash of a short prompt would show it anyway to
+        // a module that hashes guesses. Its own domain, so it never equals the
+        // `input_digest` in the open log.
+        let parts: Vec<&[u8]> = texts.iter().map(|t| t.as_bytes()).collect();
+        let text_digest = self.keyed_digest("emem.guard.module_text.v1", &parts);
         let no_text: [&str; 0] = [];
         let module_ctx = crate::module::ModuleContext {
             texts: if self.modules_may_read_text {
@@ -214,6 +254,17 @@ impl Guard {
         } else {
             self.modules
                 .run(&module_ctx, self.config.mode == policy::Mode::Enforce)
+                .into_iter()
+                .map(|(man, mut v)| {
+                    // A module hashes its own evidence with plain BLAKE3, as it
+                    // holds no key. Re-keyed here, before it can reach a
+                    // decision or the open log.
+                    v.evidence_digest = v
+                        .evidence_digest
+                        .map(|d| self.keyed_digest("emem.guard.evidence.v1", &[d.as_bytes()]));
+                    (man, v)
+                })
+                .collect()
         };
 
         Evidence {
@@ -231,25 +282,54 @@ impl Guard {
             // resolution on the verdict path is how a guard confidently
             // blocks innocent work, and a wrong deny is the worst failure
             // this system has.
-            restricted_cells: found
-                .iter()
-                .filter_map(|t| cell_of(&t.token))
-                .filter(|c| self.restricted_cells.contains(*c))
-                .map(str::to_string)
-                .collect(),
+            restricted_cells: self.restricted_in(&found),
             claims,
             modules,
         }
     }
 
+    /// The restricted cells that `found` cites, in order.
+    fn restricted_in(&self, found: &[tokens::FoundToken]) -> Vec<String> {
+        found
+            .iter()
+            .filter_map(|t| cell_of(&t.token))
+            .filter(|c| self.restricted_cells.contains(*c))
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// The keyed digest that stands in for a restricted cell in the open log.
+    fn cell_digest(&self, cell: &str) -> String {
+        self.keyed_digest("emem.guard.restricted_cell.v1", &[cell.as_bytes()])
+    }
+
     /// Decide, sign, log, and return what the caller should send.
     fn decide(&self, checkpoint: &str, request_id: &str, texts: &[&str]) -> Decision {
-        // A replay must get the answer already recorded, not a fresh one.
-        if let Some(prior) = self.log.find_by_request_id(request_id) {
+        // A replay must get the answer already recorded, not a fresh one. But
+        // only a replay of the SAME input: the id alone is not enough. A
+        // Claude Code hook sends its session id for every input, and a caller
+        // can reuse an id. Keyed on the id only, the first verdict of a
+        // session answered every later input, so a clean first message let a
+        // restricted cell through.
+        let input = self.input_digest(texts);
+        if let Some(prior) = self.log.find_replay(request_id, Some(&input)) {
             let mut d = if prior.record.code.is_some() {
+                // The log holds no cell for a GEO_ZONE denial. The retry
+                // carries the same input, so the cell is read back from it and
+                // confirmed against the logged digest.
+                let token = match (prior.record.code, &prior.record.evidence_digest) {
+                    (Some(policy::DenyCode::GeoZone), Some(logged))
+                        if prior.record.token.is_none() =>
+                    {
+                        self.restricted_in(&tokens::scan_all(texts.iter().copied()))
+                            .into_iter()
+                            .find(|c| self.cell_digest(c) == *logged)
+                    }
+                    _ => prior.record.token.clone(),
+                };
                 Decision::block(
                     prior.record.code.unwrap_or(policy::DenyCode::ProvSig),
-                    prior.record.token.clone(),
+                    token,
                     prior.record.fix.unwrap_or(policy::Fix::ContactAdmin),
                 )
             } else {
@@ -266,7 +346,14 @@ impl Guard {
         }
 
         let evidence = self.gather(texts);
-        let decision = policy::evaluate(&self.config, &evidence);
+        let mut decision = policy::evaluate(&self.config, &evidence);
+        // The caller is told which restricted cell it cited; the open log is
+        // not. A list of restricted cells is the operator's to publish.
+        if decision.code == Some(policy::DenyCode::GeoZone) {
+            if let Some(cell) = decision.token.clone() {
+                decision = decision.with_token_digest(self.cell_digest(&cell));
+            }
+        }
         // Shadow is applied BEFORE sealing, so the record holds the answer the
         // caller actually received in `outcome` and the answer the rules
         // reached in `evaluated`. Sealing the enforcing decision and
@@ -284,6 +371,7 @@ impl Guard {
             seal(
                 checkpoint,
                 request_id,
+                Some(&input),
                 returned,
                 now,
                 self.config.mode,
@@ -325,18 +413,27 @@ impl Guard {
         };
         let decision = match adapter.transcript(&req) {
             None => Decision::proceed(),
-            Some(t) => {
-                // A caller with no id still gets an answer; it simply cannot
-                // claim to be a replay of an earlier one, which is the honest
-                // behaviour when nothing identifies the earlier one.
-                let id = t
-                    .request_id
-                    .map(str::to_string)
-                    .unwrap_or_else(|| ulid::Ulid::new().to_string());
-                self.decide(adapter.checkpoint_id(), &id, &t.texts)
-            }
+            Some(t) => self.decide(
+                adapter.checkpoint_id(),
+                &request_id_or_new(t.request_id),
+                &t.texts,
+            ),
         };
         adapter.render(&decision)
+    }
+}
+
+/// The caller's request id, or a fresh one when it sent none.
+///
+/// A caller with no id still gets an answer; it simply cannot claim to be a
+/// replay of an earlier one, which is the honest behaviour when nothing
+/// identifies the earlier one. An empty id counts as none. The two vendor
+/// routes once mapped a missing id to `""`, so every request without one
+/// shared that id.
+fn request_id_or_new(id: Option<&str>) -> String {
+    match id.map(str::trim) {
+        Some(id) if !id.is_empty() => id.to_string(),
+        _ => ulid::Ulid::new().to_string(),
     }
 }
 
@@ -484,15 +581,18 @@ async fn descriptor(State(g): State<Arc<Guard>>) -> impl IntoResponse {
             "route": "/modules",
             "loaded": g.modules.len(),
             "config_digest": g.modules.config_digest(),
-            "note": "detection is pluggable; grounding is native. A module's verdict is signed and logged like any other, and the log records its id and an evidence digest, never what it matched.",
+            "note": "detection is pluggable; grounding is native. A module's verdict is signed and logged like any other, and the log records its id and a keyed evidence digest, never what it matched.",
         },
         "evidence": {
             "head": "/log/head",
             "entry": "/log/entry/{leaf}",
             "entries": "/log/entries?start=0&count=50",
             "report": "/log/report",
-            "preimage_domain": "emem.guard.verdict.v3",
-            "signature": "ed25519 over the record preimage, base32-nopad-lowercase"
+            "preimage_domain": crate::log::PREIMAGE_DOMAIN,
+            "signature": "ed25519 over the record preimage, base32-nopad-lowercase",
+            "digests": "input_digest and evidence_digest are keyed BLAKE3 under this node's digest key. Without the key, nobody can test a guess against them.",
+            "geo_zone": "a GEO_ZONE record holds no token. Its evidence_digest is a keyed digest of the restricted cell. The cell is in the caller's reply only.",
+            "replay": "a retry gets the recorded verdict only for the same request_id and the same input_digest"
         },
         "reason_grammar": "EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->",
         "deny_codes": codes,
@@ -573,10 +673,11 @@ async fn anthropic(
     let decision = match adapter.transcript(&frame) {
         // An event type we do not evaluate still needs a verdict.
         None => Decision::proceed(),
-        Some(t) => {
-            let id = t.request_id.unwrap_or("").to_string();
-            g.decide(adapter.checkpoint_id(), &id, &t.texts)
-        }
+        Some(t) => g.decide(
+            adapter.checkpoint_id(),
+            &request_id_or_new(t.request_id),
+            &t.texts,
+        ),
     };
 
     if started.elapsed() > SELF_BUDGET {
@@ -618,12 +719,16 @@ async fn claude_code(
     let Ok(input) = serde_json::from_slice::<ClaudeCodeInput>(&body) else {
         return (StatusCode::OK, Json(adapter.render(&Decision::proceed()))).into_response();
     };
+    // The request id is the hook's session id, which is the same for every
+    // input in a session. `decide` pairs it with a digest of the input, so
+    // each input is judged on its own and only a true retry is replayed.
     let decision = match adapter.transcript(&input) {
         None => Decision::proceed(),
-        Some(t) => {
-            let id = t.request_id.unwrap_or("").to_string();
-            g.decide(adapter.checkpoint_id(), &id, &t.texts)
-        }
+        Some(t) => g.decide(
+            adapter.checkpoint_id(),
+            &request_id_or_new(t.request_id),
+            &t.texts,
+        ),
     };
     (StatusCode::OK, Json(adapter.render(&decision))).into_response()
 }
@@ -695,13 +800,11 @@ async fn cloudevent(
     // parse is the same path every other route takes.
     let decision = match CloudEventGate.transcript(&event) {
         None => Decision::proceed(),
-        Some(t) => {
-            let id = t
-                .request_id
-                .map(str::to_string)
-                .unwrap_or_else(|| ulid::Ulid::new().to_string());
-            g.decide(CloudEventGate.checkpoint_id(), &id, &t.texts)
-        }
+        Some(t) => g.decide(
+            CloudEventGate.checkpoint_id(),
+            &request_id_or_new(t.request_id),
+            &t.texts,
+        ),
     };
     let mut out = CloudEventGate.render(&decision);
     out.subject = subject;
@@ -725,13 +828,11 @@ async fn batch(State(g): State<Arc<Guard>>, body: axum::body::Bytes) -> impl Int
         .map(|item| {
             let decision = match adapter.transcript(item) {
                 None => Decision::proceed(),
-                Some(t) => {
-                    let id = t
-                        .request_id
-                        .map(str::to_string)
-                        .unwrap_or_else(|| ulid::Ulid::new().to_string());
-                    g.decide(adapter.checkpoint_id(), &id, &t.texts)
-                }
+                Some(t) => g.decide(
+                    adapter.checkpoint_id(),
+                    &request_id_or_new(t.request_id),
+                    &t.texts,
+                ),
             };
             adapter.render(&decision)
         })
@@ -791,7 +892,7 @@ async fn modules(State(g): State<Arc<Guard>>) -> impl IntoResponse {
                 crate::module::FAST_STRIKES
             ),
             "abstain_never_blocks": "a module that timed out or could not decide has not told us to deny",
-            "no_content_logged": "the log records module id, version and an evidence digest, never what matched",
+            "no_content_logged": "the log records module id, version and a keyed evidence digest, never what matched",
         },
     }))
 }
@@ -803,7 +904,7 @@ async fn log_head(State(g): State<Arc<Guard>>) -> impl IntoResponse {
         "entries": seq,
         "head": chain,
         "signer_b32": g.log.signer_b32(),
-        "preimage_domain": "emem.guard.verdict.v2",
+        "preimage_domain": crate::log::PREIMAGE_DOMAIN,
     }))
 }
 
@@ -924,6 +1025,7 @@ mod tests {
             modules_may_read_text: true,
             log: FileLog::open(&p, key.verifying_key()).unwrap(),
             signing: key,
+            digest_key: [3u8; 32],
             secrets: Vec::new(),
             require_signature: false,
             log_failure_policy: LogFailurePolicy::default(),
@@ -1352,6 +1454,115 @@ mod tests {
         assert_eq!(again["leaf"], first["leaf"], "and it is the same entry");
     }
 
+    /// A Claude Code hook sends its session id as the request id, so every
+    /// input in a session arrives under one id. The second input must be
+    /// judged on its own. Until 2026-11-12 the session's first verdict was
+    /// replayed for every later input, so a clean first message let a
+    /// restricted cell through.
+    #[tokio::test]
+    async fn a_session_id_never_replays_a_verdict_for_a_different_input() {
+        let cell = "defi.zb493.xuqA.zcb5f";
+        let mut g = guard("cc-session");
+        {
+            let m = Arc::get_mut(&mut g).unwrap();
+            m.restricted_cells.insert(cell.to_string());
+            m.config.geo_restriction = true;
+        }
+        let clean = r#"{"hook_event_name":"UserPromptSubmit","session_id":"s-1","prompt":"hello"}"#;
+        let restricted = format!(
+            r#"{{"hook_event_name":"UserPromptSubmit","session_id":"s-1","prompt":"go to emem:cell:{cell}"}}"#
+        );
+
+        let (_, first) = post(router(g.clone()), "/verdict/claude-code", clean).await;
+        assert_eq!(first["ok"], true, "{first}");
+        let (_, second) = post(router(g.clone()), "/verdict/claude-code", &restricted).await;
+        assert_eq!(second["ok"], false, "judged on its own: {second}");
+        let reason = second["reason"].as_str().unwrap();
+        assert!(reason.starts_with("EMEM-GUARD DENY GEO_ZONE"), "{reason}");
+        assert_eq!(g.log.len(), 2, "two inputs, two verdicts");
+
+        // The same input again is a retry, and gets the recorded verdict.
+        let (_, again) = post(router(g.clone()), "/verdict/claude-code", &restricted).await;
+        assert_eq!(again, second);
+        assert_eq!(g.log.len(), 2, "a retry writes no new verdict");
+
+        // Same for a PreToolUse event in the same session.
+        let tool = format!(
+            r#"{{"hook_event_name":"PreToolUse","session_id":"s-1","tool_name":"Bash","tool_input":{{"command":"echo emem:cell:{cell}"}}}}"#
+        );
+        let (_, v) = post(router(g.clone()), "/verdict/claude-code", &tool).await;
+        assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "deny", "{v}");
+    }
+
+    /// Any route: one request id with a different input is a new request.
+    #[tokio::test]
+    async fn a_reused_request_id_with_new_text_is_judged_again() {
+        let mut g = guard("reused-id");
+        Arc::get_mut(&mut g).unwrap().config.claim_gating = true;
+        let (_, a) = post(
+            router(g.clone()),
+            "/verdict",
+            r#"{"texts":["hello"],"request_id":"r-reused"}"#,
+        )
+        .await;
+        assert_eq!(a["action"], "allow");
+        let (_, b) = post(
+            router(g.clone()),
+            "/verdict",
+            r#"{"texts":["Elevation in Leh is 3500 m."],"request_id":"r-reused"}"#,
+        )
+        .await;
+        assert_eq!(b["action"], "deny", "{b}");
+        assert_ne!(a["leaf"], b["leaf"]);
+    }
+
+    /// A request with no id, or an empty one, never shares a verdict with
+    /// another request. The vendor routes once mapped a missing id to `""`,
+    /// so every such request shared one id.
+    #[tokio::test]
+    async fn requests_without_an_id_never_share_a_verdict() {
+        let cell = "defi.zb493.xuqA.zcb5f";
+        let mut g = guard("no-id");
+        {
+            let m = Arc::get_mut(&mut g).unwrap();
+            m.restricted_cells.insert(cell.to_string());
+            m.config.geo_restriction = true;
+        }
+        let frame = |id: &str, text: &str| {
+            format!(
+                r#"{{"type":"prompt",{id}"messages":[{{"role":"user","content":[{{"type":"text","text":"{text}"}}]}}]}}"#
+            )
+        };
+        let clean = frame("", "hello");
+        let restricted = frame("", &format!("go to emem:cell:{cell}"));
+        let (_, a) = post(router(g.clone()), "/verdict/anthropic-hook", &clean).await;
+        assert_eq!(a["action"], "allow");
+        let (_, b) = post(router(g.clone()), "/verdict/anthropic-hook", &restricted).await;
+        assert_eq!(b["action"], "deny", "judged on its own: {b}");
+
+        // Not even the same text without an id is a replay: nothing names
+        // the earlier request, so each one gets its own entry.
+        post(router(g.clone()), "/verdict/anthropic-hook", &clean).await;
+        let empty_id = frame(r#""request_id":"","#, "hello");
+        post(router(g.clone()), "/verdict/anthropic-hook", &empty_id).await;
+        assert_eq!(g.log.len(), 4);
+        let ids: std::collections::HashSet<_> = (0..4)
+            .map(|i| g.log.entry(i).unwrap().record.request_id)
+            .collect();
+        assert_eq!(ids.len(), 4, "every request got its own id: {ids:?}");
+        assert!(!ids.contains(""));
+
+        // And on the Claude Code route, an input with no session id.
+        let no_session = r#"{"hook_event_name":"UserPromptSubmit","prompt":"hello"}"#;
+        post(router(g.clone()), "/verdict/claude-code", no_session).await;
+        post(router(g.clone()), "/verdict/claude-code", no_session).await;
+        assert_eq!(g.log.len(), 6);
+        assert_ne!(
+            g.log.entry(4).unwrap().record.request_id,
+            g.log.entry(5).unwrap().record.request_id
+        );
+    }
+
     /// The claim gate must be off unless an operator turned it on, because it
     /// is the one rule that denies on absence.
     #[tokio::test]
@@ -1416,6 +1627,78 @@ mod tests {
         // not be reproducible.
         assert_eq!(entry.record.config_digest, g.modules.config_digest());
         assert!(!entry.record.config_digest.is_empty());
+
+        // The digest is keyed. `/log/entries` needs no auth, and an unkeyed
+        // BLAKE3 of the match let anyone confirm a guessed secret: hash the
+        // guess, look for it. A node with another key logs another digest.
+        let logged = entry.record.evidence_digest.clone().unwrap();
+        let plain = blake3::hash(secret.as_bytes()).to_hex().to_string();
+        assert_ne!(logged, plain, "an unkeyed digest is a guess test");
+        let mut other = guard("modrun-otherkey");
+        {
+            let m = Arc::get_mut(&mut other).unwrap();
+            m.digest_key = [4u8; 32];
+            m.modules
+                .load(Box::new(crate::modules::SecretPatterns::new()))
+                .unwrap();
+        }
+        post(router(other.clone()), "/verdict", &body).await;
+        let elsewhere = other.log.entry(0).unwrap().record.evidence_digest;
+        assert_ne!(elsewhere.as_deref(), Some(logged.as_str()));
+    }
+
+    /// The open log must not list the operator's restricted cells. Until
+    /// 2026-11-12 a GEO_ZONE record held the cell in `token`, so
+    /// `/log/entries` published the restricted list one hit at a time. The
+    /// caller is still told which cell it cited, and a retry still gets it.
+    #[tokio::test]
+    async fn a_geo_zone_log_entry_holds_no_cell() {
+        let cell = "defi.zb493.xuqA.zcb5f";
+        let mut g = guard("geo-redact");
+        {
+            let m = Arc::get_mut(&mut g).unwrap();
+            m.restricted_cells.insert(cell.to_string());
+            m.config.geo_restriction = true;
+        }
+        let body = format!(r#"{{"texts":["survey emem:cell:{cell} today"],"request_id":"r-geo"}}"#);
+        let (_, v) = post(router(g.clone()), "/verdict", &body).await;
+        assert_eq!(v["code"], "GEO_ZONE");
+        assert_eq!(v["token"], cell, "the caller is told");
+
+        let entry = g.log.entry(0).unwrap();
+        assert!(entry.record.token.is_none());
+        assert_eq!(
+            entry.record.evidence_digest.as_deref(),
+            Some(g.cell_digest(cell).as_str()),
+            "the operator, who holds the key, can map the digest to the cell"
+        );
+        assert!(
+            !serde_json::to_string(&entry).unwrap().contains(cell),
+            "the restricted cell reached the open log"
+        );
+        // The signed record still verifies with the cell left out.
+        assert!(FileLog::audit(g.log.path()).unwrap().is_intact());
+
+        // A retry carries the same input, so it is told the cell again.
+        let (_, again) = post(router(g.clone()), "/verdict", &body).await;
+        assert_eq!(again, v);
+        assert_eq!(g.log.len(), 1);
+    }
+
+    /// The input digest in the open log is keyed too: a short prompt cannot
+    /// be confirmed by hashing a guess.
+    #[tokio::test]
+    async fn the_logged_input_digest_is_keyed() {
+        let g = guard("input-keyed");
+        post(
+            router(g.clone()),
+            "/verdict",
+            r#"{"texts":["hello"],"request_id":"r-in"}"#,
+        )
+        .await;
+        let logged = g.log.entry(0).unwrap().record.input_digest.unwrap();
+        assert_eq!(logged, g.input_digest(&["hello"]));
+        assert_ne!(logged, blake3::hash(b"hello").to_hex().to_string());
     }
 
     /// A cryptographic failure is a stronger statement than a pattern match,

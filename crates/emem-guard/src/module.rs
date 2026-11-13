@@ -161,8 +161,9 @@ pub struct ModuleContext<'a> {
     pub tokens: &'a [(FoundToken, TokenStatus)],
     /// Measurable physical-world claims found, when claim scanning ran.
     pub claims: &'a [Claim],
-    /// `blake3` of the joined transcript, hex. Present even when `texts` is
-    /// not, so a digests-only module can still correlate across calls.
+    /// Keyed BLAKE3 of the transcript, hex, under the node's digest key.
+    /// Present even when `texts` is not, so a digests-only module can still
+    /// correlate across calls. Keyed, so that module cannot test a guess.
     pub text_digest: &'a str,
 }
 
@@ -220,6 +221,7 @@ impl ModuleVerdict {
 
     /// Found something. `evidence` is hashed here rather than stored, so a
     /// module author cannot leak matched content into the log by accident.
+    /// A node keys this digest with its digest key before it is logged.
     pub fn deny(why: impl Into<String>, evidence: &[u8], confidence: f32) -> Self {
         Self {
             outcome: ModuleOutcome::Deny,

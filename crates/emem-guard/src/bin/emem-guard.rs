@@ -18,7 +18,9 @@ USAGE:
 
 OPTIONS:
     --bind ADDR            listen address (default 127.0.0.1:8080, or PORT)
-    --data DIR             where the key and verdict log live (default ./var/guard)
+    --data DIR             where the keys and verdict log live (default ./var/guard).
+                           guard.key signs verdicts. digest.key keys every
+                           digest in the open log; keep it private.
     --secret WHSEC         a webhook signing secret; repeat during rotation
     --require-signature    refuse unsigned requests (set once the org has saved
                            its secret; the platform's FIRST connection test
@@ -201,6 +203,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // that rotated on restart would orphan every verdict already signed.
     let key_path = data.join("guard.key");
     let signing = load_or_create_key(&key_path)?;
+    // The key for every digest in the open log. Kept across restarts so a
+    // retry after a restart still finds its verdict, and so the operator can
+    // later show which input or which restricted cell a digest stands for.
+    let digest_key = load_or_create_secret(&data.join("digest.key"))?;
 
     let log = FileLog::open(&log_path, signing.verifying_key())?;
     let signer_b32 = log.signer_b32().to_string();
@@ -343,6 +349,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         restricted_cells: restricted,
         log,
         signing,
+        digest_key,
         secrets,
         require_signature,
         log_failure_policy: LogFailurePolicy::default(),
@@ -407,12 +414,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn load_or_create_key(
     path: &std::path::Path,
 ) -> Result<ed25519_dalek::SigningKey, Box<dyn std::error::Error>> {
+    Ok(ed25519_dalek::SigningKey::from_bytes(
+        &load_or_create_secret(path)?,
+    ))
+}
+
+/// Read a 32-byte secret, or create one on first run, written 0600.
+///
+/// The digest key uses this too. It is a file of its own and never the
+/// signing seed, so an operator can rotate one without the other.
+fn load_or_create_secret(path: &std::path::Path) -> Result<[u8; 32], Box<dyn std::error::Error>> {
     if let Ok(raw) = std::fs::read_to_string(path) {
         let bytes = data_encoding::BASE32_NOPAD.decode(raw.trim().to_uppercase().as_bytes())?;
         let bytes: [u8; 32] = bytes
             .try_into()
-            .map_err(|_| "guard.key is not a 32-byte ed25519 seed")?;
-        return Ok(ed25519_dalek::SigningKey::from_bytes(&bytes));
+            .map_err(|_| format!("{} does not hold a 32-byte secret", path.display()))?;
+        return Ok(bytes);
     }
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -426,7 +443,7 @@ fn load_or_create_key(
         use std::os::unix::fs::PermissionsExt as _;
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     }
-    Ok(ed25519_dalek::SigningKey::from_bytes(&seed))
+    Ok(seed)
 }
 
 /// OS randomness, without adding a dependency for one call.

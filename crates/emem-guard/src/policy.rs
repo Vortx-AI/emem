@@ -181,6 +181,13 @@ pub struct Decision {
     /// It reaches the caller through the native route and the log record,
     /// where the schema is ours to extend.
     pub module: Option<ModuleAttribution>,
+    /// A keyed digest that stands in for `token` in the open log.
+    ///
+    /// Set by the node on a `GEO_ZONE` denial. The caller's reply still names
+    /// the cell, because the caller sent it. The log, which anyone can read,
+    /// gets no token and this digest as its `evidence_digest`, so it does not
+    /// publish which cells the operator restricted.
+    pub token_digest: Option<String>,
 }
 
 /// Which module produced a `POLICY_MODULE` denial, and what it found.
@@ -188,7 +195,8 @@ pub struct Decision {
 pub struct ModuleAttribution {
     pub id: String,
     pub version: String,
-    /// A digest of what matched. Never the content.
+    /// A digest of what matched. Never the content. On a node it is keyed
+    /// with the node's digest key before it reaches a decision.
     pub evidence_digest: Option<String>,
 }
 
@@ -211,6 +219,7 @@ impl Decision {
             checked: 0,
             claim: None,
             module: None,
+            token_digest: None,
         }
     }
 
@@ -225,7 +234,14 @@ impl Decision {
             checked: 0,
             claim: None,
             module: None,
+            token_digest: None,
         }
+    }
+
+    /// Keep `token` out of the open log, and log this keyed digest instead.
+    pub fn with_token_digest(mut self, digest: impl Into<String>) -> Self {
+        self.token_digest = Some(digest.into());
+        self
     }
 
     /// Attach the ungrounded claim behind a `CLAIM_UNGROUNDED` denial.

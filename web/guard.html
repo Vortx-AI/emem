@@ -599,7 +599,7 @@ bad signature  []
 broken chain   []
 unparseable    []
 intact         true</code></pre></div>
-    <p><code>GET /log/head</code> publishes the head for a witness to pin, and <code>GET /log/entries?start=0</code> lets anyone mirror the log.</p>
+    <p><code>GET /log/head</code> publishes the head for a witness to pin, and <code>GET /log/entries?start=0</code> lets anyone mirror the log. That route needs no auth, so the log holds no text to test a guess against: <code>input_digest</code> and <code>evidence_digest</code> are keyed BLAKE3 under the node's <code>digest.key</code>, and a <code>GEO_ZONE</code> entry holds a keyed digest of the restricted cell, not the cell. A retry gets the recorded verdict only for the same request id and the same input.</p>
   </div>
 </section>
 
@@ -622,7 +622,7 @@ intact         true</code></pre></div>
       <tr><td><code>--module sidecar:PATH</code></td><td>one line of JSON each way over a unix socket, for a closed engine that will not link against this binary</td></tr>
       <tr><td><code>--signed-module FILE</code> with <code>--trust-publisher KEY</code></td><td>a module whose manifest a publisher signed; nothing loads without a key the operator typed</td></tr>
     </table></div>
-    <p>A module declares a latency class and a data class. A slow module never runs on the enforcing path, a fast one that misses its budget is demoted and stops being able to block, and an abstain is never a deny. <code>--modules-no-text</code> withholds transcript text from every module. The log records the module id, version and an evidence digest, never the matched content.</p>
+    <p>A module declares a latency class and a data class. A slow module never runs on the enforcing path, a fast one that misses its budget is demoted and stops being able to block, and an abstain is never a deny. <code>--modules-no-text</code> withholds transcript text from every module. The log records the module id, version and a keyed evidence digest, never the matched content.</p>
   </div>
 </section>
 

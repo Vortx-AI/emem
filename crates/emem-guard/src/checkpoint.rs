@@ -56,7 +56,8 @@ pub struct Transcript<'a> {
     /// typed, so a scanner that only saw user text would miss the entire
     /// population it exists to check.
     pub texts: Vec<&'a str>,
-    /// Opaque per-request id, used as the idempotency key.
+    /// Opaque request id. With a keyed digest of `texts` it is the idempotency
+    /// key, so a verdict is replayed only for the same id and the same input.
     pub request_id: Option<&'a str>,
     /// Which surface this came from, when the checkpoint says. Advisory
     /// routing metadata only: the spec is explicit that it is not a trust
@@ -280,6 +281,9 @@ impl Adapter for ClaudeCodeHook {
     }
 
     fn transcript<'a>(&self, body: &'a ClaudeCodeInput) -> Option<Transcript<'a>> {
+        // The hook carries no per-input id, so the session id stands in. It
+        // names a session, not an input: the server pairs it with a digest of
+        // the input, or one verdict would answer the whole session.
         Some(Transcript {
             texts: body.texts(),
             request_id: body.session_id.as_deref(),

@@ -34,11 +34,19 @@
 //! only worth anything if the operator making it could not have edited the
 //! answer afterwards.
 //!
-//! `config_digest`, `module` and `evidence_digest` are why it is now v3. A
+//! `config_digest`, `module` and `evidence_digest` are why it went to v3. A
 //! verdict has to be reproducible, and it is not reproducible unless it names
 //! the exact detector set that produced it. The version lives IN the domain
 //! string, so an older verifier handed a newer record does not silently accept
 //! it: the signature simply does not verify.
+//!
+//! `input_digest` is why it is now v4. A request id alone was the idempotency
+//! key, and a Claude Code hook sends one id, the session id, for every input
+//! in a session. So the first verdict of a session was replayed for every later
+//! input, and a restricted cell passed after a clean first message. The key is
+//! now the id AND a keyed digest of the checked input, and the digest is signed
+//! so the record says which input it judged. A record with no `input_digest`
+//! was written before v4 and still verifies under the v3 preimage.
 //!
 //! The preimage is pre-1.0 and will move again if something load-bearing is
 //! found to be unbound. It freezes at the first conformance-green release, and
@@ -71,6 +79,10 @@ pub struct VerdictRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<DenyCode>,
     /// The offending token, absent on allow.
+    ///
+    /// Also absent on a `GEO_ZONE` denial. Its token is the restricted cell,
+    /// and this log is open, so it would publish the operator's list one hit
+    /// at a time. `evidence_digest` holds a keyed digest of the cell instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
     /// The remedy offered, absent on allow.
@@ -110,10 +122,22 @@ pub struct VerdictRecord {
     /// Which module denied, when one did. `id@version`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub module: Option<String>,
-    /// A digest of what that module matched. **Never the content.** A log that
-    /// recorded what a secret scanner found would be a catalogue of secrets.
+    /// A digest of what that module matched, or of the restricted cell on a
+    /// `GEO_ZONE` denial. **Never the content.** A log that recorded what a
+    /// secret scanner found would be a catalogue of secrets.
+    ///
+    /// Keyed with the node's digest key. An unkeyed BLAKE3 of a short match
+    /// is a guess test against an open log: hash the guess and look for it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evidence_digest: Option<String>,
+    /// A keyed digest of the input this verdict judged.
+    ///
+    /// With `request_id` it is the idempotency key: a verdict is replayed only
+    /// for the same id AND the same input. Keyed with the node's digest key,
+    /// because the log is open and an unkeyed hash of a short prompt can be
+    /// tested against guesses. `None` only on a record written before v4.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_digest: Option<String>,
 }
 
 impl VerdictRecord {
@@ -126,6 +150,7 @@ impl VerdictRecord {
     pub fn new(
         checkpoint: &str,
         request_id: &str,
+        input_digest: Option<&str>,
         decision: &Decision,
         decided_at_unix_s: i64,
         mode: Mode,
@@ -140,7 +165,10 @@ impl VerdictRecord {
             request_id: request_id.to_string(),
             outcome: word(decision.outcome),
             code: decision.code,
-            token: decision.token.clone(),
+            token: match decision.token_digest {
+                Some(_) => None,
+                None => decision.token.clone(),
+            },
             fix: decision.fix,
             checked: decision.checked,
             decided_at_unix_s,
@@ -158,7 +186,9 @@ impl VerdictRecord {
             evidence_digest: decision
                 .module
                 .as_ref()
-                .and_then(|m| m.evidence_digest.clone()),
+                .and_then(|m| m.evidence_digest.clone())
+                .or_else(|| decision.token_digest.clone()),
+            input_digest: input_digest.map(str::to_string),
         }
     }
 
@@ -188,7 +218,16 @@ impl VerdictRecord {
         // domain rather than beside it, so a v1 verifier cannot be handed a v2
         // record and told the extra segments were always there: the domain
         // string itself differs, so the signature simply does not verify.
-        seg(0x00, b"emem.guard.verdict.v3");
+        //
+        // v4 adds `input_digest`. A v3 record has none and keeps its v3 bytes,
+        // so a log written before v4 still audits clean. Removing the digest
+        // from a v4 record changes the domain, so its signature fails.
+        let domain: &[u8] = if self.input_digest.is_some() {
+            PREIMAGE_DOMAIN.as_bytes()
+        } else {
+            b"emem.guard.verdict.v3"
+        };
+        seg(0x00, domain);
         seg(0x01, self.checkpoint.as_bytes());
         seg(0x02, self.request_id.as_bytes());
         seg(0x03, self.outcome.as_bytes());
@@ -208,9 +247,15 @@ impl VerdictRecord {
             0x0d,
             self.evidence_digest.as_deref().unwrap_or("").as_bytes(),
         );
+        if let Some(d) = &self.input_digest {
+            seg(0x0e, d.as_bytes());
+        }
         out
     }
 }
+
+/// The domain of the preimage this crate writes today.
+pub const PREIMAGE_DOMAIN: &str = "emem.guard.verdict.v4";
 
 /// Where a verdict is written before it is returned.
 ///
@@ -280,6 +325,7 @@ pub enum LogFailurePolicy {
 pub fn seal(
     checkpoint: &str,
     request_id: &str,
+    input_digest: Option<&str>,
     decision: Decision,
     decided_at_unix_s: i64,
     mode: Mode,
@@ -291,6 +337,7 @@ pub fn seal(
     let record = VerdictRecord::new(
         checkpoint,
         request_id,
+        input_digest,
         &decision,
         decided_at_unix_s,
         mode,
@@ -363,6 +410,7 @@ mod tests {
         let (d, err) = seal(
             "anthropic.inference_hook.v1",
             "req_1",
+            None,
             deny(),
             1_700_000_000,
             Mode::Enforce,
@@ -388,6 +436,7 @@ mod tests {
         let base = VerdictRecord::new(
             "cp",
             "req_1",
+            None,
             &deny(),
             1_700_000_000,
             Mode::Enforce,
@@ -451,6 +500,7 @@ mod tests {
         let (_d, err) = seal(
             "cp",
             "req_shadow",
+            None,
             returned,
             0,
             Mode::Shadow,
@@ -476,11 +526,12 @@ mod tests {
     #[test]
     fn under_enforcement_the_two_outcomes_agree() {
         assert_eq!(Mode::default(), Mode::Enforce);
-        let r = VerdictRecord::new("cp", "r", &deny(), 0, Mode::Enforce, "cfg-test");
+        let r = VerdictRecord::new("cp", "r", None, &deny(), 0, Mode::Enforce, "cfg-test");
         assert_eq!((r.outcome.as_str(), r.evaluated.as_str()), ("deny", "deny"));
         let a = VerdictRecord::new(
             "cp",
             "r",
+            None,
             &Decision::proceed(),
             0,
             Mode::Enforce,
@@ -499,6 +550,7 @@ mod tests {
         let a = VerdictRecord::new(
             "ab",
             "c",
+            None,
             &Decision::proceed(),
             0,
             Mode::Enforce,
@@ -507,6 +559,7 @@ mod tests {
         let b = VerdictRecord::new(
             "a",
             "bc",
+            None,
             &Decision::proceed(),
             0,
             Mode::Enforce,
@@ -522,6 +575,7 @@ mod tests {
         let allow = VerdictRecord::new(
             "cp",
             "req_1",
+            None,
             &Decision::proceed(),
             0,
             Mode::Enforce,
@@ -539,6 +593,47 @@ mod tests {
         );
     }
 
+    /// v4 signs the input digest. A record with none keeps the v3 domain, so
+    /// a log written before v4 still verifies. Removing the digest from a v4
+    /// record changes the domain, so its signature cannot carry over.
+    #[test]
+    fn the_input_digest_is_signed_and_a_v3_record_keeps_its_domain() {
+        let has = |p: &[u8], d: &[u8]| p.windows(d.len()).any(|w| w == d);
+        let v3 = VerdictRecord::new("cp", "req_1", None, &deny(), 0, Mode::Enforce, "cfg-test");
+        let v4 = VerdictRecord::new(
+            "cp",
+            "req_1",
+            Some("input-a"),
+            &deny(),
+            0,
+            Mode::Enforce,
+            "cfg-test",
+        );
+        assert!(has(&v3.preimage(), b"emem.guard.verdict.v3"));
+        assert!(!has(&v3.preimage(), PREIMAGE_DOMAIN.as_bytes()));
+        assert!(has(&v4.preimage(), PREIMAGE_DOMAIN.as_bytes()));
+
+        let mut other = v4.clone();
+        other.input_digest = Some("input-b".into());
+        assert_ne!(other.preimage(), v4.preimage(), "input_digest");
+        let mut stripped = v4.clone();
+        stripped.input_digest = None;
+        assert_ne!(stripped.preimage(), v4.preimage());
+    }
+
+    /// The open log gets the keyed digest and no cell. The caller's reason
+    /// line, built from the same decision, still names the cell.
+    #[test]
+    fn a_geo_zone_record_logs_a_digest_and_no_cell() {
+        let cell = "defi.zb493.xuqA.zcb5f";
+        let d = Decision::block(DenyCode::GeoZone, Some(cell.into()), Fix::ContactAdmin)
+            .with_token_digest("keyed-digest");
+        let r = VerdictRecord::new("cp", "r", Some("in"), &d, 0, Mode::Enforce, "cfg-test");
+        assert!(r.token.is_none());
+        assert_eq!(r.evidence_digest.as_deref(), Some("keyed-digest"));
+        assert!(d.reason_line().contains(&format!("token={cell}")));
+    }
+
     /// Our storage being unhealthy must not become the customer's outage.
     #[test]
     fn a_log_failure_does_not_by_default_change_the_answer() {
@@ -546,6 +641,7 @@ mod tests {
         let (d, err) = seal(
             "cp",
             "req_1",
+            None,
             deny(),
             0,
             Mode::Enforce,
@@ -573,6 +669,7 @@ mod tests {
         let (d, err) = seal(
             "cp",
             "req_1",
+            None,
             deny(),
             0,
             Mode::Enforce,

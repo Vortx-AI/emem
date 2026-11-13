@@ -86,6 +86,11 @@ the module list and the log reads.
 Each verdict names a log leaf. Anyone can fetch it with `GET /log/entry/{leaf}`
 and check the verdict without trust in the node.
 
+A retry gets the verdict that the node already gave, but only for the same
+request id AND the same input. The Claude Code hook sends its session id as
+the request id, so each input in a session gets its own verdict. A request
+with no id never shares a verdict with another request.
+
 `GET /.well-known/emem-guard.json` publishes the full contract: routes, deny
 codes, fixes and active rules. An agent can integrate from that document
 alone. A test checks that every advertised route answers.
@@ -160,6 +165,12 @@ curl -s localhost:8080/modules      # loaded modules, their health and their cos
 The log records the module id, version and an evidence digest. It never
 records what matched. The digest of the loaded module set is part of the
 verdict preimage, so each verdict names the pipeline that made it.
+
+`GET /log/entries` needs no auth, so every digest in it is a keyed BLAKE3 under
+the node's `digest.key`, which is not the signing key. Without that key, nobody
+can test a guess against a digest. A `GEO_ZONE` entry holds a keyed digest of
+the restricted cell, not the cell. The caller still gets the cell in its
+reply.
 
 A third party can ship a module with a signed manifest. The operator loads it
 with `--signed-module FILE` and accepts its key with `--trust-publisher KEY`.

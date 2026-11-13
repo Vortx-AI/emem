@@ -413,6 +413,10 @@ posts. You write one shape, and the node can reach it over either transport:
 {"outcome":"deny","reason":"policy 12","confidence":0.8}
 ```
 
+`text_digest` is a keyed BLAKE3 of the transcript, under the node's
+`digest.key`. Your engine can use it to match calls with the same text. It
+cannot use it to test a guess of the text.
+
 The node connects to a socket. It does not spawn a process, because a process
 brings restart policy, zombie reaping and crash loops for the operator to
 handle. A missing socket counts as an abstain. A socket that accepts the write
@@ -429,7 +433,8 @@ different evaluations.
 A module denial carries the code `POLICY_MODULE` and your declared `fix`. The
 reason line does not get a field for the module id, because the grammar is
 fixed and agents parse it. The caller gets the id, the version and the evidence
-digest through the native route and the log.
+digest through the native route and the log. The node keys the evidence digest
+with its `digest.key` before it logs it. Step 11 tells why.
 
 ## Step 10: raise the body limit
 
@@ -481,6 +486,33 @@ command exits with 1.
 `GET /log/head` publishes the head, so a witness or a mirror can pin it.
 `GET /log/entries?start=0` lets anyone mirror the log without your help.
 
+### What the open log holds, and what it does not
+
+`/log/entries` has no auth. Since 12 November 2026 (record domain
+`emem.guard.verdict.v4`), it holds no text that anyone can test a guess
+against:
+
+| Field | What it holds |
+|---|---|
+| `input_digest` | a keyed BLAKE3 of the checked input. With `request_id`, it is the replay key. |
+| `evidence_digest` | a keyed BLAKE3 of what a module matched. On a `GEO_ZONE` denial, a keyed BLAKE3 of the restricted cell. |
+| `token` | the cited token on a `PROV_*` denial. Absent on a `GEO_ZONE` denial. |
+
+The key is `digest.key` in the data directory. The node makes it on the first
+run, with mode 0600. It is not the signing key `guard.key`. Keep it private:
+anyone with the key can test guesses against the digests. You hold the key, so
+you can still show which input or which cell an entry is about. Compute the
+same keyed digest and compare.
+
+Before v4, `evidence_digest` was an unkeyed BLAKE3, and a reader can guess a
+short match from it. A `GEO_ZONE` record also held the restricted cell in
+`token`, so the open log listed your restricted cells. Records written before
+v4 keep their v3 preimage, and `--audit` still verifies them. If such records
+are on a public node, treat their digests and cells as published.
+
+The caller still gets the restricted cell in the reason line, because the
+caller sent it. A retry of the same input gets the same reason line.
+
 ## Step 12: set up the vendor checkpoints, if you want them
 
 ### Alert on unverified allows
@@ -516,6 +548,18 @@ administrator confirms that the secret exists. Then add `--require-signature`.
 The Claude Code client posts hook input to `POST /verdict/claude-code`. To block, return **2xx with a
 deny decision in the body**. A non-2xx response does not block. This is the
 opposite of what most HTTP clients expect.
+
+The hook input has no id for each input, so the node uses `session_id` as the
+request id. A retry gets the recorded verdict only when the request id AND a
+keyed digest of the input are the same. So each input in a session gets its
+own verdict and its own log entry. Before 12 November 2026 the node replayed
+the first verdict of a session for every later input. A clean first message
+then let a restricted cell through. Input with no `session_id` gets a new id,
+so it never shares a verdict.
+
+Check: in one session, send a clean prompt and then a prompt that cites a cell
+from `--restrict-cell`. The second answer must be a deny, and `GET /log/head`
+must count two entries.
 
 ## Step 13: rotate the secret
 
