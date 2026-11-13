@@ -14,7 +14,7 @@ Reads need no key and no account. None of emem's write verbs is exposed in this 
 
 ## `emem_ask`
 
-Answer a free-text question about a real-world location in one call. Signed satellite, elevation, water and built-up receipts support the answer. The tool sends the place and the question through the locate, recall and algorithm chain on the server, and returns one packaged envelope. When to use: Call this when the question is about a specific place and the answer must carry its evidence. Send the question as `q`, with `place`, `cell` or `lat`+`lng`. Over MCP a point answer is a projection. It has `answer`, `receipt` (cite `receipt.fact_cids`), `place_resolved`, `routed_to`,…
+Answer a free-text question about a real-world location in one call. Signed satellite, elevation, water and built-up receipts support the answer. The tool sends the place and the question through the locate, recall and algorithm chain on the server, and returns one packaged envelope. When to use: Call this when the question is about a specific place and the answer must carry its evidence. Send the question as `q`, with `place`, `cell` or `lat`+`lng`. Over MCP a point answer is a projection. It has `answer`, `direct_answer` (verdict, band, rule, date, limits), `receipt` (cite…
 
 **Read-only:** no. ask_inner reads through recall_with_auto_materialize, and for questions whose algorithm has a temporal recipe it also calls materialize_band_at. Both fetch a missing band, sign the fact and persist it to emem's publicly readable store, so the call can change what later readers see.
 
@@ -27,12 +27,12 @@ Answer a free-text question about a real-world location in one call. Signed sate
 ```json
 {
   "q": "<q>",
-  "query": "<query>", // optional
-  "place": "<place>", // optional
-  "cell": "<cell>", // optional
-  "lat": 0,         // optional
-  "lng": 0,         // optional
-  "include": []     // optional
+  "query": "<query>",         // optional
+  "place": "<place>",         // optional
+  "cell": "<cell>",           // optional
+  "lat": 0,                   // optional
+  "lng": 0,                   // optional
+  "context_id": "<context_id>" // optional
 }
 ```
 
@@ -269,7 +269,7 @@ Required: `token`
 
 ## `emem_tools`
 
-The map of emem's tools, and the one tool that finds all the others. It gives the working loop in order (name, ground, cite, resolve, verify, check for drift). Then it groups every other tool by the question it answers, each with a one-line trigger. Send `name` for the full schema of one tool and an example that runs. IF YOU SEE A LIST OF 18 TOOLS, IT IS A CURATED SUBSET OF 116, NOT THE FULL SURFACE. Hosts remove `_meta`, so this text repeats the count. You can call every catalogued tool by name through tools/call at either endpoint. When to use: Call this FIRST when you do not know which…
+The map of emem's tools, and the one tool that finds all the others. It gives the working loop in order (name, ground, cite, resolve, verify, check for drift). Then it groups every other tool by the question it answers, each with a one-line trigger. Send `name` for the full schema of one tool and an example that runs. IF YOU SEE A LIST OF 18 TOOLS, IT IS A CURATED SUBSET OF 116, NOT THE FULL SURFACE. Hosts remove `_meta`, so this text repeats the count. A host that calls only listed tools refuses the rest: connect /mcp/full and follow `nextCursor`, or use `listed_route`. When to use: Call…
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
 
