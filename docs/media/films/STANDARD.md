@@ -20,6 +20,11 @@ fails a technical gate is sent back with the report.
 - An explainer (verdict NONE) may show values that a public script in this repository computes offline. Such a
   claim names the script (`reproduce`), the file it writes (`output`) and that file's `output_sha256`, in place
   of a token.
+- A share or count over an area, such as "72 % of the park reads as snow", is cited as an `emem:bundle` of the
+  signed per-cell facts for one date, with the rule (`band`, `op`, `threshold`) and the statistic. The gate
+  resolves every member and counts again. Cells with no clear reading are not in the set, so the screen states
+  the denominator ("of 46 cells with a clear reading"). `emem_derive` cannot do this: its operations that the
+  responder recomputes are delta, mean and sum.
 - A label that names the picture on screen, such as "Sentinel-2, 30 May 2026, 11:06 UTC", is a claim. A wrong
   date misleads as much as a wrong count. The claim names the catalogue item (`stac_item`) and what the screen
   shows (`shown_utc`), and the gate reads the item's time.
@@ -77,6 +82,9 @@ One folder per film, `docs/media/films/<id>/`:
   earth-search.aws.element84.com) and `shown_utc` (`2026-05-30` or `2026-05-30T11:06Z`) in place of a token. The
   item's time, cut to that precision as a clock shows it, must equal it, and an evidence segment must list the
   item id;
+- a share or count in `claims` has `text`, `token` (`emem:bundle:`), `rule` (`{band, op, threshold}`, op one of
+  `ge`, `gt`, `le`, `lt`), `statistic` (`count`, `share` or `percent`), the `value` shown and, when the screen
+  shows it, `total`. Every member must resolve, read the rule's band on one date and carry no erratum;
 - a conversion in `claims` has `text`, `of` (the index of the claim it converts), `multiply`, `divide`,
   `formula` and the `value` shown;
 - in `film.json` when the film has them: `segments`, each `{start, end, role: "evidence" | "illustration",
@@ -110,3 +118,7 @@ On 13 November the claim check learnt pass labels and conversions. A test of ten
 ones (a signed count, its area, its pitches and a real Sentinel-2 pass) and failed the six controls: a wrong
 area, a wrong minute, a wrong day in the text, a conversion of itself, a catalogue outside the two, and a wrong
 count.
+
+The same day it learnt shares and counts over a bundle. A test over three signed NDSI cells of Victoria Park on
+14 December 2022 passed four true claims (100 %, 2 of 3, 67 % and 0.67) and failed five controls: 66 %, a bundle
+of which only 3 of 6 members resolved, a rule on another band, a wrong total, and an operator outside the four.

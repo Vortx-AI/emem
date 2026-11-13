@@ -23,6 +23,12 @@ The half of docs/media/films/STANDARD.md that film_qc.py cannot do offline. For 
                                    (2026-05-30 or 2026-05-30T11:06Z). The item's `datetime`, cut to that
                                    precision as a clock shows it, must equal it; the text must name the same day;
                                    and when film.json has segments, an evidence segment must list the item id.
+  emem:bundle:<cid> + `rule`        a share or count over an area, such as "72 % of the park reads as snow". The
+                                   bundle binds the signed per-cell facts; `rule` is {band, op, threshold} with op
+                                   one of ge, gt, le, lt; `statistic` is count, share or percent. The gate resolves
+                                   every member, applies the rule and recounts. All members must resolve, read the
+                                   rule's band on one date, and carry no erratum. `total`, when shown, must equal
+                                   the number of members.
   a conversion                     "99 football pitches" from "71 hectares": `of` is the index of the claim it
                                    converts, `multiply` and `divide` the factors, `formula` the words. The gate
                                    converts the SIGNED value of that claim, not the rounded one on screen.
@@ -39,6 +45,8 @@ REPO = Path(__file__).resolve().parent.parent
 TREE_PROOF = Path(__file__).resolve().parent / "verifiers" / "emem-tokenise-files" / "tree_proof.py"
 FACT = re.compile(r"^emem:fact:[A-Za-z0-9.]+:[a-z2-7]{20,64}$")
 TREE = re.compile(r"^emem:tree:([a-z2-7]{20,64})#row=(\d{1,6})$")
+BUNDLE = re.compile(r"^emem:bundle:[a-z2-7]{20,64}$")
+RULE_OPS = {"ge": lambda v, t: v >= t, "gt": lambda v, t: v > t, "le": lambda v, t: v <= t, "lt": lambda v, t: v < t}
 NOTE_PATH = re.compile(r"^/memories/by_attester/[a-z2-7]{8}/[A-Za-z0-9._/-]{1,200}\.md$")
 STAC_HOSTS = ("planetarycomputer.microsoft.com", "earth-search.aws.element84.com")
 SHOWN_UTC = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})Z)?$")
@@ -123,6 +131,45 @@ def tree(c, m):
         return True, f"note, leaf, root and unit MATCH; unit value {unit_value or '(none)'}", unit_value
 
 
+def bundle(c):
+    rule, stat = c.get("rule") or {}, c.get("statistic")
+    op, band, thr = rule.get("op"), rule.get("band"), num(rule.get("threshold"))
+    if op not in RULE_OPS or not band or thr is None or stat not in ("count", "share", "percent"):
+        return False, "a bundle claim needs `rule` {band, op: ge|gt|le|lt, threshold} and `statistic` count|share|percent"
+    if "value" not in c:
+        return False, "a bundle claim needs the `value` shown"
+    b = json.loads(get(f"{EMEM}/v1/memory_bundle/{c['token']}"))
+    cites = b.get("citations") or []
+    if not cites or len(cites) > 256:
+        return False, f"the bundle has {len(cites)} citations; a share needs 1 to 256"
+    if b.get("resolved") != b.get("members") or b.get("members") != len(cites):
+        return False, f"{b.get('resolved')} of {b.get('members')} members resolved; a share over part of a set says more than it holds"
+    if {x.get("band") for x in cites} != {band}:
+        return False, f"the bundle holds {sorted({str(x.get('band')) for x in cites})}, and the rule reads {band}"
+    days = {x.get("resolved_tslot") for x in cites}
+    if len(days) != 1:
+        return False, f"the members span {len(days)} dates; a share is of one date"
+    hits = 0
+    for x in cites:
+        r = json.loads(get(f"{EMEM}/v1/memory_token/resolve", {"token": x["memory_token"]}))
+        if not r.get("resolved") or r.get("cell_matches") is False:
+            return False, f"member {x['memory_token'][:60]} does not resolve with its cell"
+        if r.get("erratum"):
+            return False, f"member at {x.get('cell')} carries an erratum ({r['erratum'].get('id')}); bundle its replacement"
+        v = num(r.get("value"))
+        if v is None or not v.is_finite():
+            return False, f"member at {x.get('cell')} has no numeric value ({r.get('value')!r})"
+        hits += RULE_OPS[op](v, thr)
+    n = len(cites)
+    got = {"count": Decimal(hits), "share": Decimal(hits) / n, "percent": Decimal(100 * hits) / n}[stat]
+    if "total" in c and num(c["total"]) != n:
+        return False, f"shown total {c['total']!r}, the bundle has {n} members"
+    rule_txt = f"{band} {op} {rule.get('threshold')}"
+    if not same(c["value"], got):
+        return False, f"shown {c['value']!r}; {hits} of {n} members meet {rule_txt}, so the {stat} is {got:.6g}"
+    return True, f"{hits} of {n} members meet {rule_txt} on one date: {stat} {got:.6g}"
+
+
 def label(c, meta):
     url = str(c.get("stac_item", ""))
     u = urllib.parse.urlparse(url)
@@ -202,13 +249,15 @@ def main():
                     h = hashlib.sha256(out.read_bytes()).hexdigest()
                     ok = h == c["output_sha256"]
                     why = f"computed by {c['reproduce']}; output {'matches' if ok else 'differs from'} its sha256"
+            elif BUNDLE.match(tok):
+                ok, why = bundle(c)
             elif FACT.match(tok) or TREE.match(tok):
                 m = TREE.match(tok)
                 ok, why, *val = tree(c, m) if m else fact(c)
                 if ok and val and val[0] is not None:
                     signed[i] = val[0]
             else:
-                ok, why = False, "not an emem:fact or emem:tree#row token, a pass label or a conversion"
+                ok, why = False, "not an emem:fact, emem:tree#row or emem:bundle token, a pass label or a conversion"
         except Exception as e:  # noqa: BLE001
             ok, why = False, f"{type(e).__name__}: {str(e)[:160]}"
         bad += not ok
