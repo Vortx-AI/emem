@@ -23,6 +23,7 @@ Usage:
   scripts/output_schema_conformance.py             # against https://emem.dev
   scripts/output_schema_conformance.py --check     # non-zero exit on violation
   EMEM_RESPONDER=http://localhost:5051 scripts/... # against a local node
+  EMEM_MCP_BUDGET=6000 ...                         # the budget that node runs with
 """
 from __future__ import annotations
 
@@ -62,6 +63,38 @@ ARGS: dict[str, dict] = {
     "emem_locate": {"place": "Mount Fuji"},
     "emem_memory_token_resolve": {},  # filled at runtime with a real token
 }
+
+# Calls whose result is over the MCP wire budget, so the slimmer runs. Every
+# call above is small, and a small result is the mirror of itself: it never
+# reached the code that nulled `facts` and `fact_order` on a recall, or that
+# left a 195 KB receipt in a 24 KB answer. A strict client met both on the
+# first busy cell it asked about. Run against a local node, set
+# EMEM_MCP_RESPONSE_BUDGET_BYTES on that node low (for example 6000) so these
+# calls go over it on a near-empty corpus, and pass the same number here as
+# EMEM_MCP_BUDGET.
+LARGE: dict[str, dict] = {
+    "emem_recall": {"place": "Trafalgar Square"},
+    "emem_ask": {"q": "What is at Trafalgar Square, and what does it look like?"},
+}
+
+BUDGET = int(os.environ.get("EMEM_MCP_BUDGET", "24000"))
+
+
+def _result_bytes(result: dict) -> int:
+    """The result as the server sized it: compact JSON, UTF-8."""
+    return len(json.dumps(result, separators=(",", ":"), ensure_ascii=False).encode())
+
+
+def _text_is_json(result: dict) -> bool:
+    """A host that cuts the text block leaves JSON that does not parse."""
+    for block in result.get("content") or []:
+        if block.get("type") == "text":
+            try:
+                json.loads(block.get("text") or "")
+                return True
+            except ValueError:
+                return False
+    return False
 
 
 def _post(path: str, body: dict, timeout: int = 90):
@@ -189,8 +222,13 @@ def main() -> int:
     for name in sorted(set(ARGS) - set(declaring)):
         problems.append(f"{name}: has a success-path call in this script but no longer "
                         f"declares an outputSchema; drop the entry or restore the schema")
-    for name, schema in sorted(declaring.items()):
-        args = ARGS.get(name)
+    for name in sorted(set(LARGE) - set(declaring)):
+        problems.append(f"{name}: has an over-budget call in this script but no longer "
+                        f"declares an outputSchema")
+    cases = [(n, s, ARGS.get(n), "") for n, s in sorted(declaring.items())]
+    cases += [(n, declaring[n], a, " [over budget]") for n, a in sorted(LARGE.items())
+              if n in declaring]
+    for name, schema, args, label in cases:
         if args is None:
             problems.append(f"{name}: declares a schema but this script has no "
                             f"success-path call for it, so the promise is unverified")
@@ -198,23 +236,31 @@ def main() -> int:
         try:
             r = _rpc("tools/call", {"name": name, "arguments": args})["result"]
         except Exception as e:
-            problems.append(f"{name}: call failed: {str(e)[:80]}")
+            problems.append(f"{name}{label}: call failed: {str(e)[:80]}")
             continue
         if r.get("isError"):
-            problems.append(f"{name}: test call returned isError; fix the args in "
+            problems.append(f"{name}{label}: test call returned isError; fix the args in "
                             f"this script so the SUCCESS path is what gets checked")
             continue
+        size = _result_bytes(r)
+        if size > BUDGET:
+            problems.append(f"{name}{label}: result is {size} bytes, over the "
+                            f"{BUDGET}-byte MCP wire budget")
+        if not _text_is_json(r):
+            problems.append(f"{name}{label}: the text block is not whole JSON")
         sc = r.get("structuredContent")
         if sc is None:
-            problems.append(f"{name}: declared an outputSchema and returned no "
+            problems.append(f"{name}{label}: declared an outputSchema and returned no "
                             f"structuredContent on a successful call")
             continue
         try:
             jsonschema.validate(sc, schema)
-            print(f"  ok   {name} ({len(sc)} keys)")
+            slim = " slimmed" if "_emem_truncation" in json.dumps(r) else ""
+            print(f"  ok   {name}{label} ({len(sc)} keys, {size} bytes{slim})")
         except jsonschema.ValidationError as e:
-            problems.append(f"{name}: structuredContent violates its own schema: "
-                            f"{e.message[:90]}")
+            where = "/".join(str(p) for p in e.absolute_path)
+            problems.append(f"{name}{label}: structuredContent violates its own schema "
+                            f"at {where or '(root)'}: {e.message[:90]}")
 
     if problems:
         print("\nVIOLATIONS:")
