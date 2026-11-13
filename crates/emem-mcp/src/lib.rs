@@ -516,7 +516,7 @@ const OUT_GUARD_VERDICT: &str = r#"{"type":"object","required":["action","adviso
 "citations_verified_here":{"type":"integer","description":"How many of the citations this responder holds and verified."},
 "citations":{"type":"array","description":"Each citation and what it came to here: verified, signature_failed, byte_mismatch, not_held_here (minted elsewhere or nonexistent: resolve it where it was minted before relying on it), or drifted.","items":{"type":"object"}},
 "checked":{"type":"integer","description":"How many were actually resolved, bounded by the verdict budget."},
-"claim":{"type":"object","description":"On CLAIM_UNGROUNDED: the sentence, magnitude, quantity, anchor, and source_band. source_band is a recallable band key. It is null when this responder observes no band in that quantity, or when the sentence does not name what the band measures."},
+"claim":{"type":"object","description":"On CLAIM_UNGROUNDED: the sentence, magnitude, quantity, anchor, and source_band. source_band is a recallable band key, or null when no band here observes that quantity or the sentence does not name what the band measures."},
 "receipt":{"type":"object","description":"ed25519 receipt. `fact_cids` lists what actually resolved and is the field that separates a real citation from an invented one."},
 "advisory":{"type":"boolean","description":"True on the hosted route, where nothing is blocked. Run your own node to enforce."}}}"#;
 
@@ -1368,7 +1368,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_tools",
         title: "What tools exist here, and when to reach for each",
-        description: "The map of emem's tools, and the one tool that finds all the others. It gives the working loop in order (name, ground, cite, resolve, verify, check for drift). Then it groups every other tool by the question it answers, each with a one-line trigger. Send `name` for the full schema of one tool and an example that runs. IF YOU SEE A LIST OF {TOOL_CORE} TOOLS, IT IS A CURATED SUBSET OF {TOOL_TOTAL}, NOT THE FULL SURFACE. Hosts remove `_meta`, so this text repeats the count. The server runs every tool by name. A host that calls only listed tools refuses the rest. Then connect /mcp/full and follow `nextCursor`, or use `listed_route`.",
+        description: "The map of emem's tools, and the one tool that finds all the others. It gives the working loop in order (name, ground, cite, resolve, verify, check for drift). Then it groups every other tool by the question it answers, each with a one-line trigger. Send `name` for the full schema of one tool and an example that runs. IF YOU SEE A LIST OF {TOOL_CORE} TOOLS, IT IS A CURATED SUBSET OF {TOOL_TOTAL}, NOT THE FULL SURFACE. Hosts remove `_meta`, so this text repeats the count. A host that calls only listed tools refuses the rest: connect /mcp/full and follow `nextCursor`, or use `listed_route`.",
         when_to_use: "Call this FIRST when you do not know which tool answers the question. Also call it when your list does not have a capability. A tool that is not in your list can still be on the server. `q` searches by topic (`ndvi`, `flood`, `verify`). `name` returns one exact schema. With no arguments, you get the full map. /mcp/full registers the full catalog. emem_ask answers in one call without a choice of primitive.",
         input_schema: SCHEMA_TOOLS,
         output_schema: None,
