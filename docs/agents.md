@@ -187,11 +187,44 @@ curl -s -X POST https://emem.dev/v1/ask \
   -d '{"q":"what is the NDVI near Mount Fuji?"}'
 ```
 
-Read `routed_to`, `answer`, `fact_cids` and `receipt`. Ask gives the current
-value. Check `place_resolved` before you use the answer. It gives the
-`cell64`, `label`, `lat` and `lng` that ask found for your words. On 7
-November 2026, "Mount Fuji" resolved to `defi.zb592.nUkO.zEzE`, and the
-answer cited 19 fact CIDs. For a change, use [See how a value changed](#job-see-how-a-value-changed).
+Read `routed_to`, `answer`, `direct_answer`, `fact_cids` and `receipt`.
+Check `place_resolved` before you use the answer. It gives the `cell64`,
+`label`, `lat` and `lng` that ask found for your words. On 7 November 2026,
+"Mount Fuji" resolved to `defi.zb592.nUkO.zEzE`, and the answer cited 19
+fact CIDs. When a place name resolves to a business named after it (a hotel
+for an island), `place_resolved.resolved_to_poi` says so and names the area
+candidate the geocoder also offered.
+
+Ask reads three things from the question before it fetches anything. They
+are in `asked`:
+
+- The form of the answer: `yes_no`, `choice` ("high or low") or `value`.
+- The quantity, and the band that measures it: snow cover from NDSI, open
+  water from MNDWI, NDWI or Sentinel-1 VV, ground elevation from the
+  Copernicus DEM, vegetation from NDVI, air temperature, precipitation and
+  PM2.5.
+- The date. A past date is read from facts of that date (`dated_recall`).
+  When emem holds no reading of that date, the verdict is `cannot_tell` and
+  the answer names the nearest date it holds. It never answers a past date
+  with the newest reading. Send `date` (`YYYY-MM-DD`, `YYYY-MM` or `YYYY`)
+  to set the date without words.
+
+`direct_answer` holds the verdict (`yes`, `no`, one of the two options, or
+`cannot_tell`), the value, the band and fact CID that gave it, the rule, the
+observation date, and the limits. A static layer, such as the DEM, has no
+observation date, and the answer says it is a static layer. The age in the
+prose is the age of the observation, not the time emem signed it.
+
+Every answer carries `context.context_id`. Send it as `context_id` with a
+follow-up. A follow-up that names no place keeps the place. One that names
+no subject ("and on 1 February 2023?") keeps the question too.
+`context.inherited` lists what the follow-up kept. Threads live in memory for
+30 minutes. The A2A door uses the A2A `contextId` as the thread.
+
+For a change over a span ("since 2020"), use
+[See how a value changed](#job-see-how-a-value-changed). Ask marks such a
+question `asked.change_question` and gives the `emem_intent` call in
+`change_question_next_step`.
 
 Do not copy the MCP `accept` header to this REST call. If the `accept` header
 contains `text/event-stream`, `/v1/ask` sends a stream of server-sent events,
@@ -1715,7 +1748,7 @@ Contains modified Copernicus Sentinel data 2025.
 | Method | Path | Body |
 |---|---|---|
 | GET, POST | `/v1/locate` | `{place or q or name or query, lat?, lng?, strict?}` |
-| POST | `/v1/ask` | `{q, place?, cell?, lat?, lng?, model?, verbose?, include?, include_image?}` |
+| POST | `/v1/ask` | `{q, place?, cell?, lat?, lng?, date?, context_id?, model?, verbose?, include?, include_image?}` |
 | POST | `/v1/intent` | A typed intent. Always send `type`; the other fields depend on it |
 
 With `strict: true`, `/v1/locate` answers 404 `no_geocoder_match` when the

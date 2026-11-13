@@ -18,9 +18,13 @@ signed answer in three calls:
    four paths. These are a self-description of emem, a corpus audit, a
    hunter sweep over a region, or a point answer. A corpus audit redirects
    to the coverage endpoints and has no receipt. The hunter sweep and the point answer carry a signed
-   receipt. Ask answers point questions with a current value. Send a
-   change question ("how has X changed") to `emem_intent` with
-   `did_change`, or to `emem_diff`. This is the fastest path.
+   receipt. Ask answers a point question with the current value, or with
+   a reading of the date the question names; when it holds no reading of
+   that date it says `cannot_tell` rather than answer from another date.
+   `direct_answer` carries the verdict, the band and the limits, and
+   `context.context_id` continues the thread. Send a change question ("how
+   has X changed") to `emem_intent` with `did_change`, or to `emem_diff`.
+   This is the fastest path.
 2. **Or take control.** `POST /v1/locate {"place":"Mount Fuji"}` → a
    `cell64`, then `POST /v1/recall {"cell":"<cell64>"}` (auto-materialises
    on a miss).
