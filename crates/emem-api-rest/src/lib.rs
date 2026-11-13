@@ -5488,7 +5488,7 @@ async fn get_readonly_profile() -> Json<JsonValue> {
             "warm": "A cell already in the corpus answers in single-digit milliseconds. The receipt tells you which you got, in `receipt.cost.was_cached`.",
             "cold": "A cell nobody has asked for yet is fetched from the upstream archive during your call, roughly 0.5 to 1.6 seconds depending on the source. That is the auto-materialise contract: you are not handed an empty answer where data exists, so the first read of a new place pays for the fetch.",
             "check_first": "POST /v1/state or GET /v1/coverage_matrix reports what is already cached at a cell, so a latency-sensitive turn can prefer a warm one, or set expectations, before calling.",
-            "measured": "Per-tool p50 and p95 ride in each tool's `_meta` as `dev.emem/observed_latency`, measured on this responder rather than declared. Absent until a tool has been called since boot: an unmeasured tool reports nothing rather than a guess.",
+            "measured": "Per-tool p50 and p95 ride in each tool's `_meta` as `dev.emem/observed_latency`, measured on this responder over the tool's last 64 calls (`n` says how many) rather than declared. They describe recent calls, not a budget. Absent until a tool has been called since boot: an unmeasured tool reports nothing rather than a guess.",
             "budget": "MCP tools/call is cut at 32 s, the HTTP edge at 40 s. A call that would exceed those fails rather than hanging.",
         },
         "note": "Generated from the tool registry on every request, so this cannot drift from what the server enforces.",
@@ -31824,15 +31824,22 @@ fn latency_of(tool: &str) -> Option<JsonValue> {
     if v.is_empty() {
         return None;
     }
-    let mut sorted = v.clone();
+    Some(latency_summary(v))
+}
+
+/// The entry for one tool's window. What it means is said once, in the
+/// `measured` line of `/v1/readonly`, and not in each tool: a sentence
+/// repeated in every entry was 54 of its 115 bytes, and on a node that had run
+/// all 18 core tools it took the core page over the host ceiling.
+fn latency_summary(window: &[u32]) -> JsonValue {
+    let mut sorted = window.to_vec();
     sorted.sort_unstable();
     let pick = |q: f64| sorted[((sorted.len() as f64 - 1.0) * q).round() as usize];
-    Some(json!({
+    json!({
         "p50_ms": pick(0.50),
         "p95_ms": pick(0.95),
         "n": sorted.len(),
-        "note": "measured here over recent calls, not a budget",
-    }))
+    })
 }
 
 /// One MCP tool descriptor, exactly as `tools/list` emits it.
@@ -91339,23 +91346,37 @@ mod tests {
     // effect, and nothing failed. Every assertion below is one a naive
     // client makes implicitly.
 
-    /// Bytes a client actually receives for one page, envelope included.
-    /// What `list_bytes` may report, which is BELOW the host ceiling on purpose.
+    /// The measured host limit: 76,800 raw bytes (102,400 base64-wrapped).
     ///
-    /// The measured host limit is 76,800 raw bytes (102,400 base64-wrapped).
-    /// This function measures the handler's value inside a JSON-RPC envelope,
-    /// and the served response is consistently ~1,500 bytes larger than that
-    /// -- 76,918 here against 78,272 on the wire for the same listing. A
-    /// ceiling is a property of what is SENT, so the authoritative check runs
-    /// against the live origin in `scripts/protocol_conformance.py`; this one
-    /// is the early warning, and it is set low enough that passing it means
-    /// the wire passes too.
-    const CORE_PAGE_LOCAL_CEILING: usize = 75_000;
+    /// It is checked on the page a WARM node sends. A tool that has run since
+    /// boot carries `dev.emem/observed_latency` in `_meta`, and a test process
+    /// has run almost none. The old check held the page as built here to
+    /// 75,000, on the belief that the wire adds about 1,500 bytes. It does
+    /// not: on 13 November 2026 the body emem.dev sent was the same length as
+    /// `list_bytes` of its result. The 1,852 bytes of headroom went instead to
+    /// latency entries, and with all 18 core tools timed emem.dev sent 77,013.
+    /// [`warm`] gives every tool on the page the widest entry it can carry, so
+    /// passing here means a node that has run every tool still fits.
+    const CORE_PAGE_WIRE_CEILING: usize = 76_800;
 
     fn list_bytes(v: &JsonValue) -> usize {
         serde_json::to_string(&json!({"jsonrpc":"2.0","id":1,"result":v}))
             .map(|s| s.len())
             .unwrap_or(0)
+    }
+
+    /// The page as a node that has run every listed tool sends it. A sample
+    /// is cut at the tools/call budget, so six digits of milliseconds covers
+    /// any budget under 16 minutes.
+    fn warm(v: &JsonValue) -> JsonValue {
+        let widest = latency_summary(&[999_999; LATENCY_WINDOW]);
+        let mut w = v.clone();
+        for t in w["tools"].as_array_mut().into_iter().flatten() {
+            if let Some(meta) = t.get_mut("_meta").and_then(|m| m.as_object_mut()) {
+                meta.insert("dev.emem/observed_latency".into(), widest.clone());
+            }
+        }
+        w
     }
 
     /// Walk the cursor exactly as a paginating client does: carry the
@@ -91380,9 +91401,9 @@ mod tests {
             pages += 1;
             bytes += list_bytes(&r);
             assert!(
-                list_bytes(&r) <= CORE_PAGE_LOCAL_CEILING,
-                "page {pages} of {params} is {} bytes, over the wrapped-body ceiling",
-                list_bytes(&r)
+                list_bytes(&warm(&r)) <= CORE_PAGE_WIRE_CEILING,
+                "page {pages} of {params} is {} bytes on a warm node, over the wrapped-body ceiling",
+                list_bytes(&warm(&r))
             );
             for t in r["tools"].as_array().expect("tools array") {
                 names.push(t["name"].as_str().expect("tool name").to_string());
@@ -93300,9 +93321,9 @@ mod tests {
             r.get("nextCursor")
         );
         assert!(
-            list_bytes(&r) <= CORE_PAGE_LOCAL_CEILING,
-            "core page is {} bytes, over the local ceiling that keeps the wire under 76,800",
-            list_bytes(&r)
+            list_bytes(&warm(&r)) <= CORE_PAGE_WIRE_CEILING,
+            "core page is {} bytes on a node that has run every core tool, over 76,800",
+            list_bytes(&warm(&r))
         );
     }
 

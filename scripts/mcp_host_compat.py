@@ -339,6 +339,20 @@ def run(origin: str, endpoint: str) -> dict:
         f"(measured without the host's own envelope)",
         biggest < AWS_RESPONSE_CEILING, f"{biggest}B")
 
+    # H4b: the same ceiling, counted the way AWS counts it. A listing of
+    # 79,496 bytes was refused under that limit, and 79,496 x 4/3 = 105,995:
+    # the host counts the body base64-wrapped, so the raw limit is 76,800.
+    # H4 above cannot see that. Page one is the page a host that never pages
+    # takes whole, and on production it is warm: each tool that has run since
+    # boot carries its measured latency, which a fresh build never shows. That
+    # is how emem.dev sent 77,013 bytes on 13 November 2026 while every build
+    # check passed.
+    wrapped = (len(raw_list) + 2) // 3 * 4
+    row("AWS Bedrock/AgentCore",
+        f"page one of tools/list under {AWS_RESPONSE_CEILING} bytes base64-wrapped",
+        f"{len(raw_list)}B raw is {wrapped}B wrapped",
+        wrapped <= AWS_RESPONSE_CEILING, f"{wrapped}B")
+
     # --- the paginating client ---------------------------------------------
     # Anthropic and OpenAI clients do walk the cursor. They still have to
     # get a terminal page, and every page still has to fit.
