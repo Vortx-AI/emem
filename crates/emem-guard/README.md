@@ -178,9 +178,12 @@ verdict preimage, so each verdict names the pipeline that made it.
 
 `GET /log/entries` needs no auth, so every digest in it is a keyed BLAKE3 under
 the node's `digest.key`, which is not the signing key. Without that key, nobody
-can test a guess against a digest. A `GEO_ZONE` entry holds a keyed digest of
-the restricted cell, not the cell. The caller still gets the cell in its
-reply.
+can test a guess against a digest. When the cited token names a restricted
+cell, whatever the deny code, the entry holds a keyed digest of the cell and no
+token. The caller still gets the token in its reply.
+
+A module denial puts the module id and version in the log entry, not in the
+reply. Get the entry that `leaf` names to see which module denied.
 
 A third party can ship a module with a signed manifest. The operator loads it
 with `--signed-module FILE` and accepts its key with `--trust-publisher KEY`.

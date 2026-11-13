@@ -599,7 +599,7 @@ bad signature  []
 broken chain   []
 unparseable    []
 intact         true</code></pre></div>
-    <p><code>GET /log/head</code> publishes the head for a witness to pin, and <code>GET /log/entries?start=0</code> lets anyone mirror the log. That route needs no auth, so the log holds no text to test a guess against: <code>input_digest</code> and <code>evidence_digest</code> are keyed BLAKE3 under the node's <code>digest.key</code>, and a <code>GEO_ZONE</code> entry holds a keyed digest of the restricted cell, not the cell. A retry gets the recorded verdict only for the same request id and the same input.</p>
+    <p><code>GET /log/head</code> publishes the head for a witness to pin, and <code>GET /log/entries?start=0</code> lets anyone mirror the log. That route needs no auth, so the log holds no text to test a guess against: <code>input_digest</code> and <code>evidence_digest</code> are keyed BLAKE3 under the node's <code>digest.key</code>, and when a cited token names a restricted cell, whatever the deny code, the entry holds a keyed digest of the cell, not the token. A retry gets the recorded verdict only for the same request id and the same input.</p>
   </div>
 </section>
 

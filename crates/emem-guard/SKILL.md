@@ -432,9 +432,13 @@ different evaluations.
 
 A module denial carries the code `POLICY_MODULE` and your declared `fix`. The
 reason line does not get a field for the module id, because the grammar is
-fixed and agents parse it. The caller gets the id, the version and the evidence
-digest through the native route and the log. The node keys the evidence digest
-with its `digest.key` before it logs it. Step 11 tells why.
+fixed and agents parse it. No reply carries the module id either. The native
+route (`POST /verdict`) returns `action`, `reason`, `code`, `fix`, `token`,
+`leaf`, `checked`, `shadowed` and `claim`, and nothing about the module. To
+find which module denied, get the log entry that `leaf` names
+(`GET /log/entry/{leaf}`). Its record holds `module` (`id@version`) and
+`evidence_digest`. The node keys the evidence digest with its `digest.key`
+before it logs it. Step 11 tells why.
 
 ## Step 10: raise the body limit
 
@@ -495,8 +499,8 @@ against:
 | Field | What it holds |
 |---|---|
 | `input_digest` | a keyed BLAKE3 of the checked input. With `request_id`, it is the replay key. |
-| `evidence_digest` | a keyed BLAKE3 of what a module matched. On a `GEO_ZONE` denial, a keyed BLAKE3 of the restricted cell. |
-| `token` | the cited token on a `PROV_*` denial. Absent on a `GEO_ZONE` denial. |
+| `evidence_digest` | a keyed BLAKE3 of what a module matched. When the node withholds `token`, a keyed BLAKE3 of the restricted cell. |
+| `token` | the cited token on a denial. Absent when the token names a restricted cell, whatever the code. A `GEO_ZONE` token is the cell, and a `PROV_*` token can hold it in its address (`emem:fact:<cell>:<cid>`). |
 
 The key is `digest.key` in the data directory. The node makes it on the first
 run, with mode 0600. It is not the signing key `guard.key`. Keep it private:
@@ -505,13 +509,16 @@ you can still show which input or which cell an entry is about. Compute the
 same keyed digest and compare.
 
 Before v4, `evidence_digest` was an unkeyed BLAKE3, and a reader can guess a
-short match from it. A `GEO_ZONE` record also held the restricted cell in
-`token`, so the open log listed your restricted cells. Records written before
-v4 keep their v3 preimage, and `--audit` still verifies them. If such records
-are on a public node, treat their digests and cells as published.
+short match from it. A record also held the cited token in `token`, so the
+open log listed each restricted cell that a request cited. Records written
+before v4 keep their v3 preimage, and `--audit` still verifies them. If such
+records are on a public node, treat their digests and cells as published.
 
-The caller still gets the restricted cell in the reason line, because the
-caller sent it. A retry of the same input gets the same reason line.
+The caller still gets the token in the reason line, because the caller sent
+it. A retry of the same input gets the same reason line. One exception: when
+the input cites two different tokens in the same restricted cell, the logged
+digest cannot tell which one the rule named. Then the retry gets `token=-`,
+not a wrong token.
 
 ## Step 12: set up the vendor checkpoints, if you want them
 

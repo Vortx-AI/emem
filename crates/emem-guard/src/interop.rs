@@ -562,7 +562,7 @@ pub fn deny_codes() -> Vec<(&'static str, &'static str)> {
         ),
         (
             DenyCode::PolicyModule.as_str(),
-            "a loaded detection module denied; the module id and version are in the verdict and the log",
+            "a loaded detection module denied; the module id and version are in the log entry that the leaf names, not in the reply",
         ),
     ]
 }

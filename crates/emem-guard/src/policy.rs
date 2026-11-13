@@ -59,8 +59,8 @@ pub enum DenyCode {
     /// One code for every module rather than one per module, because the
     /// reason line is a fixed grammar with no field for a module id and
     /// growing it would break every agent already parsing it. Which module
-    /// fired reaches the caller through the native route's `module` block and
-    /// the log record, where the schema is ours to extend.
+    /// fired is in the log record that the verdict's leaf names
+    /// (`GET /log/entry/{leaf}`). No reply carries it.
     PolicyModule,
 }
 
@@ -178,15 +178,17 @@ pub struct Decision {
     /// Which module denied, when one did.
     ///
     /// Not in the reason line: that grammar is fixed and has no field for it.
-    /// It reaches the caller through the native route and the log record,
-    /// where the schema is ours to extend.
+    /// No route's reply carries it either. It goes into the log record, which
+    /// the caller fetches by the leaf.
     pub module: Option<ModuleAttribution>,
     /// A keyed digest that stands in for `token` in the open log.
     ///
-    /// Set by the node on a `GEO_ZONE` denial. The caller's reply still names
-    /// the cell, because the caller sent it. The log, which anyone can read,
-    /// gets no token and this digest as its `evidence_digest`, so it does not
-    /// publish which cells the operator restricted.
+    /// Set by the node whenever `token` names a restricted cell, whatever the
+    /// code: a GEO_ZONE token is the cell, and a PROV_* token can carry it in
+    /// its address. The caller's reply still names the token, because the
+    /// caller sent it. The log, which anyone can read, gets no token and this
+    /// digest as its `evidence_digest`, so it does not publish which cells the
+    /// operator restricted.
     pub token_digest: Option<String>,
 }
 

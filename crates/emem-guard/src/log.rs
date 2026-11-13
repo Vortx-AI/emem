@@ -80,9 +80,11 @@ pub struct VerdictRecord {
     pub code: Option<DenyCode>,
     /// The offending token, absent on allow.
     ///
-    /// Also absent on a `GEO_ZONE` denial. Its token is the restricted cell,
-    /// and this log is open, so it would publish the operator's list one hit
-    /// at a time. `evidence_digest` holds a keyed digest of the cell instead.
+    /// Also absent when the token names a restricted cell, whatever the code.
+    /// A GEO_ZONE token is the cell, and a PROV_* token can carry it in its
+    /// address. This log is open, so either would publish the operator's list
+    /// one hit at a time. `evidence_digest` holds a keyed digest of the cell
+    /// instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
     /// The remedy offered, absent on allow.
@@ -122,8 +124,8 @@ pub struct VerdictRecord {
     /// Which module denied, when one did. `id@version`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub module: Option<String>,
-    /// A digest of what that module matched, or of the restricted cell on a
-    /// `GEO_ZONE` denial. **Never the content.** A log that recorded what a
+    /// A digest of what that module matched, or of the restricted cell that a
+    /// withheld `token` named. **Never the content.** A log that recorded what a
     /// secret scanner found would be a catalogue of secrets.
     ///
     /// Keyed with the node's digest key. An unkeyed BLAKE3 of a short match

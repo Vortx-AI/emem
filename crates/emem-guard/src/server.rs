@@ -303,6 +303,55 @@ impl Guard {
         self.keyed_digest("emem.guard.restricted_cell.v1", &[cell.as_bytes()])
     }
 
+    /// The restricted cell that a token would show in the log, if any.
+    ///
+    /// A GEO_ZONE token is the bare cell. Any other token can carry a cell in
+    /// its address (`emem:fact:<cell>:<cid>`), so a PROV_SIG on a restricted
+    /// cell would publish the cell as surely as a GEO_ZONE would.
+    fn restricted_cell_of(&self, token: &str) -> Option<String> {
+        if self.restricted_cells.contains(token) {
+            return Some(token.to_string());
+        }
+        cell_of(token)
+            .filter(|c| self.restricted_cells.contains(*c))
+            .map(str::to_string)
+    }
+
+    /// The token that a logged record held back, read again from the retry.
+    ///
+    /// A retry carries the same input, so the token is in it. The logged
+    /// digest binds the cell, not the token. When two different tokens in the
+    /// input name that cell, this answers `None`: naming the wrong token would
+    /// send an agent to remove a citation that was fine.
+    fn withheld_token(
+        &self,
+        code: policy::DenyCode,
+        texts: &[&str],
+        logged: &str,
+    ) -> Option<String> {
+        let candidates: std::collections::BTreeSet<String> =
+            tokens::scan_all(texts.iter().copied())
+                .into_iter()
+                .filter_map(|t| {
+                    let cell = cell_of(&t.token).filter(|c| self.restricted_cells.contains(*c))?;
+                    if self.cell_digest(cell) != logged {
+                        return None;
+                    }
+                    match code {
+                        policy::DenyCode::GeoZone => Some(cell.to_string()),
+                        // A cell token is never resolved, so it is never the token
+                        // a provenance rule names.
+                        _ if t.kind == tokens::TokenKind::Cell => None,
+                        _ => Some(t.token),
+                    }
+                })
+                .collect();
+        match candidates.len() {
+            1 => candidates.into_iter().next(),
+            _ => None,
+        }
+    }
+
     /// Decide, sign, log, and return what the caller should send.
     fn decide(&self, checkpoint: &str, request_id: &str, texts: &[&str]) -> Decision {
         // A replay must get the answer already recorded, not a fresh one. But
@@ -314,16 +363,18 @@ impl Guard {
         let input = self.input_digest(texts);
         if let Some(prior) = self.log.find_replay(request_id, Some(&input)) {
             let mut d = if prior.record.code.is_some() {
-                // The log holds no cell for a GEO_ZONE denial. The retry
-                // carries the same input, so the cell is read back from it and
-                // confirmed against the logged digest.
-                let token = match (prior.record.code, &prior.record.evidence_digest) {
-                    (Some(policy::DenyCode::GeoZone), Some(logged))
-                        if prior.record.token.is_none() =>
-                    {
-                        self.restricted_in(&tokens::scan_all(texts.iter().copied()))
-                            .into_iter()
-                            .find(|c| self.cell_digest(c) == *logged)
+                // The log holds no token that names a restricted cell, whatever
+                // the code. The retry carries the same input, so the token is
+                // read back from it and confirmed against the logged digest. A
+                // module denial also has no token, but its digest is its own.
+                let token = match (
+                    prior.record.code,
+                    &prior.record.token,
+                    &prior.record.module,
+                    &prior.record.evidence_digest,
+                ) {
+                    (Some(code), None, None, Some(logged)) => {
+                        self.withheld_token(code, texts, logged)
                     }
                     _ => prior.record.token.clone(),
                 };
@@ -347,12 +398,15 @@ impl Guard {
 
         let evidence = self.gather(texts);
         let mut decision = policy::evaluate(&self.config, &evidence);
-        // The caller is told which restricted cell it cited; the open log is
-        // not. A list of restricted cells is the operator's to publish.
-        if decision.code == Some(policy::DenyCode::GeoZone) {
-            if let Some(cell) = decision.token.clone() {
-                decision = decision.with_token_digest(self.cell_digest(&cell));
-            }
+        // The caller is told which token it cited; the open log is not told
+        // when that token names a restricted cell, whatever rule fired. A list
+        // of restricted cells is the operator's to publish.
+        if let Some(cell) = decision
+            .token
+            .as_deref()
+            .and_then(|t| self.restricted_cell_of(t))
+        {
+            decision = decision.with_token_digest(self.cell_digest(&cell));
         }
         // Shadow is applied BEFORE sealing, so the record holds the answer the
         // caller actually received in `outcome` and the answer the rules
@@ -591,7 +645,7 @@ async fn descriptor(State(g): State<Arc<Guard>>) -> impl IntoResponse {
             "preimage_domain": crate::log::PREIMAGE_DOMAIN,
             "signature": "ed25519 over the record preimage, base32-nopad-lowercase",
             "digests": "input_digest and evidence_digest are keyed BLAKE3 under this node's digest key. Without the key, nobody can test a guess against them.",
-            "geo_zone": "a GEO_ZONE record holds no token. Its evidence_digest is a keyed digest of the restricted cell. The cell is in the caller's reply only.",
+            "restricted_cells": "a record whose token names a restricted cell holds no token, whatever the code. Its evidence_digest is a keyed digest of the cell. The token is in the caller's reply only.",
             "replay": "a retry gets the recorded verdict only for the same request_id and the same input_digest"
         },
         "reason_grammar": "EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->",
@@ -1699,6 +1753,103 @@ mod tests {
         let logged = g.log.entry(0).unwrap().record.input_digest.unwrap();
         assert_eq!(logged, g.input_digest(&["hello"]));
         assert_ne!(logged, blake3::hash(b"hello").to_hex().to_string());
+    }
+
+    /// A resolver that gives every citation one status.
+    struct FixedStatus(policy::TokenStatus);
+
+    impl crate::resolve::Resolver for FixedStatus {
+        fn resolve(
+            &self,
+            _token: &tokens::FoundToken,
+            _budget: Duration,
+        ) -> crate::resolve::Resolution {
+            crate::resolve::Resolution::bare(self.0.clone())
+        }
+        fn describe(&self) -> String {
+            "fixed-status".into()
+        }
+    }
+
+    /// A guard whose resolver answers `status`, with `cell` restricted.
+    fn guard_resolving(dir: &str, status: policy::TokenStatus, cell: &str) -> Arc<Guard> {
+        let mut g = guard(dir);
+        {
+            let m = Arc::get_mut(&mut g).unwrap();
+            m.resolver = Box::new(FixedStatus(status));
+            m.restricted_cells.insert(cell.to_string());
+            m.config.geo_restriction = true;
+        }
+        g
+    }
+
+    /// Any code, not only GEO_ZONE, can carry a restricted cell in its token:
+    /// `emem:fact:<cell>:<cid>`. PROV_SIG and PROV_BYTES outrank GEO_ZONE, so
+    /// they are the code the log gets for a bad citation in a restricted
+    /// cell. The log must still not name the cell, and a retry must still
+    /// get the token.
+    #[tokio::test]
+    async fn a_provenance_deny_in_a_restricted_cell_logs_no_cell() {
+        let cell = "defi.zb493.xuqA.zcb5f";
+        let token =
+            format!("emem:fact:{cell}:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala");
+        let body = format!(r#"{{"texts":["per {token} it is 918 m"],"request_id":"r-prov"}}"#);
+        for (status, code) in [
+            (policy::TokenStatus::SignatureFailed, "PROV_SIG"),
+            (policy::TokenStatus::ByteMismatch, "PROV_BYTES"),
+        ] {
+            let g = guard_resolving(&format!("prov-redact-{code}"), status, cell);
+            let (_, v) = post(router(g.clone()), "/verdict", &body).await;
+            assert_eq!(v["code"], code, "{v}");
+            assert_eq!(v["token"], token, "the caller is told the token");
+
+            let entry = g.log.entry(0).unwrap();
+            assert!(entry.record.token.is_none(), "{code}");
+            assert_eq!(
+                entry.record.evidence_digest.as_deref(),
+                Some(g.cell_digest(cell).as_str())
+            );
+            assert!(
+                !serde_json::to_string(&entry).unwrap().contains(cell),
+                "{code}: the restricted cell reached the open log"
+            );
+            assert!(FileLog::audit(g.log.path()).unwrap().is_intact());
+
+            let (_, again) = post(router(g.clone()), "/verdict", &body).await;
+            assert_eq!(again, v, "{code}: a retry gets the same reply");
+            assert_eq!(g.log.len(), 1);
+        }
+
+        // Control: the same deny on a cell nobody restricted keeps its token.
+        let open = guard_resolving(
+            "prov-redact-open",
+            policy::TokenStatus::SignatureFailed,
+            "defi.zb493.hufo.zccc6",
+        );
+        post(router(open.clone()), "/verdict", &body).await;
+        let entry = open.log.entry(0).unwrap();
+        assert_eq!(entry.record.token.as_deref(), Some(token.as_str()));
+        assert!(entry.record.evidence_digest.is_none());
+
+        // Two different tokens in the one restricted cell: the digest cannot
+        // say which one the rule named, so a retry names none rather than a
+        // wrong one. The rest of the verdict is the same.
+        let g = guard_resolving(
+            "prov-redact-two",
+            policy::TokenStatus::SignatureFailed,
+            cell,
+        );
+        let two = format!(
+            r#"{{"texts":["{token} and emem:fact:{cell}:cj4ccplttk6oyp5sr7rn76igvqq7mno2b6z4kqxbztcjemsisdya"],"request_id":"r-two"}}"#
+        );
+        let (_, first) = post(router(g.clone()), "/verdict", &two).await;
+        let (_, again) = post(router(g.clone()), "/verdict", &two).await;
+        assert_eq!(first["token"], token);
+        assert!(again["token"].is_null(), "{again}");
+        assert_eq!(
+            (&again["code"], &again["fix"], &again["leaf"]),
+            (&first["code"], &first["fix"], &first["leaf"])
+        );
     }
 
     /// A cryptographic failure is a stronger statement than a pattern match,
