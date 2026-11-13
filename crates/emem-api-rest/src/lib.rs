@@ -81731,6 +81731,90 @@ async fn ask_inner_traced(
             }
         }
     }
+    // When no lead band holds a reading near the date, a later lead band of
+    // another cadence may: snow in the polar night, where no optical pass sees
+    // the ground for weeks and the ERA5-Land reanalysis has every hour. One
+    // cadence per recall, so that band is read once on its own, with the
+    // static bands, and its recall (with its own signed receipt) answers when
+    // its reading is near the date. The answer says where the nearest reading
+    // of the first lead band was.
+    let mut lead_fallback_note: Option<String> = None;
+    if let (Some(t), Some(qt)) = (dated.as_ref(), quantity) {
+        let near = |resp: &RecallResp, band: &str| {
+            let slot = band_tempo_for_key(band).map_or(0, |tp| tp.slot_seconds() as i64);
+            slot > 0
+                && resp.facts.iter().any(|f| match f {
+                    emem_fact::Fact::Primary(p) if p.band == band => !matches!(
+                        t.timing(p.tslot as i64 * slot, slot),
+                        ask_agent::Timing::Outside(_)
+                    ),
+                    _ => false,
+                })
+        };
+        let first_tempo = qt.lead_bands.first().and_then(|b| band_tempo_for_key(b));
+        if dated_bound.is_some() && !qt.lead_bands.iter().any(|b| near(&recall_resp, b)) {
+            let nearest_first = qt.lead_bands.first().and_then(|b| {
+                let slot = band_tempo_for_key(b)?.slot_seconds() as i64;
+                recall_resp
+                    .facts
+                    .iter()
+                    .filter_map(|f| match f {
+                        emem_fact::Fact::Primary(p) if p.band == *b => Some(p.tslot as i64 * slot),
+                        _ => None,
+                    })
+                    .max()
+                    .map(|at| (*b, at))
+            });
+            for alt in qt.lead_bands.iter().skip(1) {
+                let Some(tp) = band_tempo_for_key(alt) else {
+                    continue;
+                };
+                if Some(tp) == first_tempo {
+                    continue;
+                }
+                let mut alt_bands = vec![alt.to_string()];
+                alt_bands.extend(
+                    bands_vec
+                        .iter()
+                        .filter(|b| {
+                            matches!(band_tempo_for_key(b), Some(emem_core::tslot::Tempo::Static))
+                                || static_release_date(b).is_some()
+                        })
+                        .cloned(),
+                );
+                let alt_req = RecallReq {
+                    cell: cell.clone(),
+                    bands: Some(alt_bands),
+                    tslot: None,
+                    as_of_tslot: Some(
+                        emem_core::tslot::Tslot::from_unix(t.end_unix.saturating_sub(1), tp).0,
+                    ),
+                    ..Default::default()
+                };
+                let (alt_resp, alt_notes) =
+                    recall_with_auto_materialize_capped(&alt_req, &s, ask_cap).await?;
+                materialize_notes.extend(alt_notes);
+                if near(&alt_resp, alt) {
+                    recall_resp = alt_resp;
+                    dated_dropped.retain(|b| b != alt);
+                    lead_fallback_note = Some(match nearest_first {
+                        Some((b, at)) => format!(
+                            "No reading of {} falls near the date asked: the nearest emem holds is from {}. This answer is from {} instead.",
+                            band_display_label(b),
+                            &iso8601_utc(at.max(0) as u64)[..10],
+                            band_display_label(alt)
+                        ),
+                        None => format!(
+                            "No reading of {} falls near the date asked. This answer is from {} instead.",
+                            band_display_label(qt.lead_bands[0]),
+                            band_display_label(alt)
+                        ),
+                    });
+                    break;
+                }
+            }
+        }
+    }
     // The receipt is where this response's fact_cids already live, in the
     // order they were cited, so the trace reads them from there rather than
     // re-deriving a second list that could disagree with the one the envelope
@@ -82472,6 +82556,9 @@ async fn ask_inner_traced(
         place_notes.push(format!(
             "The place, {place_label}, comes from earlier in this conversation."
         ));
+    }
+    if let Some(n) = lead_fallback_note.take() {
+        place_notes.push(n);
     }
     let readings: Vec<ask_agent::Reading> = band_observations
         .iter()
