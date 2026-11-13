@@ -526,25 +526,54 @@ const RISK_WORDS: &[&str] = &[
     "safe",
 ];
 
+/// What a lead band that is not an observation says about itself, in place of
+/// the quantity's caution, which is written for the observation.
+fn lead_caution(band: &str) -> Option<&'static str> {
+    match band {
+        "era5.snow_depth" => Some(
+            "A model value, not an observation: ERA5-Land reanalysis at about 9 km, one grid \
+             cell for the whole area, so a valley, a roof or a cleared square can differ. \
+             Over glaciers the model holds a deep fixed pack (about 33 m) that says nothing \
+             about fresh snow.",
+        ),
+        _ => None,
+    }
+}
+
 pub(crate) static QUANTITIES: &[Quantity] = &[
     Quantity {
         key: "snow_cover",
         noun: "snow on the ground",
         terms: &["snow", "snowy", "snow-covered", "snowpack", "snow cover", "ndsi"],
         excludes: RISK_WORDS,
-        lead_bands: &["indices.ndsi"],
+        // The observation first. The reanalysis answers only when no optical
+        // pass is near the date asked, such as in the polar night.
+        lead_bands: &["indices.ndsi", "era5.snow_depth"],
         context_bands: &[],
-        rules: &[Rule {
-            band: "indices.ndsi",
-            yes_from: 0.4,
-            no_from: 0.0,
-            higher_is_yes: true,
-            margin: 0.05,
-            yes: "snow on the ground",
-            no: "no snow on the ground",
-            between: "snow or cloud, which this index cannot tell apart",
-            basis: "snow_likelihood_from_ndsi@1: NDSI at or above 0.4 reads as snow, below 0 as no snow, and between them as snow or cloud (Salomonson and Appel 2004)",
-        }],
+        rules: &[
+            Rule {
+                band: "indices.ndsi",
+                yes_from: 0.4,
+                no_from: 0.0,
+                higher_is_yes: true,
+                margin: 0.05,
+                yes: "snow on the ground",
+                no: "no snow on the ground",
+                between: "snow or cloud, which this index cannot tell apart",
+                basis: "snow_likelihood_from_ndsi@1: NDSI at or above 0.4 reads as snow, below 0 as no snow, and between them as snow or cloud (Salomonson and Appel 2004)",
+            },
+            Rule {
+                band: "era5.snow_depth",
+                yes_from: 0.05,
+                no_from: 0.01,
+                higher_is_yes: true,
+                margin: 0.005,
+                yes: "snow on the ground in the ERA5-Land reanalysis",
+                no: "no snow on the ground in the ERA5-Land reanalysis",
+                between: "a layer under 5 cm in the ERA5-Land reanalysis, too thin to call",
+                basis: "ERA5-Land snow depth (Munoz-Sabater et al. 2021): 5 cm or more reads as snow on the ground, under 1 cm as none",
+            },
+        ],
         uncertainty: "One pixel on one scene. Cloud raises NDSI as snow does, so a reading between 0 and 0.4 is not decisive.",
     },
     Quantity {
@@ -1035,8 +1064,10 @@ pub(crate) fn direct_answer(inp: &AnswerInputs) -> Option<JsonValue> {
             ));
         }
     }
-    if !qty.uncertainty.is_empty() {
-        limits.push(qty.uncertainty.to_string());
+    match lead_caution(&lead.band) {
+        Some(c) => limits.push(c.to_string()),
+        None if !qty.uncertainty.is_empty() => limits.push(qty.uncertainty.to_string()),
+        None => {}
     }
 
     let reading = reading_phrase(lead);
@@ -1502,6 +1533,51 @@ mod tests {
             s.contains("14 December 2022") && s.contains("2026-10-30"),
             "{s}"
         );
+    }
+
+    #[test]
+    fn in_the_polar_night_the_reanalysis_answers_and_says_it_is_a_model() {
+        // Santa Claus Village, 3 December 2024: the nearest NDSI is 31 October,
+        // so the observation cannot answer. ERA5-Land read 0.08 m that day.
+        let t = asked_time("Was there snow on the ground on 3 December 2024?", NOW).unwrap();
+        let mut hour = reading(
+            "era5.snow_depth",
+            0.08,
+            Some("m"),
+            Some(day(2024, 12, 3) + 12 * 3600),
+            "source_capture_time",
+        );
+        hour.slot_s = 3600;
+        let r = [
+            reading(
+                "indices.ndsi",
+                0.71,
+                None,
+                Some(day(2024, 10, 31) + 36_000),
+                "source_capture_time",
+            ),
+            hour,
+        ];
+        let out = direct_answer(&AnswerInputs {
+            form: &AnswerForm::YesNo,
+            quantity: asked_quantity("snow"),
+            time: Some(&t),
+            readings: &r,
+            place: "Santa Claus Village",
+            place_notes: &[],
+            now_unix: NOW,
+        })
+        .unwrap();
+        assert_eq!(out["verdict"], "yes", "{out}");
+        assert_eq!(out["band"], "era5.snow_depth");
+        let s = out["sentence"].as_str().unwrap();
+        assert!(s.contains("in the ERA5-Land reanalysis"), "{s}");
+        let limits = out["limits"].to_string();
+        assert!(
+            limits.contains("A model value, not an observation"),
+            "{limits}"
+        );
+        assert!(!limits.contains("One pixel on one scene"), "{limits}");
     }
 
     #[test]

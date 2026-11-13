@@ -15126,6 +15126,7 @@ fn band_input_resolution_m(band: &str) -> Option<u32> {
         "esa_worldcover.lc_2021" => Some(10),
         b if b.starts_with("soilgrids.") => Some(250),
         b if b.starts_with("cams.") => Some(11_000),
+        "era5.snow_depth" => Some(9_000),
         b if b.starts_with("era5.") => Some(11_000),
         b if b.starts_with("power.") => Some(55_000),
         b if b.starts_with("weather.") => Some(2_500),
@@ -56238,8 +56239,9 @@ fn hourly_target_unix(bound_tslot: Option<u64>, now_unix: i64) -> i64 {
 }
 
 /// Materialize an Open-Meteo ERA5 reanalysis fact at a single lat/lng.
-/// Free, no API key, CC BY 4.0; ECMWF ERA5 (~9 km downscaled), hourly,
-/// 1940-present.
+/// Free, no API key, CC BY 4.0; ECMWF ERA5 (0.25 degrees), hourly,
+/// 1940-present. `era5.snow_depth` reads ERA5-Land instead (0.1 degrees, land
+/// only, 1950-present): through this archive ERA5 itself returns no snow depth.
 ///
 /// `target_unix` is required (this is a historical archive, there's no
 /// "current" mode). For backfill, the slot is anchored to the hour
@@ -56261,7 +56263,19 @@ async fn materialize_era5_band(
         "era5.cloudcover" => ("cloud_cover", Some("percent"), 0.80),
         "era5.surface_pressure" => ("surface_pressure", Some("hPa"), 0.85),
         "era5.dewpoint_2m" => ("dew_point_2m", Some("degC"), 0.85),
+        "era5.snow_depth" => ("snow_depth", Some("m"), 0.70),
         _ => return Err(format!("era5 band not wired: {band}")),
+    };
+    // (Open-Meteo model, source scheme, derivation fn_key). The existing bands
+    // keep their exact URL and keys, so facts already signed stay comparable.
+    let (model, scheme, fn_key) = if band == "era5.snow_depth" {
+        (
+            "era5_land",
+            "open_meteo_era5_land",
+            "open_meteo_era5_land_archive@1",
+        )
+    } else {
+        ("era5", "open_meteo_era5", "open_meteo_era5_archive@1")
     };
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
@@ -56281,7 +56295,7 @@ async fn materialize_era5_band(
     });
     let end_iso = iso_day(target_unix);
     let url = format!(
-        "https://archive-api.open-meteo.com/v1/archive?latitude={lat:.4}&longitude={lng:.4}&hourly={om_field}&start_date={start_iso}&end_date={end_iso}&timezone=UTC&models=era5"
+        "https://archive-api.open-meteo.com/v1/archive?latitude={lat:.4}&longitude={lng:.4}&hourly={om_field}&start_date={start_iso}&end_date={end_iso}&timezone=UTC&models={model}"
     );
     let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
     let resp = tokio::time::timeout(
@@ -56324,7 +56338,11 @@ async fn materialize_era5_band(
         }
     }
     let (idx, iso, hour_unix) = chosen.ok_or_else(|| {
-        if latest {
+        if model == "era5_land" && values.iter().all(|v| v.is_null()) {
+            format!(
+                "era5_land holds no {om_field} here: ERA5-Land covers land only, from 1950, so a sea or lake cell has no value"
+            )
+        } else if latest {
             format!("era5 archive holds no {om_field} value in the nine days to {end_iso}")
         } else {
             format!(
@@ -56332,10 +56350,15 @@ async fn materialize_era5_band(
             )
         }
     })?;
-    let v = values
-        .get(idx)
-        .and_then(|v| v.as_f64())
-        .ok_or_else(|| format!("era5 hourly.{om_field}[{idx}] missing or null"))?;
+    let v = values.get(idx).and_then(|v| v.as_f64()).ok_or_else(|| {
+        if model == "era5_land" {
+            format!(
+                "era5_land hourly.{om_field}[{idx}] is null: ERA5-Land covers land only, from 1950"
+            )
+        } else {
+            format!("era5 hourly.{om_field}[{idx}] missing or null")
+        }
+    })?;
     let signed_at = chrono_iso8601_utc();
     let tslot = emem_core::tslot::Tslot::from_unix(hour_unix, emem_core::tslot::Tempo::UltraFast).0;
     let fact = Fact::Primary(PrimaryFact {
@@ -56347,7 +56370,7 @@ async fn materialize_era5_band(
         confidence,
         uncertainty: None,
         sources: vec![Source {
-            scheme: "open_meteo_era5".into(),
+            scheme: scheme.into(),
             id: url.clone(),
             cid: None,
             hash: None,
@@ -56355,7 +56378,7 @@ async fn materialize_era5_band(
             url: None,
         }],
         derivation: Derivation {
-            fn_key: "open_meteo_era5_archive@1".into(),
+            fn_key: fn_key.into(),
             args: Some(ciborium::Value::Array(vec![
                 ciborium::Value::Float(lat),
                 ciborium::Value::Float(lng),
@@ -63355,6 +63378,8 @@ fn band_valid_range(band: &str) -> Option<(f64, f64, &'static str)> {
         "weather.temperature_2m" => (-90.0, 60.0, "degC"),
         "weather.precipitation_mm" => (0.0, 500.0, "mm per hour"),
         "weather.cloud_cover" => (0.0, 100.0, "percent"),
+        // Over glaciers ERA5-Land holds a capped pack of about 33 m.
+        "era5.snow_depth" => (0.0, 100.0, "m"),
         "soilgrids.clay_0_30cm" | "soilgrids.sand_0_30cm" => (0.0, 100.0, "percent"),
         "soilgrids.phh2o_0_30cm" => (2.0, 11.0, "pH"),
         "soilgrids.bdod_0_30cm" => (0.05, 2.8, "kg/dm^3"),
@@ -64309,6 +64334,14 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             history_to_unix: None,
             wire_path: "Open-Meteo CAMS air-quality REST (ECMWF CAMS reanalysis)",
         },
+        // ERA5-Land, read through the same archive: from 1950, land only.
+        "era5.snow_depth" => MaterializerMeta {
+            tempo: Tempo::UltraFast,
+            kind: BandKind::TimeSeries,
+            history_from_unix: Some(days_from_civil(1950, 1, 1) * 86_400),
+            history_to_unix: None,
+            wire_path: "Open-Meteo Archive REST (ECMWF ERA5-Land)",
+        },
         // Open-Meteo Archive: ECMWF ERA5 retrospective 1940-present, hourly.
         b if b.starts_with("era5.") => MaterializerMeta {
             tempo: Tempo::UltraFast,
@@ -64674,6 +64707,9 @@ fn all_materializable_bands() -> Vec<String> {
     out.push("era5.cloudcover".into());
     out.push("era5.surface_pressure".into());
     out.push("era5.dewpoint_2m".into());
+    // ERA5-Land through the same archive: snow on the ground when no optical
+    // pass can see it (polar night, cloud). A model value, not an observation.
+    out.push("era5.snow_depth".into());
     // Open-Meteo Marine (hourly, 2022-08-01 onward, ocean only).
     out.push("marine.wave_height".into());
     out.push("marine.swell_period".into());

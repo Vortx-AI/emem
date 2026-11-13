@@ -400,16 +400,17 @@
     },
     {
       "key": "snow",
-      "description": "Snow cover at a place from the Normalized Difference Snow Index (NDSI). Answers questions about snowpack, snow cover, ski conditions, and tick-season delay due to lingering snow.",
+      "description": "Snow cover at a place from the Normalized Difference Snow Index (NDSI), an optical observation, and snow depth from the ERA5-Land reanalysis, a model value that answers when no optical pass can see the ground (polar night, cloud). Answers questions about snowpack, snow cover, snow depth, ski conditions, and tick-season delay due to lingering snow.",
       "aliases": [
         "snow cover",
         "is there snow here",
         "snowpack",
         "ski conditions",
         "snow line",
-        "ndsi"
+        "ndsi",
+        "snow depth"
       ],
-      "bands": ["indices.ndsi"],
+      "bands": ["indices.ndsi", "era5.snow_depth"],
       "algorithms": ["snow_likelihood_from_ndsi@1"]
     },
     {
