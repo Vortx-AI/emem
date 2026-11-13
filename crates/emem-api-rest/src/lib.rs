@@ -79420,9 +79420,13 @@ fn extract_place_candidates(q: &str) -> Vec<String> {
         // Drop a leading "How/Show/What/Where/Tell/Find/Give/Get/Is/Are/
         // Can/Does/Do/Why" if the run starts the question, these are
         // question-stem verbs, not place name parts.
+        // The auxiliaries open yes-or-no questions. Without them "Was there
+        // snow ... at Santa Claus Village" offered "Was", the gazetteer
+        // resolved it to Washington, DC, and ask answered about Washington.
         let stem: &[&str] = &[
             "How", "Show", "What", "Where", "Tell", "Find", "Give", "Get", "Is", "Are", "Can",
-            "Does", "Do", "Why", "When", "Who", "Which", "List",
+            "Does", "Do", "Why", "When", "Who", "Which", "List", "Was", "Were", "Did", "Will",
+            "Would", "Has", "Have", "Had", "Should", "Could", "Shall",
         ];
         let starts_with_stem = best
             .first()
@@ -79475,9 +79479,13 @@ fn question_place_candidates(q: &str) -> (Vec<String>, Vec<(String, Vec<String>)
     // capitalised run, which can be a stranded "What" / "Why", is
     // useless to the geocoder. Photon will happily resolve "What" to
     // "What Cheer, Iowa" and chew network round-trips. Drop them.
+    // The auxiliaries, as in `extract_place_candidates`: "Was" sorted first
+    // by position and resolved to Washington, DC. "May", "might" and "must"
+    // stay out, because they are also parts of place names.
     const STEM_WORDS: &[&str] = &[
         "what", "where", "when", "how", "why", "who", "which", "show", "tell", "find", "give",
-        "get", "is", "are", "can", "does", "do", "list", "explain", "the", "a", "an",
+        "get", "is", "are", "can", "does", "do", "list", "explain", "the", "a", "an", "was",
+        "were", "did", "will", "would", "has", "have", "had", "should", "could", "shall",
     ];
     let is_stem_only = |c: &str| -> bool {
         let toks: Vec<String> = c
@@ -110905,9 +110913,22 @@ mod place_extraction_tests {
                 "Is Whitefield in Bengaluru getting hotter or greener, and does it flood?",
                 "Whitefield",
             ),
+            (
+                "Was there snow on the ground at Santa Claus Village, Rovaniemi on 3 December 2024?",
+                "Santa Claus Village, Rovaniemi",
+            ),
+            ("Did it rain in Nairobi yesterday?", "Nairobi"),
+            ("Were the fields flooded near Patna?", "Patna"),
+            ("Has Lake Chad shrunk since 2020?", "Lake Chad"),
         ];
         for (q, want) in cases {
             let (places, _) = super::question_place_candidates(q);
+            assert!(
+                !places
+                    .iter()
+                    .any(|c| ["Was", "Did", "Were", "Has"].contains(&c.as_str())),
+                "{q}: an auxiliary verb reached the geocoder: {places:?}"
+            );
             assert_eq!(
                 places.first().map(String::as_str),
                 Some(want),
