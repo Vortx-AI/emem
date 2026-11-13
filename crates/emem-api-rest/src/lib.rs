@@ -13854,7 +13854,7 @@ async fn attach_dated_request(v: &mut JsonValue, req: &RecallReq, s: &AppState) 
             (
                 "other_date_signed",
                 Some(format!(
-                    "{band}: nothing is signed for {asked_text}. This call signed {what} for {d} instead (tslot {t}), the nearest date it could serve; your tslot filter leaves it out of facts. Recall with tslot {t} to read it."
+                    "{band}: nothing is signed for {asked_text}. The nearest date this call could serve is {d} (tslot {t}, {what}), and your tslot filter leaves it out of facts. Recall with tslot {t} to read it."
                 )),
             )
         } else {
@@ -13876,11 +13876,25 @@ async fn attach_dated_request(v: &mut JsonValue, req: &RecallReq, s: &AppState) 
         }
         rows.push(row);
     }
-    let summary = if lines.is_empty() {
+    let mut summary = if lines.is_empty() {
         "Every band was served at the date asked.".to_string()
     } else {
         lines.join(" ")
     };
+    // One tslot over bands of different tempos asks for different dates; the
+    // summary is what a reader takes in, so it says so there.
+    let asked_by_band: Vec<String> = rows
+        .iter()
+        .filter_map(|r| Some(format!("{} {}", r["band"].as_str()?, r["asked"].as_str()?)))
+        .collect();
+    let distinct: std::collections::BTreeSet<&str> =
+        rows.iter().filter_map(|r| r["asked"].as_str()).collect();
+    if distinct.len() > 1 {
+        summary.push_str(&format!(
+            " This tslot is a different date per band: {}.",
+            asked_by_band.join(", ")
+        ));
+    }
     map.insert(
         "dated_request".into(),
         json!({
@@ -107624,6 +107638,13 @@ mod tests {
             "{d}"
         );
         assert_eq!(row("era5.t2m")["asked"], "1972-03-16T20:00Z");
+        assert!(
+            d["summary"]
+                .as_str()
+                .unwrap()
+                .contains("This tslot is a different date per band: "),
+            "{d}"
+        );
         assert_eq!(row("era5.t2m")["status"], "nothing_at_date");
         assert_eq!(row("copdem30m.elevation_mean")["status"], "static_band");
         let note = &v["materialize_notes"][0];
