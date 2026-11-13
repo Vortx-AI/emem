@@ -13712,6 +13712,163 @@ fn days_between_slots(band: &str, from: u64, to: u64) -> Option<JsonValue> {
 /// tslot then leaves out of `facts`: the reply held `facts: []` beside a note
 /// that said `materialized`, and named neither date. Outside the receipt,
 /// like `materialize_notes`.
+/// One Sentinel-2 pass a catalogue lists over a point: (acquired, unix
+/// seconds; scene cloud %; item id).
+type S2Pass = (i64, Option<f64>, String);
+
+/// The catalogue that answered and its passes, or why none did.
+type S2PassSearch = Result<(&'static str, Vec<S2Pass>), String>;
+
+/// The days between the date asked and the reading served, both ends
+/// inclusive and the served day left out (its pass is the one read), so the
+/// passes in it are the ones the read did not use. With nothing served, 15
+/// days either side. Never past today, and at most about 120 days.
+fn s2_gap_window(asked_day: i64, near_day: Option<i64>, today: i64) -> Option<(i64, i64)> {
+    const D: i64 = 86_400;
+    let (from, to) = match near_day {
+        Some(n) if n < asked_day => (n + D, asked_day),
+        Some(n) if n > asked_day => (asked_day, n - D),
+        Some(_) => (asked_day, asked_day),
+        None => (asked_day - 15 * D, asked_day + 15 * D),
+    };
+    let to = to.min(today);
+    let (from, to) = if to - from > 120 * D {
+        (from.max(asked_day - 60 * D), to.min(asked_day + 60 * D))
+    } else {
+        (from, to)
+    };
+    (from <= to).then_some((from, to))
+}
+
+fn s2_catalogue_label(host: &str) -> &'static str {
+    match host {
+        h if h == emem_fetch::stac::STAC_MPC_V1 => "Planetary Computer",
+        h if h == emem_fetch::stac::STAC_ELEMENT84_V1 => "Element 84 Earth Search",
+        _ => "the Sentinel-2 catalogue",
+    }
+}
+
+/// Every Sentinel-2 L2A pass over the point from the first day to the end of
+/// the last, cloudy or clear, from the first catalogue the pickers read that
+/// answers within six seconds.
+async fn s2_passes_between(lng: f64, lat: f64, from_day: i64, to_day: i64) -> S2PassSearch {
+    let datetime = format!(
+        "{}/{}",
+        iso8601_utc(from_day.max(0) as u64),
+        iso8601_utc((to_day + 86_399).max(0) as u64)
+    );
+    let cli = reqwest_client();
+    let mut failures: Vec<String> = Vec::new();
+    for host in s2_catalogues() {
+        let search = emem_fetch::stac::search_many_at(
+            &cli,
+            host,
+            "sentinel-2-l2a",
+            lng,
+            lat,
+            &datetime,
+            None,
+            100,
+        );
+        match tokio::time::timeout(std::time::Duration::from_secs(6), search).await {
+            Ok(Ok(items)) => {
+                let mut passes: Vec<S2Pass> = items
+                    .into_iter()
+                    .filter_map(|i| Some((parse_iso8601_unix(&i.datetime)?, i.cloud_cover, i.id)))
+                    .collect();
+                passes.sort_by_key(|p| p.0);
+                return Ok((host, passes));
+            }
+            Ok(Err(e)) => failures.push(format!("{}: {e}", s2_catalogue_label(host))),
+            Err(_) => failures.push(format!("{}: no answer in 6 s", s2_catalogue_label(host))),
+        }
+    }
+    Err(format!(
+        "the passes were not checked: {}",
+        failures.join("; ")
+    ))
+}
+
+/// The `catalogue_passes` block of a dated-read row, and the sentence for its
+/// note, for the passes a catalogue lists between two days. `read_in_gap`:
+/// the reading signed for the window (an absence) came from one of them.
+fn s2_passes_note(
+    from_day: i64,
+    to_day: i64,
+    read_in_gap: bool,
+    host: &str,
+    passes: &[S2Pass],
+    ladder: [(f64, i64); 3],
+) -> (JsonValue, String) {
+    let day = |u: i64| iso8601_utc(u.max(0) as u64)[..10].to_string();
+    let cloud = |c: Option<f64>| c.map(|c| (c * 10.0).round() / 10.0);
+    let label = s2_catalogue_label(host);
+    let in_gap: Vec<&S2Pass> = passes
+        .iter()
+        .filter(|p| p.0 >= from_day && p.0 < to_day + 86_400)
+        .collect();
+    let (span, lead, which) = if from_day == to_day {
+        (
+            format!("on {}", day(from_day)),
+            format!("On {}", day(from_day)),
+            "that day",
+        )
+    } else {
+        (
+            format!("from {} to {}", day(from_day), day(to_day)),
+            format!("From {} to {}", day(from_day), day(to_day)),
+            "those days",
+        )
+    };
+    let rule = format!(
+        "A dated read takes the scene nearest the date under {:.0} % cloud within {} days (then {:.0} % within {}, then {:.0} % within {}) whose pixel here is clear.",
+        ladder[0].0, ladder[0].1, ladder[1].0, ladder[1].1, ladder[2].0, ladder[2].1
+    );
+    let block = json!({
+        "catalogue": label,
+        "from": day(from_day),
+        "to": day(to_day),
+        "pass_count": in_gap.len(),
+        "passes": in_gap.iter().take(12).map(|p| json!({
+            "at": format!("{}Z", &iso8601_utc(p.0.max(0) as u64)[..16]),
+            "scene_cloud_pct": cloud(p.1),
+            "id": p.2,
+        })).collect::<Vec<_>>(),
+        "rule": rule,
+    });
+    let sentence = if in_gap.is_empty() {
+        format!(
+            "{label} lists no Sentinel-2 pass over this cell {span}: no image of {which} exists, clear or cloudy."
+        )
+    } else {
+        let shown: Vec<String> = in_gap
+            .iter()
+            .take(6)
+            .map(|p| match cloud(p.1) {
+                Some(c) => format!("{} ({c:.0} % cloud)", day(p.0)),
+                None => format!("{} (cloud not given)", day(p.0)),
+            })
+            .collect();
+        let more = if in_gap.len() > 6 {
+            format!(" and {} more", in_gap.len() - 6)
+        } else {
+            String::new()
+        };
+        if read_in_gap {
+            format!(
+                "{lead}, Sentinel-2 passed over this cell on {}{more} ({label}).",
+                shown.join(", ")
+            )
+        } else {
+            format!(
+                "{lead}, Sentinel-2 passed over this cell on {}{more} ({label}), and none of those passes is the reading served. {rule}",
+                shown.join(", ")
+            )
+        }
+    };
+    (block, sentence)
+}
+
 async fn attach_dated_request(v: &mut JsonValue, req: &RecallReq, s: &AppState) {
     let (bound, exact) = match (req.tslot, req.as_of_tslot) {
         (Some(t), _) => (t, true),
@@ -13825,6 +13982,14 @@ async fn attach_dated_request(v: &mut JsonValue, req: &RecallReq, s: &AppState) 
         .collect();
     let mut rows: Vec<JsonValue> = Vec::with_capacity(bands.len());
     let mut lines: Vec<String> = Vec::new();
+    // Sentinel-2 rows not read at the date asked: (row, first day, last day).
+    let mut s2_gaps: Vec<(usize, i64, i64, bool)> = Vec::new();
+    let today = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+        .div_euclid(86_400)
+        * 86_400;
     for band in &bands {
         let tempo = band_tempo_for_key(band);
         let asked = tempo.and_then(|tp| tslot_dates(bound, tp));
@@ -13927,7 +14092,76 @@ async fn attach_dated_request(v: &mut JsonValue, req: &RecallReq, s: &AppState) 
         if let Some(n) = note {
             lines.push(n);
         }
+        let unread = matches!(
+            status,
+            "other_date_signed" | "served_earlier" | "nothing_at_date" | "absence"
+        );
+        if let (true, Some(tp)) = (unread && s2_band_plan(band).is_some(), tempo) {
+            let day = |t: u64| {
+                emem_core::tslot::Tslot(t)
+                    .to_unix_start(tp)
+                    .div_euclid(86_400)
+                    * 86_400
+            };
+            if let Some((from, to)) = s2_gap_window(day(bound), near.map(day), today) {
+                // An absence signed for the date asked came from that day's pass.
+                let read_in_gap = near.map(day) == Some(day(bound));
+                s2_gaps.push((rows.len(), from, to, read_in_gap));
+            }
+        }
         rows.push(row);
+    }
+    // A record with no reading for a day does not say whether the satellite
+    // passed. "Nothing is signed for 2024-11-05" at Santa Claus Village was
+    // read as "no optical pass", and Sentinel-2 had passed that day under 98 %
+    // cloud. So each gap names the passes the catalogue lists in it.
+    // Only where this node reads upstreams at all, and never from a unit test:
+    // the window and the sentence are tested apart from the search.
+    if !s2_gaps.is_empty() && auto_materialize_enabled() && !cfg!(test) {
+        if let Ok(at) = emem_codec::latlng_from_cell64(&req.cell) {
+            let ladder = s2_cloud_ladder();
+            let mut searched: std::collections::BTreeMap<(i64, i64, bool), S2PassSearch> =
+                Default::default();
+            for (idx, from, to, read_in_gap) in &s2_gaps {
+                let key = (*from, *to, *read_in_gap);
+                if !searched.contains_key(&key) {
+                    // One search per distinct gap, and at most two per call.
+                    if searched.len() >= 2 {
+                        continue;
+                    }
+                    let found = s2_passes_between(at.lng_deg, at.lat_deg, *from, *to).await;
+                    let said = found.as_ref().ok().map(|(host, passes)| {
+                        s2_passes_note(*from, *to, *read_in_gap, host, passes, ladder).1
+                    });
+                    searched.insert(key, found);
+                    if let Some(sentence) = said {
+                        lines.push(sentence);
+                    }
+                }
+                let Some(row) = rows.get_mut(*idx).and_then(|r| r.as_object_mut()) else {
+                    continue;
+                };
+                match searched.get(&key) {
+                    Some(Ok((host, passes))) => {
+                        let (block, sentence) =
+                            s2_passes_note(*from, *to, *read_in_gap, host, passes, ladder);
+                        let note = match row.get("note").and_then(|n| n.as_str()) {
+                            Some(n) => format!("{n} {sentence}"),
+                            None => sentence,
+                        };
+                        row.insert("note".into(), json!(note));
+                        row.insert("catalogue_passes".into(), block);
+                    }
+                    Some(Err(e)) => {
+                        row.insert(
+                            "catalogue_passes".into(),
+                            json!({"checked": false, "why": e}),
+                        );
+                    }
+                    None => {}
+                }
+            }
+        }
     }
     let mut summary = if lines.is_empty() {
         "Every band was served at the date asked.".to_string()
@@ -57347,13 +57581,12 @@ fn s2_nearest_item(
 ///
 /// Hard cap: 80 % cloud / 90 days. Beyond that, return Err so the caller
 /// signs an honest Absence.
-pub(crate) async fn s2_search_with_fallback(
-    cli: &reqwest::Client,
-    lng: f64,
-    lat: f64,
-    target_unix: Option<i64>,
-    now_unix: i64,
-) -> Result<(emem_fetch::stac::StacItem, f64, i64, &'static str), String> {
+/// The (scene cloud %, days either side) tiers every Sentinel-2 picker widens
+/// through: `EMEM_S2_MAX_CLOUD` and `EMEM_S2_LOOKBACK_DAYS` (default 40 % and
+/// 30 days), then 1.5x the cloud (at most 60 %) and twice the days, then 2x
+/// (at most 80 %) and three times. One reader for both variables, so a
+/// dated read's explanation states the limits the picker used.
+pub(crate) fn s2_cloud_ladder() -> [(f64, i64); 3] {
     let base_cloud = std::env::var("EMEM_S2_MAX_CLOUD")
         .ok()
         .and_then(|v| v.parse::<f64>().ok())
@@ -57364,11 +57597,21 @@ pub(crate) async fn s2_search_with_fallback(
         .and_then(|v| v.parse::<i64>().ok())
         .filter(|d| (1..=365).contains(d))
         .unwrap_or(30);
-    let tiers: [(f64, i64); 3] = [
+    [
         (base_cloud, base_days),
         ((base_cloud * 1.5).min(60.0), base_days * 2),
         ((base_cloud * 2.0).min(80.0), base_days * 3),
-    ];
+    ]
+}
+
+pub(crate) async fn s2_search_with_fallback(
+    cli: &reqwest::Client,
+    lng: f64,
+    lat: f64,
+    target_unix: Option<i64>,
+    now_unix: i64,
+) -> Result<(emem_fetch::stac::StacItem, f64, i64, &'static str), String> {
+    let tiers = s2_cloud_ladder();
     let mut last_err: Option<String> = None;
     for (cloud, days) in tiers {
         let (lo_unix, hi_unix) = match target_unix {
@@ -58207,16 +58450,6 @@ async fn s2_pick_clear_scene_uncached(
     now_unix: i64,
     at_or_before: bool,
 ) -> Result<S2ChosenScene, String> {
-    let base_cloud = std::env::var("EMEM_S2_MAX_CLOUD")
-        .ok()
-        .and_then(|v| v.parse::<f64>().ok())
-        .filter(|v| (0.0..=100.0).contains(v))
-        .unwrap_or(40.0);
-    let base_days: i64 = std::env::var("EMEM_S2_LOOKBACK_DAYS")
-        .ok()
-        .and_then(|v| v.parse::<i64>().ok())
-        .filter(|d| (1..=365).contains(d))
-        .unwrap_or(30);
     let max_scenes: usize = std::env::var("EMEM_S2_MAX_SCENES")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
@@ -58225,11 +58458,7 @@ async fn s2_pick_clear_scene_uncached(
     // Every cell of one batch asks with the batch's clock, so their windows
     // are the same string and one area search answers all of them.
     let now_unix = S2_AREA.try_with(|a| a.now_unix).unwrap_or(now_unix);
-    let tiers: [(f64, i64); 3] = [
-        (base_cloud, base_days),
-        ((base_cloud * 1.5).min(60.0), base_days * 2),
-        ((base_cloud * 2.0).min(80.0), base_days * 3),
-    ];
+    let tiers = s2_cloud_ladder();
     let mut scenes_tried = 0usize;
     // Newest candidate seen across all tiers, the honest Absence fallback
     // when no scene is clear at the pixel.
@@ -58770,12 +58999,7 @@ async fn s2_passes(
         ),
         None,
     );
-    let base_cloud = std::env::var("EMEM_S2_MAX_CLOUD")
-        .ok()
-        .and_then(|v| v.parse::<f64>().ok())
-        .filter(|v| (0.0..=100.0).contains(v))
-        .unwrap_or(40.0);
-    let cloud = (base_cloud * 2.0).min(80.0);
+    let cloud = s2_cloud_ladder()[2].0;
     let datetime = format!(
         "{}/{}",
         iso8601_utc(start.max(0) as u64),
@@ -108140,6 +108364,96 @@ mod tests {
             "{note}"
         );
         assert!(note.contains("era5.t2m"), "{note}");
+    }
+
+    #[test]
+    fn a_dated_gap_runs_between_the_date_asked_and_the_reading_served() {
+        const D: i64 = 86_400;
+        let asked = 20_032 * D; // 2024-11-05
+        let today = 20_400 * D;
+        // Served earlier: from the day after it to the date asked.
+        assert_eq!(
+            s2_gap_window(asked, Some(asked - 5 * D), today),
+            Some((asked - 4 * D, asked))
+        );
+        // Served later: from the date asked to the day before it.
+        assert_eq!(
+            s2_gap_window(asked, Some(asked + 3 * D), today),
+            Some((asked, asked + 2 * D))
+        );
+        // An absence for the day itself: that day only.
+        assert_eq!(
+            s2_gap_window(asked, Some(asked), today),
+            Some((asked, asked))
+        );
+        // Nothing served: 15 days either side, never past today.
+        assert_eq!(
+            s2_gap_window(asked, None, asked + 3 * D),
+            Some((asked - 15 * D, asked + 3 * D))
+        );
+        // A long gap is cut to 60 days either side of the date asked.
+        assert_eq!(
+            s2_gap_window(asked, Some(asked - 200 * D), today),
+            Some((asked - 60 * D, asked))
+        );
+    }
+
+    #[test]
+    fn a_dated_gap_names_the_passes_under_cloud_and_says_when_there_are_none() {
+        const D: i64 = 86_400;
+        let ladder = [(40.0, 30), (60.0, 60), (80.0, 90)];
+        let from = 20_028 * D; // 2024-11-01
+        let to = 20_032 * D; // 2024-11-05
+        let passes: Vec<S2Pass> = vec![
+            (20_027 * D + 36_101, Some(27.389586), "read".into()),
+            (
+                from + 37_259,
+                Some(100.0),
+                "S2B_MSIL2A_20241101T102059".into(),
+            ),
+            (
+                to + 36_069,
+                Some(97.681612),
+                "S2B_MSIL2A_20241105T100109".into(),
+            ),
+            (20_035 * D + 36_689, Some(99.625236), "after".into()),
+        ];
+        let (block, s) = s2_passes_note(
+            from,
+            to,
+            false,
+            emem_fetch::stac::STAC_MPC_V1,
+            &passes,
+            ladder,
+        );
+        assert_eq!(block["pass_count"], 2, "{block}");
+        assert_eq!(block["passes"][1]["scene_cloud_pct"], 97.7);
+        assert_eq!(block["passes"][0]["at"], "2024-11-01T10:20Z");
+        assert!(
+            s.starts_with("From 2024-11-01 to 2024-11-05, Sentinel-2 passed over this cell on 2024-11-01 (100 % cloud), 2024-11-05 (98 % cloud) (Planetary Computer)"),
+            "{s}"
+        );
+        assert!(s.contains("under 40 % cloud within 30 days"), "{s}");
+        // No pass at all: that is said, and it is a stronger statement.
+        let (block, s) = s2_passes_note(
+            20_040 * D,
+            20_120 * D,
+            false,
+            emem_fetch::stac::STAC_ELEMENT84_V1,
+            &passes,
+            ladder,
+        );
+        assert_eq!(block["pass_count"], 0);
+        assert_eq!(
+            s,
+            "Element 84 Earth Search lists no Sentinel-2 pass over this cell from 2024-11-13 to 2025-02-01: no image of those days exists, clear or cloudy."
+        );
+        // The day's own pass made the absence: no claim that it was not read.
+        let (_, s) = s2_passes_note(to, to, true, emem_fetch::stac::STAC_MPC_V1, &passes, ladder);
+        assert_eq!(
+            s,
+            "On 2024-11-05, Sentinel-2 passed over this cell on 2024-11-05 (98 % cloud) (Planetary Computer)."
+        );
     }
 
     /// Reproduces the reply that read as an answer: `tslot` 19340 for a

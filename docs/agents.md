@@ -562,6 +562,16 @@ still tries a fetch. At tslot 100 the note had `reason_class` `upstream_error`
 and `retryable` true. Details:
 [Read what was true, or what emem knew, on a date](only-emem.md#read-what-was-true-or-what-emem-knew-on-a-date).
 
+A recall with `tslot` or `as_of_tslot` has `dated_request`. Each band's row
+gives the date `asked`, the dates `served` and a `status`. A row with no
+reading of the date asked does not say whether the satellite passed. For a
+Sentinel-2 band such a row also has `catalogue_passes`: every pass that the
+catalogue lists between the date asked and the reading served, with the
+scene's cloud cover, and the cloud rule of the read. An empty list means that
+no image of those days exists, clear or cloudy. For snow in the dark months,
+when no optical pass can see the ground, `era5.snow_depth` gives the ERA5-Land
+reanalysis snow depth in metres. It is a model value, not an observation.
+
 ### Job: check a yes or no claim about a place
 
 ```json
