@@ -17,9 +17,21 @@ The half of docs/media/films/STANDARD.md that film_qc.py cannot do offline. For 
   a computed claim (explainers only)  `reproduce` names a public script that computes the value offline, and
                                    `output` the file it writes; the file must hash to `output_sha256`.
 
-Exit 0 when every claim passes, 1 when one fails, 2 on bad input. Reads emem.dev and nothing else.
+  a pass label                     "Sentinel-2, 30 May 2026, 11:06 UTC" names the picture on screen, and a wrong
+                                   date misleads as much as a wrong count. `stac_item` is the item's URL on one
+                                   of the two public catalogues below, `shown_utc` the date or minute shown
+                                   (2026-05-30 or 2026-05-30T11:06Z). The item's `datetime`, cut to that
+                                   precision as a clock shows it, must equal it; the text must name the same day;
+                                   and when film.json has segments, an evidence segment must list the item id.
+  a conversion                     "99 football pitches" from "71 hectares": `of` is the index of the claim it
+                                   converts, `multiply` and `divide` the factors, `formula` the words. The gate
+                                   converts the SIGNED value of that claim, not the rounded one on screen.
+
+Exit 0 when every claim passes, 1 when one fails, 2 on bad input. Reads emem.dev, and the catalogue item a pass
+label names, and nothing else.
 """
-import hashlib, json, re, subprocess, sys, tempfile, urllib.request
+import hashlib, json, re, subprocess, sys, tempfile, urllib.parse, urllib.request
+from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
 EMEM = "https://emem.dev"
@@ -28,6 +40,9 @@ TREE_PROOF = Path(__file__).resolve().parent / "verifiers" / "emem-tokenise-file
 FACT = re.compile(r"^emem:fact:[A-Za-z0-9.]+:[a-z2-7]{20,64}$")
 TREE = re.compile(r"^emem:tree:([a-z2-7]{20,64})#row=(\d{1,6})$")
 NOTE_PATH = re.compile(r"^/memories/by_attester/[a-z2-7]{8}/[A-Za-z0-9._/-]{1,200}\.md$")
+STAC_HOSTS = ("planetarycomputer.microsoft.com", "earth-search.aws.element84.com")
+SHOWN_UTC = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})Z)?$")
+MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 
 
 def get(url, data=None):
@@ -38,21 +53,26 @@ def get(url, data=None):
 
 
 def num(x):
+    """Decimal, not float: 0.125 rounds the same way on screen and here."""
+    t = str(x)
+    for sep in (",", " ", "\u00a0", "\u202f"):
+        t = t.replace(sep, "")
     try:
-        return float(str(x).replace(",", "").replace(" ", "").strip().rstrip("%"))
-    except ValueError:
+        return Decimal(t.strip().rstrip("%"))
+    except InvalidOperation:
         return None
 
 
 def same(shown, signed):
     """The value on screen is the signed value rounded to the precision shown: 3539.04 for 3539.0422 passes,
-    1,285 for 1284 does not. A tolerance would let a wrong count through."""
+    1,285 for 1284 does not. A tolerance would let a wrong count through. At an exact half either common rule
+    (half up, or half to even as Python's format does) passes."""
     a, b = num(shown), num(signed)
-    if a is None or b is None:
+    if a is None or b is None or not a.is_finite() or not b.is_finite():
         return str(shown).strip() == str(signed).strip()
     digits = re.search(r"\.(\d+)", str(shown).replace(",", ""))
-    places = len(digits.group(1)) if digits else 0
-    return round(b, places) == round(a, places)
+    q = Decimal(1).scaleb(-(len(digits.group(1)) if digits else 0))
+    return a in (b.quantize(q, ROUND_HALF_UP), b.quantize(q, ROUND_HALF_EVEN))
 
 
 def fact(c):
@@ -66,7 +86,9 @@ def fact(c):
     if "value" in c and not same(c["value"], r.get("value")):
         return False, f"shown {c['value']!r}, signed {r.get('value')!r}"
     v = r.get("value")
-    return True, f"signed {v!r}" if not isinstance(v, (dict, list)) else "signed record (a structure; no value compared)"
+    if isinstance(v, (dict, list)):
+        return True, "signed record (a structure; no value compared)"
+    return True, f"signed {v!r}", v
 
 
 def tree(c, m):
@@ -97,7 +119,56 @@ def tree(c, m):
                 return False, "the unit has no `- value:` line to compare"
             if not same(c["value"], v.group(1)):
                 return False, f"shown {c['value']!r}, the signed unit says {v.group(1).strip()!r}"
-        return True, f"note, leaf, root and unit MATCH; unit value {v.group(1).strip() if v else '(none)'}"
+        unit_value = v.group(1).strip() if v else None
+        return True, f"note, leaf, root and unit MATCH; unit value {unit_value or '(none)'}", unit_value
+
+
+def label(c, meta):
+    url = str(c.get("stac_item", ""))
+    u = urllib.parse.urlparse(url)
+    if u.scheme != "https" or u.hostname not in STAC_HOSTS:
+        return False, "a pass label needs `stac_item`, the https URL of the item on " + " or ".join(STAC_HOSTS)
+    m = SHOWN_UTC.match(str(c.get("shown_utc", "")))
+    if not m:
+        return False, "a pass label needs `shown_utc`, the date or minute shown: 2026-05-30 or 2026-05-30T11:06Z"
+    y, mo, d, hh, mi = m.groups()
+    if not 1 <= int(mo) <= 12:
+        return False, f"`shown_utc` has no month {mo}"
+    item = json.loads(get(url))
+    dt = str((item.get("properties") or {}).get("datetime") or "")
+    want = f"{y}-{mo}-{d}" + (f"T{hh}:{mi}" if hh else "")
+    if not dt.startswith(want):
+        return False, f"shown {want}, the catalogue item says {dt or 'no datetime'}"
+    text = str(c.get("text", "")).lower()
+    named = y in text and re.search(rf"(?<!\d)0?{int(d)}(?!\d)", text) and (MONTHS[int(mo) - 1] in text or f"-{mo}-" in text)
+    if not named or (hh and f"{hh}:{mi}" not in text):
+        return False, f"the text does not say {want}; `shown_utc` must be what the screen shows"
+    segs = meta.get("segments") or []
+    listed = {str(s) for g in segs if g.get("role") == "evidence" for s in (g.get("scenes") or [])}
+    if segs and item.get("id") not in listed:
+        return False, f"no evidence segment lists {item.get('id')!r}; name scenes by their catalogue item id"
+    return True, f"catalogue datetime {dt}"
+
+
+def convert(c, i, claims, signed):
+    of, mul, div = c.get("of"), num(c.get("multiply", 1)), num(c.get("divide", 1))
+    if not isinstance(of, int) or isinstance(of, bool) or not 0 <= of < len(claims) or of == i:
+        return False, "a conversion needs `of`, the index of another claim in this film.json"
+    if mul is None or div is None or not mul.is_finite() or not div.is_finite() or div == 0:
+        return False, "`multiply` and `divide` must be finite numbers, `divide` not 0"
+    if not str(c.get("formula", "")).strip():
+        return False, "a conversion needs `formula`, the arithmetic in words"
+    base = signed.get(of)
+    lead = re.match(r"\s*([-+]?[\d,]*\.?\d+(?:[eE][-+]?\d+)?)", str(base)) if base is not None else None
+    b = num(lead.group(1)) if lead else None
+    if b is None:
+        return False, f"claim {of} passed with no numeric signed value, so there is nothing to convert"
+    if "value" not in c:
+        return False, "a conversion needs the `value` shown"
+    v = b * mul / div
+    if not same(c["value"], v):
+        return False, f"shown {c['value']!r}; {c['formula']} on the signed {base} gives {v:.8g}"
+    return True, f"{c['formula']} on the signed {base} gives {v:.8g}"
 
 
 def main():
@@ -109,14 +180,21 @@ def main():
     except (OSError, ValueError) as e:
         print(f"cannot read film.json: {e}")
         return 2
-    claims, bad = meta.get("claims") or [], 0
+    claims, bad, signed, results = meta.get("claims") or [], 0, {}, {}
     if not claims:
         print("FAIL no claims in film.json")
         return 1
-    for c in claims:
+    # Conversions last: each reads the signed value of the claim it converts.
+    order = sorted(range(len(claims)), key=lambda k: "of" in claims[k])
+    for i in order:
+        c = claims[i]
         tok = str(c.get("token", ""))
         try:
-            if not tok and c.get("reproduce") and c.get("output_sha256"):
+            if "of" in c:
+                ok, why = convert(c, i, claims, signed)
+            elif c.get("stac_item") or c.get("shown_utc"):
+                ok, why = label(c, meta)
+            elif not tok and c.get("reproduce") and c.get("output_sha256"):
                 out = REPO / str(c.get("output", ""))
                 if REPO not in out.resolve().parents or not out.is_file():
                     ok, why = False, "a computed claim needs `output`, a file in this repository"
@@ -124,16 +202,19 @@ def main():
                     h = hashlib.sha256(out.read_bytes()).hexdigest()
                     ok = h == c["output_sha256"]
                     why = f"computed by {c['reproduce']}; output {'matches' if ok else 'differs from'} its sha256"
-            elif FACT.match(tok):
-                ok, why = fact(c)
-            elif (m := TREE.match(tok)):
-                ok, why = tree(c, m)
+            elif FACT.match(tok) or TREE.match(tok):
+                m = TREE.match(tok)
+                ok, why, *val = tree(c, m) if m else fact(c)
+                if ok and val and val[0] is not None:
+                    signed[i] = val[0]
             else:
-                ok, why = False, "not an emem:fact or emem:tree#row token"
+                ok, why = False, "not an emem:fact or emem:tree#row token, a pass label or a conversion"
         except Exception as e:  # noqa: BLE001
             ok, why = False, f"{type(e).__name__}: {str(e)[:160]}"
         bad += not ok
-        print(f"{'pass' if ok else 'FAIL'}  {c.get('text', '')[:48]!r:52} {tok[:72]}  {why}")
+        results[i] = f"{'pass' if ok else 'FAIL'}  {i:>2} {c.get('text', '')[:46]!r:50} {(tok or c.get('stac_item', ''))[:72]}  {why}"
+    for i in range(len(claims)):
+        print(results[i])
     print(f"{len(claims) - bad} of {len(claims)} claims pass")
     return 0 if not bad else 1
 

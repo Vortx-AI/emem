@@ -20,6 +20,15 @@ fails a technical gate is sent back with the report.
 - An explainer (verdict NONE) may show values that a public script in this repository computes offline. Such a
   claim names the script (`reproduce`), the file it writes (`output`) and that file's `output_sha256`, in place
   of a token.
+- A label that names the picture on screen, such as "Sentinel-2, 30 May 2026, 11:06 UTC", is a claim. A wrong
+  date misleads as much as a wrong count. The claim names the catalogue item (`stac_item`) and what the screen
+  shows (`shown_utc`), and the gate reads the item's time.
+- A conversion, such as "18 pitches of 105 x 68 m" from a count of pixels, names the claim it converts (`of`), its
+  factors and its formula in words. The gate converts the signed value, not the rounded one on screen. The size
+  of the pitch, or of any unit a reader would not know, is on screen.
+- A homepage loop asks no question (verdict NONE), but it still shows emem at work. At least the place's cell
+  outline with its cell64, and one signed value read there, each readable for 2 s or more, with that fact's
+  `emem:fact` token in `film.json`. A loop of pictures with no cell and no signed value is footage with a logo.
 - It says what the check does not show. A signature says who signed, not that a claim is true.
 - It shows nothing private: no farm or field outline, no client or partner name, no coordinates of a person.
 - A pixel that decides the verdict is an untouched source pixel from a named pass, stretched only where it says
@@ -64,6 +73,12 @@ One folder per film, `docs/media/films/<id>/`:
 - `film.json`: `id`, `version`, `verdict`, `privacy_check: true`, and `claims`, one entry per claim on screen,
   each with `text`, `token` (an `emem:` token) and, for a value, the `value` shown and the `session_sha256` of
   the saved session that checked it;
+- a pass label in `claims` has `text`, `stac_item` (the item's URL on planetarycomputer.microsoft.com or
+  earth-search.aws.element84.com) and `shown_utc` (`2026-05-30` or `2026-05-30T11:06Z`) in place of a token. The
+  item's time, cut to that precision as a clock shows it, must equal it, and an evidence segment must list the
+  item id;
+- a conversion in `claims` has `text`, `of` (the index of the claim it converts), `multiply`, `divide`,
+  `formula` and the `value` shown;
 - in `film.json` when the film has them: `segments`, each `{start, end, role: "evidence" | "illustration",
   scenes: [...]}` (an evidence segment names its scenes), and `voice: {synthetic, model, consent, watermark,
   watermark_check_sha256}`.
@@ -90,3 +105,8 @@ On 12 November 2026 the gate accepted a test pattern encoded to the spec and rej
 11 times a second. It rejected all five older films in this folder on colour tags, frame size, keyframe interval
 and the missing `film.json`. They were rendered again the same day with `src/film.py`, which now converts with the
 BT.709 matrix, tags BT.709 and keys every 2 s. Each has a `<name>.film.json`. They are docs figures (`--docs`).
+
+On 13 November the claim check learnt pass labels and conversions. A test of ten claims passed the four true
+ones (a signed count, its area, its pitches and a real Sentinel-2 pass) and failed the six controls: a wrong
+area, a wrong minute, a wrong day in the text, a conversion of itself, a catalogue outside the two, and a wrong
+count.
