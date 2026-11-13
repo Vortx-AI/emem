@@ -533,15 +533,15 @@ pub fn evaluate(cfg: &Config, ev: &Evidence) -> Decision {
         // the sentence, so attribution is never a guess; and agreement is
         // judged at the precision the writer chose, so reporting
         // 889.6439208984375 as `889.6 m` is correct rather than a lie.
+        //
+        // Every figure written in the fact's unit must agree, not just one.
+        // Until 2026-11-12 one agreeing figure was enough, so "about 2 m ...
+        // about 5 m" beside a fact of 2.13 m passed. See `figures_agree`.
         for cn in &ev.cited_numbers {
             let Some((_, fv)) = ev.values.iter().find(|(t, _)| *t == cn.token) else {
                 continue;
             };
-            if cn
-                .numbers
-                .iter()
-                .any(|(n, d)| crate::claim::agrees(*n, *d, fv.value))
-            {
+            if crate::claim::figures_agree(&cn.numbers, fv.value, fv.unit.as_deref()) {
                 continue;
             }
             return Decision::block(
@@ -1029,10 +1029,97 @@ mod tests {
                 format!("Elevation there is 640.89 m per {token}.").as_str()
             ]);
         assert_eq!(found.len(), 1);
+        let numbers: Vec<(f64, usize)> = found[0]
+            .numbers
+            .iter()
+            .map(|f| (f.value, f.decimals))
+            .collect();
         assert_eq!(
-            found[0].numbers,
+            numbers,
             vec![(640.89, 2)],
             "only the figure in the prose, never the digits in the address"
+        );
+    }
+
+    /// Every figure written in the fact's unit must agree, not just one.
+    ///
+    /// From a partner's friction log: "about 2 m ... about 5 m (token)"
+    /// beside a fact of 2.13 m was allowed, because the 2 agreed and nothing
+    /// looked at the 5.
+    #[test]
+    fn a_second_figure_in_the_cited_unit_is_checked_too() {
+        let cfg = Config::default();
+        let token: &str =
+            "emem:fact:defi.zb493.hufo.zccc6:cqyzrjbuej7fdgmbgjjkboqnhjlfz4u6zy3nezps4t2qntab5sqa";
+        let fv = |value: f64, unit: Option<&str>, band: &str| crate::resolve::FactValue {
+            value,
+            unit: unit.map(str::to_string),
+            band: band.to_string(),
+        };
+        let ev = |s: &str, f: crate::resolve::FactValue| Evidence {
+            tokens: vec![(tok(token, TokenKind::Fact), TokenStatus::Verified)],
+            values: vec![(token.to_string(), f)],
+            cited_numbers: crate::claim::scan_cited_numbers([s]),
+            ..Default::default()
+        };
+        let height = || fv(2.13, Some("m"), "copdem30m.elevation_mean");
+
+        let two = format!("The bank is about 2 m here and about 5 m at the bend ({token}).");
+        assert_eq!(
+            evaluate(&cfg, &ev(&two, height())).code,
+            Some(DenyCode::ProvValue),
+            "5 m is not 2.13 m"
+        );
+        let both = format!("The bank is about 2 m here and 2.1 m at the bend ({token}).");
+        assert_eq!(
+            evaluate(&cfg, &ev(&both, height())).outcome,
+            Outcome::Proceed
+        );
+
+        // A distance is not a reading of the place, so it is not bound.
+        for s in [
+            format!("The bank 500 m south of the bridge is 2.13 m high ({token})."),
+            format!("The bank is 2.1 m high, 5 m above the river ({token})."),
+            format!("The bank is 2.1 m high within 50 m of the bridge ({token})."),
+            format!("At 12.97, 77.59 the bank is 2.1 metres high ({token})."),
+        ] {
+            assert_eq!(
+                evaluate(&cfg, &ev(&s, height())).outcome,
+                Outcome::Proceed,
+                "{s}"
+            );
+        }
+
+        // Another unit is not bound to a fact in metres: 0.9 km is a
+        // conversion this rule does not do, and the old test still applies.
+        let km = format!("Elevation there is 2.13 m, about 3 km inland ({token}).");
+        assert_eq!(evaluate(&cfg, &ev(&km, height())).outcome, Outcome::Proceed);
+
+        // A fact in percent binds percentages: "80 % cloud" is not tree cover.
+        let cover = || fv(45.0, Some("percent"), "forest_change.treecover2000");
+        let cloud = format!("Tree cover is 45 % and cloud cover was 80 % ({token}).");
+        assert_eq!(
+            evaluate(&cfg, &ev(&cloud, cover())).code,
+            Some(DenyCode::ProvValue)
+        );
+        let trees = format!("Tree cover in 2000 was 45 % ({token}).");
+        assert_eq!(
+            evaluate(&cfg, &ev(&trees, cover())).outcome,
+            Outcome::Proceed
+        );
+
+        // An index binds bare decimals in its range, and skips coordinates,
+        // years and names with digits.
+        let ndvi = || fv(0.138, None, "indices.ndvi");
+        let two_ndvi = format!("NDVI was 0.14 here and 0.62 at the farm in 2025 ({token}).");
+        assert_eq!(
+            evaluate(&cfg, &ev(&two_ndvi, ndvi())).code,
+            Some(DenyCode::ProvValue)
+        );
+        let placed = format!("At 0.21, -0.19 near the S2 tile NDVI was 0.14 in 2025 ({token}).");
+        assert_eq!(
+            evaluate(&cfg, &ev(&placed, ndvi())).outcome,
+            Outcome::Proceed
         );
     }
 

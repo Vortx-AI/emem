@@ -119,6 +119,13 @@ that issued it. `fix` tells the agent what to do next:
 | `cite_observation` | Resolve the observation through emem and cite the token it returns. |
 | `correct_value` | The text disagrees with the cited fact. Restate the value as the fact reports it. |
 
+`PROV_VALUE` checks each figure that the cited sentence writes in the unit of
+the fact. All of them must agree, not only one. "About 2 m here and about 5 m
+at the bend" beside a fact of 2.13 m is a deny. A distance (`500 m south`,
+`within 50 m`) and a coordinate pair are not readings of the fact, so the rule
+does not check them. For a fact with no unit and a value from -1 to 1, such as
+NDVI, each decimal from -1 to 1 must agree.
+
 ## Audit the log
 
 The node signs each verdict and appends it to the log before it answers.
@@ -134,7 +141,10 @@ emem-guard --audit --data ./var/guard    # exits non-zero if a verdict was chang
 Claim gating is off by default. When on, it denies a transcript that cites
 nothing and still states a measurable quantity about a place or a time. A
 unit table decides what is measurable. Each row names the band that reports
-the unit, so `800 ms` and `10 MB` never match.
+the unit, so `800 ms` and `10 MB` never match. A denial names that band as
+`claim.source_band` only when the sentence also names what the band measures.
+"80 % cloud" names no band, and "80 % tree cover" names
+`forest_change.treecover2000`.
 
 The crate measured this rule over its own repository prose on 6 August 2026:
 3 firings in 8739 sentences. Two of the three are the rule's own positive test

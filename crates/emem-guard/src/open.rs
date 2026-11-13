@@ -173,7 +173,9 @@ pub struct ClaimDetail {
     /// What kind of quantity it is.
     pub quantity: &'static str,
     /// A recallable band key that would answer this claim, or `null` when
-    /// this responder observes no band in that quantity.
+    /// this responder observes no band in that quantity. Also `null` when
+    /// the sentence does not name what the band measures: `80 % cloud` gets
+    /// no tree-cover band.
     ///
     /// The actionable field, so it must name a key `POST /v1/recall` accepts
     /// and a materializer can serve, never a family root from

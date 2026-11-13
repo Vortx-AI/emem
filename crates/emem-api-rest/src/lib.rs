@@ -97020,8 +97020,19 @@ mod tests {
         // "resolve elevation there and cite it" rather than "cite something".
         // It must name a key recall will serve. `dem` is a family root and
         // answers `unknown_band`, so an agent that followed it went nowhere.
-        assert_eq!(v["claim"]["source_band"], "copdem30m.elevation_mean");
+        //
+        // A canopy height is not an elevation, and no band here reports it,
+        // so this claim names no band. Until 2026-11-12 every `m` claim named
+        // the elevation band. A band is named only when the sentence names
+        // what the band measures.
+        assert!(v["claim"]["source_band"].is_null(), "{v}");
         assert_eq!(v["claim"]["magnitude"], "31 m");
+        let elev = guard_verdict_json(
+            &s,
+            &json!({"texts":["Elevation in Leh is 3500 m."], "claim_gating": true}),
+        )
+        .await;
+        assert_eq!(elev["claim"]["source_band"], "copdem30m.elevation_mean");
 
         // A citation this node cannot resolve does NOT buy an allow. Before
         // 2026-08-08 it did, so appending any well-formed token silenced the

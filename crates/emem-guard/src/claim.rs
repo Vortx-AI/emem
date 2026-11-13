@@ -143,6 +143,10 @@ pub struct MeasurableUnit {
     /// is ungrounded AND that this node cannot ground it, which is two useful
     /// facts rather than one confident wrong one.
     ///
+    /// A claim names this band only when its sentence also names what the
+    /// band measures ([`BAND_EVIDENCE`]). A unit alone is not evidence: `80 %
+    /// cloud` is not tree cover, and `31 m` of canopy is not an elevation.
+    ///
     /// Asserted against the live registry by
     /// [`tests::every_unit_names_a_recallable_band`].
     pub source_band: Option<&'static str>,
@@ -420,6 +424,95 @@ pub const UNITS: &[MeasurableUnit] = &[
     },
 ];
 
+/// Words that show a sentence is about what a band measures.
+///
+/// A unit names a quantity, not a band. `%` is tree cover, cloud cover, a
+/// slope or a growth rate; `m` is an elevation, a canopy height or a
+/// distance. Until 2026-11-12 every `%` claim named
+/// `forest_change.treecover2000`, so "80 % cloud" sent the agent to cite tree
+/// cover. A verified tree-cover citation then turned the claim gate off for
+/// the whole transcript. A claim now names a band only when the sentence also
+/// names what that band measures. Matched at the start of a word.
+const BAND_EVIDENCE: &[(&str, &[&str])] = &[
+    (
+        "forest_change.treecover2000",
+        &["tree", "canopy", "forest", "woodland"],
+    ),
+    (
+        "copdem30m.elevation_mean",
+        &[
+            "elevation",
+            "altitude",
+            "above sea level",
+            "above mean sea level",
+            "amsl",
+            "asl",
+        ],
+    ),
+    (
+        "weather.precipitation_mm",
+        &["rain", "precipitation", "drizzle", "shower", "downpour"],
+    ),
+    (
+        "weather.temperature_2m",
+        &[
+            "temperature",
+            "temps",
+            "air",
+            "hot",
+            "warm",
+            "cold",
+            "cool",
+            "heat",
+            "freez",
+            "frost",
+        ],
+    ),
+    (
+        "cams.pm25",
+        &["pm2.5", "pm 2.5", "pm25", "particulate", "fine particle"],
+    ),
+    (
+        "soilgrids.soc_0_30cm",
+        &["organic carbon", "soc", "soil carbon"],
+    ),
+    ("soilgrids.bdod_0_30cm", &["bulk density"]),
+    (
+        "population",
+        &["population", "people", "persons", "inhabitant", "resident"],
+    ),
+    (
+        "sentinel1_raw",
+        &[
+            "backscatter",
+            "radar",
+            "sar",
+            "sentinel-1",
+            "sentinel 1",
+            "sigma",
+            "vv",
+            "vh",
+        ],
+    ),
+    ("indices.ndvi", &["ndvi"]),
+];
+
+/// Whether `sentence` names what `band` measures. See [`BAND_EVIDENCE`].
+fn band_named_in(sentence: &str, band: &str) -> bool {
+    let Some((_, words)) = BAND_EVIDENCE.iter().find(|(b, _)| *b == band) else {
+        return false;
+    };
+    let lower = sentence.to_lowercase();
+    words.iter().any(|w| {
+        lower.match_indices(w).any(|(i, _)| {
+            !lower[..i]
+                .chars()
+                .next_back()
+                .is_some_and(char::is_alphanumeric)
+        })
+    })
+}
+
 /// Words that make a sentence hypothetical, interrogative or attributed.
 ///
 /// Each entry is here because it changes what the sentence CLAIMS, not because
@@ -491,9 +584,9 @@ pub struct Claim {
     pub magnitude: String,
     /// What was measured.
     pub quantity: Quantity,
-    /// A recallable band key that would answer this claim, or `None` when
-    /// this responder observes no band in this quantity. See
-    /// [`MeasurableUnit::source_band`].
+    /// A recallable band key that would answer this claim. `None` when this
+    /// responder observes no band in this quantity, or when the sentence does
+    /// not name what the band measures. See [`MeasurableUnit::source_band`].
     pub source_band: Option<&'static str>,
     /// What anchored it to a place or a time.
     pub anchor: Anchor,
@@ -555,6 +648,7 @@ pub fn scan_claims<'a>(texts: impl IntoIterator<Item = &'a str>) -> Vec<Claim> {
 fn claim_in(sentence: &str) -> Option<Claim> {
     let (magnitude, quantity, source_band) =
         measurable_magnitude(sentence).or_else(|| named_index_value(sentence))?; // G1
+    let source_band = source_band.filter(|band| band_named_in(sentence, band));
     let anchor = world_anchor(sentence)?; // G2
     if !is_assertive(sentence) {
         return None; // G3
@@ -999,16 +1093,37 @@ pub struct CitedNumber {
     pub sentence: String,
     /// The one citation it offers.
     pub token: String,
-    /// Every number stated in the prose, paired with the decimal places it
-    /// was written to. The precision matters: `889.6` is a correct report of
-    /// `889.6439208984375`, and comparing them at full width would call
-    /// ordinary rounding a lie.
-    pub numbers: Vec<(f64, usize)>,
+    /// Every figure stated in the prose, with its precision and its unit.
+    pub numbers: Vec<Figure>,
+}
+
+/// One figure a sentence states.
+///
+/// The unit is what binds a figure to a citation. "About 2 m here and about
+/// 5 m at the edge" beside a fact that reads 2.13 m states two lengths, and
+/// both are about what the fact measured. A rule that let the sentence pass
+/// because ONE of them agreed checked half of it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Figure {
+    /// The number, sign included.
+    pub value: f64,
+    /// The decimal places it was written to. The precision matters: `889.6`
+    /// is a correct report of `889.6439208984375`, and comparing them at full
+    /// width would call ordinary rounding a lie.
+    pub decimals: usize,
+    /// The unit written after it, folded so spellings of one unit compare
+    /// equal: `metres` and `m` are both `m`. `None` for a bare number.
+    pub unit: Option<&'static str>,
+    /// It says where, not what was measured: half of a coordinate pair, a
+    /// tolerance (`within 0.05`), or a length that reads as a distance or an
+    /// offset (`500 m south`, `5 m above the river`). Never bound to a
+    /// citation.
+    pub positional: bool,
 }
 
 /// One sentence's ingredients: its text, the citations inside it, and the
-/// figures it states paired with the precision each was written to.
-type SentenceParts<'a> = (&'a str, Vec<String>, Vec<(f64, usize)>);
+/// figures it states.
+type SentenceParts<'a> = (&'a str, Vec<String>, Vec<Figure>);
 
 /// Find sentences that state a number and cite exactly one observation.
 ///
@@ -1051,7 +1166,7 @@ pub fn scan_cited_numbers<'a>(texts: impl IntoIterator<Item = &'a str>) -> Vec<C
             for t in &found {
                 stripped = stripped.replace(&t.token, " ");
             }
-            parts.push((sentence, citing, numbers_in(&stripped)));
+            parts.push((sentence, citing, figures_in(&stripped)));
         }
 
         // Pass two: pair a citation with the figure it supports.
@@ -1140,6 +1255,276 @@ fn numbers_in(s: &str) -> Vec<(f64, usize)> {
         i = j.max(start + 1);
     }
     out
+}
+
+/// After a length, a word that makes it a distance or an offset from
+/// somewhere, not a reading of the place. `500 m south`, `5 m above the
+/// river`, `2 km from the coast`.
+const OFFSET_AFTER: &[&str] = &[
+    "from",
+    "away",
+    "above",
+    "below",
+    "beyond",
+    "upstream",
+    "downstream",
+    "inland",
+    "offshore",
+    "off",
+    "of",
+    "apart",
+    "radius",
+    "buffer",
+    "wide",
+    "long",
+    "higher",
+    "lower",
+    "taller",
+    "shorter",
+    "deeper",
+    "shallower",
+    "more",
+    "less",
+    "further",
+    "farther",
+    "closer",
+    "nearer",
+];
+
+/// Before any figure, a word that makes it a position or a tolerance.
+const POSITION_BEFORE: &[&str] = &[
+    "within",
+    "radius",
+    "buffer",
+    "lat",
+    "lon",
+    "lng",
+    "latitude",
+    "longitude",
+];
+
+/// Every figure in a string, with its precision, its unit, and whether it is
+/// positional.
+///
+/// A digit joined to a letter (`B12`, `PM2.5`, `s2`) is part of a name and is
+/// skipped, as in [`measurable_magnitude`].
+fn figures_in(s: &str) -> Vec<Figure> {
+    let b = s.as_bytes();
+    let mut out: Vec<Figure> = Vec::new();
+    // Byte span of each figure, sign included, to find coordinate pairs.
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    let mut i = 0usize;
+    while i < b.len() {
+        if !b[i].is_ascii_digit() {
+            i += 1;
+            continue;
+        }
+        if i > 0 && (b[i - 1].is_ascii_alphabetic() || b[i - 1] == b'_') {
+            while i < b.len()
+                && (b[i].is_ascii_alphanumeric()
+                    || b[i] == b'_'
+                    || (b[i] == b'.' && i + 1 < b.len() && b[i + 1].is_ascii_digit()))
+            {
+                i += 1;
+            }
+            continue;
+        }
+        let start = i;
+        let mut j = i;
+        let mut decimals = 0usize;
+        let mut seen_dot = false;
+        while j < b.len() {
+            if b[j].is_ascii_digit() {
+                if seen_dot {
+                    decimals += 1;
+                }
+                j += 1;
+            } else if b[j] == b',' && j + 1 < b.len() && b[j + 1].is_ascii_digit() && !seen_dot {
+                j += 1;
+            } else if b[j] == b'.' && !seen_dot && j + 1 < b.len() && b[j + 1].is_ascii_digit() {
+                seen_dot = true;
+                j += 1;
+            } else {
+                break;
+            }
+        }
+        i = j.max(start + 1);
+        let neg = start > 0 && b[start - 1] == b'-';
+        let lit: String = s[start..j].chars().filter(|c| *c != ',').collect();
+        let Ok(v) = lit.parse::<f64>() else {
+            continue;
+        };
+        let signed_start = if neg { start - 1 } else { start };
+
+        let unit_start = if j < b.len() && b[j] == b' ' {
+            j + 1
+        } else {
+            j
+        };
+        let found = unit_at(s, unit_start);
+        let before = last_word(&s[..signed_start]);
+        let mut positional = POSITION_BEFORE.contains(&before.as_str());
+        match found {
+            Some((symbol, quantity, _)) => {
+                if quantity == Quantity::Length {
+                    let after = s.get(unit_start + symbol.len()..).unwrap_or("");
+                    let next = first_word(after);
+                    let direction = ["north", "south", "east", "west"]
+                        .iter()
+                        .any(|d| next.starts_with(d));
+                    positional |= direction || OFFSET_AFTER.contains(&next.as_str());
+                }
+            }
+            // A degree sign on a bare number is an angle or a coordinate:
+            // `12.97°N`. A temperature matched `°c` above.
+            None => positional |= s[j..].starts_with('°'),
+        }
+        out.push(Figure {
+            value: if neg { -v } else { v },
+            decimals,
+            unit: found.map(|(symbol, _, _)| unit_key(symbol)),
+            positional,
+        });
+        spans.push((signed_start, j));
+    }
+
+    // `12.97, 77.59` is a position. Both halves are decimals in range, with
+    // only a comma between them.
+    for k in 1..out.len() {
+        let (a, c) = (out[k - 1], out[k]);
+        let between = &s[spans[k - 1].1..spans[k].0];
+        if a.unit.is_none()
+            && c.unit.is_none()
+            && a.decimals > 0
+            && c.decimals > 0
+            && between.trim() == ","
+            && (-90.0..=90.0).contains(&a.value)
+            && (-180.0..=180.0).contains(&c.value)
+        {
+            out[k - 1].positional = true;
+            out[k].positional = true;
+        }
+    }
+    out
+}
+
+/// The first word of `s`, lowercased: letters only.
+fn first_word(s: &str) -> String {
+    s.trim_start()
+        .chars()
+        .take_while(|c| c.is_alphabetic())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// The last word of `s`, lowercased: letters only.
+fn last_word(s: &str) -> String {
+    let rev: Vec<char> = s
+        .trim_end()
+        .chars()
+        .rev()
+        .take_while(|c| c.is_alphabetic())
+        .collect();
+    rev.into_iter().rev().flat_map(char::to_lowercase).collect()
+}
+
+/// One name for each unit, so the spellings of one unit compare equal.
+fn unit_key(symbol: &'static str) -> &'static str {
+    match symbol {
+        "metres" | "meters" | "metre" | "meter" | "m" => "m",
+        "kilometres" | "kilometers" | "km" => "km",
+        "hectares" | "hectare" | "ha" => "ha",
+        "°c" | "degrees celsius" | "celsius" | "degrees c" | "degc" | "deg c" => "degc",
+        "µg/m³" | "μg/m³" | "µg/m3" | "μg/m3" | "ug/m3" => "ug/m3",
+        "mg/m³" | "mg/m3" => "mg/m3",
+        "kg/dm³" | "kg/dm3" => "kg/dm3",
+        "persons/km²" | "persons/km2" | "people/km²" | "people/km2" => "persons/km2",
+        "km²" | "km2" => "km2",
+        "m³" | "m3" => "m3",
+        "m²" | "m2" => "m2",
+        "mm/year" | "mm/yr" => "mm/yr",
+        other => other,
+    }
+}
+
+/// Unit strings that facts carry for a quantity with no unit.
+const UNITLESS: &[&str] = &[
+    "index",
+    "ratio",
+    "reflectance",
+    "fraction",
+    "probability",
+    "dimensionless",
+    "unitless",
+    "none",
+    "1",
+];
+
+/// What a figure must be written in to report a fact with this unit.
+enum FactUnit {
+    /// A unit the [`UNITS`] table knows, folded by [`unit_key`].
+    Written(&'static str),
+    /// No unit: an index, a ratio, a reflectance.
+    Unitless,
+    /// A unit this crate cannot match in prose.
+    Unknown,
+}
+
+fn fact_unit(unit: Option<&str>) -> FactUnit {
+    let Some(u) = unit
+        .map(|u| u.trim().to_lowercase())
+        .filter(|u| !u.is_empty())
+    else {
+        return FactUnit::Unitless;
+    };
+    if UNITLESS.contains(&u.as_str()) || u.starts_with("unitless") {
+        return FactUnit::Unitless;
+    }
+    if matches!(u.as_str(), "percent" | "pct" | "percentage") {
+        return FactUnit::Written("%");
+    }
+    let u = u
+        .replace(" per ", "/")
+        .replace("_per_", "/")
+        .replace('_', "/");
+    match unit_at(&u, 0) {
+        Some((symbol, _, _)) if symbol.len() == u.len() => FactUnit::Written(unit_key(symbol)),
+        _ => FactUnit::Unknown,
+    }
+}
+
+/// Whether the figures a sentence states agree with the one fact it cites.
+///
+/// A figure is BOUND to the citation when it reports what the fact measured:
+///
+/// - for a fact with a unit, a figure written in that unit;
+/// - for a fact with no unit whose value is in [-1, 1] (an index, a ratio, a
+///   reflectance), a bare decimal in [-1, 1];
+/// - never a positional figure (see [`Figure::positional`]).
+///
+/// Every bound figure must agree. Until 2026-11-12 the rule passed when ANY
+/// figure agreed, so "about 2 m here and about 5 m at the edge" beside a fact
+/// of 2.13 m was allowed on the strength of the 2.
+///
+/// With no bound figure, the old test stands: at least one figure must agree.
+/// A fact with no unit and a value outside [-1, 1] has nothing to bind by,
+/// so a second figure beside it is still not checked.
+pub(crate) fn figures_agree(figures: &[Figure], value: f64, unit: Option<&str>) -> bool {
+    let bound: Vec<&Figure> = match fact_unit(unit) {
+        FactUnit::Written(u) => figures
+            .iter()
+            .filter(|f| f.unit == Some(u) && !f.positional)
+            .collect(),
+        FactUnit::Unitless if value.abs() <= 1.0 => figures
+            .iter()
+            .filter(|f| f.unit.is_none() && f.decimals > 0 && f.value.abs() <= 1.0 && !f.positional)
+            .collect(),
+        _ => Vec::new(),
+    };
+    if bound.is_empty() {
+        return figures.iter().any(|f| agrees(f.value, f.decimals, value));
+    }
+    bound.iter().all(|f| agrees(f.value, f.decimals, value))
 }
 
 /// Whether prose reporting `stated` to `decimals` places agrees with `actual`.
@@ -1370,6 +1755,56 @@ mod tests {
         // considered checkable at all.
         let both = &claims("Canopy cover in Rondonia fell to 42 % during 2026.")[0];
         assert_eq!(both.anchor, Anchor::Year);
+    }
+
+    /// A unit names a quantity, not a band. The band hint needs the sentence
+    /// to name what the band measures, or it is null.
+    #[test]
+    fn a_band_is_named_only_when_the_sentence_names_what_it_measures() {
+        let band = |s: &str| {
+            let c = claims(s);
+            assert_eq!(c.len(), 1, "must still be a claim: {s}");
+            c[0].source_band
+        };
+        // From a partner's friction log: cloud cover is not tree cover.
+        assert_eq!(
+            band("Cloud cover over Rondonia was 80 % on 2026-11-01."),
+            None
+        );
+        assert_eq!(
+            band("Tree cover in Rondonia was 80 % in 2000."),
+            Some("forest_change.treecover2000")
+        );
+        // A canopy height is not an elevation, and no band here reports it.
+        assert_eq!(
+            band("The canopy in Sumatra reached 31 m on 2026-08-05."),
+            None
+        );
+        assert_eq!(
+            band("Elevation in Leh is 3500 m."),
+            Some("copdem30m.elevation_mean")
+        );
+        assert_eq!(
+            band("Rainfall in Kerala hit 12.4 mm/day on 2026-08-05."),
+            Some("weather.precipitation_mm")
+        );
+        // A word inside another word is not evidence: "street" holds "tree".
+        assert_eq!(band("The street in Pune is 40 % shade in 2026."), None);
+    }
+
+    /// Every band the table names has words that can show it, or the hint
+    /// for that unit could never be given.
+    #[test]
+    fn every_named_band_has_evidence_words() {
+        for u in UNITS {
+            if let Some(b) = u.source_band {
+                assert!(
+                    BAND_EVIDENCE.iter().any(|(e, w)| *e == b && !w.is_empty()),
+                    "{} names {b}, which has no evidence words",
+                    u.symbol
+                );
+            }
+        }
     }
 
     /// Code is where magnitudes live without asserting anything.

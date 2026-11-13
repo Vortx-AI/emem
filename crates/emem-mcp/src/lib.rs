@@ -516,7 +516,7 @@ const OUT_GUARD_VERDICT: &str = r#"{"type":"object","required":["action","adviso
 "citations_verified_here":{"type":"integer","description":"How many of the citations this responder holds and verified."},
 "citations":{"type":"array","description":"Each citation and what it came to here: verified, signature_failed, byte_mismatch, not_held_here (minted elsewhere or nonexistent: resolve it where it was minted before relying on it), or drifted.","items":{"type":"object"}},
 "checked":{"type":"integer","description":"How many were actually resolved, bounded by the verdict budget."},
-"claim":{"type":"object","description":"On CLAIM_UNGROUNDED: the sentence, magnitude, quantity, anchor, and source_band. source_band is a recallable band key, or null when this responder observes no band in that quantity."},
+"claim":{"type":"object","description":"On CLAIM_UNGROUNDED: the sentence, magnitude, quantity, anchor, and source_band. source_band is a recallable band key. It is null when this responder observes no band in that quantity, or when the sentence does not name what the band measures."},
 "receipt":{"type":"object","description":"ed25519 receipt. `fact_cids` lists what actually resolved and is the field that separates a real citation from an invented one."},
 "advisory":{"type":"boolean","description":"True on the hosted route, where nothing is blocked. Run your own node to enforce."}}}"#;
 
