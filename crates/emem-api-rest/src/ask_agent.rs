@@ -1655,6 +1655,19 @@ mod tests {
         assert_eq!(out["observed"]["static_layer"], true);
     }
 
+    /// A dated follow-up continues the thread whatever the embedding router
+    /// says. The keyword pass decides; "ndvi" names a subject and does not.
+    #[test]
+    fn a_dated_follow_up_names_no_topic_in_its_words() {
+        let r = crate::topic_router::TopicRouter::global();
+        let q = "and on 1 February 2023?";
+        assert!(r.keyword_topics(q).is_empty());
+        assert!(is_continuation(q, r.keyword_topics(q).len()));
+        let q = "and what is the NDVI?";
+        assert!(!r.keyword_topics(q).is_empty());
+        assert!(!is_continuation(q, r.keyword_topics(q).len()));
+    }
+
     #[test]
     fn threads_inherit_and_expire_by_id() {
         let id = mint_context_id("q");

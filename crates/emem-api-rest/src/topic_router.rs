@@ -654,6 +654,15 @@ impl TopicRouter {
         out
     }
 
+    /// Topics the question names in its own words: the keyword pass alone,
+    /// with no embedding. The embedding finds a topic for almost any phrase.
+    /// On emem.dev "and on 1 February 2023?" scored 0.63 for `weather_now`
+    /// against a 0.35 threshold, so `route` cannot tell a follow-up that
+    /// names no subject from a new question.
+    pub(crate) fn keyword_topics(&self, question: &str) -> Vec<TopicMatch> {
+        self.keyword_match(question.trim())
+    }
+
     /// Pure substring scoring against `aliases[]` + the topic key.
     /// Builds the alias table on the fly when the active backend is
     /// Transformer mode (where the table isn't pre-cached). Returns

@@ -80381,7 +80381,12 @@ async fn ask_inner_traced(
     // A follow-up that names no subject of its own continues the question
     // before it: "and on 1 February 2023?" asks the same thing on a new date.
     let continuation = prior.as_ref().is_some_and(|_| {
-        ask_agent::is_continuation(&req.q, route_question_to_topics(&req.q).len())
+        ask_agent::is_continuation(
+            &req.q,
+            topic_router::TopicRouter::global()
+                .keyword_topics(&req.q)
+                .len(),
+        )
     });
     let routing_q: String = match (&prior, continuation) {
         (Some(p), true) => p.question.clone(),
