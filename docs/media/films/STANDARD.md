@@ -25,6 +25,16 @@ fails a technical gate is sent back with the report.
   resolves every member and counts again. Cells with no clear reading are not in the set, so the screen states
   the denominator ("of 46 cells with a clear reading"). `emem_derive` cannot do this: its operations that the
   responder recomputes are delta, mean and sum.
+- Over more than 256 cells, cite the rasters instead: the `emem:raster` tokens of one scene over the box, from
+  `POST /v1/band_raster`, with the index, the rule and the statistic. The gate checks each artifact's bytes
+  against its cid, computes the index on the finest grid and counts the pixels again. Do not split a large area
+  into many bundles: each member is a signed read on emem.dev, and thousands of them load the service for
+  everyone. Where no raster is served, the author's tree unit with "count: <author>" stays the citation.
+- A picture from a map provider (a high-resolution base image, a 3D city) is an illustration. While it shows,
+  the screen says "drawing of data" or "map image", and the provider's attribution is on the picture. Its segment
+  in `film.json` names the provider, the product, the licence and the capture date, or "unknown" when the
+  provider does not give one. The provider's terms must permit use in a film. An open orthophoto under a stated
+  licence is better than a commercial layer where one exists. No verdict rests on it.
 - A label that names the picture on screen, such as "Sentinel-2, 30 May 2026, 11:06 UTC", is a claim. A wrong
   date misleads as much as a wrong count. The claim names the catalogue item (`stac_item`) and what the screen
   shows (`shown_utc`), and the gate reads the item's time.
@@ -85,10 +95,15 @@ One folder per film, `docs/media/films/<id>/`:
 - a share or count in `claims` has `text`, `token` (`emem:bundle:`), `rule` (`{band, op, threshold}`, op one of
   `ge`, `gt`, `le`, `lt`), `statistic` (`count`, `share` or `percent`), the `value` shown and, when the screen
   shows it, `total`. Every member must resolve, read the rule's band on one date and carry no erratum;
+- a raster share or count in `claims` has `text`, `rasters` (the `emem:raster:` tokens, one per band), `index`
+  (`value`, `ndvi`, `ndwi`, `mndwi` or `ndsi`), `rule` (`{op, threshold}`), `statistic`, the `value` shown and,
+  when shown, `total`. Indices are computed on harmonised DN, where the reflectance scale cancels; a `value` rule
+  on one band is in harmonised DN (reflectance x 10,000). The check needs the `blake3` module;
 - a conversion in `claims` has `text`, `of` (the index of the claim it converts), `multiply`, `divide`,
   `formula` and the `value` shown;
 - in `film.json` when the film has them: `segments`, each `{start, end, role: "evidence" | "illustration",
-  scenes: [...]}` (an evidence segment names its scenes), and `voice: {synthetic, model, consent, watermark,
+  scenes: [...]}` (an evidence segment names its scenes; an illustration from a map provider adds `source`:
+  `{provider, product, licence, captured}`), and `voice: {synthetic, model, consent, watermark,
   watermark_check_sha256}`.
 
 ## 4. How to run the gate
@@ -122,3 +137,8 @@ count.
 The same day it learnt shares and counts over a bundle. A test over three signed NDSI cells of Victoria Park on
 14 December 2022 passed four true claims (100 %, 2 of 3, 67 % and 0.67) and failed five controls: 66 %, a bundle
 of which only 3 of 6 members resolved, a rule on another band, a wrong total, and an operator outside the four.
+
+It then learnt rasters. Over a 41 x 36 px box of Victoria Park on 14 December 2022 (B03 at 10 m, B11 at 20 m),
+it counted 1,059 of 1,476 pixels at NDSI 0.4 or more, the same as an independent count by other arithmetic. It
+passed three true claims and failed five controls: one pixel more, an index the rasters cannot make, a wrong
+total, a single-band rule over two rasters, and a token that is not a raster.

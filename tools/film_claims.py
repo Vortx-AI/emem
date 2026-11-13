@@ -29,6 +29,12 @@ The half of docs/media/films/STANDARD.md that film_qc.py cannot do offline. For 
                                    every member, applies the rule and recounts. All members must resolve, read the
                                    rule's band on one date, and carry no erratum. `total`, when shown, must equal
                                    the number of members.
+  `rasters` + `index` + `rule`      a share or count over more pixels than a bundle holds (256): the emem:raster
+                                   tokens of one scene over one box, from POST /v1/band_raster. `index` is value
+                                   (one raster), ndvi, ndwi, mndwi or ndsi; `rule` is {op, threshold}. The gate
+                                   fetches each artifact, checks its bytes against the cid (needs the blake3
+                                   module), computes the index on the finest grid by nearest pixel, and counts
+                                   again. The denominator is the pixels where every input has a value.
   a conversion                     "99 football pitches" from "71 hectares": `of` is the index of the claim it
                                    converts, `multiply` and `divide` the factors, `formula` the words. The gate
                                    converts the SIGNED value of that claim, not the rounded one on screen.
@@ -36,7 +42,7 @@ The half of docs/media/films/STANDARD.md that film_qc.py cannot do offline. For 
 Exit 0 when every claim passes, 1 when one fails, 2 on bad input. Reads emem.dev, and the catalogue item a pass
 label names, and nothing else.
 """
-import hashlib, json, re, subprocess, sys, tempfile, urllib.parse, urllib.request
+import base64, hashlib, json, math, re, struct, subprocess, sys, tempfile, urllib.parse, urllib.request
 from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
@@ -46,6 +52,10 @@ TREE_PROOF = Path(__file__).resolve().parent / "verifiers" / "emem-tokenise-file
 FACT = re.compile(r"^emem:fact:[A-Za-z0-9.]+:[a-z2-7]{20,64}$")
 TREE = re.compile(r"^emem:tree:([a-z2-7]{20,64})#row=(\d{1,6})$")
 BUNDLE = re.compile(r"^emem:bundle:[a-z2-7]{20,64}$")
+RASTER = re.compile(r"^emem:raster:[a-z2-7]{20,64}:[A-Za-z0-9._]{1,64}:\d{1,9}:[a-z2-7]{20,64}$")
+# Normalised differences over harmonised DN; the 1e-4 scale cancels in the ratio.
+INDEX_BANDS = {"ndvi": ("s2.B08", "s2.B04"), "ndwi": ("s2.B03", "s2.B08"),
+               "mndwi": ("s2.B03", "s2.B11"), "ndsi": ("s2.B03", "s2.B11")}
 RULE_OPS = {"ge": lambda v, t: v >= t, "gt": lambda v, t: v > t, "le": lambda v, t: v <= t, "lt": lambda v, t: v < t}
 NOTE_PATH = re.compile(r"^/memories/by_attester/[a-z2-7]{8}/[A-Za-z0-9._/-]{1,200}\.md$")
 STAC_HOSTS = ("planetarycomputer.microsoft.com", "earth-search.aws.element84.com")
@@ -170,6 +180,89 @@ def bundle(c):
     return True, f"{hits} of {n} members meet {rule_txt} on one date: {stat} {got:.6g}"
 
 
+def raster_grid(token):
+    """One resolved raster: (band, aoi_cid, scene id, x0, y0, dx, dy, width, height, values)."""
+    r = json.loads(get(f"{EMEM}/v1/raster/resolve", {"token": token}))
+    art = r.get("artifact") or {}
+    if not art.get("present") or not art.get("url"):
+        raise ValueError(f"the artifact is evicted: {art.get('if_evicted', 'POST /v1/band_raster again with the same request')}")
+    try:
+        import blake3
+    except ImportError:
+        raise ValueError("a raster claim needs the blake3 module (pip install blake3): without it the bytes are not tied to their cid")
+    b = get(f"{EMEM}{art['url']}")
+    cid = base64.b32encode(blake3.blake3(b).digest()).decode().lower().rstrip("=")
+    if cid != art.get("artifact_cid"):
+        raise ValueError(f"the artifact bytes hash to {cid}, and the signed record names {art.get('artifact_cid')}")
+    if len(b) < 64 or b[:8] != b"EMEMGRD1":
+        raise ValueError("the artifact is not an emem grid")
+    w, h, _epsg, _nodata = struct.unpack_from("<IIII", b, 8)
+    y0, x0, dy, dx = struct.unpack_from("<dddd", b, 24)
+    (channels,) = struct.unpack_from("<I", b, 56)
+    if channels > 1 or len(b) != 64 + 4 * w * h:
+        raise ValueError("a raster claim reads a grid of one scalar channel")
+    src = ((r.get("derivation") or {}).get("sources") or [{}])[0]
+    return (r.get("band"), r.get("aoi_cid"), src.get("id"), x0, y0, dx, dy, w, h, struct.unpack_from(f"<{w * h}f", b, 64))
+
+
+def raster(c):
+    toks, index, rule, stat = c.get("rasters") or [], c.get("index"), c.get("rule") or {}, c.get("statistic")
+    op, thr = rule.get("op"), num(rule.get("threshold"))
+    if not toks or not all(RASTER.match(str(t)) for t in toks):
+        return False, "a raster claim needs `rasters`, a list of emem:raster tokens"
+    if index != "value" and index not in INDEX_BANDS:
+        return False, f"`index` must be value or one of {', '.join(INDEX_BANDS)}"
+    if op not in RULE_OPS or thr is None or stat not in ("count", "share", "percent") or "value" not in c:
+        return False, "a raster claim needs `rule` {op: ge|gt|le|lt, threshold}, `statistic` count|share|percent and `value`"
+    grids = {}
+    for t in toks:
+        g = raster_grid(t)
+        grids[g[0]] = g
+    need = (next(iter(grids)),) if index == "value" else INDEX_BANDS[index]
+    if index == "value" and len(grids) != 1:
+        return False, "index value reads exactly one raster"
+    if set(need) != set(grids):
+        return False, f"index {index} reads {', '.join(need)}; the rasters are {', '.join(sorted(map(str, grids)))}"
+    if len({g[1] for g in grids.values()}) != 1 or len({g[2] for g in grids.values()}) != 1 or None in {g[2] for g in grids.values()}:
+        return False, "the rasters must cover one box (aoi_cid) from one scene"
+    fine = min(grids.values(), key=lambda g: abs(g[5]))
+    _, _, scene, fx0, fy0, fdx, fdy, fw, fh, _ = fine
+
+    def at(g, x, y):
+        col, row = math.floor((x - g[3]) / g[5] + 0.5), math.floor((y - g[4]) / g[6] + 0.5)
+        if 0 <= col < g[7] and 0 <= row < g[8]:
+            v = g[9][row * g[7] + col]
+            return v if math.isfinite(v) else None
+        return None
+
+    valid = hits = 0
+    thr_f = float(thr)
+    for row in range(fh):
+        for col in range(fw):
+            x, y = fx0 + col * fdx, fy0 + row * fdy
+            vs = [at(grids[band], x, y) for band in need]
+            if any(v is None for v in vs):
+                continue
+            if index == "value":
+                v = vs[0]
+            else:
+                a, b = vs
+                if a + b == 0:
+                    continue
+                v = (a - b) / (a + b)
+            valid += 1
+            hits += RULE_OPS[op](v, thr_f)
+    if valid == 0:
+        return False, "no pixel has a value in every input"
+    got = {"count": Decimal(hits), "share": Decimal(hits) / valid, "percent": Decimal(100 * hits) / valid}[stat]
+    if "total" in c and num(c["total"]) != valid:
+        return False, f"shown total {c['total']!r}, and {valid} pixels have a value in every input"
+    what = f"{index} {op} {rule.get('threshold')} on {fw}x{fh} px of {scene}"
+    if not same(c["value"], got):
+        return False, f"shown {c['value']!r}; {hits} of {valid} pixels meet {what}, so the {stat} is {got:.6g}"
+    return True, f"{hits} of {valid} pixels meet {what}: {stat} {got:.6g}"
+
+
 def label(c, meta):
     url = str(c.get("stac_item", ""))
     u = urllib.parse.urlparse(url)
@@ -239,6 +332,8 @@ def main():
         try:
             if "of" in c:
                 ok, why = convert(c, i, claims, signed)
+            elif c.get("rasters"):
+                ok, why = raster(c)
             elif c.get("stac_item") or c.get("shown_utc"):
                 ok, why = label(c, meta)
             elif not tok and c.get("reproduce") and c.get("output_sha256"):
@@ -261,7 +356,8 @@ def main():
         except Exception as e:  # noqa: BLE001
             ok, why = False, f"{type(e).__name__}: {str(e)[:160]}"
         bad += not ok
-        results[i] = f"{'pass' if ok else 'FAIL'}  {i:>2} {c.get('text', '')[:46]!r:50} {(tok or c.get('stac_item', ''))[:72]}  {why}"
+        cited = tok or c.get("stac_item") or ",".join(str(t).split(":")[3] for t in c.get("rasters") or [])
+        results[i] = f"{'pass' if ok else 'FAIL'}  {i:>2} {c.get('text', '')[:46]!r:50} {cited[:72]}  {why}"
     for i in range(len(claims)):
         print(results[i])
     print(f"{len(claims) - bad} of {len(claims)} claims pass")
