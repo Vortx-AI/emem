@@ -30,11 +30,24 @@ fails a technical gate is sent back with the report.
   against its cid, computes the index on the finest grid and counts the pixels again. Do not split a large area
   into many bundles: each member is a signed read on emem.dev, and thousands of them load the service for
   everyone. Where no raster is served, the author's tree unit with "count: <author>" stays the citation.
+- A count can require several rules at once, and its denominator can be a mask from another pass over the same
+  box: ice on a January pass inside the water of a June pass. The screen says the rule, not a word the rule does
+  not measure. NDSI of 0.4 or more with a bright near-infrared band is the usual snow test (open water is dark
+  in near-infrared, most cloud is bright in short-wave infrared), and it reads "snow or ice". "Frozen" is a
+  reading of it, said in the voice as one, and it stays out of the stamp line.
+- A verdict that rests on no pass, such as "no optical pass for 98 days", is a claim. emem's dated read says
+  "nothing is signed for" a day, and that does not say the satellite did not pass: over Santa Claus Village it
+  passed on 1, 5 and 8 November 2024 under 98 to 100 % cloud. The claim names the passes on each side and the
+  gate searches both public catalogues for any pass between them.
 - A picture from a map provider (a high-resolution base image, a 3D city) is an illustration. While it shows,
   the screen says "drawing of data" or "map image", and the provider's attribution is on the picture. Its segment
   in `film.json` names the provider, the product, the licence and the capture date, or "unknown" when the
   provider does not give one. The provider's terms must permit use in a film. An open orthophoto under a stated
   licence is better than a commercial layer where one exists. No verdict rests on it.
+- Footage from a stock site is an illustration too. Its segment's `source` names the site, the contributor, the
+  licence, the page and the date the page gives (`posted`). The screen says "posted", not "filmed", unless the
+  page states when it was filmed. The date is a label, not a checked claim: the gate cannot read a page that
+  changes or refuses a script. When the film asks about that day, the question says "the day it was posted".
 - A label that names the picture on screen, such as "Sentinel-2, 30 May 2026, 11:06 UTC", is a claim. A wrong
   date misleads as much as a wrong count. The claim names the catalogue item (`stac_item`) and what the screen
   shows (`shown_utc`), and the gate reads the item's time.
@@ -99,6 +112,11 @@ One folder per film, `docs/media/films/<id>/`:
   (`value`, `ndvi`, `ndwi`, `mndwi` or `ndsi`), `rule` (`{op, threshold}`), `statistic`, the `value` shown and,
   when shown, `total`. Indices are computed on harmonised DN, where the reflectance scale cancels; a `value` rule
   on one band is in harmonised DN (reflectance x 10,000). The check needs the `blake3` module;
+- a count with several rules has `rules`, a list of `{index, op, threshold}` (a `value` rule adds `band`), in place
+  of `index` and `rule`. A mask adds `mask`: `{rasters, index, rule}` or `{rasters, rules}`, from one scene over
+  the same box. The rules must read exactly the rasters given;
+- an absence in `claims` has `text`, `absence` (`{collection, lng, lat, after, before}`, the days of the passes on
+  each side, and `max_cloud` for "no clear pass") and, when the screen shows the gap in days, `value`;
 - a conversion in `claims` has `text`, `of` (the index of the claim it converts), `multiply`, `divide`,
   `formula` and the `value` shown;
 - in `film.json` when the film has them: `segments`, each `{start, end, role: "evidence" | "illustration",
@@ -142,3 +160,11 @@ It then learnt rasters. Over a 41 x 36 px box of Victoria Park on 14 December 20
 it counted 1,059 of 1,476 pixels at NDSI 0.4 or more, the same as an independent count by other arithmetic. It
 passed three true claims and failed five controls: one pixel more, an index the rasters cannot make, a wrong
 total, a single-band rule over two rasters, and a token that is not a raster.
+
+Later on 13 November it learnt rules, masks and absences. Over the same box, with B08 of the same December pass
+and B03 and B08 of a June pass from another tile, it counted 771 of 1,476 pixels at NDSI 0.4 or more with B08
+over 4000, and 292 of the 448 pixels a June NDWI under -0.4 selects, the same as an independent count. Over
+Santa Claus Village it passed "no pass for 87 days" (8 November 2024 to 3 February 2025) and "no pass under 50 %
+cloud for 95 days" (31 October to 3 February). It failed nine controls, among them the 98 days of a draft film
+(seven passes between), a gap to 6 February that missed a clear 3 February pass only one catalogue lists, a
+bracket day with no pass, one pixel more, and a mask whose rule needs a band it does not have.

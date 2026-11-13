@@ -35,14 +35,28 @@ The half of docs/media/films/STANDARD.md that film_qc.py cannot do offline. For 
                                    fetches each artifact, checks its bytes against the cid (needs the blake3
                                    module), computes the index on the finest grid by nearest pixel, and counts
                                    again. The denominator is the pixels where every input has a value.
+    or `rules`                     several rules that must all hold, such as snow: [{index: ndsi, op: ge,
+                                   threshold: 0.4}, {index: value, band: s2.B08, op: gt, threshold: 1100}]. A
+                                   value rule names its band. The rules must read exactly the rasters given.
+    + `mask`                       the denominator is the pixels inside a mask: {rasters, index + rule or
+                                   rules} from one scene, which may be another date, over the same box. A sea
+                                   mask from a June pass and a count of ice on a January pass is one claim.
+  `absence`                        no pass between two passes, such as "no clear optical pass for 95 days":
+                                   {collection, lng, lat, after, before, max_cloud?}, `after` and `before` the
+                                   days (YYYY-MM-DD) of the passes on each side. The gate searches both public
+                                   catalogues: neither may hold a pass (under max_cloud % cloud, when given)
+                                   strictly between, and one must hold a pass on each of the two days. `value`,
+                                   when shown, is the gap, before minus after, in days. A record that has no
+                                   reading for a day does not show that no satellite passed.
   a conversion                     "99 football pitches" from "71 hectares": `of` is the index of the claim it
                                    converts, `multiply` and `divide` the factors, `formula` the words. The gate
                                    converts the SIGNED value of that claim, not the rounded one on screen.
 
-Exit 0 when every claim passes, 1 when one fails, 2 on bad input. Reads emem.dev, and the catalogue item a pass
-label names, and nothing else.
+Exit 0 when every claim passes, 1 when one fails, 2 on bad input. Reads emem.dev, the catalogue item a pass
+label names and, for an absence, the search of the two catalogues, and nothing else.
 """
 import base64, hashlib, json, math, re, struct, subprocess, sys, tempfile, urllib.parse, urllib.request
+from datetime import date, timedelta
 from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
@@ -205,62 +219,168 @@ def raster_grid(token):
     return (r.get("band"), r.get("aoi_cid"), src.get("id"), x0, y0, dx, dy, w, h, struct.unpack_from(f"<{w * h}f", b, 64))
 
 
-def raster(c):
-    toks, index, rule, stat = c.get("rasters") or [], c.get("index"), c.get("rule") or {}, c.get("statistic")
-    op, thr = rule.get("op"), num(rule.get("threshold"))
-    if not toks or not all(RASTER.match(str(t)) for t in toks):
-        return False, "a raster claim needs `rasters`, a list of emem:raster tokens"
-    if index != "value" and index not in INDEX_BANDS:
-        return False, f"`index` must be value or one of {', '.join(INDEX_BANDS)}"
-    if op not in RULE_OPS or thr is None or stat not in ("count", "share", "percent") or "value" not in c:
-        return False, "a raster claim needs `rule` {op: ge|gt|le|lt, threshold}, `statistic` count|share|percent and `value`"
+def conditions(spec):
+    """[(index, band, op, threshold, shown)] from `rules`, or from one `index` and `rule`. A `value` rule names
+    its `band`, except the single rule over a single raster that predates `rules`."""
+    single = spec.get("rules") is None
+    raw = [dict(spec.get("rule") or {}, index=spec.get("index"))] if single else spec["rules"]
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("`rules` must be a list of {index, op, threshold}, with `band` when index is value")
+    out = []
+    for r in raw:
+        index, op, thr, band = r.get("index"), r.get("op"), num(r.get("threshold")), r.get("band")
+        if index != "value" and index not in INDEX_BANDS:
+            raise ValueError(f"`index` must be value or one of {', '.join(INDEX_BANDS)}")
+        if op not in RULE_OPS or thr is None or not thr.is_finite():
+            raise ValueError("a rule needs {op: ge|gt|le|lt, threshold}")
+        if index == "value" and not band and not (single and len(spec.get("rasters") or []) == 1):
+            raise ValueError("a rule on index value names its `band`")
+        out.append((index, band, op, float(thr), r.get("threshold")))
+    return out
+
+
+def grids_of(tokens, what):
+    """The rasters of one scene over one box, by band."""
+    if not tokens or not all(RASTER.match(str(t)) for t in tokens):
+        raise ValueError(f"{what} needs `rasters`, a list of emem:raster tokens")
     grids = {}
-    for t in toks:
+    for t in tokens:
         g = raster_grid(t)
+        if g[0] in grids:
+            raise ValueError(f"{what} has two rasters of {g[0]}")
         grids[g[0]] = g
-    need = (next(iter(grids)),) if index == "value" else INDEX_BANDS[index]
-    if index == "value" and len(grids) != 1:
-        return False, "index value reads exactly one raster"
-    if set(need) != set(grids):
-        return False, f"index {index} reads {', '.join(need)}; the rasters are {', '.join(sorted(map(str, grids)))}"
-    if len({g[1] for g in grids.values()}) != 1 or len({g[2] for g in grids.values()}) != 1 or None in {g[2] for g in grids.values()}:
-        return False, "the rasters must cover one box (aoi_cid) from one scene"
+    if len({g[1] for g in grids.values()}) != 1 or len({g[2] for g in grids.values()}) != 1 \
+            or None in {g[2] for g in grids.values()}:
+        raise ValueError(f"the rasters of {what} must cover one box (aoi_cid) from one scene")
+    return grids
+
+
+def at(g, x, y):
+    col, row = math.floor((x - g[3]) / g[5] + 0.5), math.floor((y - g[4]) / g[6] + 0.5)
+    if 0 <= col < g[7] and 0 <= row < g[8]:
+        v = g[9][row * g[7] + col]
+        return v if math.isfinite(v) else None
+    return None
+
+
+def holds(conds, grids, x, y):
+    """True or False when every input of every rule has a value here, else None (not in the denominator)."""
+    ok = True
+    for index, band, op, thr, _ in conds:
+        if index == "value":
+            v = at(grids[band], x, y)
+            if v is None:
+                return None
+        else:
+            a, b = (at(grids[k], x, y) for k in INDEX_BANDS[index])
+            if a is None or b is None or a + b == 0:
+                return None
+            v = (a - b) / (a + b)
+        ok = RULE_OPS[op](v, thr) and ok
+    return ok
+
+
+def bound(conds, grids, what):
+    """Name the single raster of a legacy `value` rule, and check the rules read exactly the rasters given."""
+    if len(conds) == 1 and conds[0][0] == "value" and not conds[0][1]:
+        conds[0] = ("value", next(iter(grids))) + conds[0][2:]
+    need = {b for i, band, *_ in conds for b in ((band,) if i == "value" else INDEX_BANDS[i])}
+    if need != set(grids):
+        raise ValueError(f"the rules of {what} read {', '.join(sorted(need))}; its rasters are "
+                         f"{', '.join(sorted(map(str, grids)))}")
+    return " and ".join(f"{i}{'(' + b + ')' if i == 'value' else ''} {op} {shown}" for i, b, op, _, shown in conds)
+
+
+def raster(c):
+    stat = c.get("statistic")
+    if stat not in ("count", "share", "percent") or "value" not in c:
+        return False, "a raster claim needs `statistic` count|share|percent and `value`"
+    try:
+        conds = conditions(c)
+        grids = grids_of(c.get("rasters"), "the claim")
+        rules_txt = bound(conds, grids, "the claim")
+        mask = c.get("mask")
+        if mask is not None:
+            mconds = conditions(mask)
+            mgrids = grids_of(mask.get("rasters"), "the mask")
+            mask_txt = bound(mconds, mgrids, "the mask")
+            if {g[1] for g in mgrids.values()} != {g[1] for g in grids.values()}:
+                raise ValueError("the mask must cover the same box (aoi_cid) as the claim")
+    except ValueError as e:
+        return False, str(e)
     fine = min(grids.values(), key=lambda g: abs(g[5]))
     _, _, scene, fx0, fy0, fdx, fdy, fw, fh, _ = fine
-
-    def at(g, x, y):
-        col, row = math.floor((x - g[3]) / g[5] + 0.5), math.floor((y - g[4]) / g[6] + 0.5)
-        if 0 <= col < g[7] and 0 <= row < g[8]:
-            v = g[9][row * g[7] + col]
-            return v if math.isfinite(v) else None
-        return None
-
     valid = hits = 0
-    thr_f = float(thr)
     for row in range(fh):
         for col in range(fw):
             x, y = fx0 + col * fdx, fy0 + row * fdy
-            vs = [at(grids[band], x, y) for band in need]
-            if any(v is None for v in vs):
+            if mask is not None and not holds(mconds, mgrids, x, y):
                 continue
-            if index == "value":
-                v = vs[0]
-            else:
-                a, b = vs
-                if a + b == 0:
-                    continue
-                v = (a - b) / (a + b)
+            h = holds(conds, grids, x, y)
+            if h is None:
+                continue
             valid += 1
-            hits += RULE_OPS[op](v, thr_f)
+            hits += h
     if valid == 0:
-        return False, "no pixel has a value in every input"
+        return False, "no pixel has a value in every input" + (" inside the mask" if mask is not None else "")
     got = {"count": Decimal(hits), "share": Decimal(hits) / valid, "percent": Decimal(100 * hits) / valid}[stat]
+    where = f" inside {mask_txt} of {next(iter(mgrids.values()))[2]}" if mask is not None else ""
     if "total" in c and num(c["total"]) != valid:
-        return False, f"shown total {c['total']!r}, and {valid} pixels have a value in every input"
-    what = f"{index} {op} {rule.get('threshold')} on {fw}x{fh} px of {scene}"
+        return False, f"shown total {c['total']!r}, and {valid} pixels have a value in every input{where}"
+    what = f"{rules_txt} on {fw}x{fh} px of {scene}{where}"
     if not same(c["value"], got):
         return False, f"shown {c['value']!r}; {hits} of {valid} pixels meet {what}, so the {stat} is {got:.6g}"
     return True, f"{hits} of {valid} pixels meet {what}: {stat} {got:.6g}"
+
+
+STAC_SEARCH = ("https://planetarycomputer.microsoft.com/api/stac/v1/search",
+               "https://earth-search.aws.element84.com/v1/search")
+DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def absence(c):
+    """No pass between two passes, in either public catalogue. A record that holds no reading for a day does
+    not say whether the satellite passed: emem's dated recall says "nothing is signed for" a day that had three
+    passes under cloud. So the gap is checked against the catalogues, not against emem."""
+    a = c.get("absence") or {}
+    coll, lng, lat, cloud = a.get("collection"), a.get("lng"), a.get("lat"), a.get("max_cloud")
+    if not coll or not isinstance(lng, (int, float)) or not isinstance(lat, (int, float)) \
+            or not DAY.match(str(a.get("after", ""))) or not DAY.match(str(a.get("before", ""))):
+        return False, ("an absence claim needs `absence` {collection, lng, lat, after, before}, the two dates "
+                       "YYYY-MM-DD of the passes on each side, and optionally max_cloud")
+    if cloud is not None and (not isinstance(cloud, (int, float)) or not 0 < cloud <= 100):
+        return False, "`max_cloud` is a percent above 0 and at most 100"
+    d0, d1 = date.fromisoformat(a["after"]), date.fromisoformat(a["before"])
+    if (d1 - d0).days < 2:
+        return False, "`before` must be at least two days after `after`, or there is no gap between them"
+
+    def passes(first, last):
+        out = []
+        for url in STAC_SEARCH:
+            body = {"collections": [coll], "intersects": {"type": "Point", "coordinates": [lng, lat]},
+                    "datetime": f"{first.isoformat()}T00:00:00Z/{last.isoformat()}T23:59:59Z", "limit": 100}
+            if cloud is not None:
+                body["query"] = {"eo:cloud_cover": {"lt": cloud}}
+            for f in json.loads(get(url, body)).get("features") or []:
+                out.append((urllib.parse.urlparse(url).hostname.split(".")[0], f.get("id"),
+                            str((f.get("properties") or {}).get("datetime"))[:16]))
+        return out
+    under = f" under {cloud} % cloud" if cloud is not None else ""
+    kind = f"{coll} pass{under}"
+    inside = sorted(passes(d0 + timedelta(days=1), d1 - timedelta(days=1)), key=lambda p: p[2])
+    if inside:
+        return False, (f"{len(inside)} {coll} {'pass' if len(inside) == 1 else 'passes'}{under} between them, "
+                       f"first {inside[0][2]} ({inside[0][0]}: {inside[0][1]})")
+    ends = []
+    for d in (d0, d1):
+        on = passes(d, d)
+        if not on:
+            return False, f"no {kind} on {d} in either catalogue; `after` and `before` are the passes on each side"
+        ends.append(f"{d} ({on[0][0]}: {on[0][1]})")
+    gap = (d1 - d0).days
+    if "value" in c and not same(c["value"], gap):
+        return False, f"shown {c['value']!r}; from {d0} to {d1} is {gap} days"
+    return True, f"no {kind} in either catalogue between {ends[0]} and {ends[1]}: a gap of {gap} days"
 
 
 def label(c, meta):
@@ -334,6 +454,8 @@ def main():
                 ok, why = convert(c, i, claims, signed)
             elif c.get("rasters"):
                 ok, why = raster(c)
+            elif c.get("absence"):
+                ok, why = absence(c)
             elif c.get("stac_item") or c.get("shown_utc"):
                 ok, why = label(c, meta)
             elif not tok and c.get("reproduce") and c.get("output_sha256"):
@@ -352,11 +474,12 @@ def main():
                 if ok and val and val[0] is not None:
                     signed[i] = val[0]
             else:
-                ok, why = False, "not an emem:fact, emem:tree#row or emem:bundle token, a pass label or a conversion"
+                ok, why = False, "not an emem:fact, emem:tree#row or emem:bundle token, rasters, an absence, a pass label or a conversion"
         except Exception as e:  # noqa: BLE001
             ok, why = False, f"{type(e).__name__}: {str(e)[:160]}"
         bad += not ok
-        cited = tok or c.get("stac_item") or ",".join(str(t).split(":")[3] for t in c.get("rasters") or [])
+        cited = (tok or c.get("stac_item") or ",".join(str(t).split(":")[3] for t in c.get("rasters") or [])
+                 or (f"absence {c['absence'].get('after')}..{c['absence'].get('before')}" if isinstance(c.get("absence"), dict) else ""))
         results[i] = f"{'pass' if ok else 'FAIL'}  {i:>2} {c.get('text', '')[:46]!r:50} {cited[:72]}  {why}"
     for i in range(len(claims)):
         print(results[i])
