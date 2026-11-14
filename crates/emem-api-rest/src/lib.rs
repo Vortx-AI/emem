@@ -37119,7 +37119,7 @@ fn openapi_spec() -> JsonValue {
                     "cell_matches":{"type":"boolean","description":"Whether the cell the token asserted was CHECKED against the signed fact's own cell, and agreed. `false` means NOT CHECKED, never checked-and-mismatched: a token whose cell contradicts the fact is refused with 409 before this response exists. The only route to a 200 with `false` is a degraded resolve, where a bare or recovered cid asserted no cell to compare and `cell` below is adopted from the signed body. Gate provenance on this field and you get the address check; read `degraded` for whether the citation itself was well-formed."},
                     "fact_url":{"type":"string","format":"uri","description":"Stable URL serving bytes identical to `fact`."},
                     "signer_b32":{"$ref":"#/components/schemas/PubKey"},
-                    "provenance":{"type":"object","description":"Tamper-provenance, attached by THIS responder from its own registry at resolve time rather than carried in the token. For a primary fact it describes the band (`class`, `deterministic`, `tamper_evidence`, `trust_rank`); for a derivative it describes the derivation, and `responder_recomputed` is the field that separates what this responder verified from what the attester merely declared. A band with no family in this responder's manifest has `class: unclassified`, with an `upstream` note where the kind of source is known."},
+                    "provenance":{"type":"object","description":"Tamper-provenance, attached by THIS responder from its own registry at resolve time rather than carried in the token. For a primary fact it describes the band (`class`, `deterministic`, `tamper_evidence`, `trust_rank`); for a derivative it describes the derivation, and `responder_recomputed` is the field that separates what this responder verified from what the attester merely declared. A derivation this responder signed itself (an area series, a persistence chain, a loss-year histogram) has `computed_by_responder: true` and the class of its function. A band with no family in this responder's manifest has `class: unclassified`, with an `upstream` note where the kind of source is known."},
                     "estimand":{"type":"object","description":"What the value estimates, attached by this responder outside the signed body (schema emem.estimand.v1): `support` (the footprint one value covers, in metres along a meridian, with the source's grid), `statistic` (pixel_value, pixel_class, index_of_pixel_values, model_value, model_hour_sum, thickness_weighted_mean), `valid_time` (the period the value describes) and `captured_at_is` (what the source's captured_at means: sensing_time, model_hour, release_date or edition_date). Absent when none is declared for the fact's source."},
                     "receipt":{"$ref":"#/components/schemas/Receipt"},
                     "offline_verify_at":{"type":"string","description":"Where to re-check the receipt without trusting this responder."},
@@ -42239,18 +42239,43 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
             .and_then(|v| v.as_str())
             .unwrap_or("unclassified")
             .to_string();
-        provenance = json!({
-            "class": if verified { "deterministic_index" } else { declared.as_str() },
-            "declared_by_attester": declared,
-            "responder_recomputed": verified,
-            "band_class": band_class,
-            "applies_to": "derivation",
-            "note": if verified {
-                "This responder re-ran the derivation over the cited parents and reproduced the value. `class` is what the responder verified, not what the attester claimed."
-            } else {
-                "This responder did NOT re-run this derivation, so `class` is only what the attester declared. `band_class` describes how values in this band are normally produced and says nothing about this caller's arithmetic. Recomputation requires a pinned `code_cid` and a tier-1 pure op (delta, mean, sum)."
-            },
-        });
+        // A derivation signed with this responder's own key (an area series, a
+        // persistence chain, a loss-year histogram) was computed here, from the
+        // inputs its record pins. It read as a stranger's `model_output` that
+        // "this responder did NOT re-run": the opposite of what happened.
+        let own = d.signer.0 == s.identity.pubkey.0;
+        provenance = if own {
+            let class = match d.derivation.fn_key.as_str() {
+                "s2_index_series@1"
+                | "landsat_index_series@1"
+                | "s1_rtc_series@1"
+                | "lossyear_histogram@1" => "deterministic_index",
+                "persistence_snow@1" => "estimator",
+                _ => "unclassified",
+            };
+            json!({
+                "class": class,
+                "computed_by_responder": true,
+                "declared_by_attester": declared,
+                "responder_recomputed": false,
+                "band_class": band_class,
+                "applies_to": "derivation",
+                "note": "This responder computed this record itself under `fn_key`, from the inputs the record pins (scene ids and assets, or upstream bytes by content id). It did not compute it again when it was read: ask again with the same arguments, or recompute it from those inputs. `class` follows from the function, not from a declaration.",
+            })
+        } else {
+            json!({
+                "class": if verified { "deterministic_index" } else { declared.as_str() },
+                "declared_by_attester": declared,
+                "responder_recomputed": verified,
+                "band_class": band_class,
+                "applies_to": "derivation",
+                "note": if verified {
+                    "This responder re-ran the derivation over the cited parents and reproduced the value. `class` is what the responder verified, not what the attester claimed."
+                } else {
+                    "This responder did NOT re-run this derivation, so `class` is only what the attester declared. `band_class` describes how values in this band are normally produced and says nothing about this caller's arithmetic. Recomputation requires a pinned `code_cid` and a tier-1 pure op (delta, mean, sum)."
+                },
+            })
+        };
     }
 
     let mut fact_json = serde_json::to_value(&fact).unwrap_or(json!({}));
@@ -110372,6 +110397,57 @@ mod tests {
             other.derivations.is_empty(),
             "one attester's derivations must not appear under another's key"
         );
+    }
+
+    /// A series this responder computed and signed itself resolves as its
+    /// own work, with the class its function has, and not as a stranger's
+    /// `model_output` that the responder "did NOT re-run".
+    #[tokio::test]
+    async fn a_series_the_responder_signed_reads_as_its_own_computation() {
+        let s = test_app_state();
+        let cell = "defi.zb6f5.fuqO.xAsA";
+        let signed_at = "2026-11-14T07:33:48Z".to_string();
+        let fact = emem_fact::Fact::Derivative(emem_fact::DerivativeFact {
+            cell: cell.into(),
+            band: "field.series".into(),
+            tslot_window: [19972, 20259],
+            op: "index_series".into(),
+            parents: vec![],
+            value: ciborium::Value::Map(vec![(
+                ciborium::Value::Text("index".into()),
+                ciborium::Value::Text("ndsi".into()),
+            )]),
+            confidence: 1.0,
+            derivation: emem_fact::Derivation {
+                fn_key: "s2_index_series@1".into(),
+                args: None,
+            },
+            schema_cid: s.manifests.schema_cid.clone(),
+            signer: s.identity.pubkey,
+            signed_at: signed_at.clone(),
+        });
+        let att = emem_fact::Attestation::build_and_sign_v1(
+            vec![fact],
+            vec![],
+            s.manifests.registry_cid.clone(),
+            s.manifests.schema_cid.clone(),
+            &s.identity.signing,
+            s.identity.epoch,
+            signed_at,
+            None,
+        )
+        .expect("sign");
+        let cids = s.storage.put_attestation(&att).await.expect("store");
+        let r = resolve_one_token(&s, &format!("emem:fact:{cell}:{}", cids[0].as_str()))
+            .await
+            .expect("resolve");
+        assert_eq!(r.provenance["computed_by_responder"], json!(true));
+        assert_eq!(r.provenance["class"], json!("deterministic_index"));
+        assert_eq!(r.provenance["responder_recomputed"], json!(false));
+        assert!(!r.provenance["note"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("did NOT re-run"));
     }
 
     /// A token resolves with what its value estimates, beside the signed
