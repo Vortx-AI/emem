@@ -21,13 +21,154 @@ The schema does not set `additionalProperties`, so these extra fields pass valid
 The schema enum for the visual `verdict` also lacks one value (see
 [Verdict thresholds](#verdict-thresholds)).
 
-## Per-cell verdict
+## How a plot is read
 
-The endpoint samples each plot at one or more cell64s.
+The request field `method` chooses how the endpoint reads a plot.
+
+| `method` | What it reads | What it signs |
+|---|---|---|
+| `raster` (default) | Every 10 m JRC GFC2020 pixel the polygon or `bbox` covers, with the part of each that it covers | One fact for the plot |
+| `sampled` | Cells sampled inside the plot, about 110 for each hectare of its bounding box | One fact for each cell and band, and one loss-year histogram |
+
+A GeoJSON Point plot is read at its one pixel by either method: one JRC pixel and one Hansen pixel.
+Its `method_note` says so. Send the plot as a polygon to read all of it.
+The sampled method stays for one release.
+Each plot says which method ran in `method`.
+When the raster method cannot read a plot, the endpoint samples it and `method_note` says why:
+the JRC GFC2020 tile under the plot cannot be opened or read, or the polygon covers no pixel.
+
+The sampled method is thin on a large plot.
+It caps a plot at 51,200 cells, so above about 465 ha of bounding box its cells are more than 10 m apart.
+On a long, narrow plot it also samples one axis more thinly than the other.
+The raster method has no cap: it reads every 10 m pixel of a plot of any size.
+
+Both methods apply one per-cell rule, `eudr_verdict_for` in `crates/emem-api-rest/src/lib.rs`.
+The forest rule in that function is in [The forest rule](#the-forest-rule).
+
+### The raster method
+
+The raster method reads four sources, each as a window over the plot's bounding box:
+
+| Source | Band | Grid |
+|---|---|---|
+| JRC GFC2020, version in `forest_baseline_dataset` | `jrc_gfc2020.forest_2020` (`1` = forest) | 1/12,000 degree, about 9.3 m |
+| Hansen GFC v1.13 | `forest_change.treecover2000` (% canopy in 2000) | 0.00025 degree, about 28 m |
+| Hansen GFC v1.13 | `forest_change.lossyear` (calendar year, `0` = no loss) | 0.00025 degree, about 28 m |
+| JRC TMF v1.2025 | `jrc_tmf.deforestation_year` (`0` = none) | 0.00025 degree, about 28 m |
+
+Each source is read at full resolution: the first image of the TIFF, never an overview.
+The fact gives each window's pixel size in metres as `native_m`.
+The four reads of a plot run at the same time.
+A plot across a 10° tile line reads each tile it touches.
+TMF is read from its range-served copy on source.coop first.
+If that read fails inside the tropical belt, the endpoint reads the JRC tile from the JRC download service, within the materializer timeout.
+
+A request is read by consignment, not plot by plot.
+Plots that fit in one chunk (2,048 JRC pixels a side, about 19 km) are grouped while the group's bounding box also fits in one chunk.
+Each group reads each source once, and each plot counts its pixels in its own part of those windows.
+Thus 50 farms of one cooperative cost 4 reads, not 200.
+Each plot still gets its own windows, cut from the group's, and its own fact.
+A larger plot is read and counted chunk by chunk, so the memory one plot holds stays bounded.
+Each chunk counts the pixels whose centre it owns (`owns` in the fact), so no pixel counts twice.
+A window wider or taller than 1,024 pixels is read in blocks of 1,024 by 1,024.
+The responder keeps recent windows in memory, so a repeat of a plot reads nothing upstream.
+
+The grid is the JRC GFC2020 grid.
+Each pixel counts with the fraction of it that lies inside the polygon (the outer ring less the holes).
+The fraction is computed exactly in degree space, so an edge pixel counts with the part the farm covers.
+A pixel covered by 1e-9 or less is left out.
+A pixel's area is the fraction times its geodesic area on the WGS84 ellipsoid, from the latitude band of its row.
+The fact states this as `area_method: "coverage_fraction_geodesic"`.
+Thus `failing_area_ha` is a sum of covered areas, not a projection, and `sampled_polygon_fraction` is 1.
+A 0.5 ha decision does not turn on where a pixel centre falls.
+
+Each 10 m pixel takes the Hansen and TMF values of the 30 m pixel that contains its centre.
+No value is resampled or interpolated.
+Each pixel then gets a verdict from the per-cell rule, as a sampled cell does.
+On the raster method, loss after the cut-off is a Hansen loss year or a JRC TMF deforestation year after the cut-off year.
+TMF votes. RADD is not read.
+`loss_seen_by` splits the failing and the review area by the source that saw the loss: Hansen only, TMF only, or both.
+Hansen and TMF map loss on a 30 m grid.
+A loss area is the 10 m pixels, by covered fraction, that fall in a 30 m loss pixel.
+So `failing_area_ha` and `review_area_ha` carry the 30 m boundary of the loss maps: `loss_boundary_m` is 30.
+
+The raster method signs one derivative fact for each plot:
+
+| Field | Value |
+|---|---|
+| `fn_key` | `eudr_plot_raster@1` |
+| `op` | `eudr_plot_raster` |
+| `band` | `eudr.plot_raster` |
+| `cell` | the cell at the centre of the plot's bounding box |
+| `parents` | none: the fact names its source windows instead |
+
+Its value holds these parts:
+
+- `forest_rule`, `cutoff_year`, `area_method`, `plot_commitment` and `geometry_commitment`
+- `chunks`: for each chunk, `owns` and, for each band, the `artifact_cid` of the window, its grid, `native_m`, the files read and the dataset scheme
+- `pixels` and `area_ha`: the plot, and each verdict class (`pass`, `fail`, `review`, `not_in_scope`, `indeterminate`), with the forest at the cut-off
+- `loss_seen_by` and `failing_by_baseline`: the failing and review areas by source, and the failing area by the baseline that called it forest
+- `hansen_loss` and `tmf_loss`: pixels and area by loss year, and after the cut-off
+- `tmf_cross_check`: the pixels where TMF and Hansen agree or disagree on loss after the cut-off
+- `verdict`: the label, the code, the failing and review areas, and whether the 0.5 ha floor applied
+
+A pixel count is the number of pixels the polygon touches; an area adds their covered parts.
+
+A repeat that gives the same value cites the fact signed before, and signs nothing new (`plot_fact_reused`).
+The value includes `plot_commitment`, so send the same `plot_salt` to get a repeat that reuses its fact.
+Without it, each request draws a new salt and signs a new fact.
+
+Each window is stored in the artifact store and served at `GET /v1/artifacts/<artifact_cid>`.
+Its id is the BLAKE3 hash of its bytes, in lowercase base32 without padding.
+The bytes are the emem grid encoding: a 64-byte header, then one little-endian `f32` for each pixel, row by row from the north.
+A pixel that no tile holds is NaN.
+The artifact store can evict a window.
+The fact keeps the files and the grid, so the same window can be read again from the publishers.
+
+The plot fact holds the polygon's commitment, not the polygon.
+Its windows show the plot's bounding box, as the sampled facts showed each sampled cell.
+
+On the raster method, the plot result keeps the field names of the sampled method, and a cell is a 10 m pixel.
+`failing_cells`, `total_cells` and the counts in `loss_year_histogram` and `tmf_cross_check` are pixels.
+The method adds these fields:
+
+| Field | Meaning |
+|---|---|
+| `area_method` | `coverage_fraction_geodesic` |
+| `failing_area_ha_by_baseline` | Failing area split as `failing_cells_by_baseline` splits the count |
+| `review_cells`, `review_area_ha`, `review_reason` | Loss after the cut-off on land the JRC map calls non-forest (see below) |
+| `hansen_tree_cover_on_jrc_non_forest` | Pixels and area the JRC map calls non-forest where Hansen sees tree cover and no loss |
+| `forest_at_cutoff_area_ha` | Area that the rule called forest at the cut-off |
+| `loss_after_cutoff_area_ha` | Area with loss after the cut-off, by Hansen and by TMF |
+| `loss_seen_by`, `loss_boundary_m`, `loss_boundary_note` | The loss areas by source, and the 30 m boundary they carry |
+| `example_pixels` | Up to 32 failing or review pixels, with their cell64 and readings |
+| `raster` | Each chunk's `owns`, and the id, URL, size, `native_m` and files of each source window |
+| `plot_fact_cid`, `plot_fact_token`, `plot_fact_reused` | The plot fact, its `emem:fact:` token, and whether an earlier identical one was cited |
+
+`per_cell_verdicts` is empty, `per_cell_detail` is `raster` and `per_cell_rows_cid` is null, because no per-cell fact exists.
+`verdict_support` grades pixels as it grades cells.
+The sample spacing is the pixel side, about 10 m, so the spacing limit does not apply.
+
+To check a plot fact without trusting emem, run the verifier with the plot's GeoJSON:
+
+```sh
+python3 tools/verifiers/emem-eudr-due-diligence/verify_plot.py \
+  "emem:fact:<cell>:<plot_fact_cid>" --geometry plot.geojson
+```
+
+The script checks that the fact's CBOR hashes to its id, and that the polygon hashes to `geometry_commitment`.
+It checks that each window hashes to its `artifact_cid`.
+It then counts the pixels again, chunk by chunk with the same rule and the same coverage fractions, and compares every count, area and the verdict.
+With `--plot-id` and `--salt`, it also checks `plot_commitment`.
+It uses the `blake3` package when it is installed, and plain Python otherwise.
+
+### The sampled method
+
+The sampled method reads each plot at one or more cell64s.
 These plots use 1 cell, unless the commodity is cattle:
 
 - a GeoJSON Point (the endpoint gives it an area of 0.01 ha)
-- a `bbox` of 4 ha or less
+- a `bbox` of 4 ha or less, when the request sets `method` to `sampled`
 
 Every other plot in the request uses one shared count, `max_cells_per_plot`.
 A polygon always uses this count, also when its area is 4 ha or less.
@@ -38,7 +179,8 @@ Thus a long or irregular polygon gets more cells than its own area needs.
 The derived count is at least 55 and at most 51,200.
 If no plot geometry gives an area, the count is 64.
 The endpoint clamps a count that the operator sets to 1 through 51,200.
-The verdict runs **`eudr_compliance@1`** on each cell.
+The raster method ignores `max_cells_per_plot`.
+The sampled method runs **`eudr_compliance@1`** on each cell.
 It reads three bands from two static COG baselines, JRC GFC2020 and Hansen GFC:
 
 | Band | Role |
@@ -50,6 +192,7 @@ It reads three bands from two static COG baselines, JRC GFC2020 and Hansen GFC:
 The algorithm card at `GET /v1/algorithms/eudr_compliance@1` still names
 Hansen v1.12 (loss years `2001..2024`) on 7 November 2026. The `eudr_dds@1` card names no Hansen version.
 That text comes from `crates/emem-core/data/algorithms-v0.json`, which did not change when the connector moved to v1.13.
+The cards also still give the `jrc_or_hansen` forest rule, which stopped being the default on 14 November 2026.
 The connector in `crates/emem-fetch/src/hansen_gfc.rs` reads `GFC-2025-v1.13`.
 The `eudr_dds@1` card also writes the cut-off test as `>= 21`, the raw upstream byte.
 The responder decodes that byte to a calendar year, so the test it applies is `>= 2021`.
@@ -73,52 +216,99 @@ loss after the cut-off.
 `agreement` counts every cell TMF read, including the cells where neither product sees loss.
 `loss_agreement` counts only the `loss_cells`, the cells where TMF or Hansen sees loss after the cut-off.
 On a 2.9 ha cocoa plot where Hansen alone saw loss on 57 of 324 cells, `agreement` was 0.82 and
-`loss_agreement` was 0. On a plot that fails, `verdict_support` uses `loss_agreement`; on any other
+`loss_agreement` was 0. On a plot that fails or is `review`, `verdict_support` uses `loss_agreement`; on any other
 verdict it uses `agreement`, as before.
-TMF does not change the verdict.
+On the sampled method TMF does not change the verdict; on the raster method it votes (`in_verdict: true`).
 A cell can show loss after the cut-off in TMF but not in Hansen.
 One such cell sets `tmf_cross_check.review_required` to `true` and lists the cell in `review_cells`.
 The responder then holds the statement until a person reviews the plot.
+On the raster method, `review_cells` names up to 64 such pixels, and `tmf_only_area_ha` gives their area.
 This endpoint does not use WRI-Sims driver attribution or RADD SAR alerts.
 
-### From cells to a plot verdict
+### The forest rule
 
-Each cell gets a verdict first.
-A cell is forest at the cut-off when JRC GFC2020 calls it forest.
+The request field `forest_rule` says which map decides that a cell was forest at the cut-off.
+The answer repeats it in `forest_rule`, and `forest_rule_means` gives the rule in words.
+The default is `jrc_only`, from 14 November 2026.
+`jrc_or_hansen`, the earlier rule, stays for one release.
+
+The reasons for `jrc_only` come from the regulation and the Commission's own texts:
+
+- Article 2(4) to 2(6) and Recital 37 of Regulation (EU) 2023/1115 exclude agricultural plantations from "forest".
+  Cocoa, coffee, oil palm, rubber and agroforestry are plantations in this sense.
+- Article 2(3) defines deforestation as the conversion of forest to agricultural use.
+- The regulation names no map (Article 18(2)(d); Commission FAQ v5, April 2026, section 5.18).
+- Hansen tree cover counts all vegetation over 5 m, tree crops included. It is not a forest map in the sense of Article 2(4).
+- The JRC GFC2020 map follows the EUDR forest definition. The FAQ (sections 9.10 and 9.10.1) calls it non-mandatory, non-exclusive and non-legally binding, and not a definitive source of information for compliance.
+- The same FAQ section says that a plot outside mapped forest cannot be assumed compliant, and that mapped forest may indicate a risk to investigate.
+  Article 10(2)(m) asks the operator to assess any information that points to a risk.
+- Guidance C/2026/3896, section 5: the actual properties of a forest prevail over a map.
+- The JRC GFC2020 V3 map missed 17.3 % of forest in Africa. The accuracy of V4 is not yet published.
+
+Under `jrc_only`, each cell gets its verdict by this table:
+
+| JRC GFC2020 | Hansen | Loss after the cut-off | Cell verdict | Refinement |
+|---|---|---|---|---|
+| forest | any | no | `pass` | |
+| forest | any | yes | `fail` | |
+| non-forest | any | yes | `review` | `loss_on_jrc_non_forest` |
+| non-forest | tree cover 10 % or more, no loss up to the cut-off year | no | `pass` | `hansen_tree_cover_jrc_non_forest` |
+| non-forest | other | no | `not_in_scope` | |
+| no reading | tree cover 10 % or more, no loss up to the cut-off year | no | `pass` | `jrc_unavailable_hansen_only` |
+| no reading | tree cover 10 % or more, no loss up to the cut-off year | yes | `fail` | `jrc_unavailable_hansen_only` |
+| no reading | other Hansen reading | | `not_in_scope` | |
+| no reading | no reading | | `indeterminate` | `no_baseline_input` |
+
+Hansen tree cover never makes a cell forest where the JRC map has a reading.
+Where JRC has no reading, Hansen decides, and the cell is marked `jrc_unavailable_hansen_only` as lower confidence.
+Loss after the cut-off is a Hansen loss year after the cut-off year, or, on the raster method, a JRC TMF deforestation year after it.
+The sampled method passes no TMF value to the rule, and neither method reads RADD.
+
+`review` is not a fail and not a pass.
+The map is not binding, so loss on land it calls non-forest may be loss of forest that it missed.
+The plot result gives the area in `review_area_ha` and the reason in `review_reason`:
+"loss after the cut-off on land the JRC map calls non-forest: confirm the land was already in agricultural use before 2021 (imagery before 2021, farm or cadastral records)".
+A pass on JRC non-forest where Hansen sees tree cover is a pass.
+The plot result reports that area in `hansen_tree_cover_on_jrc_non_forest`, because the two maps disagree there.
+
+Under `jrc_or_hansen`, a cell is forest at the cut-off when JRC GFC2020 calls it forest.
 It is also forest when Hansen `treecover2000` is 10 % or more and the Hansen loss year is `0` or after the cut-off year.
 A missing Hansen loss year does not make a cell forest.
-`failing_cells_by_baseline` says which of the two made each failing cell forest.
+Forest with loss after the cut-off is `fail`, and other land is `not_in_scope`.
+This rule has no `review`.
+`failing_cells_by_baseline` says which of the two maps made each failing cell forest.
 Tree crops such as cocoa, oil palm and rubber read as tree cover in Hansen, and Article 2(4) excludes them from forest.
 So when a plot fails and every failing cell is forest by Hansen alone where JRC calls it non-forest,
 `verdict_support` is `weak`, and
 its limit says to check the land use before relying on the fail. When half or more are, the limit qualifies the fail.
 
-| Cell state | Cell verdict |
-|---|---|
-| No JRC value and no Hansen `treecover2000` value | `indeterminate` |
-| Not forest at the cut-off | `not_in_scope` |
-| Forest at the cut-off, Hansen loss year after the cut-off year | `fail` |
-| Forest at the cut-off, no Hansen loss after it | `pass` |
-
-Take a cell that JRC does not call forest, with a Hansen loss at or before the cut-off year.
-That cell was not forest at the cut-off, so its verdict is `not_in_scope`, never `pass`.
+Under both rules, take a cell that JRC calls forest, with a Hansen loss at or before the cut-off year.
+That cell stays forest, and its verdict is `pass` when no later loss shows.
 The Hansen loss year does not overrule JRC.
-A cell that JRC calls forest stays forest, and an earlier Hansen loss does not change that.
+A cell with no JRC reading and a Hansen loss at or before the cut-off year was not forest at the cut-off, so its verdict is `not_in_scope`.
 
-Only Hansen loss sets `fail` on this endpoint.
-`eudr_verdict_for` also accepts TMF, WRI-Sims and RADD values, but both read paths pass it none.
+### From cells to a plot verdict
 
-The plot verdict then uses the first rule that applies:
+The plot verdict uses the first rule that applies:
 
 1. Every cell is `not_in_scope`: the plot is `not_in_scope`.
 2. More than half of the cells are `indeterminate`: the plot is `indeterminate`.
-3. No cell is `fail`: the plot is `pass`.
-4. Otherwise the plot is `fail`, and the 0.5 ha minimum area of Article 2(4) applies.
+3. A cell is `fail`: the plot is `fail`, and the 0.5 ha minimum area of Article 2(4) applies.
+4. A cell is `review`: the plot is `review`, and the 0.5 ha minimum area applies the same way.
+5. Otherwise the plot is `pass`.
 
-A plot with no sampled cell is `indeterminate`.
-For rule 4, `failing_area_ha` is the failing fraction of the sampled cells times the area of the plot's bounding box.
+A plot with no cell is `indeterminate`.
+The 0.5 ha rule works on areas:
+
+- A failing area of 0.5 ha or more gives `fail`.
+- Below that, a review area that reaches 0.5 ha together with the failing area gives `review`.
+  The two areas count together because they can be one clearing that the map split.
+- Any smaller loss gives `below_mmu`.
+
+On the raster method the areas are sums of pixel areas.
+On the sampled method, `failing_area_ha` is the failing fraction of the sampled cells times the area of the plot's bounding box.
+`review_area_ha` is projected the same way.
 For a polygon, this area can be more than the area of the plot.
-If `failing_area_ha` is less than 0.5, the plot gets `below_mmu` in place of `fail`.
 For example, 10 failing cells out of 100 give 0.1 ha when the bounding box is 1 ha (`below_mmu`).
 The same count gives 1 ha when the bounding box is 10 ha (`fail`).
 
@@ -130,13 +320,19 @@ Thus, in the code on 7 November 2026, every `not_in_scope` plot has `deforestati
 The DDS verdict combines the plot verdicts by the first rule that applies:
 
 1. A plot is `fail`: the DDS is `fail`.
-2. Every plot is `pass`, `below_mmu`, or `not_in_scope` with `deforestation_free_non_forest: true`: the DDS is `pass`.
-3. Every plot is `not_in_scope`: the DDS is `not_in_scope`.
-4. Otherwise the DDS is `indeterminate`.
+2. A plot is `review`: the DDS is `review`.
+3. Every plot is `pass`, `below_mmu`, or `not_in_scope` with `deforestation_free_non_forest: true`: the DDS is `pass`.
+4. Every plot is `not_in_scope`: the DDS is `not_in_scope`.
+5. Otherwise the DDS is `indeterminate`.
 
 Thus the DDS counts a `below_mmu` plot as compliant.
-The code is `eudr_verdict_for`, `aggregate_plot_verdict` and `mmu_demote` in
+The code is `eudr_verdict_for`, `aggregate_plot_verdict_counts` and `mmu_by_area` in
 `crates/emem-api-rest/src/lib.rs`.
+
+A `pass` means that the maps read show no indication of deforestation after the cut-off.
+It is not a finding of compliance: the operator's due diligence under Articles 9 to 11 decides that.
+The answer says so in `verdict_meaning` and in each plot's `verdict_support.pass_means`.
+`verdict_support.baseline_map` names the JRC GFC2020 version read and states that the map is not binding.
 
 ### When the responder holds the statement for review
 
@@ -168,7 +364,7 @@ A `bbox` plot of 4 ha or less gets one sample, so its spacing is the square root
 A cattle plot (HS code that starts with 0102, 0201 or 0202) is the exception: it gets the polygon sample count.
 Above 2 ha, that spacing is more than 141 m.
 The level is then `weak`, and the responder holds the statement.
-For a `bbox` plot of more than 2 ha, send the plot as a polygon.
+This applies to the sampled method only: the raster method reads every pixel of a `bbox` plot.
 A polygon plot gets about 110 cells per hectare of its bounding box.
 Its spacing is then about 10 m or less.
 Above about 465 ha of box, the 51,200 cap applies and the spacing grows.
@@ -185,6 +381,8 @@ The list names every cause that applies.
 The first two causes come from one plot. The third cause comes from all the cells of the request.
 When TMF reads no cell on a plot, the TMF agreement row and the TMF cause do not apply to that plot.
 If the DDS verdict is not `pass`, the list starts with `verdict_<label>`, for example `verdict_fail`.
+A `review` verdict adds `review_loss_on_jrc_non_forest` after `verdict_review`.
+The operator must assess and mitigate that risk under Articles 10 and 11 before filing.
 `statement_of_compliance_signable` is true only for a `pass` with an empty list of causes.
 When the responder holds it, `statement_of_compliance` gives the reason in place of the Annex II point 5 text.
 The code is `verdict_support`, `tmf_cross_check` and `statement_of_compliance` in
@@ -210,7 +408,7 @@ shape for callers that read it, and the system does not accept that shape.
 - An element with no value is left out, because an empty element fails the schema.
 - `fileable` is `true` only when the verdict can be signed and nothing is missing.
   `not_fileable_because` lists every reason, such as `verdict_fail`,
-  `missing_operatorRole`, `missing_activityType`, `missing_descriptionOfGoods_<hs>` or
+  `verdict_review` with `review_loss_on_jrc_non_forest`, `missing_operatorRole`, `missing_activityType`, `missing_descriptionOfGoods_<hs>` or
   `geolocation_below_6_decimals`.
 - `operator_must_supply` says what only the operator can give: the role, the activity,
   and the commercial description with the trade name. `drafts` carries a draft
@@ -222,11 +420,46 @@ request to fill them. The operator's name, address and EORI come from the accoun
 submits, not from the payload. The system assigns the reference and verification numbers.
 Submitting the statement is the Annex II item 5 confirmation, so a statement whose
 verdict is not `pass` must not be filed.
+`statement_of_compliance` keeps the Annex II point 5 text word for word when it can be signed.
+What a `pass` means is in `verdict_meaning`, beside it.
+
+A new micro or small operator in a low-risk country may file a simplified declaration under Article 4a(5).
+That declaration gives a postal address in place of geolocation, so it needs no polygon.
+This endpoint does not make that declaration.
+
+## Plot commitment
+
+No signed fact holds the caller's `plot_id`.
+A signed fact is public, also when the request sets `geolocation_confidential`.
+In its place, the plot fact (raster) and the loss-year histogram (sampled) hold `plot_commitment`:
+
+```text
+plot_commitment = hex(blake3("emem.eudr.plot_commitment.v1" || 0x00 || salt || plot_id))
+```
+
+The salt is 16 bytes.
+Send it as `plot_salt` (32 hex characters) on a plot to get the same commitment on every request.
+Without it, each request draws a new random salt.
+The answer returns the salt in that plot's `plot_salt`, beside `plot_commitment`.
+The responder does not store or log the salt.
+To prove that a plot fact belongs to a plot, give the verifier the `plot_id` and the salt.
+It computes the commitment again and compares it with the one in the fact.
+Do not reuse one salt for many plots: a person who learns it can then test guessed plot ids against each of them.
+
+The plot fact also holds `geometry_commitment`, the BLAKE3 hash of the polygon as sent:
+the tag `emem.eudr.geometry.v1` and a zero byte, then for each ring its vertex count (`u32`, little-endian),
+then each vertex as two little-endian `f64` values, longitude then latitude.
+A `bbox` plot is the ring `(min_lng, min_lat)`, `(max_lng, min_lat)`, `(max_lng, max_lat)`, `(min_lng, max_lat)`, `(min_lng, min_lat)`.
+This commitment has no salt, so anyone who holds the polygon can check it.
 
 ## Loss-year histogram
 
 Each plot that has at least one sampled cell carries a `loss_year_histogram`.
 It shows how the Hansen loss year spreads across the sampled cells of the plot.
+On the raster method, the counts are the 10 m pixels of the plot and `basis` is `raster_pixels`.
+Each year then also carries `area_ha`, the block adds `after_cutoff_area_ha` and the same tally for TMF under `tmf`,
+and `signed_fact_cid` is the plot fact, which holds the tally.
+The rest of this section describes the sampled method.
 It has these fields:
 
 | Field | Meaning |
@@ -239,7 +472,7 @@ It has these fields:
 | `total_sampled_cells` | All sampled cells |
 | `cell_area_ha` | Area of one cell in hectares, rounded to 6 decimals (0.009129 on 7 November 2026) |
 | `after_cutoff_area_ha_sampled` | `after_cutoff_cells` times the cell area, rounded to 4 decimals (sampled area, not polygon area) |
-| `basis` | Always `sampled_cells` |
+| `basis` | `sampled_cells` (`raster_pixels` on the raster method) |
 | `note` | Fixed text that repeats the rules in this section |
 | `signed_fact_cid` | CID of the signed histogram fact, or null if signing failed |
 | `parents_capped` | True if the plot had more than 1024 distinct loss-year facts |
@@ -248,7 +481,8 @@ The endpoint signs the histogram as its own derived fact, `forest_change.lossyea
 That fact has `op: "histogram"` and `fn_key: "lossyear_histogram@1"`.
 Its `cell` is the plot centroid cell.
 Its `tslot_window` always spans the loss years 2001 to 2024 (tslots 31 and 54).
-Its `derivation.args` hold `plot_id`, `cutoff_year` and `n_sampled_cells`.
+Its `derivation.args` hold `plot_commitment`, `cutoff_year` and `n_sampled_cells`.
+Until 14 November 2026 they held the caller's `plot_id` (see [Plot commitment](#plot-commitment)).
 Its `parents` cite the `forest_change.lossyear` facts of the cells, at most 1024, in CID order.
 The endpoint stores the fact and its parents, so each CID resolves at `/v1/facts/<cid>`.
 The response receipt includes the CID of the histogram fact, unless the receipt cap removes it
@@ -468,7 +702,9 @@ This occurs when a 2020 median exists but the latest year has no reading and no 
 ### Receipts
 
 The response has one Ed25519 `receipt` for the whole call.
-It signs the per-cell fact CIDs of every plot and the CID of each loss-year histogram fact.
+On the raster method it signs each plot fact and the cell at the centre of each plot.
+The answer then stays small: a plot adds one fact CID and one cell to the receipt.
+On the sampled method it signs the per-cell fact CIDs of every plot and the CID of each loss-year histogram fact.
 It also signs the cell64 of each sampled cell.
 Check it offline at `/verify`, or with `POST /v1/verify_receipt`.
 
@@ -482,7 +718,7 @@ The table gives the defaults; both env vars accept 256 to 51,200.
 
 The sort runs only above the cap.
 Thus two capped calls with the same inputs keep the same fact CIDs.
-The exception is the loss-year histogram fact, which the responder signs again on each call.
+The exceptions are the loss-year histogram fact and the plot fact, which the responder signs again on each call.
 The two receipts are still not byte-equal, because `request_id` and `served_at` change on each call.
 A capped receipt does not sign every fact, but the endpoint stores every fact.
 Each plot's `per_cell_rows_cid` addresses all of its facts.
@@ -545,10 +781,12 @@ The deploy unit `deploy/systemd/emem-server.service` does not set `EMEM_EUDR_TIM
 EUDR Article 2(4) defines forest by canopy, height and area, **not by data source**.
 Bourgoin et al. 2026 name JRC GFC2020 as the baseline that the Commission expects.
 This baseline is not binding, and an operator can use a different baseline that it can defend.
-The `eudr_compliance@1` verdict takes forest at the cut-off from JRC GFC2020 or from Hansen `treecover2000`.
-Hansen counts as forest when its canopy is 10 % or more and it shows no loss up to the cut-off year.
+By default (`forest_rule: jrc_only`) the verdict takes forest at the cut-off from JRC GFC2020 alone.
+Hansen tree cover counts only where JRC has no reading, and it includes tree crops, which Article 2(4) excludes.
 The verdict takes the loss year from Hansen.
-This choice gives the strongest audit position today.
+Loss on land the JRC map calls non-forest is `review`, because the map is not binding and can miss forest.
+[The forest rule](#the-forest-rule) gives the sources for this choice.
+A `pass` means that the maps show no indication of deforestation, not that the plot complies.
 The `visual_evidence` block is extra evidence in support.
 It does not change the strict pass or fail verdict.
 

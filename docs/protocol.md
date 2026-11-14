@@ -692,6 +692,7 @@ responder itself signs derivatives with these `op` and `fn_key` values
 | `rain_series` | the series recipe | `rain_series.rs` |
 | `band_raster`, `dem_raster`, `forest_raster`, `embedding_raster`, `raster_bundle`, `band_cube`, `median_composite` | `<op>@1`, except `s2_median_composite@1` | `band_raster.rs` |
 | `histogram` | `lossyear_histogram@1` | `lib.rs` (forest loss by year) |
+| `eudr_plot_raster` | `eudr_plot_raster@1` | `eudr_raster.rs` (one EUDR plot, every 10 m pixel) |
 
 `/v1/diff` also builds a derivative with `op` `delta` and `fn_key`
 `nd.delta@1` (`emem-primitives/src/diff.rs`). It returns that

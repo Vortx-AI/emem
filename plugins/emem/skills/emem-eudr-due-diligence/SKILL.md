@@ -9,7 +9,7 @@ description: Produces a signed, Annex II shaped Due Diligence Statement under th
 |---|---|
 | Use it when | A supplier, importer or auditor asks if a plot of an EUDR commodity is deforestation-free, or needs per-cell evidence for an Article 12 record. |
 | You need | For each plot: a GeoJSON geometry, the country of production (ISO 3166-1 alpha-3), the HS code and the quantity in kg. No key. |
-| You get | A verdict for each plot and for the statement, a TRACES NT shaped envelope, the signed fact cids behind each cell, and an Ed25519 receipt. |
+| You get | A verdict for each plot and for the statement, a TRACES NT shaped envelope, one signed fact for each plot (or for each cell on the sampled method), and an Ed25519 receipt. |
 | Calls | `POST /v1/eudr_dds` (MCP `emem_eudr_dds`). To warm a cold plot first: `POST /v1/locate`, `POST /v1/recall`. |
 
 > **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. Its commands read no environment variable, key or credential. The only local files that they read are files that an earlier step saved from `https://emem.dev`.
@@ -96,6 +96,7 @@ REST route.
 | `commodity_hs` | yes | HS-6 or longer. The endpoint checks it against Annex I. |
 | `quantity_kg` | yes | The quantity in kg. |
 | `request_visual_evidence` | no | `true` adds a Sentinel-2 NDVI and Sentinel-1 backscatter timeline for each year, with scene links. It adds upstream reads that can take minutes. |
+| `plot_salt` | no | 32 hex characters. Signed facts carry `plot_commitment`, a salted hash of `plot_id`, never the id. Send the same salt to get the same commitment. The answer returns the salt to you only. |
 
 ### Fields at the top level
 
@@ -104,7 +105,9 @@ REST route.
 | `operator` | none | `{"name": ...}` for the envelope. |
 | `cut_off_date` | `2020-12-31` | The deforestation cut-off. |
 | `forest_baseline_override` | JRC with Hansen | `jrc_gfc2020_v4`, `hansen_only` or `both`. The endpoint still takes `jrc_gfc2020_v3`. |
-| `max_cells_per_plot` | from the polygon area | The sample size for each plot. |
+| `method` | `raster` | `raster` reads every 10 m pixel of a polygon or bbox plot and signs one fact for the plot. `sampled` reads sampled cells and signs a fact for each cell and band. It stays for one release. |
+| `forest_rule` | `jrc_only` | `jrc_only` takes forest from the JRC GFC2020 map, with Hansen only where JRC has no reading. `jrc_or_hansen` is the old rule (JRC or Hansen tree cover). |
+| `max_cells_per_plot` | from the polygon area | The sample size for each plot on the `sampled` method. |
 | `per_cell_detail` | `rows` | `rows` puts the per-cell rows in the response. `anchor` leaves them out and keeps `per_cell_rows_cid`. |
 | `per_cell_offset` | none | Pages the per-cell rows. See step 4. |
 
@@ -128,14 +131,19 @@ jq '{verdict: .due_diligence_statement.verdict,
 
 | Verdict | Meaning |
 |---|---|
-| `pass` | No forest loss after the cut-off on forest that stood at the cut-off. |
+| `pass` | The maps show no forest loss after the cut-off on forest that stood at the cut-off. It is not a finding of compliance. |
 | `fail` | Forest loss after the cut-off, over at least 0.5 ha. |
+| `review` | Loss after the cut-off, over at least 0.5 ha, on land the JRC map calls non-forest. The map is not binding: confirm the land was in farm use before 2021. Do not file until then. |
 | `not_in_scope` | The forest loss on the land came at or before the cut-off, so the land was not forest at the cut-off. |
 | `indeterminate` | The inputs do not decide the verdict. |
 | `below_mmu` | The failing area is less than the 0.5 ha floor. It counts as compliant. |
 
-`per_cell_verdicts` gives the signed fact cids behind each cell. Put
-them in the Article 12 record.
+With `method: "raster"`, `plot_fact_token` names the one signed fact
+that holds the plot's counts and areas. Put it in the Article 12 record.
+`tools/verifiers/emem-eudr-due-diligence/verify_plot.py` in the emem
+repository checks it against the plot's GeoJSON and recounts every pixel.
+With `method: "sampled"`, `per_cell_verdicts` gives the signed fact cids
+behind each cell.
 
 ### Other fields
 
@@ -248,6 +256,8 @@ response resolves at `GET https://emem.dev/v1/facts/<cid>`, and so does
 each cid behind `per_cell_rows_cid`.
 
 ### Per-cell rows
+
+These rows exist on the `sampled` method only.
 
 - `per_cell_detail: "anchor"` leaves out `per_cell_verdicts` and keeps
   `per_cell_rows_cid`. Ask again with `rows` to get the rows.
