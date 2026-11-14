@@ -887,10 +887,352 @@ fn forest_squares(b: &BBox) -> Vec<((i64, i64), (f64, f64))> {
 
 /// One tile of a forest layer: its 10° square, its URL, and JRC GFC2020's
 /// version.
-struct ForestTile {
-    key: (i64, i64),
-    url: String,
-    jrc_version: Option<u32>,
+#[derive(Clone)]
+pub(crate) struct ForestTile {
+    pub(crate) key: (i64, i64),
+    pub(crate) url: String,
+    pub(crate) jrc_version: Option<u32>,
+}
+
+/// Every pixel of `prof`'s lattice the bbox touches, as
+/// `(col0, row0, col1, row1)` with the ends exclusive, fitted to the bbox
+/// edges with the snapping `pixel_index` uses. Placed by the bbox centre and
+/// a rounded-up size, a window missed a row or column of up to half the
+/// pixels of a plot two to four pixels wide.
+fn fit_window(prof: &emem_fetch::cog::CogProfile, b: &BBox) -> (i64, i64, i64, i64) {
+    let (ti, tj, tx, ty) = prof.tiepoint;
+    let (sx, sy) = prof.pixel_scale;
+    let half = if prof.pixel_is_point { 0.0 } else { 0.5 };
+    let shift = 0.5 - half;
+    const EPS: f64 = 1e-6;
+    let col_a = ti + (b.min_lng - tx) / sx + shift;
+    let col_b = ti + (b.max_lng - tx) / sx + shift;
+    let row_a = tj + (ty - b.max_lat) / sy.abs() + shift;
+    let row_b = tj + (ty - b.min_lat) / sy.abs() + shift;
+    let col0 = (col_a + EPS).floor() as i64;
+    let row0 = (row_a + EPS).floor() as i64;
+    let col1 = ((col_b - EPS).ceil() as i64).max(col0 + 1);
+    let row1 = ((row_b - EPS).ceil() as i64).max(row0 + 1);
+    (col0, row0, col1, row1)
+}
+
+/// Pixels per side of one read in [`read_layer`]. A window larger than this
+/// is read as blocks of it, so a plot of thousands of hectares never asks
+/// one `sample_window` for more than the forest raster's own page.
+const LAYER_BLOCK_PX: u32 = FOREST_MAX_SIDE_PX;
+
+/// Blocks of one layer read at once.
+const LAYER_READS_AT_ONCE: usize = 4;
+
+/// A forest layer over a bbox, on the lattice of the tile under the bbox
+/// centre, for a caller that computes over the pixels instead of signing the
+/// window. Values are as [`forest_value`] states them; a pixel no tile holds
+/// is NaN.
+#[derive(Clone)]
+pub(crate) struct LayerWindow {
+    pub(crate) header: GridHeader,
+    pub(crate) values: Vec<f32>,
+    /// Each file read, by the URL its publisher serves it at.
+    pub(crate) files: Vec<String>,
+    pub(crate) jrc_version: Option<u32>,
+}
+
+/// Why a layer window is not read.
+#[derive(Debug)]
+pub(crate) enum LayerError {
+    /// The window has more pixels than the caller allows.
+    TooLarge {
+        width: i64,
+        height: i64,
+    },
+    Failed(String),
+}
+
+/// A layer read made ready: its tiles, the lattice it is on, and the window.
+#[derive(Clone)]
+pub(crate) struct LayerPlan {
+    band_key: &'static str,
+    tiles: Vec<ForestTile>,
+    reference: usize,
+    prof: std::sync::Arc<emem_fetch::cog::CogProfile>,
+    col0: i64,
+    row0: i64,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+}
+
+impl LayerPlan {
+    /// The pixel's sides in degrees, `(east-west, north-south)`.
+    pub(crate) fn pixel_deg(&self) -> (f64, f64) {
+        (self.prof.pixel_scale.0.abs(), self.prof.pixel_scale.1.abs())
+    }
+}
+
+/// The 10° squares the bbox touches, each with a point inside both, as
+/// [`forest_squares`] lists them.
+pub(crate) fn layer_squares(b: &BBox) -> Vec<((i64, i64), (f64, f64))> {
+    forest_squares(b)
+}
+
+/// Plans a read of `band` over `b` from the tiles its connector names.
+pub(crate) async fn plan_layer(
+    band: &'static str,
+    b: BBox,
+    max_px: u64,
+) -> Result<LayerPlan, LayerError> {
+    let squares = forest_squares(&b);
+    if squares.len() > FOREST_MAX_TILES {
+        return Err(LayerError::Failed(format!(
+            "the bbox touches {} of the {band} tiles (10° squares); one read joins at most {FOREST_MAX_TILES}",
+            squares.len()
+        )));
+    }
+    let cli = crate::s2_http_client();
+    let mut tiles = Vec::with_capacity(squares.len());
+    for (key, (lat, lng)) in squares {
+        let (url, jrc_version) = forest_tile_url(band, lat, lng, &cli)
+            .await
+            .map_err(|e| LayerError::Failed(e.1.message))?;
+        tiles.push(ForestTile {
+            key,
+            url,
+            jrc_version,
+        });
+    }
+    plan_layer_from(band, b, tiles, max_px).await
+}
+
+/// Plans a read of `band` over `b` from `tiles`, one per 10° square the bbox
+/// touches, on the lattice of the tile under the bbox centre.
+pub(crate) async fn plan_layer_from(
+    band: &'static str,
+    b: BBox,
+    tiles: Vec<ForestTile>,
+    max_px: u64,
+) -> Result<LayerPlan, LayerError> {
+    let band_key = FOREST_BANDS
+        .iter()
+        .find(|f| f.band == band)
+        .map(|f| f.band)
+        .ok_or_else(|| LayerError::Failed(format!("band `{band}` is not a forest layer")))?;
+    let centre_key = (
+        tile_row_key((b.min_lat + b.max_lat) / 2.0),
+        tile_col_key((b.min_lng + b.max_lng) / 2.0),
+    );
+    let reference = tiles
+        .iter()
+        .position(|t| t.key == centre_key)
+        .or_else(|| (tiles.len() == 1).then_some(0))
+        .ok_or_else(|| {
+            LayerError::Failed(format!("no {band} tile is named for the bbox centre"))
+        })?;
+    let cli = crate::s2_http_client();
+    let url = tiles[reference].url.clone();
+    let prof = emem_fetch::cog::open_profile(&cli, &url)
+        .await
+        .map_err(|e| LayerError::Failed(format!("open {url}: {e}")))?;
+    let (sx, sy) = prof.pixel_scale;
+    if !(sx.abs() > 0.0 && sx.is_finite() && sy.abs() > 0.0 && sy.is_finite()) {
+        return Err(LayerError::Failed(format!(
+            "{url} has an implausible pixel scale {:?}",
+            prof.pixel_scale
+        )));
+    }
+    let (col0, row0, col1, row1) = fit_window(&prof, &b);
+    let (width, height) = (col1 - col0, row1 - row0);
+    if width.saturating_mul(height) as u64 > max_px {
+        return Err(LayerError::TooLarge { width, height });
+    }
+    Ok(LayerPlan {
+        band_key,
+        tiles,
+        reference,
+        prof,
+        col0,
+        row0,
+        width: width as u32,
+        height: height as u32,
+    })
+}
+
+/// `piece` cut into rectangles no larger than `side` on either side.
+fn split_piece(piece: &Piece, side: u32) -> Vec<Piece> {
+    let side = side.max(1);
+    let mut out = Vec::new();
+    let mut r = 0;
+    while r < piece.height {
+        let height = side.min(piece.height - r);
+        let mut c = 0;
+        while c < piece.width {
+            let width = side.min(piece.width - c);
+            out.push(Piece {
+                tile: piece.tile,
+                row0: piece.row0 + r,
+                col0: piece.col0 + c,
+                height,
+                width,
+            });
+            c += width;
+        }
+        r += height;
+    }
+    out
+}
+
+/// Reads a planned layer window, in blocks of at most `LAYER_BLOCK_PX` per
+/// side, each from the tile of the 10° square that holds it.
+pub(crate) async fn read_layer(plan: LayerPlan) -> Result<LayerWindow, String> {
+    let key = window_key(&plan);
+    if let Some(w) = window_cache_get(&key) {
+        return Ok(w);
+    }
+    let w = read_layer_blocks(plan, LAYER_BLOCK_PX).await?;
+    window_cache_put(key, &w);
+    Ok(w)
+}
+
+/// Bytes of layer windows kept in memory. A repeat of a plot then reads no
+/// upstream byte, also before the tile store holds a copy of the file.
+const WINDOW_CACHE_BYTES: usize = 512 << 20;
+
+/// Layer windows read lately, by band, files and window. The files carry
+/// their version in their name, so a window read from them does not change.
+#[derive(Default)]
+struct WindowCache {
+    map: std::collections::HashMap<String, (u64, LayerWindow)>,
+    bytes: usize,
+    tick: u64,
+}
+
+static WINDOW_CACHE: LazyLock<std::sync::Mutex<WindowCache>> =
+    LazyLock::new(|| std::sync::Mutex::new(WindowCache::default()));
+
+fn window_key(plan: &LayerPlan) -> String {
+    let urls: Vec<&str> = plan.tiles.iter().map(|t| t.url.as_str()).collect();
+    format!(
+        "{}|{}|{}|{}|{}|{}",
+        plan.band_key,
+        plan.col0,
+        plan.row0,
+        plan.width,
+        plan.height,
+        urls.join(" ")
+    )
+}
+
+fn window_cache_get(key: &str) -> Option<LayerWindow> {
+    let mut c = WINDOW_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    c.tick += 1;
+    let tick = c.tick;
+    let hit = c.map.get_mut(key)?;
+    hit.0 = tick;
+    Some(hit.1.clone())
+}
+
+fn window_cache_put(key: String, w: &LayerWindow) {
+    let size = w.values.len() * 4;
+    if size > WINDOW_CACHE_BYTES / 4 {
+        return;
+    }
+    let mut c = WINDOW_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    c.tick += 1;
+    let tick = c.tick;
+    if let Some((_, old)) = c.map.insert(key, (tick, w.clone())) {
+        c.bytes -= old.values.len() * 4;
+    }
+    c.bytes += size;
+    while c.bytes > WINDOW_CACHE_BYTES {
+        let Some(oldest) = c
+            .map
+            .iter()
+            .min_by_key(|(_, (t, _))| *t)
+            .map(|(k, _)| k.clone())
+        else {
+            break;
+        };
+        if let Some((_, gone)) = c.map.remove(&oldest) {
+            c.bytes -= gone.values.len() * 4;
+        }
+    }
+}
+
+/// [`read_layer`] with the block side given, so a test can cut a small
+/// window into many blocks.
+async fn read_layer_blocks(plan: LayerPlan, block_px: u32) -> Result<LayerWindow, String> {
+    use futures_util::StreamExt;
+    let prof = plan.prof.clone();
+    let url = plan.tiles[plan.reference].url.clone();
+    let keys: Vec<(i64, i64)> = plan.tiles.iter().map(|t| t.key).collect();
+    let (w, h) = (plan.width, plan.height);
+    let pieces = plan_pieces(&prof, plan.col0, plan.row0, w, h, &keys)?;
+    let blocks: Vec<Piece> = pieces
+        .iter()
+        .flat_map(|p| split_piece(p, block_px))
+        .collect();
+    let timeout = std::time::Duration::from_secs(crate::materializer_timeout_secs());
+    let origin = (plan.col0, plan.row0);
+    let band_key = plan.band_key;
+    // Each block's future owns what it reads with: a stream of futures that
+    // borrow from here failed the per-plot future's `Send` check.
+    let read: Vec<Result<(Piece, Vec<f32>), String>> =
+        futures_util::stream::iter(blocks.into_iter().map(|p| {
+            let cli = crate::s2_http_client();
+            let prof = prof.clone();
+            let url = url.clone();
+            let tile = plan.tiles.get(p.tile).cloned();
+            async move {
+                let tile = tile.ok_or_else(|| "a block names no tile".to_string())?;
+                let got = tokio::time::timeout(
+                    timeout,
+                    read_forest_piece(&cli, band_key, &prof, &url, &tile, origin, &p),
+                )
+                .await
+                .map_err(|_| format!("{} timed out after {}s", tile.url, timeout.as_secs()))?
+                .map_err(|e| e.1.message)?;
+                Ok((p, got.0))
+            }
+        }))
+        .buffer_unordered(LAYER_READS_AT_ONCE)
+        .collect()
+        .await;
+    let mut values = vec![f32::NAN; w as usize * h as usize];
+    let mut used = vec![false; plan.tiles.len()];
+    for r in read {
+        let (p, piece_values) = r?;
+        used[p.tile] = true;
+        for (i, row) in piece_values.chunks(p.width.max(1) as usize).enumerate() {
+            let at = (p.row0 as usize + i) * w as usize + p.col0 as usize;
+            if let Some(dst) = values.get_mut(at..at + row.len()) {
+                dst.copy_from_slice(row);
+            }
+        }
+    }
+    let (ti, tj, tx, ty) = prof.tiepoint;
+    let (sx, sy) = prof.pixel_scale;
+    let half = if prof.pixel_is_point { 0.0 } else { 0.5 };
+    let header = GridHeader {
+        width: w,
+        height: h,
+        epsg: 4326,
+        nodata: f32::NAN,
+        lat0: ty - (plan.row0 as f64 - tj + half) * sy.abs(),
+        lng0: tx + (plan.col0 as f64 - ti + half) * sx,
+        dlat: -sy.abs(),
+        dlng: sx,
+        channels: 1,
+    };
+    Ok(LayerWindow {
+        header,
+        values,
+        files: plan
+            .tiles
+            .iter()
+            .zip(&used)
+            .filter(|(_, u)| **u)
+            .map(|(t, _)| t.url.clone())
+            .collect(),
+        jrc_version: plan.tiles[plan.reference].jrc_version,
+    })
 }
 
 /// A rectangle of a forest window that one tile supplies, in window pixels.
@@ -1227,22 +1569,9 @@ async fn forest_raster_tiles(
             prof.pixel_scale
         )));
     }
-    // The window is every pixel the bbox touches, fitted to its edges with
-    // the snapping `pixel_index` uses. Placed by the bbox centre and a
-    // rounded-up size, it missed a row or column of up to half the pixels of
-    // a plot two to four pixels wide.
     let (ti, tj, tx, ty) = prof.tiepoint;
     let half = if prof.pixel_is_point { 0.0 } else { 0.5 };
-    let shift = 0.5 - half;
-    const EPS: f64 = 1e-6;
-    let col_a = ti + (b.min_lng - tx) / sx + shift;
-    let col_b = ti + (b.max_lng - tx) / sx + shift;
-    let row_a = tj + (ty - b.max_lat) / sy.abs() + shift;
-    let row_b = tj + (ty - b.min_lat) / sy.abs() + shift;
-    let col0 = (col_a + EPS).floor() as i64;
-    let row0 = (row_a + EPS).floor() as i64;
-    let col1 = ((col_b - EPS).ceil() as i64).max(col0 + 1);
-    let row1 = ((row_b - EPS).ceil() as i64).max(row0 + 1);
+    let (col0, row0, col1, row1) = fit_window(&prof, b);
     let (span_w, span_h) = (col1 - col0, row1 - row0);
     if span_w > FOREST_MAX_SIDE_PX as i64 || span_h > FOREST_MAX_SIDE_PX as i64 {
         return Err(bad_request(format!(
@@ -3642,6 +3971,65 @@ mod tests {
             band: "forest_change.lossyear".into(),
             observed_on: None,
         }
+    }
+
+    /// A window read in blocks is the window read whole, pixel for pixel,
+    /// and a window over the caller's cap is refused before it is read.
+    #[tokio::test]
+    async fn a_layer_read_in_blocks_equals_the_window_read_whole() {
+        let (path, url) = hansen_like_url("blocks");
+        let b = BBox {
+            min_lat: -6.6,
+            min_lng: -69.6,
+            max_lat: -0.4,
+            max_lng: -62.4,
+        };
+        let tile = || {
+            vec![ForestTile {
+                key: (tile_row_key(-3.5), tile_col_key(-66.0)),
+                url: url.clone(),
+                jrc_version: None,
+            }]
+        };
+        let plan = plan_layer_from("forest_change.lossyear", b.clone(), tile(), 1_000_000)
+            .await
+            .unwrap();
+        assert!(
+            plan.width > 7 && plan.height > 7,
+            "{}x{}",
+            plan.width,
+            plan.height
+        );
+        let whole = read_layer_blocks(plan.clone(), LAYER_BLOCK_PX)
+            .await
+            .unwrap();
+        let blocks = read_layer_blocks(plan, 7).await.unwrap();
+        let grid = |h: &GridHeader| (h.width, h.height, h.lat0, h.lng0, h.dlat, h.dlng);
+        assert_eq!(grid(&whole.header), grid(&blocks.header));
+        let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+        assert_eq!(bits(&whole.values), bits(&blocks.values));
+        assert!(whole.values.iter().all(|v| !v.is_nan()), "inside the tile");
+        assert_eq!(whole.files, vec![url.clone()]);
+        let refused = plan_layer_from("forest_change.lossyear", b, tile(), 10).await;
+        assert!(matches!(refused, Err(LayerError::TooLarge { .. })));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_piece_splits_into_blocks_that_cover_it_once() {
+        let p = Piece {
+            tile: 0,
+            row0: 3,
+            col0: 5,
+            height: 10,
+            width: 17,
+        };
+        let blocks = split_piece(&p, 4);
+        let area: u32 = blocks.iter().map(|b| b.width * b.height).sum();
+        assert_eq!(area, 170);
+        assert!(blocks.iter().all(|b| b.width <= 4 && b.height <= 4));
+        assert_eq!(blocks.len(), 3 * 5);
+        assert_eq!((blocks[0].row0, blocks[0].col0), (3, 5));
     }
 
     fn lossyear_band() -> &'static ForestBand {
