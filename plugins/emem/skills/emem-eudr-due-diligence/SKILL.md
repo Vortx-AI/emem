@@ -96,7 +96,7 @@ REST route.
 | `commodity_hs` | yes | HS-6 or longer. The endpoint checks it against Annex I. |
 | `quantity_kg` | yes | The quantity in kg. |
 | `request_visual_evidence` | no | `true` adds a Sentinel-2 NDVI and Sentinel-1 backscatter timeline for each year, with scene links. It adds upstream reads that can take minutes. |
-| `plot_salt` | no | 32 hex characters. Signed facts carry `plot_commitment`, a salted hash of `plot_id`, never the id. Send the same salt to get the same commitment. The answer returns the salt to you only. |
+| `plot_salt` | no | 32 hex characters. Signed facts carry `plot_commitment`, a salted hash of `plot_id`, never the id. Without it, the responder derives a stable salt from the id with a key only it holds. The answer returns the salt to you only. |
 
 ### Fields at the top level
 

@@ -57,20 +57,32 @@ const EXAMPLE_PIXELS_MAX: usize = 32;
 pub(crate) const PLOT_TAG: &[u8] = b"emem.eudr.plot_commitment.v1\0";
 pub(crate) const GEOMETRY_TAG: &[u8] = b"emem.eudr.geometry.v1\0";
 
-/// The caller's `plot_salt` (32 hex characters), or a fresh random one.
-pub(crate) fn salt_from(hex: Option<&str>) -> Result<[u8; 16], String> {
-    let Some(hex) = hex else {
-        use rand::RngCore;
-        let mut salt = [0u8; 16];
-        rand::rngs::OsRng.fill_bytes(&mut salt);
-        return Ok(salt);
-    };
+/// The caller's `plot_salt`, 32 hex characters.
+pub(crate) fn salt_from(hex: &str) -> Result<[u8; 16], String> {
     let bytes = data_encoding::HEXLOWER_PERMISSIVE
         .decode(hex.trim().as_bytes())
         .map_err(|_| "`plot_salt` is 32 hex characters (16 bytes)".to_string())?;
     bytes
         .try_into()
         .map_err(|_| "`plot_salt` is 32 hex characters (16 bytes)".to_string())
+}
+
+/// The context of the key that default salts are keyed with.
+const SALT_KEY_CONTEXT: &str = "emem 2026-11-14 eudr plot salt v1";
+
+/// The salt a plot gets when the caller sends none: the first 16 bytes of a
+/// keyed BLAKE3 hash of the plot id, under a key derived from the
+/// responder's signing seed. The same plot id gets the same salt, so a repeat
+/// gets the same commitment and reuses its plot fact. The hash is keyed, so
+/// no one without the seed can compute a salt and test guessed plot ids
+/// against a commitment; a new signing key changes every default salt, and so
+/// every commitment, once.
+pub(crate) fn derived_salt(seed: &[u8; 32], plot_id: &str) -> [u8; 16] {
+    let key = blake3::derive_key(SALT_KEY_CONTEXT, seed);
+    let mac = blake3::keyed_hash(&key, plot_id.as_bytes());
+    let mut salt = [0u8; 16];
+    salt.copy_from_slice(&mac.as_bytes()[..16]);
+    salt
 }
 
 /// The commitment that stands for the caller's plot id in a signed fact.
@@ -1394,7 +1406,7 @@ fn fact_value(
         .collect();
     json!({
         "schema": "emem.eudr_plot_raster.v1",
-        "rule": "eudr_compliance@1",
+        "rule": rule.algorithm(),
         "forest_rule": rule.label(),
         "cutoff_year": cutoff_year,
         "area_method": "coverage_fraction_geodesic",
@@ -1916,14 +1928,27 @@ mod tests {
 
     #[test]
     fn the_commitments_are_stable_and_salted() {
-        let salt = salt_from(Some("000102030405060708090a0b0c0d0e0f")).unwrap();
+        let salt = salt_from("000102030405060708090a0b0c0d0e0f").unwrap();
         let a = plot_commitment(&salt, "farm-1");
         assert_eq!(a, plot_commitment(&salt, "farm-1"));
         assert_ne!(a, plot_commitment(&salt, "farm-2"));
         assert_ne!(a, plot_commitment(&[0u8; 16], "farm-1"));
-        assert!(salt_from(Some("00")).is_err());
-        assert!(salt_from(Some("zz0102030405060708090a0b0c0d0e0f")).is_err());
-        assert_ne!(salt_from(None).unwrap(), salt_from(None).unwrap());
+        assert!(salt_from("00").is_err());
+        assert!(salt_from("zz0102030405060708090a0b0c0d0e0f").is_err());
+        // The default salt is stable for a plot id under one key, differs between
+        // plot ids, and changes with the key.
+        let seed = [7u8; 32];
+        assert_eq!(derived_salt(&seed, "farm-1"), derived_salt(&seed, "farm-1"));
+        assert_ne!(derived_salt(&seed, "farm-1"), derived_salt(&seed, "farm-2"));
+        assert_ne!(
+            derived_salt(&seed, "farm-1"),
+            derived_salt(&[8u8; 32], "farm-1")
+        );
+        // Keyed: not the plain hash of the plot id that anyone could compute.
+        assert_ne!(
+            &derived_salt(&seed, "farm-1")[..],
+            &blake3::hash(b"farm-1").as_bytes()[..16]
+        );
         let ring = bbox_ring((5.78, 5.78155, -6.59, -6.58845));
         assert_eq!(geometry_commitment(std::slice::from_ref(&ring)).len(), 64);
         let mut moved = ring;

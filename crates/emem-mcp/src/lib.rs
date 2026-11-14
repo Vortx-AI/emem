@@ -1006,7 +1006,7 @@ const SCHEMA_EUDR_DDS: &str = r#"{"type":"object","required":["plots"],"properti
   "commodity_name":{"type":"string","description":"Optional plain-English commodity name."},
   "quantity_kg":{"type":"number","description":"Net mass in kilograms (Annex II §3)."},
   "supplier":{"type":"string","description":"Optional supplier identifier."},
-  "plot_salt":{"type":"string","pattern":"^[0-9a-fA-F]{32}$","description":"Optional. 16 bytes as 32 hex characters. Signed facts carry plot_commitment, a salted hash of plot_id, never plot_id itself. Send the same salt to get the same commitment. Without it, each request draws a new salt. The answer returns the salt to you only."}
+  "plot_salt":{"type":"string","pattern":"^[0-9a-fA-F]{32}$","description":"Optional. 16 bytes as 32 hex characters. Signed facts carry plot_commitment, a salted hash of plot_id, never plot_id itself. Without it, the responder derives a salt from plot_id with a key only it holds, so the same plot gets the same commitment. The answer returns the salt to you only."}
 }}},
 "cut_off_date":{"type":"string","default":"2020-12-31","description":"EUDR cut-off date in ISO 8601. The regulation's value is 2020-12-31; only loss after this date counts as failure."},
 "forest_baseline_override":{"type":"string","description":"Optional baseline override. Default 'jrc_gfc2020_v4' is the EU Commission's expected (non-binding) baseline. Acceptable: 'jrc_gfc2020_v4' ('jrc_gfc2020_v3' still accepted), 'hansen_only', 'both'."},

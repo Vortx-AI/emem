@@ -10083,6 +10083,230 @@
    }
   },
   {
+   "key": "eudr_compliance@2",
+   "kind": "combined",
+   "domain": "carbon",
+   "inputs": [
+    {
+     "band": "jrc_gfc2020.forest_2020",
+     "role": "eudr_forest_baseline",
+     "explanation": "JRC Global Forest Cover for the year 2020 V3 \u2014 the EU Commission's expected (non-binding) baseline for EUDR Due Diligence Statements. Value 1 means the cell met the Regulation 2023/1115 Article 2(4) forest definition at the 2020-12-31 cut-off date: >0.5 ha, >5 m tree height, >10 % canopy cover, excluding land predominantly under agricultural or urban use."
+    },
+    {
+     "band": "forest_change.treecover2000",
+     "role": "hansen_baseline_cover",
+     "explanation": "Hansen GFC v1.13 tree cover in 2000, in percent. Under this rule it makes a cell forest only where JRC GFC2020 has no reading (10 % or more, with no Hansen loss up to the cut-off year); there the verdict is marked jrc_unavailable_hansen_only. Where JRC has a reading, Hansen tree cover never makes a cell forest: it counts every tree over 5 m, tree crops included, and Article 2(4) excludes agricultural plantations from forest. A JRC non-forest cell with Hansen tree cover and no loss passes, and the plot reports the area as a disagreement between the maps."
+    },
+    {
+     "band": "forest_change.lossyear",
+     "role": "loss_year_baseline_and_post_cutoff",
+     "explanation": "Year of the first Hansen loss, as a calendar year (2001..2025 in v1.13); 0 means no loss. A year after the cut-off year is loss after the cut-off."
+    },
+    {
+     "band": "jrc_tmf.deforestation_year",
+     "role": "tropical_belt_loss_year",
+     "explanation": "JRC TMF v1.2025 deforestation year (Vancutsem et al. 2021), 30 m, within 30 degrees of the equator. A year after the cut-off year is loss after the cut-off, as a Hansen loss year is: the raster method of /v1/eudr_dds counts both."
+    }
+   ],
+   "formula": "forest_rule jrc_only. let jrc_forest = (jrc_gfc2020.forest_2020 >= 1); let loss = (forest_change.lossyear > 2020) OR (jrc_tmf.deforestation_year > 2020); if jrc_forest -> (loss ? 'fail' [code 2] : 'pass' [code 1]); else if loss -> 'review' [code 7]: loss after the cut-off on land the JRC map calls non-forest, which the operator must explain (the map is not binding); else if (forest_change.treecover2000 >= 10) AND (forest_change.lossyear == 0) -> 'pass' [code 1], marked hansen_tree_cover_jrc_non_forest; else -> 'not_in_scope' [code 3]. Where JRC GFC2020 has no reading the dispatcher (/v1/eudr_dds) lets Hansen decide (treecover2000 >= 10 with no loss up to the cut-off year is forest) and marks the cell jrc_unavailable_hansen_only; the AST below covers the cells with a JRC reading. Code 5 is a retired code and is never emitted. The cut-off year 2020 is the default; /v1/eudr_dds takes another.",
+   "evaluation": {
+    "op": "where",
+    "cond": {
+     "op": "band",
+     "band": "jrc_gfc2020.forest_2020"
+    },
+    "gt": 0.5,
+    "then_": {
+     "op": "where",
+     "cond": {
+      "op": "max",
+      "terms": [
+       {
+        "op": "where",
+        "cond": {
+         "op": "band",
+         "band": "forest_change.lossyear"
+        },
+        "gt": 2020.5,
+        "then_": {
+         "op": "const",
+         "value": 1.0
+        },
+        "else_": {
+         "op": "const",
+         "value": 0.0
+        }
+       },
+       {
+        "op": "where",
+        "cond": {
+         "op": "band",
+         "band": "jrc_tmf.deforestation_year"
+        },
+        "gt": 2020.5,
+        "then_": {
+         "op": "const",
+         "value": 1.0
+        },
+        "else_": {
+         "op": "const",
+         "value": 0.0
+        }
+       }
+      ]
+     },
+     "gt": 0.5,
+     "then_": {
+      "op": "const",
+      "value": 2.0
+     },
+     "else_": {
+      "op": "const",
+      "value": 1.0
+     }
+    },
+    "else_": {
+     "op": "where",
+     "cond": {
+      "op": "max",
+      "terms": [
+       {
+        "op": "where",
+        "cond": {
+         "op": "band",
+         "band": "forest_change.lossyear"
+        },
+        "gt": 2020.5,
+        "then_": {
+         "op": "const",
+         "value": 1.0
+        },
+        "else_": {
+         "op": "const",
+         "value": 0.0
+        }
+       },
+       {
+        "op": "where",
+        "cond": {
+         "op": "band",
+         "band": "jrc_tmf.deforestation_year"
+        },
+        "gt": 2020.5,
+        "then_": {
+         "op": "const",
+         "value": 1.0
+        },
+        "else_": {
+         "op": "const",
+         "value": 0.0
+        }
+       }
+      ]
+     },
+     "gt": 0.5,
+     "then_": {
+      "op": "const",
+      "value": 7.0
+     },
+     "else_": {
+      "op": "where",
+      "cond": {
+       "op": "min",
+       "terms": [
+        {
+         "op": "where",
+         "cond": {
+          "op": "band",
+          "band": "forest_change.treecover2000"
+         },
+         "gt": 9.999,
+         "then_": {
+          "op": "const",
+          "value": 1.0
+         },
+         "else_": {
+          "op": "const",
+          "value": 0.0
+         }
+        },
+        {
+         "op": "where",
+         "cond": {
+          "op": "sub",
+          "a": {
+           "op": "const",
+           "value": 0.5
+          },
+          "b": {
+           "op": "band",
+           "band": "forest_change.lossyear"
+          }
+         },
+         "gt": 0.0,
+         "then_": {
+          "op": "const",
+          "value": 1.0
+         },
+         "else_": {
+          "op": "const",
+          "value": 0.0
+         }
+        }
+       ]
+      },
+      "gt": 0.5,
+      "then_": {
+       "op": "const",
+       "value": 1.0
+      },
+      "else_": {
+       "op": "const",
+       "value": 3.0
+      }
+     }
+    }
+   },
+   "output": {
+    "kind": "classification",
+    "values": [
+     "pass",
+     "fail",
+     "not_in_scope",
+     "indeterminate",
+     "review"
+    ],
+    "explanation": "EUDR per-cell verdict under forest_rule jrc_only. 1 = pass: JRC forest with no loss after the cut-off, or JRC non-forest with Hansen tree cover and no loss (a disagreement between the maps, reported). 2 = fail: JRC forest with Hansen or TMF loss after the cut-off. 3 = not_in_scope: JRC non-forest without loss or tree cover. 4 = indeterminate: no baseline reading (the dispatcher emits it; the AST cannot). 7 = review: Hansen or TMF loss after the cut-off on JRC non-forest. A pass means no indication of deforestation was found in the maps read; it is not a finding of compliance."
+   },
+   "when_to_use": "The default per-cell rule of /v1/eudr_dds from 14 November 2026 (forest_rule jrc_only): EUDR Due Diligence Statements for the seven commodity groups of Regulation (EU) 2023/1115. eudr_compliance@1 is the earlier union rule, kept for one release (forest_rule jrc_or_hansen).",
+   "primitive": "POST /v1/recall_polygon {polygon, bands:['jrc_gfc2020.forest_2020','forest_change.treecover2000','forest_change.lossyear']} \u2192 apply Expr AST per cell \u2192 aggregate. Or POST /v1/eudr_dds for the full Annex II envelope.",
+   "deterministic": true,
+   "citation": "European Union. 2023. Regulation (EU) 2023/1115 of 31 May 2023 on the making available on the Union market and the export from the Union of certain commodities and products associated with deforestation and forest degradation (Article 2(4) forest definition, Article 2(28) geolocation rule, Article 8 due diligence, Article 9 + Annex II DDS). Bourgoin, C. et al. 2026. GFC2020: A Global Map of Forest Land Use for year 2020 to support the EU Deforestation Regulation. ESSD 18:1331. DOI 10.5194/essd-2025-351. Hansen, M.C. et al. 2013. High-Resolution Global Maps of 21st-Century Forest Cover Change. Science 342:850\u2013853 (annual updates; v1.12 = 2025 release covering loss through 2024). Sims, M.J. et al. 2025. Global drivers of forest loss at 1 km resolution. Environmental Research Letters 20:074027. European Commission. 2026. EUDR Frequently Asked Questions, version 5 (April 2026), sections 5.18, 9.10 and 9.10.1. European Commission. 2026. Guidance C/2026/3896, section 5.",
+   "frequency_of_calculation": "annual at minimum (Hansen GFC publishes a new vintage each year, typically April). For active commodity supply chains, re-run on every Hansen v1.x release AND on every RADD/GLAD near-real-time alert to detect new losses inside the EUDR cut-off window. JRC GFC2020 is a single 2020 baseline; it does not need annual recall.",
+   "accuracy_band": "JRC GFC2020 V3 omitted 17.3 % of forest in Africa; the accuracy of V4 is not yet published (Bourgoin et al. 2026). Hansen GFC user's accuracy 87 % for 2000 cover >= 25 %, 73 % for cover 0-25 % (Hansen et al. 2013, supplementary). Loss areas carry the 30 m boundary of the Hansen and TMF loss maps.",
+   "honest_limits": "1. The JRC GFC2020 map is non-mandatory, non-exclusive and non-legally binding (Commission FAQ v5, April 2026, sections 9.10 and 9.10.1), and actual forest properties prevail over any map (Guidance C/2026/3896, section 5). A plot outside mapped forest cannot be assumed compliant, so loss on JRC non-forest is review, not pass. 2. Article 2(4) to 2(6) and Recital 37 exclude agricultural plantations from forest; Hansen tree cover includes them, which is why it does not make a cell forest where JRC has a reading. 3. Only Article 3(a) deforestation is covered: Article 9(1)(b) legality is out of Earth-observation scope. 4. eudr_compliance@1 keeps the earlier union rule (JRC OR Hansen) for one release.",
+   "multimodal": {
+    "delivery_resolution_m": 10,
+    "baseline_sources": [
+     "jrc_gfc2020.forest_2020",
+     "forest_change.treecover2000",
+     "forest_change.lossyear"
+    ],
+    "variance_sources": [
+     "indices.ndvi",
+     "sentinel1_raw"
+    ],
+    "fusion_method": "consensus_vote",
+    "priority_chain": [
+     "static",
+     "s2",
+     "s1"
+    ],
+    "anchor_band": "jrc_gfc2020.forest_2020",
+    "fallback_strategy": "tier_demote"
+   }
+  },
+  {
    "key": "eudr_dds@1",
    "kind": "combined",
    "domain": "carbon",

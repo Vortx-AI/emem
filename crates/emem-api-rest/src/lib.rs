@@ -22102,7 +22102,7 @@ async fn get_eudr_dds_schema() -> Json<JsonValue> {
             "legality_disclaimer": {"type": "string", "$comment": "Required structured disclaimer when legality_module == 'none'"},
             "schema_url":      {"type": "string", "format": "uri", "$comment": "Self-reference to this schema document"},
             "algorithm_key":   {"const": "eudr_dds@1", "$comment": "Polygon-aggregator algorithm key in the emem registry"},
-            "underlying_per_cell_algorithm": {"const": "eudr_compliance@1", "$comment": "Per-cell verdict algorithm key"},
+            "underlying_per_cell_algorithm": {"enum": ["eudr_compliance@2", "eudr_compliance@1"], "$comment": "Per-cell verdict algorithm key: @2 for forest_rule jrc_only (the default), @1 for jrc_or_hansen"},
             "due_diligence_statement": {
                 "type": "object",
                 "$comment": "Annex II §1-7 envelope summary",
@@ -37119,7 +37119,7 @@ fn openapi_spec() -> JsonValue {
                         "commodity_name":{"type":"string","description":"Optional plain-English commodity name."},
                         "quantity_kg":{"type":"number","description":"Net mass in kilograms (Annex II §3)."},
                         "supplier":{"type":"string","description":"Optional supplier identifier."},
-                        "plot_salt":{"type":"string","pattern":"^[0-9a-fA-F]{32}$","description":"Optional 16 bytes as 32 hex characters. Signed facts carry plot_commitment = blake3(\"emem.eudr.plot_commitment.v1\" || 0x00 || salt || plot_id), never plot_id. Send the same salt to get the same commitment; without it each request draws a fresh one. The answer returns the salt to you only; reveal it with the plot_id to prove the link."},
+                        "plot_salt":{"type":"string","pattern":"^[0-9a-fA-F]{32}$","description":"Optional 16 bytes as 32 hex characters. Signed facts carry plot_commitment = blake3(\"emem.eudr.plot_commitment.v1\" || 0x00 || salt || plot_id), never plot_id. Without it the responder derives the salt from plot_id under a key only it holds (blake3 keyed hash), so the same plot gets the same commitment and a repeat reuses its fact. The answer returns the salt to you only; reveal it with the plot_id to prove the link."},
                         "request_visual_evidence":{"type":"boolean","default":false,"description":"Opt-in: build a per-year visual deforestation-evidence block for this plot. Adds a `visual_evidence` field to the per-plot result containing a Sentinel-2 NDVI annual timeline from 2020..current_year + Sentinel-1 RTC VV-backscatter cloud-independent confirmation + per-cell scene.png URLs the agent can render as a 6-up year-by-year grid. Adds upstream Sentinel fan-out per plot, bounded by its own budget (EMEM_EUDR_VISUAL_BUDGET_SECS, default 60 s): past it the verdict is returned with `visual_evidence.verdict: \"incomplete\"`, and what finished is stored so the next request for the plot fills it in. The whole call has 280 s by default, under the ~300 s client/edge cut. Visual-evidence concurrency is bounded (EMEM_EUDR_VISUAL_CONCURRENCY) and the route is capped (EMEM_EUDR_MAX_INFLIGHT) so a visual-evidence burst can't starve the server. The block carries its own `verdict` (`no_visual_deforestation` / `visual_deforestation_suspected` / `indeterminate_no_baseline`) computed from NDVI drop ≥ EMEM_VISUAL_NDVI_DROP_THRESHOLD (default 0.15 vs 2020, Pelletier 2024) and S1 VV drop ≥ EMEM_VISUAL_S1_DROP_DB_THRESHOLD (default 3 dB, Reiche 2018). All underlying facts are signed Primary records under the responder's identity; auditors cite ndvi_fact_cids + s1_fact_cids."}
                     }}},
                     "cut_off_date":{"type":"string","default":"2020-12-31","description":"EUDR cut-off date (ISO 8601). The regulation's value is 2020-12-31."},
@@ -74732,9 +74732,9 @@ struct EudrPlot {
     #[serde(default)]
     request_visual_evidence: Option<bool>,
     /// 32 hex characters (16 bytes) that salt `plot_commitment`, the value
-    /// that stands for `plot_id` in signed facts. Send the same salt to get
-    /// the same commitment; without it each request draws a fresh one. The
-    /// salt is returned to the caller and never stored or logged.
+    /// that stands for `plot_id` in signed facts. Without it the responder
+    /// derives a stable salt from the plot id (`eudr_raster::derived_salt`).
+    /// The salt is returned to the caller and never stored or logged.
     #[serde(default)]
     plot_salt: Option<String>,
 }
@@ -77013,6 +77013,15 @@ impl ForestRule {
         }
     }
 
+    /// The registered per-cell algorithm this rule is: `eudr_compliance@2`
+    /// for `jrc_only`, `@1` (the earlier union) for `jrc_or_hansen`.
+    fn algorithm(self) -> &'static str {
+        match self {
+            ForestRule::JrcOnly => "eudr_compliance@2",
+            ForestRule::JrcOrHansen => "eudr_compliance@1",
+        }
+    }
+
     fn means(self) -> &'static str {
         match self {
             ForestRule::JrcOnly => "jrc_only: a cell is forest at the cut-off when the JRC GFC2020 map calls it forest. Hansen tree cover never makes a cell forest by itself. Where JRC has no reading, Hansen tree cover (10 % or more, no loss up to the cut-off year) decides, and the cell carries jrc_unavailable_hansen_only. JRC forest with loss after the cut-off is fail. Loss after the cut-off on land JRC calls non-forest is review: confirm that the land was in agricultural use before 2021. JRC non-forest with Hansen tree cover and no loss is pass, and the plot reports that area as a disagreement between the maps.",
@@ -78393,7 +78402,7 @@ fn build_producer_geojson(
 /// even when JRC errored and the verdict ran on Hansen alone; a partner copied
 /// it into a signed statement whose own baseline field said the opposite.
 fn eudr_methodology_note(computed_baseline: &str) -> String {
-    let base = "Per-cell verdict from eudr_compliance@1 (JRC GFC2020 baseline, version in `forest_baseline_dataset` + Hansen GFC v1.13 post-cut-off loss-year), with the forest rule in `forest_rule`, applied to every 10 m pixel of the plot on the raster method or to sampled cells on the sampled method (each plot's `method`). A cell cleared at or before the cut-off year is `not_in_scope` (no longer forest at the cut-off), not `pass`. Plot aggregation applies Article 2(4) 0.5 ha MMU floor (per-cell ≈91 m², ≈55 cells = 0.5 ha). Borderline-canopy flag at ±2 pp of the Article 2(4) 10% threshold. No de-minimis fail-fraction (strict EUDR). JRC TMF v1.2025 DeforestationYear is read on every cell and reported per plot as `tmf_cross_check` (post-cut-off loss agreement with Hansen), NOT counted in the verdict; it is read by HTTP Range from a COG re-encoding of the JRC tiles (source.coop/epoch/jrc-tmf, pixel values spot-checked equal), falling back to the JRC dispatcher. WRI-Sims driver attribution and RADD SAR alerts are off the hot path (signed Absence today). The verdict is the JRC GFC2020 + Hansen consensus only.";
+    let base = "Per-cell verdict from eudr_compliance@2 under forest_rule jrc_only, or @1 under jrc_or_hansen (JRC GFC2020 baseline, version in `forest_baseline_dataset` + Hansen GFC v1.13 post-cut-off loss-year), with the forest rule in `forest_rule`, applied to every 10 m pixel of the plot on the raster method or to sampled cells on the sampled method (each plot's `method`). A cell cleared at or before the cut-off year is `not_in_scope` (no longer forest at the cut-off), not `pass`. Plot aggregation applies Article 2(4) 0.5 ha MMU floor (per-cell ≈91 m², ≈55 cells = 0.5 ha). Borderline-canopy flag at ±2 pp of the Article 2(4) 10% threshold. No de-minimis fail-fraction (strict EUDR). JRC TMF v1.2025 DeforestationYear is read on every cell and reported per plot as `tmf_cross_check` (post-cut-off loss agreement with Hansen), NOT counted in the verdict; it is read by HTTP Range from a COG re-encoding of the JRC tiles (source.coop/epoch/jrc-tmf, pixel values spot-checked equal), falling back to the JRC dispatcher. WRI-Sims driver attribution and RADD SAR alerts are off the hot path (signed Absence today). The verdict is the JRC GFC2020 + Hansen consensus only.";
     if computed_baseline == "hansen_only_jrc_unavailable" {
         format!("{base} ON THIS REQUEST JRC GFC2020 WAS UNAVAILABLE: the verdict ran on Hansen GFC alone, without the Commission's expected baseline; see `forest_baseline_computed`. Do not describe it as the JRC + Hansen consensus.")
     } else {
@@ -79005,7 +79014,7 @@ async fn post_eudr_dds_inner(
     for (i, p) in req.plots.iter().enumerate() {
         if let Some(salt) = p.plot_salt.as_deref() {
             // The salt is the caller's secret: the refusal does not repeat it.
-            if eudr_raster::salt_from(Some(salt)).is_err() {
+            if eudr_raster::salt_from(salt).is_err() {
                 return Err(bad(format!(
                     "eudr_dds: plots[{i}]: `plot_salt` is 32 hex characters (16 bytes)"
                 )));
@@ -79211,7 +79220,10 @@ async fn post_eudr_dds_inner(
     let salts: Vec<[u8; 16]> = req
         .plots
         .iter()
-        .map(|p| eudr_raster::salt_from(p.plot_salt.as_deref()).unwrap_or_default())
+        .map(|p| match p.plot_salt.as_deref() {
+            Some(hex) => eudr_raster::salt_from(hex).unwrap_or_default(),
+            None => eudr_raster::derived_salt(&s.identity.signing.to_bytes(), &p.plot_id),
+        })
         .collect();
     // The raster method reads by consignment, not plot by plot: plots near
     // each other share one read of each source (see `evaluate_consignment`).
@@ -79663,7 +79675,7 @@ async fn post_eudr_dds_inner(
 
     let algorithms_cid = ALGORITHMS_CID.clone();
     let ast_present = emem_core::algorithms::DEFAULT
-        .lookup("eudr_compliance@1")
+        .lookup(forest_rule.algorithm())
         .is_some_and(|a| a.evaluation.is_some());
 
     // Annex II envelope: group plots by HS-4 heading, attach a
@@ -79818,7 +79830,7 @@ async fn post_eudr_dds_inner(
         "degradation_disclaimer": "The verdict measures DEFORESTATION, conversion of forest to non-forest after the cut-off (Article 2(3)), via canopy loss (JRC GFC2020 baseline + Hansen loss-year). It does NOT measure forest DEGRADATION (Article 2(7): structural changes that reduce a forest's biomass or ecological capacity, e.g. primary or naturally regenerating forest converted to planted/plantation forest, or selective/partial-canopy loss that stays above the 10% threshold). The standard `pass` statement-of-compliance wording asserts both; the operator must separately satisfy the degradation limb. The JRC TMF v2025 degradation layer (`jrc_tmf.degradation_year`) is available as an explicit band request; it is not read on this path and does not enter the verdict.",
         "schema_url":      "/v1/schemas/eudr_dds.json",
         "algorithm_key":   "eudr_dds@1",
-        "underlying_per_cell_algorithm": "eudr_compliance@1",
+        "underlying_per_cell_algorithm": forest_rule.algorithm(),
         "algorithms_cid":  algorithms_cid,
         "registry_cid":    s.manifests.registry_cid.as_str(),
         "schema_cid":      s.manifests.schema_cid.as_str(),
@@ -100580,6 +100592,46 @@ mod tests {
         );
         assert_eq!(ForestRule::parse(None), Ok(ForestRule::JrcOnly));
         assert!(ForestRule::parse(Some("hansen")).is_err());
+    }
+
+    /// The registered card `eudr_compliance@2` and the code agree on every
+    /// cell with a JRC reading: the card is what a third party re-runs.
+    #[test]
+    fn the_jrc_only_card_agrees_with_the_rule() {
+        assert_eq!(ForestRule::JrcOnly.algorithm(), "eudr_compliance@2");
+        assert_eq!(ForestRule::JrcOrHansen.algorithm(), "eudr_compliance@1");
+        for (jrc, tc, ly, tmf) in [
+            (0, 60, 2024, 0),
+            (0, 60, 0, 0),
+            (0, 3, 0, 0),
+            (0, 3, 0, 2023),
+            (1, 60, 2023, 0),
+            (1, 60, 0, 2022),
+            (1, 60, 0, 0),
+            (1, 5, 2008, 0),
+            (0, 60, 2008, 0),
+        ] {
+            let mut samples = std::collections::HashMap::new();
+            samples.insert("jrc_gfc2020.forest_2020".to_string(), jrc as f64);
+            samples.insert("forest_change.treecover2000".to_string(), tc as f64);
+            samples.insert("forest_change.lossyear".to_string(), ly as f64);
+            samples.insert("jrc_tmf.deforestation_year".to_string(), tmf as f64);
+            let card = emem_core::algorithms::DEFAULT
+                .evaluate("eudr_compliance@2", &samples)
+                .expect("evaluates")
+                .expect("has an AST");
+            let (code, _) = eudr_verdict_for(
+                Some(jrc),
+                Some(tc),
+                Some(ly),
+                Some(tmf),
+                None,
+                None,
+                2020,
+                ForestRule::JrcOnly,
+            );
+            assert_eq!(card as u8, code, "({jrc}, {tc}, {ly}, {tmf})");
+        }
     }
 
     /// jrc_or_hansen is the union this endpoint used before: the cocoa cell

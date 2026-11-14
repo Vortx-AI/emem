@@ -64,7 +64,7 @@ trace encodings 8.
 | Identifier | Source | Struct in `emem-core` | Count | Role |
 |---|---|---|---|---|
 | `emem-bands` | `data/bands-v0.json` | `bands::BandRegistry` | 43 slots | cube slot layout (1792 dimensions): family, tempo, privacy per slot |
-| `emem-algorithms` | `data/algorithms-v0.json` | `algorithms::AlgorithmRegistry` | 172 | composition recipes (solo, combined, embedding) |
+| `emem-algorithms` | `data/algorithms-v0.json` | `algorithms::AlgorithmRegistry` | 174 | composition recipes (solo, combined, embedding) |
 | `emem-functions` | `data/functions-v0.json` | `functions::FunctionRegistry` | 23 | derivation functions (primary, derivative, negative) |
 | `emem-sources` | `data/sources-v0.json` | `sources::SourceRegistry` | 46 schemes | ordered providers per scheme |
 | `emem-topics` | `data/topics-v0.json` | `topics::TopicRegistry` | 27 topics | `/v1/ask` routing (description, aliases, bands) |
@@ -209,7 +209,7 @@ offsets.
 | Kind | Count | What it composes |
 |---|---|---|
 | `solo` | 29 | one band to a derived class or scalar |
-| `combined` | 114 | a weighted composite of several bands (for example `flood_risk@2`, `water_consensus@1`) |
+| `combined` | 115 | a weighted composite of several bands (for example `flood_risk@2`, `water_consensus@1`) |
 | `embedding` | 29 | operations on an embedding: a foundation encoder's, or a field's seasonal memory |
 
 74 of the 172 carry an `evaluation` AST. 8 carry a `parameters` block.

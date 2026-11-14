@@ -115,8 +115,7 @@ Its value holds these parts:
 A pixel count is the number of pixels the polygon touches; an area adds their covered parts.
 
 A repeat that gives the same value cites the fact signed before, and signs nothing new (`plot_fact_reused`).
-The value includes `plot_commitment`, so send the same `plot_salt` to get a repeat that reuses its fact.
-Without it, each request draws a new salt and signs a new fact.
+The value includes `plot_commitment`. The default salt is the same for the same plot id (see [Plot commitment](#plot-commitment)), so a repeat reuses its fact without the caller sending a salt.
 
 Each window is stored in the artifact store and served at `GET /v1/artifacts/<artifact_cid>`.
 Its id is the BLAKE3 hash of its bytes, in lowercase base32 without padding.
@@ -145,7 +144,16 @@ The method adds these fields:
 | `raster` | Each chunk's `owns`, and the id, URL, size, `native_m` and files of each source window |
 | `plot_fact_cid`, `plot_fact_token`, `plot_fact_reused` | The plot fact, its `emem:fact:` token, and whether an earlier identical one was cited |
 
-`per_cell_verdicts` is empty, `per_cell_detail` is `raster` and `per_cell_rows_cid` is null, because no per-cell fact exists.
+No per-cell fact exists on the raster method, so these fields are empty, with what to read instead:
+
+| Empty on a raster answer | Read instead |
+|---|---|
+| `per_cell_verdicts` (`[]`), `per_cell_verdicts_total` (`0`) | `example_pixels` for failing and review pixels; the counts in `pixels` and `area_ha` of the plot fact |
+| `per_cell_rows_cid` (`null`), `per_cell_offset`, `per_cell_next_offset` (`null`) | `plot_fact_cid`: the plot fact names every source window, and the verifier recounts every pixel from them |
+| `per_cell_detail` (`raster`, not `rows` or `anchor`) | the `raster` block |
+| `loss_year_histogram.parents_capped` (`false`), no histogram fact | `loss_year_histogram.signed_fact_cid`, which is the plot fact |
+
+A caller that needs per-cell rows for one more release sends `method: "sampled"`.
 `verdict_support` grades pixels as it grades cells.
 The sample spacing is the pixel side, about 10 m, so the spacing limit does not apply.
 
@@ -180,7 +188,7 @@ The derived count is at least 55 and at most 51,200.
 If no plot geometry gives an area, the count is 64.
 The endpoint clamps a count that the operator sets to 1 through 51,200.
 The raster method ignores `max_cells_per_plot`.
-The sampled method runs **`eudr_compliance@1`** on each cell.
+The sampled method runs the rule of `forest_rule` on each cell: **`eudr_compliance@2`** for `jrc_only`, `eudr_compliance@1` for `jrc_or_hansen`.
 It reads three bands from two static COG baselines, JRC GFC2020 and Hansen GFC:
 
 | Band | Role |
@@ -192,7 +200,9 @@ It reads three bands from two static COG baselines, JRC GFC2020 and Hansen GFC:
 The algorithm card at `GET /v1/algorithms/eudr_compliance@1` still names
 Hansen v1.12 (loss years `2001..2024`) on 7 November 2026. The `eudr_dds@1` card names no Hansen version.
 That text comes from `crates/emem-core/data/algorithms-v0.json`, which did not change when the connector moved to v1.13.
-The cards also still give the `jrc_or_hansen` forest rule, which stopped being the default on 14 November 2026.
+The card `eudr_compliance@1` gives the `jrc_or_hansen` union rule, which stopped being the default on 14 November 2026.
+The card `eudr_compliance@2` gives the `jrc_only` rule with the `review` verdict, and the answer names the card that ran in `underlying_per_cell_algorithm`.
+Its AST covers the cells with a JRC reading; where JRC has none, the endpoint lets Hansen decide, as the card says.
 The connector in `crates/emem-fetch/src/hansen_gfc.rs` reads `GFC-2025-v1.13`.
 The `eudr_dds@1` card also writes the cut-off test as `>= 21`, the raw upstream byte.
 The responder decodes that byte to a calendar year, so the test it applies is `>= 2021`.
@@ -438,13 +448,24 @@ plot_commitment = hex(blake3("emem.eudr.plot_commitment.v1" || 0x00 || salt || p
 ```
 
 The salt is 16 bytes.
-Send it as `plot_salt` (32 hex characters) on a plot to get the same commitment on every request.
-Without it, each request draws a new random salt.
+When the caller sends no `plot_salt`, the responder derives the salt from the plot id:
+
+```text
+key  = blake3.derive_key("emem 2026-11-14 eudr plot salt v1", responder signing seed)
+salt = first 16 bytes of blake3.keyed_hash(key, plot_id)
+```
+
+The same plot id thus gets the same salt and the same commitment, and a repeat reuses its plot fact.
+The hash is keyed with a secret only the responder holds.
+So no one else can compute a salt, and no one can test guessed plot ids against a commitment, as they could against a plain hash.
+The responder itself can compute the salt again, as it sees each plot id in the request anyway.
+A new responder signing key changes every default salt, and so every default commitment, one time.
+A caller's `plot_salt` (32 hex characters) replaces the default, for a caller that wants commitments of its own.
 The answer returns the salt in that plot's `plot_salt`, beside `plot_commitment`.
 The responder does not store or log the salt.
 To prove that a plot fact belongs to a plot, give the verifier the `plot_id` and the salt.
 It computes the commitment again and compares it with the one in the fact.
-Do not reuse one salt for many plots: a person who learns it can then test guessed plot ids against each of them.
+A caller that sends its own salt should not reuse it for many plots: a person who learns it can then test guessed plot ids against each of them.
 
 The plot fact also holds `geometry_commitment`, the BLAKE3 hash of the polygon as sent:
 the tag `emem.eudr.geometry.v1` and a zero byte, then for each ring its vertex count (`u32`, little-endian),
