@@ -194,6 +194,18 @@ const INDICES: [Index; 7] = [
     },
 ];
 
+/// A two-band Sentinel-2 index as this engine computes it: its bands, its
+/// formula and its reference. Other routes state the method from here, so
+/// what they say is what the engine ran.
+pub(crate) fn s2_index_spec(
+    key: &str,
+) -> Option<(&'static str, &'static str, &'static str, &'static str)> {
+    INDICES
+        .iter()
+        .find(|i| i.key == key && i.c.is_none())
+        .map(|i| (i.a, i.b, i.formula, i.reference))
+}
+
 /// Other names a caller may use for an index.
 fn index_alias(key: &str) -> &str {
     match key {

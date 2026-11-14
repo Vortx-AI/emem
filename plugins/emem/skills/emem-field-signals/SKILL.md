@@ -95,17 +95,25 @@ jq -c '{verdict, burn_events, events, observations}' burn.json
 To check one field and not the full box, put a polygon from Step 1 in
 `geometry_geojson` in place of the `bbox`.
 
-The call compares each pair of clear Sentinel-2 dates in each cell.
-It uses three sensors:
+The call reads the whole field. It takes every 20 m Sentinel-2 pixel
+inside the field on each clear date, through the field series engine.
+It signs one series for NBR and one for NDTI. Then it compares each pair
+of clear dates. It does this for the field median and for each block of
+the field map (`max_cells` sets about how many blocks). It uses three
+sensors:
 
 | Sensor | Fires when |
 |---|---|
-| `indices.nbr` | The NBR drop (dNBR) is 0.2 or more. A drop alone can also be a harvest. |
-| `indices.ndti` | The NDTI drop is 0.1 or more. This separates burning from tillage or mulch. |
+| NBR, (B8A - B12) / (B8A + B12) | The NBR drop (dNBR) is 0.2 or more. A drop alone can also be a harvest. |
+| NDTI, (B11 - B12) / (B11 + B12) | The NDTI drop is 0.1 or more. This tillage index separates burning from tillage or mulch. |
 | `modis.burned_area_monthly` | MCD64A1 marks a burn date in the pair. It is 500 m and monthly. |
 
+The call does not read the stored `indices.ndti` band. That band is a
+water turbidity index of B04 and B03 with the same name.
+
 Each pair with a dNBR of 0.1 or more gets a verdict in
-`cell_signals[]`. The verdict depends on
+`cell_signals[]`, one for the field (`scope: "field"`) and one for each
+block (`scope: "block"`). The verdict depends on
 the number of sensors that agree: 0 is `no_burn`, 1 is
 `single_sensor_signal`, 2 is `likely_burn`, 3 is
 `high_confidence_burn`. The call does not compare pairs more
@@ -115,23 +123,21 @@ The verdict for the field:
 
 | Verdict | Meaning | What to say |
 |---|---|---|
-| `burn` | On one post-burn date, `max(2, 10 %)` of the clear cells are `likely_burn` or better. `events[]` lists each event. | A burn, with the date and the fact cids. |
-| `signal_only` | One sensor fired in a cell, but no event passed the test. | A signal for triage. It is not evidence. |
-| `no_burn` | No sensor fired, with at least 2 clear dates for each cell (median). | No burn signature found in the window. |
-| `inconclusive` | Fewer than 2 clear Sentinel-2 dates for each cell (median). | Not enough clear imagery yet. Never say "no burning". |
+| `burn` | On one pair of dates, the field median is `likely_burn` or better, or `max(2, 10 %)` of the blocks clear on both dates are. `events[]` lists each event. | A burn, with the date and the series tokens. |
+| `signal_only` | One sensor fired, but no event passed the test. | A signal for triage. It is not evidence. |
+| `no_burn` | No sensor fired, with at least 2 clear dates over the field. | No burn signature found in the window. |
+| `inconclusive` | Fewer than 2 clear Sentinel-2 dates over the field, or a series that could not be read. | Not enough clear imagery yet. Never say "no burning". |
 
-For `inconclusive`, make the window wider, or retry after the warm-up
-ends. `observations.warmed` shows which bands finished the warm-up in
-the budget. CAMS smoke bands are in `sensors_not_evaluated` with the
-reason: they are 0.4° model fields.
+`method` states the formulas and the pixels read, and `support` gives
+the pixel count. `series` gives the token of each signed series, or the
+reason it failed. For `inconclusive`, make the window wider, or retry.
+CAMS smoke bands are in `sensors_not_evaluated` with the reason: they
+are 0.4° model fields.
 
-On 7 November 2026 this call gave `verdict: "signal_only"` and
-`burn_events: 0`. Each of the 16 cells had a median of 14 clear dates.
-Two of ten cell signals were `single_sensor_signal`. The receipt named
-451 fact cids. These counts grow while the warm-up adds facts: an
-earlier call on the same day saw 6 clear dates and 195 fact cids. On
-28 September 2026 the same call gave `inconclusive`, because the
-responder had not fetched the Sentinel-2 facts yet.
+Before 14 November 2026 this call sampled 16 cells in the south of the
+field. It read the stored `indices.ndti` band, which is a turbidity
+index, and the stored `indices.nbr` band, which mixes 10 m and 20 m
+pixels. Answers from before that date are not comparable.
 
 ## Step 3: get the crop water use
 

@@ -429,13 +429,15 @@ curl -sf -X POST $BASE/v1/field_actual_et -H 'content-type: application/json' \
 
 `field_burn_scar` gives one of these verdicts: `burn`, `signal_only`,
 `no_burn` or `inconclusive`. `inconclusive` means too few clear
-Sentinel-2 dates. Try again after the warm-up. `field_actual_et` sums
+Sentinel-2 dates. It reads every 20 m pixel of the field: NBR on B8A and
+B12, and the tillage index NDTI on B11 and B12, one signed series each. `field_actual_et` sums
 MODIS MOD16 8-day composites over one 463 m pixel. The result is the
 water that the crop used, not the irrigation applied. Both calls return
-the fact cids that they used and a receipt.
+what they read and a receipt.
 
 On 7 November 2026 the burn call gave `signal_only` with 0 burn events
-over 16 cells. The ET call gave `complete`, 148.04 mm
+over 16 sampled cells. It now reads the whole field, so its counts are
+blocks, not cells. The ET call gave `complete`, 148.04 mm
 (1480.38 m3/ha), with coverage 1.0.
 
 ---
