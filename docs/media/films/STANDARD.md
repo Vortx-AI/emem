@@ -48,6 +48,17 @@ fails a technical gate is sent back with the report.
   to 3 December, is a `fused` claim on a chain from `POST /v1/persist`. The gate runs the rule again on the
   series the chain read. The screen says it is a model reading, and it shows both melt readings when they
   disagree.
+- A cut that ends on a verdict shows the verdict on screen, not only in the voice, because pages play films with
+  the sound off. When the verdict is UNKNOWN or CAN'T TELL because two readings disagree, the screen does not show
+  the number of one reading alone. It shows both numbers, or neither. One number from one side reads as the
+  answer.
+- A pattern across many passes, such as the first and last pass of a winter that read as snow, is cited as the
+  `emem:fact` of one `POST /v1/field_series` series over the box, with the statistic and the rule (`series` in
+  `film.json`). The gate finds the first or last pass, or counts the passes, again from the signed rows. A first
+  pass is not the day the snow came. The screen says "first pass that saw it", and names the pass before it when
+  the gap between them is long. A median NDSI of 0.4 or more says that more than half of the clear pixels read as
+  snow or ice. It does not say how much more. One series call reads up to 96 passes, so do not read the passes
+  one raster at a time.
 - A picture from a map provider (a high-resolution base image, a 3D city) is an illustration. While it shows,
   the screen says "drawing of data" or "map image", and the provider's attribution is on the picture. Its segment
   in `film.json` names the provider, the product, the licence and the capture date, or "unknown" when the
@@ -126,6 +137,10 @@ One folder per film, `docs/media/films/<id>/`:
   the same box. The rules must read exactly the rasters given;
 - an absence in `claims` has `text`, `absence` (`{collection, lng, lat, after, before}`, the days of the passes on
   each side, and `max_cloud` for "no clear pass") and, when the screen shows the gap in days, `value`;
+- a pattern across passes in `claims` has `text`, `token` (the series' `emem:fact:`) and `series`: `{index, stat,
+  op, threshold, show, value}`, with `show` one of `first`, `last`, `count` or `at`. Add `after` and `before` to
+  keep one winter of a longer series, `bracket` for the neighbouring pass the screen names, `total` for a count
+  (required) and `date` for `at`. A day shown is `YYYY-MM-DD` in `value`, and the text names it;
 - a pass label may add `cloud`, the catalogue's cloud figure shown, which must equal the item's
   `eo:cloud_cover`; the text says it is the tile's. The catalogue's preview of a pass is an illustration segment
   whose `source.stac_item` is the item URL;

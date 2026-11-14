@@ -61,6 +61,17 @@ The half of docs/media/films/STANDARD.md that film_qc.py cannot do offline. For 
                                    requires every number and the verdict to match; the observation and the depth
                                    fact it cites must resolve to the values it used. The text must say it is a
                                    model or reanalysis reading.
+  emem:fact (a series) + `series`   a pattern across many passes over one box, such as "the first pass of the
+                                   winter where the median NDSI reached 0.4: 31 October 2024", from POST
+                                   /v1/field_series. `token` is the series' emem:fact; `series` is {index, stat,
+                                   op, threshold, show, value, after?, before?, date?, bracket?, total?}. `stat` is
+                                   a per-pass statistic of the record (median, mean, p10, p25, p75, p90); `show` is
+                                   first, last, count or at. The gate resolves the series, keeps its rows dated
+                                   from `after` to `before` (inclusive), applies the rule to each and finds the
+                                   first or last pass that meets it, the number that do, or the statistic on
+                                   `date`. A first or last `bracket` is the neighbouring pass that does not meet
+                                   it, so the screen can say "between". A count needs `total`, the passes in the
+                                   window, which the screen states. A date shown must be named in the text.
   a conversion                     "99 football pitches" from "71 hectares": `of` is the index of the claim it
                                    converts, `multiply` and `divide` the factors, `formula` the words. The gate
                                    converts the SIGNED value of that claim, not the rounded one on screen.
@@ -609,6 +620,81 @@ def fused(c):
     return True, f"recomputed {len(want)} links: {rec['verdict']} over {rec['window']['hours']} hours"
 
 
+SERIES_FNS = ("s2_index_series@1", "landsat_index_series@1")
+SERIES_STATS = ("median", "mean", "p10", "p25", "p75", "p90")
+ISO_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def names_day(text, iso):
+    y, mo, d = iso.split("-")
+    return (y in text and re.search(rf"(?<!\d)0?{int(d)}(?!\d)", text) is not None
+            and (MONTHS[int(mo) - 1] in text or f"-{mo}-" in text))
+
+
+def series(c):
+    s = c.get("series") if isinstance(c.get("series"), dict) else {}
+    show, stat, op = s.get("show"), s.get("stat"), s.get("op")
+    if show not in ("first", "last", "count", "at"):
+        return False, "`series.show` must be first, last, count or at"
+    if stat not in SERIES_STATS or (show != "at" and op not in RULE_OPS):
+        return False, f"`series.stat` must be one of {', '.join(SERIES_STATS)} and `series.op` one of ge, gt, le, lt"
+    t = num(s.get("threshold")) if show != "at" else Decimal(0)
+    if t is None or not t.is_finite():
+        return False, "`series.threshold` must be a number"
+    for k in ("after", "before", "date", "bracket") + (("value",) if show in ("first", "last") else ()):
+        if s.get(k) is not None and not ISO_DAY.match(str(s[k])):
+            return False, f"`series.{k}` must be a day, YYYY-MM-DD"
+    r = json.loads(get(f"{EMEM}/v1/memory_token/resolve", {"token": c["token"]}))
+    if not r.get("resolved"):
+        return False, f"does not resolve: {r.get('message', 'no reason given')}"
+    if r.get("cell_matches") is False:
+        return False, "resolves only without its cell; cite it as emem:fact:<cell>:<cid>"
+    if r.get("erratum"):
+        return False, f"carries an erratum ({r['erratum'].get('id')}); cite the fact in replaced_by"
+    rec = r.get("value")
+    if not isinstance(rec, dict) or rec.get("schema") != "emem.field_series.v1":
+        return False, "the token is not an area series (schema emem.field_series.v1)"
+    if rec.get("fn_key") not in SERIES_FNS:
+        return False, f"rule {rec.get('fn_key')!r}: this gate reads optical index series only ({', '.join(SERIES_FNS)})"
+    if rec.get("index") != s.get("index"):
+        return False, f"`series.index` is {s.get('index')!r}, the series reads {rec.get('index')!r}"
+    lo, hi = str(s.get("after") or "0000-00-00"), str(s.get("before") or "9999-99-99")
+    span = f"from {s['after'] or 'its start'} to {s['before'] or 'its end'}" if s.get("after") or s.get("before") else "in the series"
+    rows = sorted((x for x in rec.get("rows") or [] if lo <= str(x.get("date")) <= hi), key=lambda x: x["date"])
+    if not rows:
+        return False, f"the series holds no pass {span}"
+    text = str(c.get("text", "")).lower()
+    if show == "at":
+        row = next((x for x in rows if x["date"] == s.get("date")), None)
+        if row is None:
+            return False, f"the series holds no pass on {s.get('date')!r}"
+        if not same(s.get("value"), row.get(stat)) or not names_day(text, row["date"]):
+            return False, f"shown {s.get('value')!r} on {row['date']}, signed {stat} {row.get(stat)!r}; the text must name the day"
+        return True, f"{stat} {row[stat]} on {row['date']} ({row.get('n_clear')} clear pixels)"
+    rule = f"{stat} {op} {t}"
+    hit = [x.get(stat) is not None and RULE_OPS[op](Decimal(str(x[stat])), t) for x in rows]
+    if show == "count":
+        n = sum(hit)
+        if not same(s.get("value"), n):
+            return False, f"shown {s.get('value')!r}, {n} of {len(rows)} passes meet {rule}"
+        if s.get("total") is None or not same(s["total"], len(rows)):
+            return False, f"a count states its denominator: `series.total` must be {len(rows)}, the passes {span}"
+        return True, f"{n} of {len(rows)} passes meet {rule}"
+    idx = [i for i, h in enumerate(hit) if h]
+    if not idx:
+        return False, f"no pass {span} meets {rule}"
+    i = idx[0] if show == "first" else idx[-1]
+    j = i - 1 if show == "first" else i + 1
+    nb = rows[j]["date"] if 0 <= j < len(rows) else None
+    if s.get("value") != rows[i]["date"]:
+        return False, f"shown {s.get('value')!r}; the {show} pass that meets {rule} is {rows[i]['date']}"
+    if not names_day(text, rows[i]["date"]):
+        return False, f"the text does not name {rows[i]['date']}"
+    if s.get("bracket") is not None and s["bracket"] != nb:
+        return False, f"`bracket` {s['bracket']!r}; the neighbouring pass that does not meet {rule} is {nb!r}"
+    return True, f"{show} pass meeting {rule}: {rows[i]['date']} ({rows[i][stat]}); neighbour {nb} of {len(rows)} passes"
+
+
 def convert(c, i, claims, signed):
     of, mul, div = c.get("of"), num(c.get("multiply", 1)), num(c.get("divide", 1))
     if not isinstance(of, int) or isinstance(of, bool) or not 0 <= of < len(claims) or of == i:
@@ -669,6 +755,8 @@ def main():
                 ok, why = bundle(c)
             elif FACT.match(tok) and c.get("fused") is not None:
                 ok, why = fused(c)
+            elif FACT.match(tok) and c.get("series") is not None:
+                ok, why = series(c)
             elif FACT.match(tok) or TREE.match(tok):
                 m = TREE.match(tok)
                 ok, why, *val = tree(c, m) if m else fact(c)
