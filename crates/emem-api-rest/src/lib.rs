@@ -37042,7 +37042,7 @@ fn openapi_spec() -> JsonValue {
                     "polygon_bbox":{"type":"object","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"}},"description":"Explicit polygon bbox; alternative to `region`."}
                 }, "description":"Hunter-mode body. Either `region` (geocoded) or `polygon_bbox` (explicit). The responder sets a target n = ceil(sqrt(area_km2) / 8), at least 12 and at most EMEM_HUNT_MAX_CELLS (default 64, clamped 12 to 128), and samples at most n distinct cells. A bbox grid gives at most floor(sqrt(n))^2, so a target of 12 gives 9 cells; a region with a boundary polygon can give up to n. Slow primary bands such as MODIS LST use a target of 8 (EMEM_HUNTER_SLOW_BAND_CAP), so 4 cells on a bbox grid. It recalls the algorithm's primary scalar input plus any configured gate band, ranks each cell on its newest reading of the primary band, optionally re-ranks the top-K via Tessera embedding coherence, and returns the top 8 hotspots."},
                 "EudrDdsReq": {"type":"object","required":["plots"],"description":"POST /v1/eudr_dds body, produces a signed Annex II-shaped Due Diligence Statement per Regulation (EU) 2023/1115. Pair every plot with its operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint runs eudr_compliance@1 per cell (JRC GFC2020 legal baseline + Hansen GFC v1.13 post-cut-off loss-year consensus; JRC GFC2020 is read as 10° COG tiles for fast cold reads across all geographies). JRC TMF DeforestationYear is read on every cell and reported as `tmf_cross_check` (a TMF-only loss sets review_required); WRI-Sims driver attribution and RADD SAR are not wired here. Applies the Article 2(4) 0.5 ha MMU floor at plot aggregation, validates `commodity_hs` against Annex I, and emits the structured envelope. The response carries an explicit `legality_disclaimer` because Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) is structurally out of Earth-observation scope. Response includes an ed25519-signed `receipt` over the per-cell fact_cids (the first EMEM_EUDR_RECEIPT_MAX_FACTS by cid when there are more, disclosed as `receipt_fact_cids_capped` and `receipt_fact_cids_total`); verifiable offline at `/verify` (or `/v1/verify_receipt`). Every sampled cell's facts decide the verdict and are stored, because each plot's `per_cell_rows_cid` addresses all of them, inlined or not (`facts_computed` vs `facts_persisted`, per plot and in total); every fact_cid in the response, and every one behind `per_cell_rows_cid`, resolves at /v1/facts/<cid>. Pass an optional `scope` block (`{user_id, agent_id, run_id, org_id}`) to bind the receipt to a tenant.", "properties":{
-                    "per_cell_detail":{"type":"string","enum":["rows","anchor"],"description":"rows (default) inlines per_cell_verdicts; anchor leaves them out and keeps per_cell_rows_cid, a blake3 address over every cell's verdict and fact cids. Ask again with rows to expand it."},
+                    "operator_role":{"type":"string","enum":["OPERATOR","REPRESENTATIVE_OPERATOR"],"description":"The filer's role in the EUDR Information System, required by its V4 schema. Without it traces_nt_v4 is not fileable and says so."},"activity_type":{"type":"string","enum":["DOMESTIC","IMPORT","EXPORT"],"description":"Annex II activity: DOMESTIC (placing on the market), IMPORT (release for free circulation) or EXPORT. traces_nt_v4 leaves it out when absent; the V1 envelope defaults it to DOMESTIC."},"internal_reference_number":{"type":"string","maxLength":50,"description":"The operator's own reference, echoed into both envelopes."},"geolocation_confidential":{"type":"boolean","default":false,"description":"Whether the production places are confidential in the EUDR Information System."},"per_cell_detail":{"type":"string","enum":["rows","anchor"],"description":"rows (default) inlines per_cell_verdicts; anchor leaves them out and keeps per_cell_rows_cid, a blake3 address over every cell's verdict and fact cids. Ask again with rows to expand it."},
                     "per_cell_offset":{"type":"integer","minimum":0,"description":"page the rows in the order per_cell_rows_cid hashes them, from this index, one inline cap at a time; follow per_cell_next_offset until null, and the joined pages recompute per_cell_rows_cid"},
                     "plots":{"type":"array","minItems":1,"description":"One or more plots to evaluate.","items":{"type":"object","required":["plot_id","geometry_geojson","country_of_production","commodity_hs","quantity_kg"],"properties":{
                         "plot_id":{"type":"string","description":"Operator-supplied identifier; preserved verbatim in the response."},
@@ -74304,6 +74304,11 @@ struct EudrDdsReq {
     /// Annex II §1 activity type: DOMESTIC | IMPORT | EXPORT | TRADE.
     #[serde(default)]
     activity_type: Option<String>,
+    /// The filer's role in the EUDR Information System: OPERATOR or
+    /// REPRESENTATIVE_OPERATOR. Required by its V4 schema; only the operator
+    /// knows it, so `traces_nt_v4` leaves it empty and says so when absent.
+    #[serde(default)]
+    operator_role: Option<String>,
     /// Operator's internal reference number, echoed verbatim into the
     /// TRACES NT envelope.
     #[serde(default)]
@@ -77485,6 +77490,231 @@ fn max_decimal_digits(coords: &[Vec<Vec<f64>>]) -> usize {
 /// where the regulation asks for a finding of no or negligible risk.
 const ANNEX_II_POINT_5: &str = "By submitting this due diligence statement the operator confirms that due diligence in accordance with Regulation (EU) 2023/1115 was carried out and that no or only a negligible risk was found that the relevant products do not comply with Article 3, point (a) or (b), of that Regulation.";
 
+/// Combined Nomenclature heading texts for the Annex I headings filed most.
+/// Used only to draft `descriptionOfGoods` for the operator to confirm: a
+/// draft never goes into the submission element itself.
+fn annex_i_heading_text(hs: &str) -> Option<&'static str> {
+    let h: String = hs.chars().filter(char::is_ascii_digit).take(4).collect();
+    Some(match h.as_str() {
+        "0102" => "Live bovine animals",
+        "0201" => "Meat of bovine animals, fresh or chilled",
+        "0202" => "Meat of bovine animals, frozen",
+        "0901" => "Coffee, whether or not roasted or decaffeinated",
+        "1201" => "Soya beans, whether or not broken",
+        "1507" => {
+            "Soya-bean oil and its fractions, whether or not refined, but not chemically modified"
+        }
+        "1511" => "Palm oil and its fractions, whether or not refined, but not chemically modified",
+        "1801" => "Cocoa beans, whole or broken, raw or roasted",
+        "1803" => "Cocoa paste, whether or not defatted",
+        "1804" => "Cocoa butter, fat and oil",
+        "1805" => "Cocoa powder, not containing added sugar or other sweetening matter",
+        "1806" => "Chocolate and other food preparations containing cocoa",
+        "2304" => "Oil-cake and other solid residues from the extraction of soya-bean oil",
+        "4001" => "Natural rubber, in primary forms or in plates, sheets or strip",
+        "4403" => {
+            "Wood in the rough, whether or not stripped of bark or sapwood, or roughly squared"
+        }
+        "4407" => {
+            "Wood sawn or chipped lengthwise, sliced or peeled, of a thickness exceeding 6 mm"
+        }
+        _ => return None,
+    })
+}
+
+/// ISO 3166-1 alpha-2, which the V4 schema requires (`[a-zA-Z]{2}`), from
+/// the alpha-2 or alpha-3 code a caller sent.
+fn iso2_of(code: &str) -> Option<String> {
+    let c = code.trim();
+    if c.len() == 2 && c.chars().all(|x| x.is_ascii_alphabetic()) {
+        return Some(c.to_ascii_uppercase());
+    }
+    emem_fetch::countries::lookup(c).map(|r| r.iso2.to_ascii_uppercase())
+}
+
+/// One production place as the V4 `geometryGeojson` wants it: the
+/// FeatureCollection with `ProducerCountry` in alpha-2, `Area` kept only on
+/// a point (where it is the plot's area in hectares), no empty
+/// `ProducerName`, then base64.
+fn v4_geometry_geojson(place: &JsonValue, iso2: Option<&str>) -> String {
+    let mut fc = place.clone();
+    if let Some(features) = fc.get_mut("features").and_then(|f| f.as_array_mut()) {
+        for f in features {
+            let is_point = f.pointer("/geometry/type").and_then(|t| t.as_str()) == Some("Point");
+            if let Some(props) = f.get_mut("properties").and_then(|p| p.as_object_mut()) {
+                if let Some(c) = iso2 {
+                    props.insert("ProducerCountry".into(), json!(c));
+                }
+                if !is_point {
+                    props.remove("Area");
+                }
+                if props.get("ProducerName").and_then(|n| n.as_str()) == Some("") {
+                    props.remove("ProducerName");
+                }
+            }
+        }
+    }
+    data_encoding::BASE64.encode(&serde_json::to_vec(&fc).unwrap_or_default())
+}
+
+/// The statement as the EUDR Information System's V4 schema names it
+/// (EUDRDueDiligenceStatementServiceV4, SOAP with WS-Security). The system
+/// takes no JSON: the operator's software serialises these elements in the
+/// schema's order. Checked against the production V4 XSD on 2026-11-14. The
+/// system assigns the reference and verification numbers on submission, and
+/// the operator's identity and EORI come from the account that submits.
+fn traces_nt_v4(
+    req: &EudrDdsReq,
+    places: &[(usize, JsonValue, bool)],
+    dds_ref: &str,
+    signable: bool,
+    held_because: Vec<String>,
+) -> JsonValue {
+    use std::collections::BTreeMap;
+    let mut must_supply: Vec<String> = Vec::new();
+    let mut not_fileable: Vec<String> = held_because;
+    if !signable && not_fileable.is_empty() {
+        not_fileable.push("statement_not_signable".into());
+    }
+    let role = req
+        .operator_role
+        .as_deref()
+        .map(|r| r.trim().to_ascii_uppercase())
+        .filter(|r| r == "OPERATOR" || r == "REPRESENTATIVE_OPERATOR");
+    if role.is_none() {
+        must_supply.push("operatorRole: OPERATOR or REPRESENTATIVE_OPERATOR".into());
+        not_fileable.push("missing_operatorRole".into());
+    }
+    let activity = req
+        .activity_type
+        .as_deref()
+        .map(|a| a.trim().to_ascii_uppercase())
+        .filter(|a| a == "DOMESTIC" || a == "IMPORT" || a == "EXPORT");
+    if activity.is_none() {
+        must_supply.push(
+            "activityType: DOMESTIC (placing on the market), IMPORT (release for free circulation) or EXPORT; IMPORT and EXPORT need the account's EORI".into(),
+        );
+        not_fileable.push("missing_activityType".into());
+    }
+    let mut by_hs: BTreeMap<String, Vec<&(usize, JsonValue, bool)>> = BTreeMap::new();
+    for p in places {
+        let hs: String = req.plots[p.0]
+            .commodity_hs
+            .chars()
+            .filter(char::is_ascii_digit)
+            .take(10)
+            .collect();
+        by_hs.entry(hs).or_default().push(p);
+    }
+    let mut drafts: Vec<JsonValue> = Vec::new();
+    let mut commodities: Vec<JsonValue> = Vec::new();
+    let mut imprecise = false;
+    let mut bad_country = false;
+    for (hs, ps) in &by_hs {
+        let head = &req.plots[ps[0].0];
+        let net: f64 = ps.iter().map(|p| req.plots[p.0].quantity_kg).sum();
+        let description = ps
+            .iter()
+            .find_map(|p| req.plots[p.0].description_of_goods.clone())
+            .map(|d| d.chars().take(150).collect::<String>());
+        if description.is_none() {
+            must_supply.push(format!(
+                "descriptionOfGoods for HS {hs}: the commercial description, with the trade name (Annex II item 2), at most 150 characters"
+            ));
+            not_fileable.push(format!("missing_descriptionOfGoods_{hs}"));
+            drafts.push(json!({"hsHeading": hs, "descriptionOfGoods": annex_i_heading_text(hs)}));
+        }
+        let mut goods = json!({"netWeight": net});
+        let supp: Vec<f64> = ps
+            .iter()
+            .filter_map(|p| req.plots[p.0].quantity_supplementary_units)
+            .collect();
+        if !supp.is_empty() {
+            goods["supplementaryUnit"] = json!(supp.iter().sum::<f64>());
+            if let Some(q) = &head.quantity_supplementary_unit_qualifier {
+                goods["supplementaryUnitQualifier"] = json!(q);
+            }
+        }
+        let producers: Vec<JsonValue> = ps
+            .iter()
+            .map(|(idx, place, below)| {
+                let plot = &req.plots[*idx];
+                let iso2 = iso2_of(
+                    plot.producer_country
+                        .as_deref()
+                        .unwrap_or(&plot.country_of_production),
+                );
+                bad_country |= iso2.is_none();
+                imprecise |= *below;
+                let mut p = json!({
+                    "country": iso2,
+                    "geometryGeojson": v4_geometry_geojson(place, iso2.as_deref()),
+                });
+                if let Some(n) = plot.producer_name.clone().or_else(|| plot.supplier.clone()) {
+                    p["name"] = json!(n.chars().take(500).collect::<String>());
+                }
+                p
+            })
+            .collect();
+        let mut descriptors = json!({"goodsMeasure": goods});
+        if let Some(d) = description {
+            descriptors["descriptionOfGoods"] = json!(d);
+        }
+        commodities.push(json!({
+            "descriptors": descriptors,
+            "hsHeading": hs,
+            "producers": producers,
+        }));
+    }
+    if bad_country {
+        not_fileable.push("producer_country_not_iso3166".into());
+    }
+    if imprecise {
+        not_fileable.push("geolocation_below_6_decimals".into());
+    }
+    let mut statement = json!({
+        "internalReferenceNumber": req
+            .internal_reference_number
+            .clone()
+            .unwrap_or_else(|| dds_ref.to_string())
+            .chars()
+            .take(50)
+            .collect::<String>(),
+        "geoLocationConfidential": req.geolocation_confidential.unwrap_or(false),
+        "commodities": commodities,
+    });
+    if let Some(a) = &activity {
+        statement["activityType"] = json!(a);
+    }
+    if let Some(r) = &role {
+        statement["operatorRole"] = json!(r);
+        if r == "REPRESENTATIVE_OPERATOR" {
+            match &req.operator {
+                Some(o) => {
+                    statement["representedOperator"] =
+                        json!({"name": o.name, "address": o.address, "eori": o.eori});
+                }
+                None => {
+                    must_supply.push("representedOperator: the name, address and EORI of the operator you file for".into());
+                    not_fileable.push("missing_representedOperator".into());
+                }
+            }
+        }
+    }
+    json!({
+        "schema": "eudr_is.dds_v4.elements",
+        "service": "EUDRDueDiligenceStatementServiceV4",
+        "transport": "SOAP 1.1 with WS-Security; serialise these elements in the V4 schema's order. Leave out an element that has no value: an empty one fails the schema's types.",
+        "checked_against": "production V4 XSD, 2026-11-14",
+        "statement": statement,
+        "fileable": not_fileable.is_empty(),
+        "not_fileable_because": not_fileable,
+        "operator_must_supply": must_supply,
+        "operator_account_supplies": "The operator's name, address and EORI come from the account that submits, not from the payload; the system returns the reference and verification numbers. Submitting is the Annex II item 5 confirmation.",
+        "drafts": drafts,
+    })
+}
+
 /// The statement text for this outcome: the Annex II point 5 declaration
 /// when it can be signed, and otherwise the reason it cannot yet be.
 fn statement_of_compliance(verdict: &str, held_for_review: bool) -> &'static str {
@@ -78556,6 +78786,9 @@ async fn post_eudr_dds_inner(
     }
     let mut commodities: Vec<JsonValue> = Vec::with_capacity(by_hs.len());
     let mut precision_warnings: Vec<JsonValue> = Vec::new();
+    // (plot index, production place, below Article 2(28) precision) for the
+    // V4 submission, which groups by the full HS code rather than HS-4.
+    let mut v4_places: Vec<(usize, JsonValue, bool)> = Vec::new();
     for (hs_heading, indices) in &by_hs {
         let head_plot = &req.plots[indices[0]];
         // Aggregate goods measure across plots in this HS bucket.
@@ -78590,6 +78823,11 @@ async fn post_eudr_dds_inner(
                     }));
                 }
                 let production_place = ctx.producer_geojson.clone().unwrap_or(JsonValue::Null);
+                v4_places.push((
+                    idx,
+                    production_place.clone(),
+                    ctx.precision_warning.is_some(),
+                ));
                 producers.push(json!({
                     "country":          plot.producer_country.clone().unwrap_or_else(|| plot.country_of_production.clone()),
                     "name":             plot.producer_name.clone().or_else(|| plot.supplier.clone()),
@@ -78672,6 +78910,14 @@ async fn post_eudr_dds_inner(
         "statement_of_compliance_signable": overall_label == "pass" && !held_for_review,
         "statement_of_compliance_held_because": signable_held_because(overall_label, &held_because),
         "traces_nt_envelope": traces_nt_envelope,
+        "traces_nt_envelope_note": "V1 shape, kept for callers that read it. The EUDR Information System accepts its V4 schema only; use traces_nt_v4.",
+        "traces_nt_v4": traces_nt_v4(
+            &req,
+            &v4_places,
+            &dds_ref,
+            overall_label == "pass" && !held_for_review,
+            signable_held_because(overall_label, &held_because),
+        ),
         "per_plot_results": per_plot_results,
         "responder_pubkey_b32": data_encoding::BASE32_NOPAD.encode(&s.identity.pubkey.0).to_lowercase(),
         "served_at":     chrono_iso8601_utc(),
@@ -105344,6 +105590,7 @@ mod tests {
             operator: None,
             max_cells_per_plot: Some(1),
             activity_type: None,
+            operator_role: None,
             internal_reference_number: None,
             geolocation_confidential: None,
             scope,
@@ -105646,6 +105893,7 @@ mod tests {
             operator: None,
             max_cells_per_plot: Some(1024), // > cap of 256
             activity_type: None,
+            operator_role: None,
             internal_reference_number: None,
             geolocation_confidential: None,
             scope: None,
@@ -113609,5 +113857,92 @@ mod mcp_strict_client_tests {
             );
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+}
+
+#[cfg(test)]
+mod traces_nt_v4_tests {
+    use super::*;
+
+    fn req(extra: JsonValue) -> EudrDdsReq {
+        let mut body = json!({"plots": [{
+            "plot_id": "t-soubre-b",
+            "geometry_geojson": {"type": "Polygon", "coordinates": [[[-6.612, 5.802], [-6.61045, 5.802], [-6.61045, 5.80355], [-6.612, 5.80355], [-6.612, 5.802]]]},
+            "country_of_production": "CIV", "commodity_hs": "180100", "quantity_kg": 1000.0
+        }]});
+        if let (Some(b), Some(e)) = (body.as_object_mut(), extra.as_object()) {
+            for (k, v) in e {
+                b.insert(k.clone(), v.clone());
+            }
+        }
+        serde_json::from_value(body).unwrap()
+    }
+
+    fn place() -> JsonValue {
+        json!({"type": "FeatureCollection", "features": [{"type": "Feature",
+            "geometry": {"type": "Polygon", "coordinates": [[[-6.612, 5.802], [-6.61045, 5.802], [-6.61045, 5.80355], [-6.612, 5.80355], [-6.612, 5.802]]]},
+            "properties": {"Area": 2.94, "ProducerCountry": "CIV", "ProducerName": "", "ProductionPlace": "t-soubre-b"}}]})
+    }
+
+    #[test]
+    fn a_statement_missing_the_operators_fields_says_what_and_is_not_fileable() {
+        let r = req(json!({}));
+        let v = traces_nt_v4(&r, &[(0, place(), true)], "EMEM-DDS-X", true, vec![]);
+        assert_eq!(v["fileable"], false);
+        let why = v["not_fileable_because"].to_string();
+        for code in [
+            "missing_operatorRole",
+            "missing_activityType",
+            "missing_descriptionOfGoods_180100",
+            "geolocation_below_6_decimals",
+        ] {
+            assert!(why.contains(code), "{why}");
+        }
+        let c = &v["statement"]["commodities"][0];
+        assert_eq!(c["hsHeading"], "180100");
+        assert!(c["descriptors"].get("descriptionOfGoods").is_none(), "{c}");
+        assert_eq!(c["producers"][0]["country"], "CI");
+        let geo = data_encoding::BASE64
+            .decode(
+                c["producers"][0]["geometryGeojson"]
+                    .as_str()
+                    .unwrap()
+                    .as_bytes(),
+            )
+            .unwrap();
+        let geo: JsonValue = serde_json::from_slice(&geo).unwrap();
+        let props = &geo["features"][0]["properties"];
+        assert_eq!(props["ProducerCountry"], "CI");
+        assert!(
+            props.get("Area").is_none() && props.get("ProducerName").is_none(),
+            "{props}"
+        );
+        assert_eq!(
+            v["drafts"][0]["descriptionOfGoods"],
+            "Cocoa beans, whole or broken, raw or roasted"
+        );
+        assert!(v["statement"].get("activityType").is_none());
+    }
+
+    #[test]
+    fn a_complete_passing_statement_is_fileable() {
+        let r = req(json!({"operator_role": "operator", "activity_type": "IMPORT"}));
+        let mut r = r;
+        r.plots[0].description_of_goods = Some("Raw cocoa beans, Grade I, 2026 main crop".into());
+        let v = traces_nt_v4(&r, &[(0, place(), false)], "EMEM-DDS-X", true, vec![]);
+        assert_eq!(v["fileable"], true, "{v}");
+        assert_eq!(v["statement"]["operatorRole"], "OPERATOR");
+        assert_eq!(v["statement"]["activityType"], "IMPORT");
+        assert_eq!(v["statement"]["internalReferenceNumber"], "EMEM-DDS-X");
+        // A failing verdict is never fileable, whatever else is complete.
+        let v = traces_nt_v4(
+            &r,
+            &[(0, place(), false)],
+            "EMEM-DDS-X",
+            false,
+            vec!["verdict_fail".into()],
+        );
+        assert_eq!(v["fileable"], false);
+        assert_eq!(v["not_fileable_because"][0], "verdict_fail");
     }
 }

@@ -190,6 +190,39 @@ When the responder holds it, `statement_of_compliance` gives the reason in place
 The code is `verdict_support`, `tmf_cross_check` and `statement_of_compliance` in
 `crates/emem-api-rest/src/lib.rs`.
 
+## Filing in the EUDR Information System
+
+The EU's EUDR Information System (TRACES) takes a statement through its V4 service,
+`EUDRDueDiligenceStatementServiceV4`, over SOAP with WS-Security. It does not take JSON.
+The response field `traces_nt_v4` names the V4 elements, with their values, for the
+operator's software to serialise in the schema's order. We checked it against the
+production V4 schema on 14 November 2026. The older `traces_nt_envelope` keeps the V1
+shape for callers that read it, and the system does not accept that shape.
+
+`traces_nt_v4` has these parts:
+
+- `statement` holds the elements: `internalReferenceNumber`, `activityType`, `operatorRole`,
+  `geoLocationConfidential` and `commodities`. Each commodity has `descriptors`
+  (`descriptionOfGoods`, `goodsMeasure.netWeight` in kg), `hsHeading` (the caller's HS
+  code, not cut to 4 digits) and `producers`. A producer has `country` in ISO 3166
+  alpha-2 (`CI`, not `CIV`) and `geometryGeojson`, the production place as base64
+  GeoJSON with `ProducerCountry` in alpha-2.
+- An element with no value is left out, because an empty element fails the schema.
+- `fileable` is `true` only when the verdict can be signed and nothing is missing.
+  `not_fileable_because` lists every reason, such as `verdict_fail`,
+  `missing_operatorRole`, `missing_activityType`, `missing_descriptionOfGoods_<hs>` or
+  `geolocation_below_6_decimals`.
+- `operator_must_supply` says what only the operator can give: the role, the activity,
+  and the commercial description with the trade name. `drafts` carries a draft
+  description from the HS heading text for the operator to confirm. A draft never goes
+  into the element.
+
+Send `operator_role`, `activity_type` and each plot's `description_of_goods` in the
+request to fill them. The operator's name, address and EORI come from the account that
+submits, not from the payload. The system assigns the reference and verification numbers.
+Submitting the statement is the Annex II item 5 confirmation, so a statement whose
+verdict is not `pass` must not be filed.
+
 ## Loss-year histogram
 
 Each plot that has at least one sampled cell carries a `loss_year_histogram`.
