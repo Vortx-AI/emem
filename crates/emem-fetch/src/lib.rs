@@ -44,6 +44,7 @@ pub mod jrc_gsw;
 pub mod jrc_tmf;
 pub mod koppen;
 pub mod latency;
+pub mod modis_pc;
 pub mod opera_dist;
 pub mod overture;
 pub mod parcels;

@@ -62,6 +62,7 @@ mod field_series;
 mod field_signals;
 mod intents;
 mod ledger;
+mod mcd64a1_pc;
 mod next_acquisition;
 mod next_step;
 mod persist;
@@ -57096,8 +57097,80 @@ fn parse_iso_utc_hour(s: &str) -> Option<i64> {
 /// - `modis.lai_8day`       → MOD15A2H.061 Lai_500m      (m^2/m^2, scale 0.1)
 /// - `modis.burned_area`    → MCD64A1.061 Burn_Date      (DOY of burn, no scale)
 ///
+/// `modis.burned_area_monthly` reads the Planetary Computer's COGs of the
+/// same granules first and asks ORNL only when that read fails
+/// (`mcd64a1_pc`); every other band reads ORNL.
+///
 /// Reference: https://modis.ornl.gov/data/modis_webservice.html
 async fn materialize_ornl_modis_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+    target_unix: Option<i64>,
+) -> Result<emem_fact::FactCid, String> {
+    if band == "modis.burned_area_monthly" {
+        let info =
+            emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+        return mcd64a1_pc::burned_area_pc_then_ornl(
+            cell64,
+            s,
+            info.lat_deg,
+            info.lng_deg,
+            target_unix,
+            || materialize_ornl_subset_band(cell64, s, band, target_unix),
+        )
+        .await;
+    }
+    materialize_ornl_subset_band(cell64, s, band, target_unix).await
+}
+
+/// MCD64A1's ORNL window: ±32 days around a target, or nine ~31-day
+/// composites back from now. The Planetary Computer read takes the same
+/// window so both sources choose among the same months.
+const MCD64A1_HALF_WINDOW_DAYS: i64 = 32;
+const MCD64A1_TILE_DAYS: i64 = 31;
+
+/// The ORNL subset window for a band, as unix seconds `(start, end)`:
+/// ±`half_window_days` around `target_unix` (clipped to now, at least a
+/// day), or a lookback of nine composites ending now. ORNL refuses a
+/// subset of more than 10 composites, so nine leaves a tile of headroom.
+fn ornl_band_window(
+    half_window_days: i64,
+    tile_days: i64,
+    target_unix: Option<i64>,
+    now: i64,
+) -> (i64, i64) {
+    match target_unix {
+        Some(t) => {
+            let lo = (t - half_window_days * 86_400).max(0);
+            let hi = (t + half_window_days * 86_400).min(now);
+            (lo, hi.max(lo + 86_400))
+        }
+        None => (now - 9 * tile_days * 86_400, now),
+    }
+}
+
+/// Per-product fill values in an ORNL or COG raw value: a stored number
+/// that is not an observation.
+///   MOD11A2 LST: 0 (raw uint16; 0 = unfilled QC).
+///   MOD16A2 ET:  32760+ (fill ranges). >= 32700 → fill.
+///   MOD17A2H GPP: 32760+ fill, also negative gpp on water.
+///   MOD15A2H LAI: 249..255 reserved (water/cloud/etc).
+///   MCD64A1 Burn_Date: 0 = no burn that month (valid observation,
+///     emit as 0.0); -1 unmapped, -2 water: neither is a day of
+///     year, and signed as one a -2 read as a burn.
+fn ornl_is_nodata(product: &str, r: i64) -> bool {
+    match product {
+        "MOD11A2" => r == 0,
+        "MOD16A2" | "MOD17A2H" => r >= 32700,
+        "MOD15A2H" => !(0..=100).contains(&r),
+        "MCD64A1" => r < 0,
+        _ => false,
+    }
+}
+
+/// The ORNL DAAC subset read behind [`materialize_ornl_modis_band`].
+async fn materialize_ornl_subset_band(
     cell64: &str,
     s: &AppState,
     band: &str,
@@ -57168,7 +57241,7 @@ async fn materialize_ornl_modis_band(
             "Burn_Date",
             1.0_f64,
             Some("doy"),
-            32_i64,
+            MCD64A1_HALF_WINDOW_DAYS,
             "modis_ornl_mcd64a1_burndate@1",
             // MCD64A1 QA byte: bit 0 = land-grid-cell mask. Gates
             // out non-land Burn_Date values that upstream marks
@@ -57217,7 +57290,7 @@ async fn materialize_ornl_modis_band(
         | "modis.et_8day"
         | "modis.gpp_8day"
         | "modis.lai_8day" => 8,
-        "modis.burned_area_monthly" => 31,
+        "modis.burned_area_monthly" => MCD64A1_TILE_DAYS,
         _ => half_window_days,
     };
     // Leave one tile of headroom so leap-day / publication-window
@@ -57225,15 +57298,7 @@ async fn materialize_ornl_modis_band(
     // edge. Verified empirically: 9 × tile_days lookback is the
     // safest setting that still lands the latest valid composite for
     // both 8-day and monthly products.
-    let max_lookback_secs: i64 = 9 * tile_days * 86_400;
-    let (start_unix, end_unix) = match target_unix {
-        Some(t) => {
-            let lo = (t - half_window_days * 86_400).max(0);
-            let hi = (t + half_window_days * 86_400).min(now);
-            (lo, hi.max(lo + 86_400))
-        }
-        None => (now - max_lookback_secs, now),
-    };
+    let (start_unix, end_unix) = ornl_band_window(half_window_days, tile_days, target_unix, now);
     let start_str = unix_to_modis_date(start_unix);
     let end_str = unix_to_modis_date(end_unix);
     let url = format!(
@@ -57315,22 +57380,7 @@ async fn materialize_ornl_modis_band(
             .map(|s| s.to_string())
             .unwrap_or_default();
         let Some(r) = raw else { continue };
-        // Per-product nodata sentinels:
-        //   MOD11A2 LST: 0 (raw uint16; 0 = unfilled QC).
-        //   MOD16A2 ET:  32760+ (fill ranges). >= 32700 → fill.
-        //   MOD17A2H GPP: 32760+ fill, also negative gpp on water.
-        //   MOD15A2H LAI: 249..255 reserved (water/cloud/etc).
-        //   MCD64A1 Burn_Date: 0 = no burn that month (valid observation,
-        //     emit as 0.0); -1 unmapped, -2 water: neither is a day of
-        //     year, and signed as one a -2 read as a burn.
-        let is_nodata = match product {
-            "MOD11A2" => r == 0,
-            "MOD16A2" | "MOD17A2H" => r >= 32700,
-            "MOD15A2H" => !(0..=100).contains(&r),
-            "MCD64A1" => r < 0,
-            _ => false,
-        };
-        if is_nodata {
+        if ornl_is_nodata(product, r) {
             continue;
         }
         // QC gate. Only applied when QC is both expected for this band
@@ -64725,7 +64775,7 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             // MCD64A1 first granule: 2000-11-01.
             history_from_unix: Some(days_from_civil(2000, 11, 1) * 86_400),
             history_to_unix: None,
-            wire_path: "ORNL DAAC MCD64A1 monthly 500 m burned-area subset",
+            wire_path: "Planetary Computer MCD64A1 monthly 500 m COG (modis-64A1-061), ORNL DAAC subset when that read fails",
         },
         // ESA WorldCover 2021 v200, 11-class global landcover at 10 m, one
         // signed fact per cell (single 2021 release).

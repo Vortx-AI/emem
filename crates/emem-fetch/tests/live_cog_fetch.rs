@@ -369,3 +369,54 @@ async fn jrc_tmf_mirror_reads_the_jrc_values() {
         assert_eq!(p.value, want, "({lat}, {lng}) from {}", p.url);
     }
 }
+
+/// MCD64A1 read from the Planetary Computer's COGs gives what ORNL's
+/// subset service gave for the same point and month on 2026-11-14:
+/// Burn_Date and the QA byte, in the same 500 m pixel.
+#[tokio::test]
+async fn mcd64a1_on_the_planetary_computer_reads_what_ornl_serves() {
+    if skip_if_no_network() {
+        return;
+    }
+    use emem_fetch::modis_pc;
+    let client = reqwest::Client::new();
+    for (lat, lng, month, want_burn, want_qa) in [
+        (40.077_08, -121.085_51, "2021-08-01", 233.0, 3.0),
+        (-35.852_08, 136.852_03, "2020-01-01", 4.0, 3.0),
+        (49.347_92, -75.640_51, "2023-06-01", 172.0, 3.0),
+        (25.001_3, 20.001_3, "2023-08-01", 0.0, 3.0),
+    ] {
+        let (x, y) = modis_pc::sinusoidal_xy(lat, lng);
+        let (h, v) = modis_pc::tile_of(x, y).expect("on the grid");
+        let datetime = format!("{month}T00:00:00Z/{month}T23:59:59Z");
+        let items = match modis_pc::search_tile(&client, "modis-64A1-061", h, v, &datetime, 5).await
+        {
+            Ok(i) => i,
+            Err(e) => {
+                eprintln!("[mcd64a1 pc] search unavailable, skipping: {e}");
+                return;
+            }
+        };
+        let item = items
+            .iter()
+            .find(|i| i.start_date == month)
+            .unwrap_or_else(|| panic!("no item for h{h:02}v{v:02} {month}"));
+        let mut got = Vec::new();
+        for asset in ["Burn_Date", "QA"] {
+            match modis_pc::read_point(&client, &item.assets[asset], x, y).await {
+                Ok(p) => got.push(p),
+                Err(e) => {
+                    eprintln!("[mcd64a1 pc] read unavailable, skipping: {e}");
+                    return;
+                }
+            }
+        }
+        assert_eq!((got[0].col, got[0].row), (got[1].col, got[1].row));
+        assert_eq!(
+            (got[0].raw, got[1].raw),
+            (want_burn, want_qa),
+            "({lat}, {lng}) {month} from {}",
+            item.id
+        );
+    }
+}

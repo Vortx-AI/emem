@@ -419,7 +419,11 @@ fn is_rate_limit(status: u16, body: &str) -> bool {
 /// POST one STAC search. A refusal keeps the upstream's own words (the
 /// first 160 bytes of its body) in the error, and a rate limit puts the host
 /// on cooldown so the next caller fails fast instead of asking again.
-async fn post_search(client: &Client, search_url: &str, body: &Value) -> Result<Value, String> {
+pub(crate) async fn post_search(
+    client: &Client,
+    search_url: &str,
+    body: &Value,
+) -> Result<Value, String> {
     stac_request(client, search_url, Some(body)).await
 }
 

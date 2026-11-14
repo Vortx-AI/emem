@@ -75,7 +75,7 @@ window. Use this list, not this page, to learn what a running node serves.
 
 ## Connector modules in emem-fetch
 
-The `emem-fetch` crate has 36 modules and the crate root, `lib.rs`. Most modules read one upstream.
+The `emem-fetch` crate has 37 modules and the crate root, `lib.rs`. Most modules read one upstream.
 The others hold shared tools and embedded gazetteers.
 
 ### Modules that read an upstream
@@ -95,6 +95,7 @@ The others hold shared tools and embedded gazetteers.
 | `jrc_gsw.rs` | JRC Global Surface Water v1.4 | URL helpers for the COG sampler | `surface_water.*` |
 | `jrc_tmf.rs` | JRC Tropical Moist Forest v2025 | Tile download and cache | `jrc_tmf.*` |
 | `koppen.rs` | Beck et al. 2018 on Figshare | ZIP central directory, then a cached TIFF | `koppen` |
+| `modis_pc.rs` | MODIS Collection 6.1 COGs on the Planetary Computer | STAC search by MODIS tile, then one pixel read in sinusoidal coordinates | `modis.burned_area_monthly` (MCD64A1) |
 | `overture.rs` | Overture Maps on S3, `us-west-2` | Parquet row-group pruning, WKB decode | `overture.*`, place polygons for `/v1/locate` |
 | `terraclimate.rs` | TerraClimate on THREDDS NCSS | CSV REST, two mirrors | `terraclimate.*_normal*` |
 | `wdpa.rs` | OSM Overpass, `boundary=protected_area` | Overpass QL `is_in` | `protected`, `protected.is_protected_area` |
@@ -147,6 +148,7 @@ materializers.
 | `materialize_era5_band` | Open-Meteo archive (ERA5) | `era5.*` |
 | `materialize_marine_band` | Open-Meteo marine | `marine.*` |
 | `materialize_modis_ndvi`, `materialize_ornl_modis_band` | ORNL DAAC MODIS subsets | `modis.*` |
+| `mcd64a1_pc::burned_area_pc_then_ornl` | Planetary Computer MCD64A1 COGs, then ORNL DAAC | `modis.burned_area_monthly` |
 | `materialize_soilgrids_band` | ISRIC SoilGrids 2.0 REST | `soilgrids.*_0_30cm` |
 | `materialize_sentinel2_band` | Planetary Computer, then Element84 STAC, then `cog.rs` | `s2.*`, `indices.*` |
 | `materialize_sentinel1_vv` | Planetary Computer Sentinel-1 RTC | `sentinel1_raw` |
@@ -156,6 +158,14 @@ materializers.
 `materialize_algorithm_band` runs the `evaluation` expression of the algorithm in
 `algorithms-v0.json`. On 12 November 2026, 74 of the 173 algorithms had one. When an input is
 missing, the node signs an Absence that names the missing bands.
+
+`modis.burned_area_monthly` reads the MCD64A1 COGs on the Planetary Computer first. It uses the
+window, the month, the fill values and the QA land bit of the ORNL read, so the value does not
+change. The fact names its asset with the scheme `mpc_modis_cog` and the reader
+`modis_pc_mcd64a1_burndate@1`. The read goes to ORNL when the search or a pixel read fails, when
+it takes more than 12 s, or when the catalogue lacks a month that ORNL can hold. On 14 November
+2026 every tile checked lacked 2023-09, 2024-07, 2025-05 and 2025-08 to 2025-10. A fact from ORNL
+keeps the scheme `ornl_modis` and the reader `modis_ornl_mcd64a1_burndate@1`.
 
 The other materializers in that file call the `emem-fetch` modules in the first table.
 
