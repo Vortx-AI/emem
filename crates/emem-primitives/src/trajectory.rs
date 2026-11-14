@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
-use emem_fact::{Fact, FactCid, Receipt, Scope};
+use emem_fact::{Fact, FactCid, PrimaryFact, Receipt, Scope};
 use emem_storage::{Server, StorageError};
 
 use crate::recall::{build_as_of_bound, TemporalAdvice};
@@ -85,12 +85,34 @@ pub struct TrajectoryResp {
     /// `empty_series_diag` (which describes a wrong `window`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temporal_advice: Option<TemporalAdvice>,
+    /// Primary facts in the window that the caller's filter left out of
+    /// the series and the receipt ([`trajectory_keeping`]). Always 0 from
+    /// [`trajectory`].
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub left_out: usize,
     /// Signed receipt.
     pub receipt: Receipt,
 }
 
+fn is_zero(n: &usize) -> bool {
+    *n == 0
+}
+
 /// Build the time series.
 pub async fn trajectory(req: &TrajectoryReq, srv: &Server) -> Result<TrajectoryResp, StorageError> {
+    trajectory_keeping(req, srv, &|_| true).await
+}
+
+/// [`trajectory`], keeping only the primary facts `keep` admits. A fact it
+/// rejects is left out of the series and of the receipt, and counted in
+/// `left_out`. Public so the responder can leave out reads a later fix
+/// superseded, as its recall already does: the series would otherwise
+/// serve a value the responder knows to be wrong.
+pub async fn trajectory_keeping(
+    req: &TrajectoryReq,
+    srv: &Server,
+    keep: &(dyn Fn(&PrimaryFact) -> bool + Sync),
+) -> Result<TrajectoryResp, StorageError> {
     let started = Instant::now();
     let storage = srv.storage.as_ref();
     let [s, e] = req.window;
@@ -139,9 +161,14 @@ pub async fn trajectory(req: &TrajectoryReq, srv: &Server) -> Result<TrajectoryR
     // this into `scan_cell_as_of`).
     let scoped_tx_filter = scope_filter.is_some() && bound.transaction_time.is_some();
     let mut series = Vec::with_capacity(filtered.len());
+    let mut rejected = vec![false; filtered.len()];
     for (idx, (tslot, _)) in filtered.iter().enumerate() {
         if let Some(Some(Fact::Primary(p))) = facts.get(idx) {
             if scoped_tx_filter && !bound.fact_passes(&Fact::Primary(p.clone())) {
+                continue;
+            }
+            if !keep(p) {
+                rejected[idx] = true;
                 continue;
             }
             series.push(Point {
@@ -156,7 +183,10 @@ pub async fn trajectory(req: &TrajectoryReq, srv: &Server) -> Result<TrajectoryR
     // data on this band at this cell". If we got nothing inside the
     // window but at least one stored tslot exists outside it, surface
     // the stored set so the caller can re-query.
-    let empty_series_diag = if series.is_empty() && !all_band_pairs.is_empty() {
+    let left_out = rejected.iter().filter(|r| **r).count();
+    // A window whose facts the filter left out did not miss: that is said
+    // through `left_out`, not as a wrong window.
+    let empty_series_diag = if series.is_empty() && left_out == 0 && !all_band_pairs.is_empty() {
         let mut stored: Vec<u64> = all_band_pairs.iter().map(|(t, _)| *t).collect();
         stored.sort_unstable();
         stored.dedup();
@@ -214,6 +244,12 @@ pub async fn trajectory(req: &TrajectoryReq, srv: &Server) -> Result<TrajectoryR
         None
     };
 
+    let cids: Vec<FactCid> = cids
+        .into_iter()
+        .zip(&rejected)
+        .filter(|(_, r)| !**r)
+        .map(|(c, _)| c)
+        .collect();
     let receipt = srv.sign_receipt_full(
         "emem.trajectory",
         vec![req.cell.clone()],
@@ -228,6 +264,7 @@ pub async fn trajectory(req: &TrajectoryReq, srv: &Server) -> Result<TrajectoryR
         series,
         empty_series_diag,
         temporal_advice,
+        left_out,
         receipt,
     })
 }

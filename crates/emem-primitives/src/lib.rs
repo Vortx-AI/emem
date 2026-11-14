@@ -56,5 +56,5 @@ pub use memory_search::{
 pub use memory_typing::{ttl_days_for_kind, MemoryKind};
 pub use query_region::{query_region, QueryRegionReq, QueryRegionResp};
 pub use recall::{recall, RecallReq, RecallResp};
-pub use trajectory::{trajectory, Point, TrajectoryReq, TrajectoryResp};
+pub use trajectory::{trajectory, trajectory_keeping, Point, TrajectoryReq, TrajectoryResp};
 pub use verify::{verify, Mode, VerifyReq, VerifyResp};

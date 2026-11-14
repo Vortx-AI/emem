@@ -26,7 +26,7 @@ use emem_core::tslot::{Tempo, Tslot};
 use emem_core::ErrorCode;
 use emem_fact::{Fact, FactCid};
 use emem_primitives::cbor_ops::as_f64;
-use emem_primitives::trajectory::{trajectory, TrajectoryReq};
+use emem_primitives::trajectory::{trajectory_keeping, TrajectoryReq};
 
 use crate::{ApiError, AppState, BackfillReq, EmemJson, ErrorBody};
 
@@ -163,7 +163,7 @@ async fn series(s: &AppState, cell: &str, band: &str, win: (i64, i64)) -> Vec<Ob
         as_of_signed_at: None,
         scope: None,
     };
-    let Ok(tr) = trajectory(&req, s).await else {
+    let Ok(tr) = trajectory_keeping(&req, s, &|p| !crate::superseded_read(p)).await else {
         return Vec::new();
     };
     let cids: Vec<FactCid> = tr

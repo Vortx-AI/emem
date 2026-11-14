@@ -98,10 +98,9 @@ use emem_fact::{
 use emem_intent::{plan, Intent};
 use emem_primitives::{
     compare, compare_bands, diff, edges_recall, find_similar, memory_contradictions, query_region,
-    recall, trajectory, verify, AttestationVerdict, CompareBandsReq, CompareReq, ContradictionsReq,
-    DiffReq, EdgesRecallReq, FindSimilarReq, LanceIndex, MemoryAttester, MemoryEvent,
-    MemoryEventFilter, MemoryKind, MemorySearchReq, QueryRegionReq, RecallReq, RecallResp,
-    TrajectoryReq, VerifyReq,
+    recall, verify, AttestationVerdict, CompareBandsReq, CompareReq, ContradictionsReq, DiffReq,
+    EdgesRecallReq, FindSimilarReq, LanceIndex, MemoryAttester, MemoryEvent, MemoryEventFilter,
+    MemoryKind, MemorySearchReq, QueryRegionReq, RecallReq, RecallResp, TrajectoryReq, VerifyReq,
 };
 use emem_storage::PutAttestationDetached;
 use emem_storage::{Server, StorageError};
@@ -13622,6 +13621,9 @@ const SUPERSEDED_FN_KEYS: &[&str] = &[
     "overture_road_length_m@1",
 ];
 
+/// What a series says about the facts [`superseded_read`] left out of it.
+const SUPERSEDED_LEFT_OUT_WHY: &str = "left_out counts signed facts in the window that a later fix superseded: a GeoTIFF read signed before 2026-09-28T04:09:26Z, which may hold the neighbouring pixel's value, a read of a replaced release, or a band whose meaning changed. Each still verifies at /v1/facts/<cid>. POST /v1/backfill with refresh true re-reads the window.";
+
 fn superseded_read(p: &emem_fact::PrimaryFact) -> bool {
     if SUPERSEDED_FN_KEYS.contains(&p.derivation.fn_key.as_str()) {
         return true;
@@ -21436,9 +21438,17 @@ async fn post_trajectory(
         as_of_signed_at: api.as_of_signed_at,
         scope: api.scope,
     };
-    let resp = trajectory(&req, &s).await?;
+    // Recall declines a read a later fix superseded as the latest answer;
+    // the series leaves it out for the same reason, and says so.
+    let resp = emem_primitives::trajectory_keeping(&req, &s, &|p| !superseded_read(p)).await?;
+    let left_out = resp.left_out;
     let env = resolved_envelope(vec![("cell".into(), rc)]);
     let mut v = serde_json::to_value(resp).unwrap_or(json!({}));
+    if left_out > 0 {
+        if let Some(map) = v.as_object_mut() {
+            map.insert("left_out_why".into(), json!(SUPERSEDED_LEFT_OUT_WHY));
+        }
+    }
     label_series_for_charting(&mut v, &req.cell, &resolve_band_name(&req.band));
     // Flag an unknown/mistyped band so an empty series isn't ambiguous
     // between "wrong band name" and "no data in this window" (same fix as
@@ -37113,7 +37123,7 @@ fn openapi_spec() -> JsonValue {
                 "Fact":            {"type":"object","description":"A primary attestation at (cell, band, tslot). `value` is the band's typed reading (number, array of numbers for vector bands, or a categorical class id). `unit` is the band's declared unit (e.g. `m_msl`, `degC`, `mm`).","required":["kind","cell","band","tslot","value","fact_cid","receipt"],"properties":{"kind":{"type":"string","enum":["primary","absence"],"description":"`primary` = signed measurement; `absence` = signed \"we don't have this here\" with a typed reason."},"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"tslot":{"$ref":"#/components/schemas/Tslot"},"value":{"description":"Number, array of numbers, or class id depending on band type."},"unit":{"type":"string"},"provenance":{"type":"string","description":"Upstream source key (e.g. `copdem30m`, `s2_l2a`, `cams_eu`)."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"receipt":{"$ref":"#/components/schemas/Receipt"},"absence_reason":{"type":"string","enum":["unavailable_capability","outside_coverage","archetype_seed_unavailable","gpu_unavailable","upstream_error","upstream_timeout"],"description":"Present only when kind=`absence`."}}},
                 "MaterializeNote": {"type":"object","description":"One entry in the response's `materialize_notes[]`, recording what the lazy materializer did during this call. status:\"materialized\" means a signed fact was minted and persisted (a Primary observation OR a confirmed, evidence-backed Absence - both are signed and citeable by fact_cid). status:\"skipped\" means nothing was signed: `reason_class` says why (transient `timeout`/`upstream_error`, retryable; or structural `unknown_band`/`no_materializer`, not retryable here) and `absence` is always false, because a skip is 'unknown', never a confirmed absence.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"ok":{"type":"boolean"},"status":{"type":"string","enum":["materialized","skipped"]},"fact_cid":{"type":"string"},"reason":{"type":"string"},"reason_class":{"type":"string","enum":["timeout","upstream_error","upstream_gone","unknown_band","no_materializer","deferred","retired","not_geographic","no_data"]},"retryable":{"type":"boolean"},"absence":{"type":"boolean","description":"Always false on a skip; a confirmed absence is a signed fact with status:materialized, not a skip."},"latency_ms":{"type":"number"}}},
                 "SignedResponse":  {"type":"object","description":"Standard recall envelope. `facts` is the array of signed facts touched by this call (subset of `bands_already_attested_at_cell` after auto-materialization). `receipt` is the responder's signature over the call. `materialize_notes` lists any lazy-materializer activity that happened to satisfy the request, empty for purely warm reads.","required":["facts","receipt"],"properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"receipt":{"$ref":"#/components/schemas/Receipt"},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"},"description":"Bands the cell already has facts for, regardless of whether they were requested. Useful for follow-up calls without a second /v1/coverage_matrix hit."},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"caveats":{"type":"array","items":{"type":"string"},"description":"Plain-language constraints the caller should fold into their answer (grid resolution, revisit cadence, sample-size warnings)."}}},
-                "TrajectoryResp":  {"type":"object","description":"Response of /v1/trajectory. `series` has one point per tempo slot in the window that holds a signed fact, oldest first. Each point carries its `fact_cid`, its `emem:fact:` token, the civil date its slot starts on, and the value. `receipt` signs the call. An empty `series` means emem holds no signed fact there yet, not that nothing was observed. For a band with history, an empty read without as_of or scope also carries `fill.call`: the exact /v1/backfill body for the window read.","required":["series","receipt"],"properties":{"series":{"type":"array","items":{"type":"object","required":["tslot","value","fact_cid"],"properties":{"tslot":{"type":"integer"},"value":{"description":"a number for a scalar band, an array for a vector band"},"fact_cid":{"type":"string"},"token":{"type":"string"},"slot_start":{"type":"string","description":"YYYY-MM-DD the slot starts on; the fact carries the capture time"}}}},"receipt":{"$ref":"#/components/schemas/Receipt"},"fill":{"type":"object","description":"Only on an empty, unpinned, unscoped read of a band with history.","properties":{"why":{"type":"string"},"call":{"type":"object","properties":{"method":{"type":"string"},"path":{"type":"string"},"mcp_tool":{"type":"string"},"body":{"type":"object"}}},"then":{"type":"string"}}},"unknown_band":{"type":"string"},"warning":{"type":"string"}}},
+                "TrajectoryResp":  {"type":"object","description":"Response of /v1/trajectory. `series` has one point per tempo slot in the window that holds a signed fact, oldest first. Each point carries its `fact_cid`, its `emem:fact:` token, the civil date its slot starts on, and the value. `receipt` signs the call. An empty `series` means emem holds no signed fact there yet, not that nothing was observed. For a band with history, an empty read without as_of or scope also carries `fill.call`: the exact /v1/backfill body for the window read.","required":["series","receipt"],"properties":{"series":{"type":"array","items":{"type":"object","required":["tslot","value","fact_cid"],"properties":{"tslot":{"type":"integer"},"value":{"description":"a number for a scalar band, an array for a vector band"},"fact_cid":{"type":"string"},"token":{"type":"string"},"slot_start":{"type":"string","description":"YYYY-MM-DD the slot starts on; the fact carries the capture time"}}}},"receipt":{"$ref":"#/components/schemas/Receipt"},"fill":{"type":"object","description":"Only on an empty, unpinned, unscoped read of a band with history.","properties":{"why":{"type":"string"},"call":{"type":"object","properties":{"method":{"type":"string"},"path":{"type":"string"},"mcp_tool":{"type":"string"},"body":{"type":"object"}}},"then":{"type":"string"}}},"left_out":{"type":"integer","description":"Signed facts in the window a later fix superseded, left out of the series and the receipt. Absent when none."},"left_out_why":{"type":"string"},"unknown_band":{"type":"string"},"warning":{"type":"string"}}},
                 "LocateResp":      {"type":"object","description":"Response of /v1/locate. `cell64` is the canonical handle for the resolved place; `polygon_bbox` is present when the geocoder found an extent (city / park / lake / country / region), absent for point features. `via` declares which layer of the seven-tier embedded cascade answered, falling back to network (Photon → Nominatim) only when no embedded layer matched.","required":["cell64","via"],"properties":{"cell64":{"$ref":"#/components/schemas/Cell64"},"label":{"type":"string","description":"Reader-friendly place label."},"lat":{"type":"number"},"lng":{"type":"number"},"polygon_bbox":{"type":"object","description":"Present when the place has spatial extent.","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"},"source":{"type":"string","enum":["wide_bbox_table","country_table","admin1_table","admin2_table","admin3_table","nominatim_boundingbox","overture_division_area","centre_cell_bbox"],"description":"`overture_division_area` is authoritative (conflated OSM+Esri+Meta+TomTom polygon), preferred whenever Overture has a row for the entity. `country_table` / `admin1_table` / `admin2_table` / `admin3_table` are cities1000-aggregated approximations used when Overture is unreachable. `wide_bbox_table` is the curated wide-feature override for Sahara/Amazon/Himalayas etc."}}},"polygon_geojson":{"type":"object","description":"True OSM/Overture boundary as GeoJSON `Polygon` or `MultiPolygon` when an admin tier resolved. Pass back to /v1/recall_polygon to mask the cell grid against the boundary."},"polygon_sample_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Up to 64 representative cells covering the polygon, pass to /v1/recall_many or /v1/recall_polygon."},"neighborhood_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Eight neighbouring cell64s of the resolved centre cell."},"via":{"type":"string","enum":["direct","wide_bbox_table","country","admin1","geonames","admin2","admin3","embedded","pois","cache","overture_admin_fallback","photon","nominatim","wikidata"],"description":"Layer of the locate cascade that answered. `direct` = the caller sent lat/lng; `country`/`admin1`/`admin2`/`admin3` = GeoNames hierarchical-admin tables (in-process); `embedded`/`geonames` = cities1000 populated places (in-process); `pois` = curated GeoNames well-known landmarks (peaks/lakes/parks/airports/monuments, in-process); `wide_bbox_table` = curated wide regions (in-process); `cache` = sled hot cache; `overture_admin_fallback` = an Overture division polygon matched when the tables did not; `photon`/`nominatim` = network fallback; `wikidata` = a Wikidata prominence decision replaced the cascade's centre with a more prominent namesake."},"overture_division":{"type":"object","description":"Overture-divisions provenance, present when the cascade pulled an authoritative admin polygon. `division_id` is the GERS ID (globally stable, citable in receipts). `subtype` declares the admin level (country/region/county/locality/etc). `country` is the ISO 3166-1 alpha-2 owner.","properties":{"division_id":{"type":"string"},"subtype":{"type":"string","enum":["country","region","county","localadmin","locality","borough","macrohood","neighborhood","microhood","dependency"]},"country":{"type":"string","description":"ISO 3166-1 alpha-2 (e.g. `BD`, `US`)."},"schema_url":{"type":"string"}}},"localized_names":{"type":"object","additionalProperties":{"type":"string"},"description":"Map of ISO 639 language tag (`en`, `bn`, `zh-Hans`, `ar`, …) to localized name, when the resolved entity is in Overture and carries `names.common`. Lets an agent surface the user's-language label without a second geocoder call."},"data_at_this_cell":{"type":"object","description":"Topic-grouped inventory of recallable bands and applicable algorithms at this cell. Lets the caller chain into /v1/recall without a second introspection round-trip."}}},
                 "FindSimilarResp": {"type":"object","description":"Response of /v1/find_similar. `neighbors` is the top-k list ordered by similarity (descending). `mode` echoes the scoring choice (`cosine` / `hamming` / `hamming_then_rerank`).","required":["neighbors","receipt"],"properties":{"neighbors":{"type":"array","items":{"type":"object","required":["cell","score","lat","lng"],"description":"Stable neighbor schema: cell/score/lat/lng/place_label_cached are always present. lat/lng are explicit null for inline-vector queries or undecodable cells (no honest centroid), never absent, never fabricated.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"score":{"type":"number","description":"Cosine similarity in [-1, 1] for `cosine` / `hamming_then_rerank`; normalised Hamming agreement in [0, 1] for `hamming`."},"lat":{"type":["number","null"],"description":"Centroid latitude decoded from `cell`; null when the cell has no honest centroid (inline vector / undecodable)."},"lng":{"type":["number","null"],"description":"Centroid longitude decoded from `cell`; null when unknown (see `lat`)."},"place_label_cached":{"type":["string","null"],"description":"Best-effort gazetteer label (~25 km gate); null when the cell isn't near a known anchor."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"label":{"type":"string","description":"Reader-friendly place label, if the cell is named in the gazetteer."}}}},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"]},"band":{"type":"string"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "CompareResp":     {"type":"object","description":"Response of /v1/compare. Single cosine similarity score (vector bands) or scalar delta (scalar bands) plus per-band breakdown.","required":["score","receipt"],"properties":{"score":{"type":"number"},"deltas":{"type":"object","additionalProperties":{"type":"number"},"description":"Per-band scalar delta for scalar comparisons; absent for vector cosine."},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
@@ -111642,6 +111652,83 @@ mod tests {
             .as_str()
             .unwrap_or_default()
             .contains("did NOT re-run"));
+    }
+
+    /// A series leaves out the read recall would not serve as the latest:
+    /// a GeoTIFF read signed before the pixel fix may hold the neighbouring
+    /// pixel. The receipt binds only what the series serves.
+    #[tokio::test]
+    async fn a_trajectory_leaves_out_a_superseded_read() {
+        let s = test_app_state();
+        let cell = "defi.zb6f5.fUvE.xAtA";
+        let mut cids = Vec::new();
+        for (tslot, signed_at, v) in [
+            (150u64, "2026-09-01T00:00:00Z", 0.11),
+            (160u64, "2026-10-01T00:00:00Z", 0.62),
+        ] {
+            let fact = emem_fact::Fact::Primary(emem_fact::PrimaryFact {
+                cell: cell.into(),
+                band: "indices.ndvi".into(),
+                tslot,
+                value: ciborium::Value::Float(v),
+                unit: None,
+                confidence: 0.9,
+                uncertainty: None,
+                sources: vec![emem_fact::Source {
+                    scheme: "sentinel2.l2a".into(),
+                    id: "https://example.org/T43RGM/B04.tif".into(),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.into()),
+                    url: None,
+                }],
+                derivation: emem_fact::Derivation {
+                    fn_key: "sentinel2_l2a_indices_ndvi@1".into(),
+                    args: None,
+                },
+                privacy_class: "public".into(),
+                schema_cid: s.manifests.schema_cid.clone(),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.into(),
+                served_via: None,
+            });
+            let att = emem_fact::Attestation::build_and_sign_v1(
+                vec![fact],
+                vec![],
+                s.manifests.registry_cid.clone(),
+                s.manifests.schema_cid.clone(),
+                &s.identity.signing,
+                s.identity.epoch,
+                signed_at.into(),
+                None,
+            )
+            .expect("sign");
+            let stored = s.storage.put_attestation(&att).await.expect("store");
+            cids.push(stored[0].as_str().to_string());
+        }
+        let req: TrajectoryApiReq = serde_json::from_value(json!({
+            "cell": cell, "band": "indices.ndvi", "window": [100, 200],
+        }))
+        .unwrap();
+        let Json(v) = post_trajectory(State(s.clone()), EmemJson(req))
+            .await
+            .expect("trajectory");
+        let series = v["series"].as_array().expect("series");
+        assert_eq!(series.len(), 1, "{v}");
+        assert_eq!(series[0]["fact_cid"], json!(cids[1]));
+        assert_eq!(v["left_out"], json!(1));
+        assert!(v["left_out_why"].as_str().unwrap().contains("2026-09-28"));
+        let bound: Vec<&str> = v["receipt"]["fact_cids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|c| c.as_str())
+            .collect();
+        assert_eq!(
+            bound,
+            vec![cids[1].as_str()],
+            "the receipt binds the served fact only"
+        );
     }
 
     /// A token resolves with what its value estimates, beside the signed
