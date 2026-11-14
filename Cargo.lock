@@ -2923,6 +2923,7 @@ dependencies = [
  "emem-trace",
  "rand 0.8.8",
  "serde",
+ "serde_json",
  "sled",
  "tempfile",
  "thiserror 1.0.69",

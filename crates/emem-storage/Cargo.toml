@@ -16,6 +16,7 @@ emem-attest   = { workspace = true }
 emem-trace    = { workspace = true }
 async-trait   = { workspace = true }
 serde         = { workspace = true }
+serde_json    = { workspace = true }
 ciborium      = { workspace = true }
 thiserror     = { workspace = true }
 blake3        = { workspace = true }

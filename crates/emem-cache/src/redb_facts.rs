@@ -864,6 +864,385 @@ impl RedbFacts {
         self.backfill_done.store(true, Ordering::Release);
         Ok(())
     }
+
+    // ── orphan maintenance (emem-storage `orphans`) ──────────────────────
+
+    /// One page of `emem.facts` in key order, strictly after `after` and
+    /// inside `prefix`, joined with `emem.fact_proofs` on the same key and
+    /// with `emem.fact_locators` on the digest. One read transaction.
+    ///
+    /// Both tables are keyed by the cid's bytes, so the proof rows of a page
+    /// are one ordered range read beside it, not a random read per fact.
+    pub fn facts_proof_page(
+        &self,
+        after: Option<&[u8]>,
+        prefix: &[u8],
+        max: usize,
+    ) -> Result<ProofPage, CacheError> {
+        use std::ops::Bound;
+        let r = self.begin_read()?;
+        let facts = r.open_table(FACTS).map_err(rb)?;
+        let proofs = r.open_table(PROOFS).map_err(rb)?;
+        let locators = match r.open_table(LOCATORS) {
+            Ok(t) => Some(t),
+            Err(redb::TableError::TableDoesNotExist(_)) => None,
+            Err(e) => return Err(rb(e)),
+        };
+        let lower: Bound<&[u8]> = match after {
+            Some(a) => Bound::Excluded(a),
+            None => Bound::Included(prefix),
+        };
+        let mut proof_keys = proofs
+            .range::<&[u8]>((lower, Bound::Unbounded))
+            .map_err(rb)?;
+        let mut next_proof = || -> Result<Option<Vec<u8>>, CacheError> {
+            match proof_keys.next() {
+                Some(item) => Ok(Some(item.map_err(rb)?.0.value().to_vec())),
+                None => Ok(None),
+            }
+        };
+        let mut proof_at = next_proof()?;
+        let mut page = ProofPage {
+            done: true,
+            ..ProofPage::default()
+        };
+        for item in facts
+            .range::<&[u8]>((lower, Bound::Unbounded))
+            .map_err(rb)?
+        {
+            let (k, v) = item.map_err(rb)?;
+            let key = k.value();
+            if !key.starts_with(prefix) {
+                break;
+            }
+            while proof_at.as_deref().is_some_and(|p| p < key) {
+                proof_at = next_proof()?;
+            }
+            let proven = proof_at.as_deref() == Some(key)
+                || match (&locators, cid_digest_bytes(key)) {
+                    (Some(l), Some(d)) => l.get(d.as_slice()).map_err(rb)?.is_some(),
+                    _ => false,
+                };
+            if proven {
+                page.proven.push(key.to_vec());
+            } else {
+                page.unproven.push((key.to_vec(), v.value().to_vec()));
+            }
+            page.seen += 1;
+            page.last = Some(key.to_vec());
+            if page.seen >= max {
+                page.done = false;
+                break;
+            }
+        }
+        Ok(page)
+    }
+
+    /// For each cid, whether `emem.facts` holds it. One read transaction, in
+    /// key order, without copying the bodies out.
+    pub fn facts_present_many(&self, cids: &[&[u8]]) -> Result<Vec<bool>, CacheError> {
+        let r = self.begin_read()?;
+        let t = r.open_table(FACTS).map_err(rb)?;
+        let found = sorted_gets(cids, |c| Ok(t.get(c).map_err(rb)?.map(|_| Vec::new())))?;
+        Ok(found.into_iter().map(|f| f.is_some()).collect())
+    }
+
+    /// For each cid, whether a proof row or a locator exists for it. One read
+    /// transaction, in key order.
+    pub fn proven_many(&self, cids: &[&[u8]]) -> Result<Vec<bool>, CacheError> {
+        let r = self.begin_read()?;
+        let proofs = r.open_table(PROOFS).map_err(rb)?;
+        let locators = match r.open_table(LOCATORS) {
+            Ok(t) => Some(t),
+            Err(redb::TableError::TableDoesNotExist(_)) => None,
+            Err(e) => return Err(rb(e)),
+        };
+        let found = sorted_gets(cids, |c| {
+            Ok(proven_in(&proofs, locators.as_ref(), c)?.then(Vec::new))
+        })?;
+        Ok(found.into_iter().map(|f| f.is_some()).collect())
+    }
+
+    /// Remove facts the transparency log never received, in one write
+    /// transaction, or with `apply` false say what that would do from a read
+    /// transaction and change nothing.
+    ///
+    /// Every check that decides a removal runs again here, inside the
+    /// transaction that removes, so nothing the scan saw earlier is trusted:
+    /// a fact that now has a proof row or a locator, or whose cid now sits in
+    /// the multi-attester index, was logged after all and is left alone with
+    /// its index rows; a stored body that is not the exported one is left
+    /// alone. An index row is changed only while it still names the orphan,
+    /// and it is pointed back only at a fact that is stored and has a proof.
+    pub fn remove_orphans(
+        &self,
+        items: &[OrphanRemoval],
+        apply: bool,
+    ) -> Result<RemovalTally, CacheError> {
+        let mut tally = RemovalTally::default();
+        if !apply {
+            let r = self.begin_read()?;
+            let facts = r.open_table(FACTS).map_err(rb)?;
+            let proofs = r.open_table(PROOFS).map_err(rb)?;
+            let multi = r.open_table(MULTI).map_err(rb)?;
+            let index = r.open_table(INDEX).map_err(rb)?;
+            let locators = match r.open_table(LOCATORS) {
+                Ok(t) => Some(t),
+                Err(redb::TableError::TableDoesNotExist(_)) => None,
+                Err(e) => return Err(rb(e)),
+            };
+            for item in items {
+                let d = decide(&facts, &proofs, locators.as_ref(), &multi, &index, item)?;
+                d.count(&mut tally, item);
+            }
+            return Ok(tally);
+        }
+        let mut w = self.begin_write()?;
+        w.set_durability(Durability::Immediate).map_err(rb)?;
+        let has_locators = w
+            .list_tables()
+            .map_err(rb)?
+            .any(|t| redb::TableHandle::name(&t) == "emem.fact_locators");
+        let rows = {
+            let mut facts = w.open_table(FACTS).map_err(rb)?;
+            let proofs = w.open_table(PROOFS).map_err(rb)?;
+            let multi = w.open_table(MULTI).map_err(rb)?;
+            let mut index = w.open_table(INDEX).map_err(rb)?;
+            let locators = if has_locators {
+                Some(w.open_table(LOCATORS).map_err(rb)?)
+            } else {
+                None
+            };
+            for item in items {
+                let d = decide(&facts, &proofs, locators.as_ref(), &multi, &index, item)?;
+                d.count(&mut tally, item);
+                if !d.removable() {
+                    continue;
+                }
+                for (key, action) in &d.index {
+                    match action {
+                        IndexAction::Repoint(to) => {
+                            index.insert(key.as_slice(), to.as_slice()).map_err(rb)?;
+                        }
+                        IndexAction::Remove => {
+                            index.remove(key.as_slice()).map_err(rb)?;
+                        }
+                        IndexAction::MovedOn => {}
+                    }
+                }
+                if d.body == BodyState::Matches && !item.keep_body {
+                    facts.remove(item.cid.as_slice()).map_err(rb)?;
+                }
+            }
+            items.len()
+        };
+        let t = std::time::Instant::now();
+        w.commit().map_err(rb)?;
+        log_slow_commit("orphans", rows, 0, true, t.elapsed());
+        Ok(tally)
+    }
+}
+
+/// One page of the orphan scan. See [`RedbFacts::facts_proof_page`].
+#[derive(Debug, Default)]
+pub struct ProofPage {
+    /// Rows of `emem.facts` read.
+    pub seen: usize,
+    /// The last key read: the next page starts after it.
+    pub last: Option<Vec<u8>>,
+    /// The table, or the prefix, has no rows after `last`.
+    pub done: bool,
+    /// `(cid, canonical CBOR)` of facts with neither a proof row nor a locator.
+    pub unproven: Vec<(Vec<u8>, Vec<u8>)>,
+    /// Cids of facts that have one.
+    pub proven: Vec<Vec<u8>>,
+}
+
+/// One fact to remove, as the export recorded it.
+#[derive(Debug, Clone)]
+pub struct OrphanRemoval {
+    /// The fact's cid bytes, the key in `emem.facts`.
+    pub cid: Vec<u8>,
+    /// The canonical CBOR the export holds. The stored body must equal it.
+    pub body: Vec<u8>,
+    /// The fact's own canonical key, where its cid would sit in the
+    /// multi-attester index had it been logged.
+    pub key: Option<Vec<u8>>,
+    /// Index rows that named this cid at scan time, each with the logged cid
+    /// to restore there, or `None` to remove the row.
+    pub index_rows: Vec<(Vec<u8>, Option<Vec<u8>>)>,
+    /// Fix the index rows but keep the body: a copy outside redb would bring
+    /// it back on the next read by cid.
+    pub keep_body: bool,
+}
+
+/// What [`RedbFacts::remove_orphans`] did, or would do.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct RemovalTally {
+    pub removed: u64,
+    pub already_gone: u64,
+    pub kept_body: u64,
+    pub skipped_has_proof: u64,
+    pub skipped_in_multi: u64,
+    pub skipped_body_differs: u64,
+    pub index_repointed: u64,
+    pub index_removed: u64,
+    pub index_moved_on: u64,
+}
+
+impl RemovalTally {
+    pub fn add(&mut self, o: &RemovalTally) {
+        self.removed += o.removed;
+        self.already_gone += o.already_gone;
+        self.kept_body += o.kept_body;
+        self.skipped_has_proof += o.skipped_has_proof;
+        self.skipped_in_multi += o.skipped_in_multi;
+        self.skipped_body_differs += o.skipped_body_differs;
+        self.index_repointed += o.index_repointed;
+        self.index_removed += o.index_removed;
+        self.index_moved_on += o.index_moved_on;
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum BodyState {
+    Matches,
+    Gone,
+    Differs,
+}
+
+#[derive(Debug)]
+enum IndexAction {
+    Repoint(Vec<u8>),
+    Remove,
+    MovedOn,
+}
+
+struct Decision {
+    proven: bool,
+    in_multi: bool,
+    body: BodyState,
+    index: Vec<(Vec<u8>, IndexAction)>,
+}
+
+impl Decision {
+    fn removable(&self) -> bool {
+        !self.proven && !self.in_multi && self.body != BodyState::Differs
+    }
+
+    fn count(&self, t: &mut RemovalTally, item: &OrphanRemoval) {
+        if self.proven {
+            t.skipped_has_proof += 1;
+            return;
+        }
+        if self.in_multi {
+            t.skipped_in_multi += 1;
+            return;
+        }
+        match self.body {
+            BodyState::Differs => {
+                t.skipped_body_differs += 1;
+                return;
+            }
+            BodyState::Gone => t.already_gone += 1,
+            BodyState::Matches if item.keep_body => t.kept_body += 1,
+            BodyState::Matches => t.removed += 1,
+        }
+        for (_, a) in &self.index {
+            match a {
+                IndexAction::Repoint(_) => t.index_repointed += 1,
+                IndexAction::Remove => t.index_removed += 1,
+                IndexAction::MovedOn => t.index_moved_on += 1,
+            }
+        }
+    }
+}
+
+/// Key and value type of every byte-to-byte table here.
+type RawKey = &'static [u8];
+
+fn decide<F, P, L, M, I>(
+    facts: &F,
+    proofs: &P,
+    locators: Option<&L>,
+    multi: &M,
+    index: &I,
+    item: &OrphanRemoval,
+) -> Result<Decision, CacheError>
+where
+    F: redb::ReadableTable<RawKey, RawKey>,
+    P: redb::ReadableTable<RawKey, RawKey>,
+    L: redb::ReadableTable<RawKey, RawKey>,
+    M: redb::ReadableTable<RawKey, RawKey>,
+    I: redb::ReadableTable<RawKey, RawKey>,
+{
+    let proven = proven_in(proofs, locators, &item.cid)?;
+    let in_multi = match &item.key {
+        Some(k) => match multi.get(k.as_slice()).map_err(rb)? {
+            Some(v) => {
+                let cids: Vec<String> = ciborium::de::from_reader(v.value())
+                    .map_err(|e| CacheError::Cbor(format!("multi_attester decode: {e}")))?;
+                cids.iter().any(|c| c.as_bytes() == item.cid.as_slice())
+            }
+            None => false,
+        },
+        None => false,
+    };
+    let body = match facts.get(item.cid.as_slice()).map_err(rb)? {
+        Some(b) if b.value() == item.body.as_slice() => BodyState::Matches,
+        Some(_) => BodyState::Differs,
+        None => BodyState::Gone,
+    };
+    let mut actions = Vec::with_capacity(item.index_rows.len());
+    for (key, replacement) in &item.index_rows {
+        let names_orphan = index
+            .get(key.as_slice())
+            .map_err(rb)?
+            .is_some_and(|v| v.value() == item.cid.as_slice());
+        let action = if !names_orphan {
+            IndexAction::MovedOn
+        } else {
+            match replacement {
+                Some(to)
+                    if to != &item.cid
+                        && facts.get(to.as_slice()).map_err(rb)?.is_some()
+                        && proven_in(proofs, locators, to)? =>
+                {
+                    IndexAction::Repoint(to.clone())
+                }
+                _ => IndexAction::Remove,
+            }
+        };
+        actions.push((key.clone(), action));
+    }
+    Ok(Decision {
+        proven,
+        in_multi,
+        body,
+        index: actions,
+    })
+}
+
+fn proven_in<P, L>(proofs: &P, locators: Option<&L>, cid: &[u8]) -> Result<bool, CacheError>
+where
+    P: redb::ReadableTable<RawKey, RawKey>,
+    L: redb::ReadableTable<RawKey, RawKey>,
+{
+    if proofs.get(cid).map_err(rb)?.is_some() {
+        return Ok(true);
+    }
+    if let (Some(l), Some(d)) = (locators, cid_digest_bytes(cid)) {
+        return Ok(l.get(d.as_slice()).map_err(rb)?.is_some());
+    }
+    Ok(false)
+}
+
+/// The 32-byte digest a cid's base32 names, the key of `emem.fact_locators`.
+fn cid_digest_bytes(cid: &[u8]) -> Option<[u8; 32]> {
+    let raw = data_encoding::BASE32_NOPAD
+        .decode(&cid.to_ascii_uppercase())
+        .ok()?;
+    raw.try_into().ok()
 }
 
 #[cfg(test)]

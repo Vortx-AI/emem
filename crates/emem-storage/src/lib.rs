@@ -181,6 +181,7 @@ pub mod artifacts;
 pub mod attesters;
 mod fact_locator;
 pub mod merkle_log;
+pub mod orphans;
 pub mod server;
 pub mod trace_gate;
 

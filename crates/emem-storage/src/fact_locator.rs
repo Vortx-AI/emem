@@ -185,31 +185,56 @@ fn skip(buf: &[u8], i: usize, depth: u32) -> Option<usize> {
 
 /// The byte span of every element of the top-level map's `facts` array.
 fn fact_spans(buf: &[u8]) -> Option<Vec<(usize, usize)>> {
-    let (major, entries, h) = head(buf, 0)?;
+    match entry_fact_spans(buf) {
+        EntryFacts::Spans(s) => Some(s),
+        EntryFacts::NoFacts | EntryFacts::Malformed => None,
+    }
+}
+
+/// What one log record holds, for a reader that must not mistake a record it
+/// could not read for a record with no facts in it.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum EntryFacts {
+    /// An attestation: the span of each element of its `facts` array.
+    Spans(Vec<(usize, usize)>),
+    /// Not a map, or a map with no `facts` key (a memory write). Holds no fact.
+    NoFacts,
+    /// A map this walk could not read to its `facts` array, or a `facts`
+    /// value it could not read.
+    Malformed,
+}
+
+pub(crate) fn entry_fact_spans(buf: &[u8]) -> EntryFacts {
+    let Some((major, entries, h)) = head(buf, 0) else {
+        return EntryFacts::Malformed;
+    };
     if major != 5 {
-        return None;
+        return EntryFacts::NoFacts;
     }
-    let mut i = h;
-    for _ in 0..entries {
-        let (kmajor, _, kh) = head(buf, i)?;
-        let key_end = skip(buf, i, 0)?;
-        if kmajor == 3 && buf.get(i + kh..key_end)? == b"facts" {
-            let (amajor, count, ah) = head(buf, key_end)?;
-            if amajor != 4 {
-                return None;
+    let walk = || -> Option<EntryFacts> {
+        let mut i = h;
+        for _ in 0..entries {
+            let (kmajor, _, kh) = head(buf, i)?;
+            let key_end = skip(buf, i, 0)?;
+            if kmajor == 3 && buf.get(i + kh..key_end)? == b"facts" {
+                let (amajor, count, ah) = head(buf, key_end)?;
+                if amajor != 4 {
+                    return None;
+                }
+                let mut j = key_end + ah;
+                let mut out = Vec::with_capacity(usize::try_from(count).ok()?.min(buf.len()));
+                for _ in 0..count {
+                    let end = skip(buf, j, 0)?;
+                    out.push((j, end));
+                    j = end;
+                }
+                return Some(EntryFacts::Spans(out));
             }
-            let mut j = key_end + ah;
-            let mut out = Vec::with_capacity(usize::try_from(count).ok()?.min(buf.len()));
-            for _ in 0..count {
-                let end = skip(buf, j, 0)?;
-                out.push((j, end));
-                j = end;
-            }
-            return Some(out);
+            i = skip(buf, key_end, 0)?;
         }
-        i = skip(buf, key_end, 0)?;
-    }
-    None
+        Some(EntryFacts::NoFacts)
+    };
+    walk().unwrap_or(EntryFacts::Malformed)
 }
 
 /// Each fact's span in `buf` (an attestation's CBOR, exactly as the log
