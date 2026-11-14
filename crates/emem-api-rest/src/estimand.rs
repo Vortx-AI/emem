@@ -47,7 +47,9 @@ fn s2_inputs(band: &str) -> Option<Vec<(&'static str, u32)>> {
     (!out.is_empty()).then_some(out)
 }
 
-/// One source grid, regular in degrees.
+/// One source grid, regular in degrees. `basis` names the product and its
+/// pixel, which is the same in every tile of the product; the file a fact
+/// read comes from that fact's own sources ([`read_file`]).
 struct Grid {
     deg: f64,
     basis: &'static str,
@@ -55,19 +57,19 @@ struct Grid {
 
 const GFC2020: Grid = Grid {
     deg: 1.0 / 12_000.0,
-    basis: "pixel scale of JRC_GFC2020_V4_N70_E20.tif",
+    basis: "JRC GFC2020 V4, 1/12000 degree pixels in every tile",
 };
 const HANSEN: Grid = Grid {
     deg: 0.000_25,
-    basis: "pixel scale of Hansen_GFC-2025-v1.13_lossyear_70N_020E.tif",
+    basis: "Hansen Global Forest Change, 0.00025 degree pixels in every tile",
 };
 const CCI_BIOMASS: Grid = Grid {
     deg: 3.2 / 3600.0,
-    basis: "pixel scale of N70E020_ESACCI-BIOMASS-L4-AGB-MERGED-100m-2020-fv7.0.tif",
+    basis: "ESA CCI Biomass L4 AGB, 3.2 arc-second pixels in every tile",
 };
 const COPDEM_LAT: Grid = Grid {
     deg: 1.0 / 3600.0,
-    basis: "pixel scale of the Copernicus GLO-30 tiles N12 E077 and N66 E025",
+    basis: "Copernicus DEM GLO-30, 1 arc-second along meridians in every tile",
 };
 const ERA5: Grid = Grid {
     deg: 0.25,
@@ -117,8 +119,26 @@ pub(crate) fn support_m(band: &str) -> Option<f64> {
     Some(grid_m(deg))
 }
 
-fn grid_support(kind: &str, g: &Grid) -> JsonValue {
-    json!({"kind": kind, "deg": g.deg, "m": grid_m(g.deg), "basis": g.basis})
+/// The GeoTIFF a fact read, from its own sources: the file name of the
+/// first source that names one. Until 2026-11-14 `basis` named one sample
+/// tile per product on every fact, whatever tile the fact read.
+fn read_file(f: &Map<String, JsonValue>) -> Option<String> {
+    f.get("sources")?.as_array()?.iter().find_map(|s| {
+        ["url", "id"].iter().find_map(|k| {
+            let u = s.get(*k)?.as_str()?;
+            let name = u.split(['?', '#']).next()?.rsplit('/').next()?;
+            let l = name.to_ascii_lowercase();
+            (l.ends_with(".tif") || l.ends_with(".tiff")).then(|| name.to_string())
+        })
+    })
+}
+
+fn grid_support(kind: &str, g: &Grid, f: &Map<String, JsonValue>) -> JsonValue {
+    let basis = match read_file(f) {
+        Some(file) => format!("{}; this fact read {file}", g.basis),
+        None => g.basis.to_string(),
+    };
+    json!({"kind": kind, "deg": g.deg, "m": grid_m(g.deg), "basis": basis})
 }
 
 fn first_captured_at(f: &Map<String, JsonValue>) -> Option<String> {
@@ -236,7 +256,7 @@ pub(crate) fn for_fact(obj: &Map<String, JsonValue>) -> Option<JsonValue> {
             }
         });
         (
-            grid_support("model_grid_cell", g),
+            grid_support("model_grid_cell", g, f),
             if sum { "model_hour_sum" } else { "model_value" },
             "the reanalysis value Open-Meteo serves for the point from the model grid; a model value, not an observation",
             valid,
@@ -245,7 +265,7 @@ pub(crate) fn for_fact(obj: &Map<String, JsonValue>) -> Option<JsonValue> {
     } else if fn_key.starts_with("copernicus_dem_30m_aws_pixel@")
         && band == "copdem30m.elevation_mean"
     {
-        let mut support = grid_support("source_pixel", &COPDEM_LAT);
+        let mut support = grid_support("source_pixel", &COPDEM_LAT, f);
         if let (Some(lat), Some(m)) = (lat, support.as_object_mut()) {
             m.insert("lng_deg".into(), json!(copdem_lng_arcsec(lat) / 3600.0));
         }
@@ -258,7 +278,7 @@ pub(crate) fn for_fact(obj: &Map<String, JsonValue>) -> Option<JsonValue> {
         )
     } else if fn_key.starts_with("jrc_gfc2020_v") && band == "jrc_gfc2020.forest_2020" {
         (
-            grid_support("source_pixel", &GFC2020),
+            grid_support("source_pixel", &GFC2020, f),
             "pixel_class",
             "the class of the one pixel that contains the cell's point: 1 forest, 0 not forest, under the EUDR definition",
             Some(year(2020, "the map states forest cover in 2020, the year of the EUDR cut-off of 2020-12-31")),
@@ -278,7 +298,7 @@ pub(crate) fn for_fact(obj: &Map<String, JsonValue>) -> Option<JsonValue> {
             None
         };
         (
-            grid_support("source_pixel", &HANSEN),
+            grid_support("source_pixel", &HANSEN, f),
             "pixel_value",
             "the value of the one pixel that contains the cell's point",
             valid,
@@ -286,7 +306,7 @@ pub(crate) fn for_fact(obj: &Map<String, JsonValue>) -> Option<JsonValue> {
         )
     } else if fn_key.starts_with("esa_cci_biomass_v") && band.starts_with("esa_cci_biomass.") {
         (
-            grid_support("source_pixel", &CCI_BIOMASS),
+            grid_support("source_pixel", &CCI_BIOMASS, f),
             "pixel_value",
             if band.contains("_se_") {
                 "the standard error ESA states for the biomass density of the one pixel that contains the cell's point, in t/ha"
@@ -446,6 +466,59 @@ mod tests {
         let e = est(&b);
         assert_eq!(e["valid_time"]["from"], "2020-01-01");
         assert_eq!(e["support"]["m"], 99.0);
+    }
+
+    /// Two Hansen facts from two tiles each name the tile they read, and
+    /// neither names the other's. A fact with no file names the product only.
+    #[test]
+    fn the_basis_names_the_tile_the_fact_read() {
+        let at = |tile: &str| {
+            fact(
+                "forest_change.lossyear",
+                "hansen_gfc_v1_13_pixel@1",
+                "2025-04-01T00:00:00Z",
+                &format!("https://storage.googleapis.com/earthenginepartners-hansen/GFC-2025-v1.13/Hansen_GFC-2025-v1.13_lossyear_{tile}.tif"),
+                json!([]),
+            )
+        };
+        let north = est(&at("70N_020E"))["support"]["basis"].clone();
+        let south = est(&at("00N_060W"))["support"]["basis"].clone();
+        let (north, south) = (north.as_str().unwrap(), south.as_str().unwrap());
+        assert!(
+            north.contains("Hansen_GFC-2025-v1.13_lossyear_70N_020E.tif"),
+            "{north}"
+        );
+        assert!(
+            south.contains("Hansen_GFC-2025-v1.13_lossyear_00N_060W.tif"),
+            "{south}"
+        );
+        assert!(!south.contains("70N_020E"), "{south}");
+        assert!(south.starts_with(HANSEN.basis));
+
+        let dem = fact(
+            "copdem30m.elevation_mean",
+            "copernicus_dem_30m_aws_pixel@1",
+            "2021-04-30T00:00:00Z",
+            "https://copernicus-dem-30m.s3.amazonaws.com/Copernicus_DSM_COG_10_S04_00_W061_00_DEM/Copernicus_DSM_COG_10_S04_00_W061_00_DEM.tif",
+            json!([-3.5, -60.5]),
+        );
+        let b = est(&dem)["support"]["basis"].clone();
+        assert!(
+            b.as_str()
+                .unwrap()
+                .ends_with("Copernicus_DSM_COG_10_S04_00_W061_00_DEM.tif"),
+            "{b}"
+        );
+        assert!(!b.as_str().unwrap().contains("N12"), "{b}");
+
+        let bare = fact(
+            "esa_cci_biomass.agb_t_per_ha_2020",
+            "esa_cci_biomass_v7_pixel@1",
+            "2025-03-01T00:00:00Z",
+            "",
+            json!([]),
+        );
+        assert_eq!(est(&bare)["support"]["basis"], CCI_BIOMASS.basis);
     }
 
     #[test]

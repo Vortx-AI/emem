@@ -66,6 +66,10 @@ on 14 November 2026:
 | `Copernicus_DSM_COG_10_N12_00_E077_00_DEM.tif` | 1 by 1 arc-second | 30.9 m |
 | `Copernicus_DSM_COG_10_N66_00_E025_00_DEM.tif` | 1 arc-second north, 2 east | 30.9 m |
 
+Every tile of one product has the same pixel scale, so these files are only
+where the scales were read. A fact's `support.basis` names the product and
+its pixel, and then the file that fact read, from the fact's own sources.
+
 The ERA5 and ERA5-Land grids (0.25 and 0.1 degree) are the grids Open-Meteo
 serves, as the materialiser states (`lib.rs:56500`). SoilGrids is 250 m, as
 the bands registry states.
