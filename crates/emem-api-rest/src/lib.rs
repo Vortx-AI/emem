@@ -36846,7 +36846,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/raster_bundle/resolve": {"post":{"summary":"dereference an emem:rasterset:<bundle_cid>:<derivation_cid> token. Fail-closed: the cid must be a raster_bundle@1 derivation, bundle_cid is recomputed from the record's ordered members and matched against both the token and the record (mismatch = 409, refusing an altered set), and every member emem:raster: token is re-verified as a live raster derivation. Returns the members with a per-member resolves flag.","operationId":"emem_raster_bundle_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
             "/v1/artifacts/{cid}": {"get":{"summary":"raw canonical grid bytes by artifact cid, Cache-Control immutable (content-addressed bytes never change). A 404 is typed and says how to rebuild: eviction is a design property (the derivation record persists and pins the scene, recipe, and geometry), never data loss.","operationId":"emem_artifact_bytes","responses":{"200":{"description":"application/x.emem-grid-f32.v1 bytes, or application/json for the upstream series a persistence chain read"},"404":{"description":"evicted or unknown; the derivation record pins the rebuild"}}}},
             "/v1/deforestation_alert":{"post":{"summary":"carbon.deforestation_alert_proxy: alert_score = 0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20). Each half degrades independently, a missing band drops its half and renames the output so a half-score can't be mistaken for the full composite; if neither half is computable the response is a signed `inconclusive`.","operationId":"emem_deforestation_alert","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
-            "/v1/sar_forest_disturbance":{"post":{"summary":"Sentinel-1 VV backscatter-drop forest-disturbance scout (cloud- and night-independent). Samples VV at a baseline-year July-1 anchor and the latest scene; vv_drop_db = baseline − recent, disturbed when drop ≥ 3 dB (Reiche et al. 2018). Both VV reads are signed Primary facts (cited fact_cids); honest `inconclusive` when either S1 vintage is unavailable. ADDITIVE scout signal, NOT a standalone legal verdict, confirm with the optical JRC GFC2020/Hansen consensus (/v1/eudr_dds, /v1/deforestation_alert). Source: MPC sentinel-1-rtc (anonymous SAS, no requester-pays).","operationId":"emem_sar_forest_disturbance","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"baseline_year":{"type":"integer","description":"Baseline calendar year the VV drop is measured against (default 2020)."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/sar_forest_disturbance":{"post":{"summary":"Sentinel-1 VV backscatter-drop forest-disturbance scout (cloud- and night-independent). Reads the radar field series over the plot (the geometry polygon, or a 100 m square on the cell) on one relative orbit, in the latest 90 days and in the same 90 days of baseline_year. Each scene is the mean power over the plot's pixels; each window's level is the median of its scenes, with a standard error. vv_drop_db = baseline − recent; disturbed when the drop is ≥ 3 dB (Reiche et al. 2018) and ≥ 3 standard errors. States support and uncertainty and cites both signed series; honest `inconclusive` when a window has fewer than 3 scenes or cannot be read. ADDITIVE scout signal, NOT a standalone legal verdict, confirm with the optical JRC GFC2020/Hansen consensus (/v1/eudr_dds, /v1/deforestation_alert). Source: MPC sentinel-1-rtc (anonymous SAS, no requester-pays).","operationId":"emem_sar_forest_disturbance","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"baseline_year":{"type":"integer","description":"Baseline calendar year the VV drop is measured against (default 2020). Its window is the same 90 days of the year as the recent one."},"geometry":{"type":"object","description":"The plot, as a GeoJSON Polygon. Default: a 100 m square centred on the cell."}}}}}},"responses":{"200":json_ok}}},
             "/v1/spi":               {"post":{"summary":"McKee-1993 Standardized Precipitation Index drought metric: fits a gamma to the same-window precipitation-accumulation history and standardizes the current accumulation to a z-score + drought class. Honest `inconclusive` (no z-score) when fewer than the minimum samples exist. Supply `precip_history_mm` + `current_accumulation_mm` directly, or omit to read the stored `weather.precipitation_mm` trajectory.","operationId":"emem_spi","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"window_days":{"type":"integer","description":"Accumulation window (SPI-3 = 90 d default; SPI-1 = 30 d; SPI-12 = 360 d)."},"precip_history_mm":{"type":"array","items":{"type":"number"},"description":"Optional explicit same-window precipitation accumulations (mm)."},"current_accumulation_mm":{"type":"number","description":"Current-window accumulation (mm); required when precip_history_mm is supplied."}}}}}},"responses":{"200":json_ok}}},
             "/v1/burn_severity":     {"post":{"summary":"Key & Benson dNBR burn severity: dNBR = nbr_pre − nbr_post, mapped to USGS severity classes. Supply `nbr_pre` + `nbr_post` (pin the scenes bracketing the fire date) or omit to use the two most-recent stored `indices.nbr` scenes.","operationId":"emem_burn_severity","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"nbr_pre":{"type":"number","description":"Pre-fire NBR."},"nbr_post":{"type":"number","description":"Post-fire NBR."}}}}}},"responses":{"200":json_ok}}},
             "/v1/field_burn_scar":   {"post":{"summary":"field_burn_scar@1: residue burning on a field over a window. Reads the whole field, every 20 m Sentinel-2 L2A pixel inside it, through the field series engine: NBR (B8A, B12) and the tillage index NDTI (B11, B12, van Deventer 1997), one signed series each, plus modis.burned_area_monthly at the centroid. Applies residue_burn_multisensor@1 between consecutive clear dates to the field median and to each block of its map; an event is the field median, or max(2, 10 %) of the blocks clear on both dates, at likely_burn or better. Returns verdict (burn | signal_only | no_burn | inconclusive), events, per-block signals with their scenes, the method and support, the series tokens, and what it did not evaluate (CAMS).","operationId":"emem_field_burn_scar","tags":["compliance"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["start","end"],"properties":{"geometry_geojson":{"type":"object","description":"GeoJSON Polygon or MultiPolygon of the field, or {bbox:[w,s,e,n]}."},"cells":{"type":"array","items":{"type":"string"},"description":"Or the field's cell64s."},"start":{"type":"string","description":"First day, YYYY-MM-DD."},"end":{"type":"string","description":"Last day, YYYY-MM-DD (inclusive, window at most 400 days)."},"max_cells":{"type":"integer","description":"Burn scar only: about how many blocks the field map is cut into, as 2 to 8 per side (default 16, max 64)."},"budget_ms":{"type":"integer","description":"Warm-up budget for the MODIS reads (default 25000, max 300000); the warm-up continues after it, so a retry reads more."}}}}}},"responses":{"200":json_ok}}},
@@ -59737,32 +59737,30 @@ async fn materialize_sentinel1_vv_at(
 // anonymous Microsoft Planetary Computer `sentinel-1-rtc` collection.
 //
 // This is an ADDITIVE scout signal. It does NOT flip the EUDR legal
-// verdict (that stays the JRC GFC2020 + Hansen consensus); it is
-// a cite-able, cloud-independent corroboration an agent can pair with the
-// optical consensus. Both VV reads are signed Primary facts under the
-// responder identity; the response cites both fact_cids.
+// verdict (that stays the JRC GFC2020 + Hansen consensus).
+//
+// Until 2026-11-14 it compared one baseline pixel with the newest pixel, on
+// whatever orbit each came from. Single-pixel VV under 4.4-look speckle has
+// a 2.2 dB scatter, so stable ground crossed the 3 dB threshold about one
+// time in six. It now reads the radar field series over the plot on one
+// relative orbit, multilooked over the plot's pixels, in two windows of the
+// same season, and flags a drop only when it clears both the threshold and
+// three standard errors.
 
-/// Read the VV-dB scalar back out of a signed `sentinel1_raw` fact CID.
-async fn read_s1_vv_db(s: &AppState, cid: &emem_fact::FactCid) -> Option<f64> {
-    let facts = s
-        .storage
-        .get_facts_many(std::slice::from_ref(cid))
-        .await
-        .ok()?;
-    let fact = facts.into_iter().next().flatten()?;
-    if let emem_fact::Fact::Primary(p) = fact {
-        if p.band == "sentinel1_raw" {
-            if let ciborium::Value::Float(v) = p.value {
-                if v.is_finite() {
-                    return Some(v);
-                }
-            }
-        }
-    }
-    None
-}
+/// Days in each window the drop compares.
+const SAR_WINDOW_DAYS: i64 = 90;
+/// Side of the plot read when the caller names only a cell, in metres:
+/// about 100 Sentinel-1 RTC pixels of 10 m.
+const SAR_DEFAULT_PLOT_M: f64 = 100.0;
+/// Scenes a window needs. With fewer, the scatter between scenes that the
+/// standard error rests on is not measured.
+const SAR_MIN_SCENES: usize = 3;
+/// Scenes read per window: every pass of one orbit in 90 days.
+const SAR_MAX_SCENES: usize = 24;
+/// Standard errors of the difference a drop must also exceed.
+const SAR_DROP_SIGMAS: f64 = 3.0;
 
-/// Minimum VV-backscatter drop (dB) below which the cell is NOT flagged as
+/// Minimum VV-backscatter drop (dB) below which the plot is NOT flagged as
 /// disturbed. Default 3 dB, the conservative C-band forest-clearance
 /// threshold from Reiche et al. 2018 (RSE 204:147), consistent with how the
 /// EUDR visual-evidence block already gates its S1 confirmation. Tunable via
@@ -59775,23 +59773,95 @@ fn sar_disturbance_drop_db() -> f64 {
         .unwrap_or(3.0)
 }
 
+/// A window's VV level and its standard error, in dB, from its scenes'
+/// multilooked means and their stated errors. The level is the median of
+/// the means. The scatter is the larger of the means' spread about each
+/// other (moisture, phenology, speckle) and the scenes' own errors doubled,
+/// because the series states `se_db` understates by up to 2x where pixels
+/// share speckle; a median's error is sqrt(pi/2) times a mean's. `None`
+/// under [`SAR_MIN_SCENES`].
+fn sar_window_level(means: &[f64], ses: &[f64]) -> Option<(f64, f64)> {
+    let k = means.len();
+    if k < SAR_MIN_SCENES {
+        return None;
+    }
+    let mut sorted = means.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let level = if k % 2 == 1 {
+        sorted[k / 2]
+    } else {
+        (sorted[k / 2 - 1] + sorted[k / 2]) / 2.0
+    };
+    let mean = means.iter().sum::<f64>() / k as f64;
+    let between = means.iter().map(|m| (m - mean).powi(2)).sum::<f64>() / (k - 1) as f64;
+    let within = if ses.is_empty() {
+        0.0
+    } else {
+        ses.iter().map(|s| (2.0 * s).powi(2)).sum::<f64>() / ses.len() as f64
+    };
+    let se = (std::f64::consts::PI / 2.0).sqrt() * (between.max(within) / k as f64).sqrt();
+    Some((level, se))
+}
+
+/// The drop from `base` to `recent` (each a level and its standard error),
+/// the drop's standard error, and whether it clears both `threshold_db`
+/// and [`SAR_DROP_SIGMAS`] standard errors.
+fn sar_drop(base: (f64, f64), recent: (f64, f64), threshold_db: f64) -> (f64, f64, bool) {
+    let drop = base.0 - recent.0;
+    let se = (base.1.powi(2) + recent.1.powi(2)).sqrt();
+    (
+        drop,
+        se,
+        drop >= threshold_db && drop >= SAR_DROP_SIGMAS * se,
+    )
+}
+
 #[derive(Debug, Deserialize)]
 struct SarForestDisturbanceReq {
     /// cell64 or place name.
     cell: String,
     /// Baseline calendar year the disturbance is measured against. Defaults
-    /// to the EUDR cut-off year (2020). The baseline VV is sampled at a
-    /// mid-year (July-1) anchor of this year; the recent VV is the latest
-    /// scene. Loss is meaningful when it happened AFTER the baseline.
+    /// to the EUDR cut-off year (2020). The baseline window is the same 90
+    /// days of the year as the recent window, in this year.
     #[serde(default)]
     baseline_year: Option<i32>,
+    /// The plot, a GeoJSON Polygon. Default: a 100 m square on the cell.
+    #[serde(default)]
+    geometry: Option<JsonValue>,
+}
+
+/// One window's series and what the verdict reads from it.
+struct SarWindow {
+    series: Result<JsonValue, ApiError>,
+    level: Option<(f64, f64)>,
+    scenes: usize,
+}
+
+fn sar_window(series: Result<JsonValue, ApiError>) -> SarWindow {
+    let (mut means, mut ses) = (Vec::new(), Vec::new());
+    if let Ok(v) = &series {
+        for r in v["rows"].as_array().into_iter().flatten() {
+            if let Some(m) = r["mean"].as_f64().filter(|m| m.is_finite()) {
+                means.push(m);
+                if let Some(se) = r["se_db"].as_f64().filter(|s| s.is_finite()) {
+                    ses.push(se);
+                }
+            }
+        }
+    }
+    SarWindow {
+        level: sar_window_level(&means, &ses),
+        scenes: means.len(),
+        series,
+    }
 }
 
 /// `POST /v1/sar_forest_disturbance`, Sentinel-1 VV backscatter-drop
-/// forest-disturbance scout. Samples VV at a baseline-year anchor and the
-/// latest scene, reports the dB drop and a `disturbed` flag when the drop
-/// meets the Reiche-2018 threshold. Honest `inconclusive` when either VV
-/// read is unavailable (no S1 scene at the anchor, MPC SAS down).
+/// forest-disturbance scout over a plot. Reads the radar field series on
+/// one relative orbit in the latest 90 days and in the same 90 days of the
+/// baseline year, and reports the drop between the two windows' levels
+/// with its standard error. Honest `inconclusive` when either window has
+/// too few scenes or cannot be read.
 async fn post_sar_forest_disturbance(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<SarForestDisturbanceReq>,
@@ -59799,47 +59869,97 @@ async fn post_sar_forest_disturbance(
     let started = std::time::Instant::now();
     let (cell, resolved) = resolve_cell_field(&req.cell).await?;
     let baseline_year = req.baseline_year.unwrap_or(2020);
-
-    // Baseline anchor: July-1 of the baseline year (the same mid-year anchor
-    // the EUDR visual-evidence timeline uses, so the two agree).
-    let baseline_anchor = jan1_unix(baseline_year) + 181 * 86_400;
-
-    // Fetch both VV vintages concurrently: baseline at its anchor, recent as
-    // the latest scene (target_unix = None → newest).
-    let (base_cid_res, recent_cid_res) = tokio::join!(
-        materialize_sentinel1_vv(&cell, &s, Some(baseline_anchor)),
-        materialize_sentinel1_vv(&cell, &s, None),
+    let bad = |message: String| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message,
+                details: None,
+            },
+        )
+    };
+    let today = now_unix_s().div_euclid(86_400);
+    let (this_year, month, day) = civil_from_days(today);
+    if !(2015..this_year).contains(&baseline_year) {
+        return Err(bad(format!(
+            "baseline_year must be from 2015 (Sentinel-1 RTC) to {}, got {baseline_year}",
+            this_year - 1
+        )));
+    }
+    let ymd = |z: i64| {
+        let (y, m, d) = civil_from_days(z);
+        format!("{y:04}-{m:02}-{d:02}")
+    };
+    let recent_win = (today - SAR_WINDOW_DAYS + 1, today);
+    let base_end = days_from_civil(
+        baseline_year,
+        month,
+        if month == 2 { day.min(28) } else { day },
     );
-
-    let mut cids: Vec<String> = Vec::new();
-    let mut notes: Vec<String> = Vec::new();
-
-    let baseline_db = match base_cid_res {
-        Ok(cid) => {
-            let v = read_s1_vv_db(&s, &cid).await;
-            cids.push(cid.as_str().to_string());
-            v
-        }
-        Err(e) => {
-            notes.push(format!(
-                "baseline S1 VV unavailable at {baseline_year}-07: {e}"
-            ));
-            None
+    let base_win = (base_end - SAR_WINDOW_DAYS + 1, base_end);
+    let area = match &req.geometry {
+        Some(g) => json!({"geometry": g}),
+        None => {
+            let ll = emem_codec::latlng_from_cell64(&cell)
+                .map_err(|e| bad(format!("cell {cell}: {e}")))?;
+            let half = SAR_DEFAULT_PLOT_M / 2.0;
+            let dlat = half / METERS_PER_DEGREE_LAT;
+            let dlng =
+                half / (METERS_PER_DEGREE_LAT * ll.lat_deg.to_radians().cos().abs().max(1e-6));
+            json!({"bbox": {"min_lat": ll.lat_deg - dlat, "max_lat": ll.lat_deg + dlat,
+                            "min_lng": ll.lng_deg - dlng, "max_lng": ll.lng_deg + dlng}})
         }
     };
-    let recent_db = match recent_cid_res {
-        Ok(cid) => {
-            let v = read_s1_vv_db(&s, &cid).await;
-            cids.push(cid.as_str().to_string());
-            v
+    let series_req = |win: (i64, i64), orbit: Option<u64>| {
+        let mut body = json!({
+            "index": "vv", "start_date": ymd(win.0), "end_date": ymd(win.1),
+            "max_scenes": SAR_MAX_SCENES, "blocks": 2,
+        });
+        if let (Some(o), Some(a)) = (body.as_object_mut(), area.as_object()) {
+            o.extend(a.clone());
+            if let Some(orbit) = orbit {
+                o.insert("orbit".into(), json!(orbit));
+            }
         }
-        Err(e) => {
-            notes.push(format!("recent S1 VV unavailable: {e}"));
-            None
-        }
+        serde_json::from_value::<field_series::FieldSeriesReq>(body)
+            .map_err(|e| bad(format!("plot: {e}")))
+    };
+    // The recent window picks the orbit with the most passes; the baseline
+    // reads that same orbit, so both see the plot at one incidence angle.
+    let recent = sar_window(field_series::field_series(series_req(recent_win, None)?, &s).await);
+    let orbit = recent
+        .series
+        .as_ref()
+        .ok()
+        .and_then(|v| v["selection"]["orbit"].as_u64());
+    let base = match orbit {
+        Some(o) => sar_window(field_series::field_series(series_req(base_win, Some(o))?, &s).await),
+        None => sar_window(Err(bad("the recent window found no orbit to read".into()))),
     };
 
     let threshold = sar_disturbance_drop_db();
+    let mut notes: Vec<String> = Vec::new();
+    for (name, w) in [("baseline", &base), ("recent", &recent)] {
+        match &w.series {
+            Err(e) => notes.push(format!("{name} window unreadable: {}", e.1.message)),
+            Ok(_) if w.level.is_none() => notes.push(format!(
+                "{name} window holds {} scene(s) on orbit {}; {SAR_MIN_SCENES} are needed to measure the scatter between scenes",
+                w.scenes,
+                orbit.map_or("none".to_string(), |o| o.to_string())
+            )),
+            Ok(_) => {}
+        }
+    }
+    let judged = base
+        .level
+        .zip(recent.level)
+        .map(|(b, r)| sar_drop(b, r, threshold));
+    let cids: Vec<String> = [&base, &recent]
+        .iter()
+        .filter_map(|w| w.series.as_ref().ok())
+        .filter_map(|v| v["derivation_cid"].as_str().map(str::to_string))
+        .collect();
     let resolved_env = resolved_envelope(vec![("cell".into(), resolved)]);
     let pubkey = data_encoding::BASE32_NOPAD
         .encode(&s.identity.pubkey.0)
@@ -59852,44 +59972,62 @@ async fn post_sar_forest_disturbance(
         started,
         None,
     );
-
-    // drop_db = baseline - recent (positive = backscatter fell = possible
-    // clearing). Only computable when both reads succeeded.
-    let (drop_db, disturbed, available) = match (baseline_db, recent_db) {
-        (Some(b), Some(r)) => {
-            let drop = b - r;
-            (Some(drop), Some(drop >= threshold), true)
-        }
-        _ => (None, None, false),
+    let r3 = |x: f64| (x * 1e3).round() / 1e3;
+    let window_json = |w: &SarWindow, win: (i64, i64)| {
+        json!({
+            "start": ymd(win.0), "end": ymd(win.1), "scenes": w.scenes,
+            "level_db": w.level.map(|l| r3(l.0)), "se_db": w.level.map(|l| r3(l.1)),
+            "token": w.series.as_ref().ok().map(|v| v["token"].clone()),
+        })
     };
-
+    let support = recent
+        .series
+        .as_ref()
+        .ok()
+        .and_then(|v| v["estimand"]["support"].as_str())
+        .map(str::to_string);
+    let available = judged.is_some();
     Ok(Json(json!({
         "schema": "emem.sar_forest_disturbance.v1",
         "algorithm_key": "sar_forest_disturbance@1",
         "cell": cell,
         "resolved_from": resolved_env,
         "available": available,
-        "verdict": match disturbed {
-            Some(true) => "disturbance_suspected",
-            Some(false) => "no_disturbance",
+        "verdict": match judged {
+            Some((_, _, true)) => "disturbance_suspected",
+            Some(_) => "no_disturbance",
             None => "inconclusive",
         },
         "baseline_year": baseline_year,
-        "baseline_vv_db": baseline_db,
-        "recent_vv_db": recent_db,
-        "vv_drop_db": drop_db,
+        "baseline_vv_db": base.level.map(|l| r3(l.0)),
+        "recent_vv_db": recent.level.map(|l| r3(l.0)),
+        "vv_drop_db": judged.map(|j| r3(j.0)),
         "drop_threshold_db": threshold,
-        "disturbed": disturbed,
+        "disturbed": judged.map(|j| j.2),
+        "uncertainty": {
+            "drop_se_db": judged.map(|j| r3(j.1)),
+            "drop_in_se": judged.and_then(|j| (j.1 > 0.0).then(|| r3(j.0 / j.1))),
+            "sigmas_required": SAR_DROP_SIGMAS,
+            "rule": "each window's standard error is sqrt(pi/2) times the root of (the larger of the variance between its scenes' means and the mean of their squared se_db doubled) over the scene count; the drop's is the root of the sum of the two squares",
+        },
+        "windows": {
+            "days": SAR_WINDOW_DAYS,
+            "baseline": window_json(&base, base_win),
+            "recent": window_json(&recent, recent_win),
+        },
+        "orbit": orbit,
+        "support": support,
+        "plot": if req.geometry.is_some() { "the caller's polygon" } else { "a 100 m square centred on the cell" },
         "modality": "sentinel-1 c-band vv (radar; cloud- and night-independent)",
-        "formula": "vv_drop_db = baseline_vv_db − recent_vv_db; disturbed = vv_drop_db ≥ drop_threshold_db (default 3 dB, Reiche et al. 2018 RSE 204:147)",
+        "formula": "per scene, mean = 10 log10 of the mean linear VV gamma-naught over the plot's pixels on one relative orbit; each window's level = median of its scenes' means; vv_drop_db = baseline level - recent level; disturbed = vv_drop_db >= drop_threshold_db (default 3 dB, Reiche et al. 2018 RSE 204:147) and vv_drop_db >= 3 standard errors",
         "honest_note": if available {
-            "Cloud-independent SAR scout signal. A VV drop can also be transient (soil moisture, harvest, flooding recede); confirm clearing against the optical JRC GFC2020/Hansen consensus (POST /v1/eudr_dds or /v1/deforestation_alert) before crediting a decision. This is corroboration, NOT a standalone legal verdict."
+            "Cloud-independent SAR scout signal. The two windows cover the same days of the year on one orbit, which removes most of the seasonal and geometric change, but a VV drop can still be transient (soil moisture, harvest, flood recession); confirm clearing against the optical JRC GFC2020/Hansen consensus (POST /v1/eudr_dds or /v1/deforestation_alert) before crediting a decision. This is corroboration, NOT a standalone legal verdict."
         } else {
-            "Could not sample both S1 VV vintages at this cell (no Sentinel-1 scene at the baseline anchor and/or latest, or the MPC SAS endpoint was unreachable). No drop reported."
+            "Could not read both windows on one orbit with enough scenes (see degradation_notes). No drop reported."
         },
         "degradation_notes": notes,
         "input_fact_cids": cids,
-        "source": "Microsoft Planetary Computer sentinel-1-rtc (anonymous SAS; no requester-pays, no API key)",
+        "source": "Microsoft Planetary Computer sentinel-1-rtc (anonymous SAS; no requester-pays, no API key), through the radar field series (s1_rtc_series@1)",
         "responder_pubkey_b32": pubkey,
         "receipt": receipt,
     })))
@@ -99641,6 +99779,87 @@ mod tests {
             ne_in_masked, 0,
             "polygon mask let through {ne_in_masked} NE-quadrant cells"
         );
+    }
+
+    /// A small seeded generator for the SAR simulation below.
+    struct SimRng(u64);
+
+    impl SimRng {
+        fn uniform(&mut self) -> f64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            ((self.0 >> 11) as f64 + 0.5) / (1u64 << 53) as f64
+        }
+        fn gauss(&mut self) -> f64 {
+            let (a, b) = (self.uniform(), self.uniform());
+            (-2.0 * a.ln()).sqrt() * (2.0 * std::f64::consts::PI * b).cos()
+        }
+        /// 4-look speckle: a gamma variate of mean 1.
+        fn speckle(&mut self) -> f64 {
+            (0..4).map(|_| -self.uniform().ln()).sum::<f64>() / 4.0
+        }
+        /// Linear VV of one pixel on one scene: the plot's level in dB,
+        /// moved by the scene's moisture, times speckle.
+        fn pixel(&mut self, level_db: f64, moisture_db: f64) -> f64 {
+            10f64.powf((level_db + moisture_db) / 10.0) * self.speckle()
+        }
+    }
+
+    /// One window of 8 scenes over 100 pixels, as the radar series reports
+    /// each scene (dB of the mean power, and its standard error), read into
+    /// a level by the route's rule.
+    fn simulated_window(rng: &mut SimRng, level_db: f64) -> (f64, f64) {
+        let (mut means, mut ses) = (Vec::new(), Vec::new());
+        for _ in 0..8 {
+            let moisture = 0.7 * rng.gauss();
+            let px: Vec<f64> = (0..100).map(|_| rng.pixel(level_db, moisture)).collect();
+            let n = px.len() as f64;
+            let m = px.iter().sum::<f64>() / n;
+            let var = px.iter().map(|p| (p - m).powi(2)).sum::<f64>() / (n - 1.0);
+            means.push(10.0 * m.log10());
+            ses.push(10.0 / std::f64::consts::LN_10 * var.sqrt() / (m * n.sqrt()));
+        }
+        sar_window_level(&means, &ses).unwrap()
+    }
+
+    /// Stable forest at -7 dB VV with a 0.7 dB scene-to-scene moisture
+    /// swing. The old rule (one baseline pixel against one newest pixel,
+    /// 3 dB) flags it about one time in five; the windowed rule, over one
+    /// orbit and 100 pixels, flags it never, and still flags a real 5 dB
+    /// clearing.
+    #[test]
+    fn the_windowed_sar_rule_does_not_flag_stable_ground() {
+        let mut rng = SimRng(0x9e37_79b9_7f4a_7c15);
+        let db = |x: f64| 10.0 * x.log10();
+        let trials = 4_000;
+        let mut old = 0;
+        for _ in 0..trials {
+            let (mb, mr) = (0.7 * rng.gauss(), 0.7 * rng.gauss());
+            let drop = db(rng.pixel(-7.0, mb)) - db(rng.pixel(-7.0, mr));
+            old += usize::from(drop >= 3.0);
+        }
+        let old_rate = old as f64 / trials as f64;
+        assert!((0.10..0.30).contains(&old_rate), "old rule: {old_rate}");
+        let (mut false_alarms, mut detected) = (0, 0);
+        let windows = 400;
+        for _ in 0..windows {
+            let base = simulated_window(&mut rng, -7.0);
+            let same = simulated_window(&mut rng, -7.0);
+            let cleared = simulated_window(&mut rng, -12.0);
+            false_alarms += usize::from(sar_drop(base, same, 3.0).2);
+            detected += usize::from(sar_drop(base, cleared, 3.0).2);
+        }
+        assert_eq!(false_alarms, 0, "stable ground flagged");
+        assert!(
+            detected * 100 >= windows * 95,
+            "detected {detected} of {windows}"
+        );
+        // Fewer than three scenes is not a level: the scatter is unmeasured.
+        assert!(sar_window_level(&[-7.0, -7.1], &[0.1, 0.1]).is_none());
+        // A drop past 3 dB but inside 3 standard errors is not flagged.
+        assert!(!sar_drop((-7.0, 1.0), (-10.5, 1.0), 3.0).2);
+        assert!(sar_drop((-7.0, 0.2), (-10.5, 0.2), 3.0).2);
     }
 
     /// A square `side_m` metres on a side centred at (lat, lng), and its bbox.

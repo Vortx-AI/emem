@@ -1052,7 +1052,8 @@ const SCHEMA_DEFORESTATION_ALERT: &str = r#"{"type":"object","required":["cell"]
 
 const SCHEMA_SAR_FOREST_DISTURBANCE: &str = r#"{"type":"object","required":["cell"],"properties":{
 "cell":{"type":"string","description":"cell64 or place name."},
-"baseline_year":{"type":"integer","description":"Baseline calendar year the VV drop is measured against (default 2020, the EUDR cut-off year). Baseline VV is sampled at a July-1 anchor of this year; the recent VV is the latest scene."}
+"baseline_year":{"type":"integer","description":"Baseline calendar year the VV drop is measured against (default 2020, the EUDR cut-off year). The baseline window is the same 90 days of the year as the recent window (the latest 90 days), in this year."},
+"geometry":{"type":"object","description":"The plot, as a GeoJSON Polygon. Default: a 100 m square centred on the cell."}
 }}"#;
 
 const SCHEMA_CHANGE_ATTRIBUTION: &str = r#"{"type":"object","required":["cell"],"properties":{
@@ -1489,7 +1490,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_sar_forest_disturbance",
         title: "Sentinel-1 SAR forest-disturbance scout (cloud-penetrating)",
-        description: "Cloud- and night-independent Sentinel-1 C-band confirmation of forest disturbance. Intact forest scatters VV strongly + stably (canopy volume scattering). Clearing collapses that term, so VV backscatter DROPS ~3-5 dB. The tool samples VV at a baseline-year July-1 anchor and at the latest scene. It reports `vv_drop_db = baseline − recent` and a `disturbed` flag when the drop ≥ 3 dB (Reiche et al. 2018, RSE 204:147). Both VV reads are signed Primary facts. The response cites both fact_cids. It returns an honest `inconclusive` when either S1 vintage is unavailable. Source: Microsoft Planetary Computer sentinel-1-rtc (anonymous SAS, no requester-pays, no API key).",
+        description: "Cloud- and night-independent Sentinel-1 C-band confirmation of forest disturbance. Intact forest scatters VV strongly + stably (canopy volume scattering). Clearing collapses that term, so VV backscatter DROPS ~3-5 dB. The tool reads the plot on one relative orbit, in the latest 90 days and in the same 90 days of the baseline year. The plot is the `geometry` polygon, or a 100 m square on the cell. Each scene's VV is the mean power over the plot's pixels. Each window's level is the median of its scenes, with a standard error. It reports `vv_drop_db = baseline − recent` and sets `disturbed` only when the drop is ≥ 3 dB (Reiche et al. 2018, RSE 204:147) AND ≥ 3 standard errors. The response states the support and the uncertainty and cites both signed series. It returns an honest `inconclusive` when a window has fewer than 3 scenes or cannot be read. Source: Microsoft Planetary Computer sentinel-1-rtc (anonymous SAS, no requester-pays, no API key).",
         when_to_use: "Call to corroborate or scout forest clearing where cloud blocks the optical products. Radar sees through cloud and at night. It catches wet-season clearing that the annual Hansen/JRC-TMF layers and a single cloudy Sentinel-2 pass miss. RADD's purpose was to fill this gap. This is an ADDITIVE scout signal, NOT a standalone legal verdict. A VV drop can also be transient (soil moisture, harvest, flood recession). Confirm with the optical consensus (`emem_eudr_dds` or `emem_deforestation_alert`) before you credit a decision.",
         input_schema: SCHEMA_SAR_FOREST_DISTURBANCE,
         output_schema: None,
