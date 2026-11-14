@@ -56,6 +56,7 @@ mod element84_erratum;
 mod embedding_analytics;
 pub mod enlistment;
 mod eo_runtime;
+mod estimand;
 mod eu_mrl;
 mod field_series;
 mod field_signals;
@@ -14829,8 +14830,9 @@ async fn post_recall(
 // /v1/recall, /v1/recall_polygon, /v1/backfill via the `next` hints.
 //
 // Honesty fields surfaced by every boring response:
-//   resolution_m_input, sensor's native pitch (10 m for S1/S2,
-//                        30 m for Cop-DEM, 250 m for SoilGrids…)
+//   resolution_m_input, sensor's native pitch (10 m for S1, 10 to
+//                        60 m for S2 by band, 31 m for Cop-DEM, 250 m
+//                        for SoilGrids…)
 //   cell_dedupe_m     , cell64 grid grain (~10 m × ~10 m square at
 //                        the equator; see /v1/grid_info)
 // Two queries 12 m apart resolve to distinct cell64s, there is no
@@ -15368,25 +15370,19 @@ fn band_agg_kind(band: &str) -> AggKind {
 }
 /// the band has no single defensible figure (e.g. embedding bands).
 fn band_input_resolution_m(band: &str) -> Option<u32> {
+    if let Some(m) = estimand::support_m(band) {
+        return Some(m.round() as u32);
+    }
     match band {
-        b if b.starts_with("s2.") || b.starts_with("indices.") => Some(10),
         "sentinel1_raw" => Some(10),
         b if b.starts_with("geotessera") => Some(10),
         "modis.ndvi_mean" => Some(250),
         b if b.starts_with("modis.lst_") => Some(1000),
         b if b.starts_with("modis.") => Some(500),
-        "copdem30m.elevation_mean" => Some(30),
         "gmrt.topobathy_mean" => Some(100),
         b if b.starts_with("surface_water.") => Some(30),
-        b if b.starts_with("hansen.") => Some(30),
-        // `forest_change.*` are the canonical agent-facing names for
-        // the same Hansen GFC layers, 30 m native pixel grid.
-        b if b.starts_with("forest_change.") => Some(30),
         "esa_worldcover.lc_2021" => Some(10),
-        b if b.starts_with("soilgrids.") => Some(250),
         b if b.starts_with("cams.") => Some(11_000),
-        "era5.snow_depth" => Some(9_000),
-        b if b.starts_with("era5.") => Some(11_000),
         b if b.starts_with("power.") => Some(55_000),
         b if b.starts_with("weather.") => Some(2_500),
         b if b.starts_with("marine.") => Some(11_000),
@@ -15773,6 +15769,25 @@ fn band_metadata_for_response(band_key: &str) -> JsonValue {
             map.insert("inherited_from_cube_band".into(), json!(cube_band));
         }
     }
+    if band_entry.is_none() {
+        // No family in the bands manifest, so the class is `unclassified`, the
+        // same class the recall filter reads. Said here rather than left out:
+        // with no block at all, a reanalysis value arrived with nothing to
+        // tell it from an observation.
+        let pc = emem_core::bands::ProvenanceClass::Unclassified;
+        let mut prov = serde_json::Map::new();
+        prov.insert("class".into(), json!(pc.as_str()));
+        prov.insert("deterministic".into(), json!(pc.is_deterministic()));
+        prov.insert("tamper_evidence".into(), json!(pc.tamper_evidence()));
+        prov.insert("trust_rank".into(), json!(pc.trust_rank()));
+        if let Some(c) = pc.caution() {
+            prov.insert("caution".into(), json!(c));
+        }
+        if let Some(u) = estimand::unregistered_upstream(band_key) {
+            prov.insert("upstream".into(), json!(u));
+        }
+        map.insert("provenance".into(), JsonValue::Object(prov));
+    }
     if let Some(table) = class_decode_for(band_key) {
         let decode: serde_json::Map<String, JsonValue> = table
             .iter()
@@ -16001,6 +16016,9 @@ fn enrich_facts_inner(value: &mut JsonValue, with_band_metadata: bool) {
             downgrade_unbacked_checkpoint_claim(&mut meta, obj);
             if !meta.is_null() {
                 obj.insert("band_metadata".into(), meta);
+            }
+            if let Some(e) = estimand::for_fact(obj) {
+                obj.insert("estimand".into(), e);
             }
         }
     }
@@ -18593,7 +18611,7 @@ async fn get_v1_agent_quickref(State(s): State<AppState>) -> Json<JsonValue> {
             "Every read returns a signed receipt (ed25519). Cite receipt.fact_cids[0] and the responder pubkey in your reply.",
             "Identical canonical facts have identical CIDs across responders, answers are reproducible.",
             "Signed Absence is a real answer ('tried and got no answer'); do not retry.",
-            "Data fidelity is the SENSOR pitch. `data_resolution_m=10` for Sentinel-1/2 indices means the value comes from a real 10 m pixel, not interpolated, not coarsened. Landsat 8 and 9 surface reflectance (POST /v1/field_series with sensor landsat) is read on its native 30 m pixels and is not resampled to 10 m.",
+            "Data fidelity is the SENSOR pitch. `data_resolution_m` is the pitch of the coarsest input band, read at its own pixel, not interpolated: 10 m for NDVI, 20 m for an index that reads B11 or B12 (NDSI, NDMI, NBR). Each fact's `estimand.support` states the same. Landsat 8 and 9 surface reflectance (POST /v1/field_series with sensor landsat) is read on its native 30 m pixels and is not resampled to 10 m.",
             "`cell_dedupe_m` is the cell64 grid grain (~10 m × ~10 m square at the equator, matching S1/S2 native pitch). Two queries 12 m apart land in distinct cells, so values don't silently dedupe across sub-cell points. For coarser sources (Cop-DEM 30 m, SoilGrids 250 m, MODIS 1 km), adjacent cells share the upstream sample, that is correct, not a bug.",
             "No API keys at the request path. Every materializer reads from a no-key public source (Sentinel-1/2, MODIS, NASA POWER, ERA5, CAMS, met.no, JRC GSW, Hansen, ESA WorldCover, SoilGrids, Overture, Cop-DEM, GMRT).",
         ],
@@ -18642,7 +18660,7 @@ async fn get_v1_agent_quickref(State(s): State<AppState>) -> Json<JsonValue> {
         "citation_pattern": "<value> <unit> at <cell64> (fact_cid <first 8 chars>, signed by responder <first 8 chars of pubkey_b32>; source: <source_url>).",
         "anti_patterns": [
             "Do not invent a fact_cid; if the response is missing one, omit the citation rather than fabricate it.",
-            "Do not say 'this is a 305 m measurement', that was the legacy grid. The active cell64 is ~10 m × ~10 m square at the equator, matching Sentinel-1/Sentinel-2 native pitch. `data_resolution_m` reports the upstream sample (10 m for S1/S2 indices, 30 m Cop-DEM, 250 m SoilGrids, 1 km MODIS LST).",
+            "Do not say 'this is a 305 m measurement', that was the legacy grid. The active cell64 is ~10 m × ~10 m square at the equator, matching Sentinel-1/Sentinel-2 native pitch. `data_resolution_m` reports the upstream sample (10 or 20 m for Sentinel-2 indices by their coarsest band, 31 m Cop-DEM, 250 m SoilGrids, 1 km MODIS LST).",
             "Do not retry on signed Absence, it is the correct answer.",
             "Do not POST to GET endpoints; the boring API is GET-only and idempotent.",
         ],
@@ -37101,7 +37119,8 @@ fn openapi_spec() -> JsonValue {
                     "cell_matches":{"type":"boolean","description":"Whether the cell the token asserted was CHECKED against the signed fact's own cell, and agreed. `false` means NOT CHECKED, never checked-and-mismatched: a token whose cell contradicts the fact is refused with 409 before this response exists. The only route to a 200 with `false` is a degraded resolve, where a bare or recovered cid asserted no cell to compare and `cell` below is adopted from the signed body. Gate provenance on this field and you get the address check; read `degraded` for whether the citation itself was well-formed."},
                     "fact_url":{"type":"string","format":"uri","description":"Stable URL serving bytes identical to `fact`."},
                     "signer_b32":{"$ref":"#/components/schemas/PubKey"},
-                    "provenance":{"type":"object","description":"Tamper-provenance, attached by THIS responder from its own registry at resolve time rather than carried in the token. For a primary fact it describes the band (`class`, `deterministic`, `tamper_evidence`, `trust_rank`); for a derivative it describes the derivation, and `responder_recomputed` is the field that separates what this responder verified from what the attester merely declared. Omitted when the band is unknown here."},
+                    "provenance":{"type":"object","description":"Tamper-provenance, attached by THIS responder from its own registry at resolve time rather than carried in the token. For a primary fact it describes the band (`class`, `deterministic`, `tamper_evidence`, `trust_rank`); for a derivative it describes the derivation, and `responder_recomputed` is the field that separates what this responder verified from what the attester merely declared. A band with no family in this responder's manifest has `class: unclassified`, with an `upstream` note where the kind of source is known."},
+                    "estimand":{"type":"object","description":"What the value estimates, attached by this responder outside the signed body (schema emem.estimand.v1): `support` (the footprint one value covers, in metres along a meridian, with the source's grid), `statistic` (pixel_value, pixel_class, index_of_pixel_values, model_value, model_hour_sum, thickness_weighted_mean), `valid_time` (the period the value describes) and `captured_at_is` (what the source's captured_at means: sensing_time, model_hour, release_date or edition_date). Absent when none is declared for the fact's source."},
                     "receipt":{"$ref":"#/components/schemas/Receipt"},
                     "offline_verify_at":{"type":"string","description":"Where to re-check the receipt without trusting this responder."},
                     "degraded":{"type":"boolean","description":"True when a BARE fact_cid was accepted, i.e. the citation named no cell: the `emem:fact:<descriptor>:` head was missing, the token was `emem:fact:<fact_cid>`, or the cid was recovered from surrounding text. Serialized first, with `degraded_reason`, because it changes what `resolved: true` and `cell_matches: false` mean. The bytes and the receipt are as authoritative as any resolve; only the citation was lossy, and a bare cid is responder-scoped so it is ambiguous elsewhere. Re-cite `canonical_token`."},
@@ -41618,10 +41637,16 @@ struct MemoryTokenResolveResp {
     /// different responder attaches its own registry's block. `class`,
     /// `deterministic` (recomputable from raw source with no model or human
     /// in the loop), `tamper_evidence`, and `trust_rank`. Lets a receiving
-    /// agent know how far to trust the value without re-deriving it. Omitted
-    /// when the band is unknown to this responder.
+    /// agent know how far to trust the value without re-deriving it. A band
+    /// with no family in the manifest gets `class: unclassified`.
     #[serde(skip_serializing_if = "JsonValue::is_null")]
     provenance: JsonValue,
+    /// What the value estimates: its support, statistic and valid time
+    /// ([`estimand`]). Attached by this responder at resolve time and
+    /// outside the signed body. Absent when this responder declares none
+    /// for the fact's source.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    estimand: Option<JsonValue>,
     /// ed25519 receipt signed by this responder over the resolved
     /// (cell, fact_cid) under primitive `emem.memory_token_resolve`. This is
     /// what makes "resolve back to the same signed fact" literal rather than
@@ -42231,6 +42256,7 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
     let mut fact_json = serde_json::to_value(&fact).unwrap_or(json!({}));
     annotate_fact_erratum(s, &cid, &mut fact_json).await;
     let erratum = fact_json.get("erratum").cloned();
+    let estimand = fact_json.as_object().and_then(estimand::for_fact);
     let fact_url = format!("https://emem.dev/v1/facts/{}", cid);
     let canonical_token = format!("emem:fact:{cell}:{cid}");
     let signer_b32 = b32_lower(match &fact {
@@ -42294,6 +42320,7 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
         fact_url,
         signer_b32,
         provenance,
+        estimand,
         receipt,
         offline_verify_at: "/verify",
         value_verbatim,
@@ -83769,10 +83796,11 @@ fn attach_spatial_basis(body: &mut JsonValue, cell: &str) {
                             Source pixels are metres across and so are cells, so neighbouring \
                             cells can be samples of the same pixel, and the difference would be \
                             a pixel with itself.",
-            "per_band_resolution": "not stated: this responder has no band-to-source mapping, \
-                                    and an invented resolution that looked measured would be \
-                                    worse than its absence. See `sources` on each fact for the \
-                                    scheme that produced it.",
+            "per_band_resolution": "stated per fact in `estimand.support`, from the pixel grid \
+                                    the source declares, for Sentinel-2, ERA5, ERA5-Land, \
+                                    Copernicus DEM GLO-30, JRC GFC2020, Hansen GFC, ESA CCI \
+                                    biomass and SoilGrids. A fact with no `estimand` has none \
+                                    declared: do not take the cell's size for it.",
         }),
     );
 }
@@ -97605,30 +97633,30 @@ mod tests {
         assert_eq!(p.calls[0].primitive, "emem_ask");
     }
 
-    /// Boring API contract: every band that emem materializes natively
-    /// from a 10 m sensor (Sentinel-1 / Sentinel-2 reflectance and
-    /// derived indices) must report `data_resolution_m == 10`. This is
-    /// the multimodal-fusion guarantee, if it ever regresses, the
-    /// "10 m fidelity" claim in CLIENTS.md and ai-plugin.json starts
-    /// lying about the data.
+    /// Boring API contract: `data_resolution_m` is the pitch of the
+    /// coarsest input the value was read from. A Sentinel-2 index over a
+    /// 20 m band (B05 to B07, B8A, B11, B12) is a 20 m value, whatever the
+    /// 10 m bands beside it.
     #[test]
     fn band_input_resolution_m_matches_sensor_pitch() {
-        // Sentinel-2 reflectance + indices: 10 m
+        // Sentinel-2: the coarsest input band. B11 is a 20 m band, so every
+        // index that reads it covers a 20 m pixel, not a 10 m one.
+        for band in ["s2.B04", "s2.B08", "indices.ndvi", "indices.evi"] {
+            assert_eq!(band_input_resolution_m(band), Some(10), "{band}");
+        }
         for band in [
-            "s2.B04",
-            "s2.B08",
             "s2.B11",
-            "indices.ndvi",
             "indices.bsi",
             "indices.ndmi",
+            "indices.ndsi",
             "indices.urban_canopy_index",
         ] {
-            assert_eq!(
-                band_input_resolution_m(band),
-                Some(10),
-                "{band}: expected 10 m S2 pitch"
-            );
+            assert_eq!(band_input_resolution_m(band), Some(20), "{band}");
         }
+        assert_eq!(band_input_resolution_m("s2.B01"), Some(60));
+        // ERA5 is read on its 0.25 degree grid, ERA5-Land on 0.1 degrees.
+        assert_eq!(band_input_resolution_m("era5.t2m"), Some(27_830));
+        assert_eq!(band_input_resolution_m("era5.snow_depth"), Some(11_132));
         // Sentinel-1 RTC: 10 m
         assert_eq!(band_input_resolution_m("sentinel1_raw"), Some(10));
         // Cop-DEM GLO-30 30 m, SoilGrids 250 m, MODIS LST 1 km, CAMS 11 km.
@@ -97636,9 +97664,10 @@ mod tests {
         // `copernicus-dem-30m` COG mirror, migrated 2026-05-29), so the
         // input pitch is 30 m, not the 90 m of the retired Open-Meteo
         // per-point path.
+        // One arc-second along a meridian, 30.9 m.
         assert_eq!(
             band_input_resolution_m("copdem30m.elevation_mean"),
-            Some(30)
+            Some(31)
         );
         assert_eq!(band_input_resolution_m("soilgrids.soc_0_30cm"), Some(250));
         assert_eq!(band_input_resolution_m("modis.lst_day_8day"), Some(1000));
@@ -98387,6 +98416,32 @@ mod tests {
             f.get("band_metadata").is_some(),
             "with_band_metadata=true must restore the per-fact block: {f}"
         );
+    }
+
+    /// A band the manifest gives no family still says what made it, and a
+    /// declared source says what its value estimates. Neither block is
+    /// added to the fan-out form, which hoists band metadata.
+    #[test]
+    fn a_reanalysis_reading_carries_its_class_and_its_estimand() {
+        let fact = json!({
+            "kind": "primary", "band": "era5.snow_depth", "value": 0.08, "tslot": 481452,
+            "derivation": {"fn_key": "open_meteo_era5_land_archive@1",
+                           "args": [66.5444, 25.8479, "snow_depth", "2024-12-03T12:00"]},
+            "sources": [{"scheme": "open_meteo_era5_land", "id": "x",
+                         "captured_at": "2024-12-03T12:00:00Z"}],
+        });
+        let mut v = json!({"facts": [fact.clone()]});
+        enrich_facts_inner(&mut v, true);
+        let f = &v["facts"][0];
+        let prov = &f["band_metadata"]["provenance"];
+        assert_eq!(prov["class"], "unclassified", "{f}");
+        assert!(prov["upstream"].as_str().unwrap().contains("reanalysis"));
+        assert_eq!(f["estimand"]["support"]["kind"], "model_grid_cell");
+        assert_eq!(f["estimand"]["valid_time"]["from"], "2024-12-03T12:00:00Z");
+
+        let mut v = json!({"facts": [fact]});
+        enrich_facts_inner(&mut v, false);
+        assert!(v["facts"][0].get("estimand").is_none());
     }
 
     /// `unique_band_keys_in_facts` is what the polygon handler uses
@@ -110317,6 +110372,72 @@ mod tests {
             other.derivations.is_empty(),
             "one attester's derivations must not appear under another's key"
         );
+    }
+
+    /// A token resolves with what its value estimates, beside the signed
+    /// body and not inside it: the receipt still names the one cid and the
+    /// body is the stored one.
+    #[tokio::test]
+    async fn a_resolved_token_states_its_estimand_outside_the_signed_body() {
+        let s = test_app_state();
+        let cell = "defi.zb6f5.fUvE.xAtA";
+        let signed_at = "2026-11-14T03:31:27Z".to_string();
+        let fact = emem_fact::Fact::Primary(emem_fact::PrimaryFact {
+            cell: cell.into(),
+            band: "jrc_gfc2020.forest_2020".into(),
+            tslot: 0,
+            value: ciborium::Value::Integer(0.into()),
+            unit: Some("boolean_eudr_forest_2020".into()),
+            confidence: 0.88,
+            uncertainty: None,
+            sources: vec![emem_fact::Source {
+                scheme: "jrc.gfc2020.v4".into(),
+                id: "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/tiles/JRC_GFC2020_V4_N70_E20.tif".into(),
+                cid: None,
+                hash: None,
+                captured_at: Some("2026-09-14T09:18:00Z".into()),
+                url: None,
+            }],
+            derivation: emem_fact::Derivation {
+                fn_key: "jrc_gfc2020_v4_pixel@1".into(),
+                args: Some(ciborium::Value::Array(vec![
+                    ciborium::Value::Float(66.544),
+                    ciborium::Value::Float(25.848),
+                    ciborium::Value::Text("v4".into()),
+                ])),
+            },
+            privacy_class: "public".into(),
+            schema_cid: s.manifests.schema_cid.clone(),
+            signer: s.identity.pubkey,
+            signed_at: signed_at.clone(),
+            served_via: None,
+        });
+        let att = emem_fact::Attestation::build_and_sign_v1(
+            vec![fact],
+            vec![],
+            s.manifests.registry_cid.clone(),
+            s.manifests.schema_cid.clone(),
+            &s.identity.signing,
+            s.identity.epoch,
+            signed_at,
+            None,
+        )
+        .expect("sign");
+        let cids = s.storage.put_attestation(&att).await.expect("store");
+        let cid = cids[0].as_str().to_string();
+
+        let r = resolve_one_token(&s, &format!("emem:fact:{cell}:{cid}"))
+            .await
+            .expect("resolve");
+        let e = r
+            .estimand
+            .as_ref()
+            .expect("a GFC2020 fact declares its estimand");
+        assert_eq!(e["valid_time"]["from"], "2020-01-01");
+        assert_eq!(e["valid_time"]["to"], "2020-12-31");
+        assert_eq!(e["captured_at_is"], "release_date");
+        assert!(r.fact.get("estimand").is_none());
+        assert_eq!(r.receipt.fact_cids, vec![emem_fact::FactCid::new(cid)]);
     }
 
     /// The round trip the caller actually needs: register a derivation,
