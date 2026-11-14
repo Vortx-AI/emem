@@ -326,7 +326,9 @@ The call sampled 4 cells in an area of 13.4 km². Read `cells_sampled`,
 `coverage_fraction` and `is_exhaustive` before you state an area total.
 `coverage_fraction` is `cells_sampled` divided by
 `native_grid_cells_in_polygon`. On 7 November 2026 it was 4 of 133,692, about
-0.00003. `polygon_mask` tells how emem chose the cells. `polygon_geojson`
+0.00003. The cells are an even lattice over the whole area, and
+`native_grid_cells_in_polygon` counts the cells inside the outline on the
+cell grid itself. `polygon_mask` tells how emem chose the cells. `polygon_geojson`
 means a point-in-polygon test against the outline. `bbox_only` means the
 whole box, which can include cells outside the shape. You can
 also send `bbox` or `polygon_geojson` instead of `place`. Here `bbox` is an

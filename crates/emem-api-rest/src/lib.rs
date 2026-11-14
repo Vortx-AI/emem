@@ -20046,16 +20046,15 @@ async fn post_recall_polygon(
         .as_ref()
         .and_then(parse_polygon_geojson)
         .unwrap_or_default();
-    let polygon_mask_kind: &'static str = if parsed_polygons.is_empty() {
+    let sample = sample_polygon(bbox, coarse_n, &parsed_polygons);
+    // A polygon that holds no cell centre is sampled over its bbox, and
+    // the response says so rather than calling the mask applied.
+    let polygon_mask_kind: &'static str = if parsed_polygons.is_empty() || sample.bbox_fallback {
         "bbox_only"
     } else {
         "polygon_geojson"
     };
-    let mut cells = if parsed_polygons.is_empty() {
-        sample_cells_in_bbox(bbox, coarse_n)
-    } else {
-        sample_cells_in_polygon(bbox, coarse_n, &parsed_polygons)
-    };
+    let mut cells = sample.cells.clone();
     if cells.is_empty() {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
@@ -20333,21 +20332,29 @@ async fn post_recall_polygon(
         cells.extend(new_cells);
     }
 
-    // Coverage honesty. The polygon area covers `area_km2 / (cell_dedupe_m_squared)`
-    // distinct cell64 grid cells at native resolution; we sampled `cells.len()`
-    // of them. `is_exhaustive` flips true only when we hit (or exceeded) the
-    // native-grid count. `coverage_fraction` is the ratio, clamped to [0, 1].
-    // An LLM that prints "Lake Tahoe averaged 1410 m elevation" off a 16-cell
+    // Coverage honesty: the share of the polygon's cells this call read.
+    // The sampler counts the cells inside the polygon on the cell64 grid
+    // itself (cells narrow with latitude, so an equator cell area undercounts
+    // them), and a drill cell counts only when its centre is inside. An LLM
+    // that prints "Lake Tahoe averaged 1410 m elevation" off a 16-cell
     // sample of a 500 km² polygon should know it's working with a 0.0008
     // coverage fraction, not a wall-to-wall scan.
-    let cell_grain_m2 = (RESOLUTION_M_GRID as f64) * (RESOLUTION_M_GRID as f64);
-    let total_native_cells = if area_km2 > 0.0 {
-        ((area_km2 * 1_000_000.0) / cell_grain_m2).max(1.0)
-    } else {
-        1.0
-    };
-    let coverage_fraction = ((cells.len() as f64) / total_native_cells).min(1.0);
-    let is_exhaustive = (cells.len() as f64) >= total_native_cells;
+    let masked = !parsed_polygons.is_empty() && !sample.bbox_fallback;
+    let drill_inside = drill_added
+        .iter()
+        .filter(|c| {
+            !masked
+                || emem_codec::latlng_from_cell64(c).is_ok_and(|ll| {
+                    parsed_polygons
+                        .iter()
+                        .any(|p| p.contains(ll.lat_deg, ll.lng_deg))
+                })
+        })
+        .count();
+    let read_inside = (sample.cells.len() + drill_inside) as f64;
+    let total_native_cells = sample.cells_inside.max(read_inside).max(1.0);
+    let is_exhaustive = sample.exhaustive;
+    let coverage_fraction = sample.fraction(drill_inside);
     let mut out = json!({
         "schema": "emem.recall_polygon.v1",
         "polygon_bbox": {
@@ -20372,7 +20379,7 @@ async fn post_recall_polygon(
         "cells": cells,
         "coverage_fraction": coverage_fraction,
         "is_exhaustive": is_exhaustive,
-        "native_grid_cells_in_polygon": total_native_cells,
+        "native_grid_cells_in_polygon": total_native_cells.round(),
         "drill_on_water": drill,
         "drill_cells_added": drill_added.len(),
         "facts_returned": total_facts,
@@ -88397,55 +88404,265 @@ fn parse_polygon_geojson(g: &JsonValue) -> Option<Vec<emem_core::Polygon>> {
     }
 }
 
-/// Sample the bbox like `sample_cells_in_bbox` but reject any cell
-/// whose centre lies outside the polygon. The grid is densified by a
-/// factor of `OVERSAMPLE` so the masked output still meets the
-/// `target_n` budget on irregular shapes; pathologically thin slivers
-/// may still come back short, which is the honest answer.
+/// A sample of the cell64 cells inside a polygon, and how much of the
+/// polygon it covers.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct PolygonSample {
+    /// The sampled cells, south to north and west to east.
+    pub(crate) cells: Vec<String>,
+    /// Cells whose centre lies inside the polygon (inside the bbox when
+    /// there is no polygon). Exact when the lattice held every cell, else
+    /// the inside share of the lattice times the bbox's cells.
+    pub(crate) cells_inside: f64,
+    /// Every cell counted in `cells_inside` is in `cells`.
+    pub(crate) exhaustive: bool,
+    /// No cell centre lies inside the polygon, so `cells` and
+    /// `cells_inside` describe the bbox instead.
+    pub(crate) bbox_fallback: bool,
+}
+
+impl PolygonSample {
+    /// The share of the cells inside that were read: the sample, plus
+    /// `extra_inside` cells inside read beside it (a drill pass). It is 1
+    /// only when the sample is exhaustive, and never rounded up to 1.
+    pub(crate) fn fraction(&self, extra_inside: usize) -> f64 {
+        let read = (self.cells.len() + extra_inside) as f64;
+        if self.exhaustive {
+            1.0
+        } else if self.cells_inside > 0.0 {
+            read / self.cells_inside.max(read)
+        } else {
+            0.0
+        }
+    }
+}
+
+/// One lattice pass of [`sample_polygon`]: the inside points as cell64
+/// (lat, lng) indices, the inside share of the lattice, and whether the
+/// lattice held every cell of the bbox.
+type LatticePass = (Vec<(i64, i64)>, f64, bool);
+
+/// Lattice points one sample may test, times the polygon's vertex count.
+/// Bounds the point-in-polygon work of one call (about a second).
+const SAMPLE_PIP_BUDGET: f64 = 4.0e8;
+/// Lattice points one sample may test, whatever the polygon.
+const SAMPLE_MAX_LATTICE: f64 = 2.0e6;
+/// The lattice aims at this many points per wanted cell, so edge effects
+/// rarely leave it short and the thinning step stays nearly uniform.
+const SAMPLE_OVERSHOOT: f64 = 1.15;
+
+/// The cell64 rows and columns whose centre lies inside a bbox, as
+/// inclusive index ranges `(lat_q0, lat_q1, lng_q0, lng_q1)`. A bbox
+/// narrower than one cell on an axis keeps the row or column nearest its
+/// centre.
+fn bbox_cell_ranges(bbox: (f64, f64, f64, f64)) -> (i64, i64, i64, i64) {
+    let lat_step = 180.0 / ((1u64 << emem_codec::geo::GEO_LAT_BITS) - 1) as f64;
+    let lng_step = 360.0 / ((1u64 << emem_codec::geo::GEO_LNG_BITS) - 1) as f64;
+    let range = |lo: f64, hi: f64, origin: f64, step: f64| {
+        let (a, b) = (
+            ((lo + origin) / step).ceil(),
+            ((hi + origin) / step).floor(),
+        );
+        if a <= b {
+            (a as i64, b as i64)
+        } else {
+            let mid = (((lo + hi) / 2.0 + origin) / step).round() as i64;
+            (mid, mid)
+        }
+    };
+    let (la0, la1) = range(bbox.0, bbox.1, 90.0, lat_step);
+    let (ln0, ln1) = range(bbox.2, bbox.3, 180.0, lng_step);
+    (la0, la1, ln0, ln1)
+}
+
+/// Sample the cells inside `polygons` systematically: a lattice of even
+/// stride in metres over the whole polygon, centred in its bbox, so every
+/// part of it is read and a repeat picks the same cells. When the polygon
+/// holds no more cells than `target_n`, every cell inside it is taken.
+///
+/// The stride is found from the polygon's own inside share: a first pass
+/// assumes the polygon fills its bbox, and each later pass refines the
+/// stride from the share the previous one saw, until the lattice holds at
+/// least `target_n` inside points or reaches one point per cell. A search
+/// then keeps the coarsest lattice that still holds `target_n`, and the few
+/// extra points are thinned evenly. Until 2026-11-14 this walked a dense grid
+/// from the south and stopped at `target_n`, so only the south of a polygon
+/// was ever read: 16 cells of a 1.8 ha square all lay in its southern 19 %.
+pub(crate) fn sample_polygon(
+    bbox: (f64, f64, f64, f64),
+    target_n: usize,
+    polygons: &[emem_core::Polygon],
+) -> PolygonSample {
+    let (mut mn_la, mut mx_la, mut mn_ln, mut mx_ln) = bbox;
+    if mn_la > mx_la {
+        std::mem::swap(&mut mn_la, &mut mx_la);
+    }
+    if mn_ln > mx_ln {
+        std::mem::swap(&mut mn_ln, &mut mx_ln);
+    }
+    let finite = [mn_la, mx_la, mn_ln, mx_ln].iter().all(|v| v.is_finite());
+    let bbox = (mn_la, mx_la, mn_ln, mx_ln);
+    let (la0, la1, ln0, ln1) = if finite {
+        bbox_cell_ranges(bbox)
+    } else {
+        (0, 0, 0, 0)
+    };
+    let (rows, cols) = ((la1 - la0 + 1) as f64, (ln1 - ln0 + 1) as f64);
+    let bbox_sample = |fallback: bool| {
+        let cells = sample_cells_in_bbox(bbox, target_n);
+        PolygonSample {
+            exhaustive: finite && cells.len() as f64 >= rows * cols,
+            cells_inside: rows * cols,
+            cells,
+            bbox_fallback: fallback,
+        }
+    };
+    if polygons.is_empty() || !finite {
+        return bbox_sample(false);
+    }
+    let n = target_n.max(1);
+    let lat_step = 180.0 / ((1u64 << emem_codec::geo::GEO_LAT_BITS) - 1) as f64;
+    let lng_step = 360.0 / ((1u64 << emem_codec::geo::GEO_LNG_BITS) - 1) as f64;
+    // A column is cos(lat) as wide on the ground as a row is tall, so a
+    // stride square in metres takes more columns than rows.
+    let mid_lat = ((mn_la + mx_la) / 2.0).to_radians().cos().abs().max(1e-6);
+    let aspect = lng_step * mid_lat / lat_step;
+    let vertices: usize = polygons
+        .iter()
+        .map(|p| p.rings.iter().map(Vec::len).sum::<usize>())
+        .sum();
+    let max_points = (SAMPLE_PIP_BUDGET / vertices.max(3) as f64)
+        .max(8.0 * n as f64)
+        .min(SAMPLE_MAX_LATTICE);
+    let strides = |per_point: f64| {
+        let s_lat = (per_point * aspect).sqrt();
+        let s_lng = s_lat / aspect;
+        if s_lat < 1.0 {
+            (1.0, per_point.max(1.0))
+        } else if s_lng < 1.0 {
+            (per_point.max(1.0), 1.0)
+        } else {
+            (s_lat, s_lng)
+        }
+    };
+    // One lattice at `per_point` cells a point: its inside points, the
+    // inside share of its points, and whether it holds every bbox cell.
+    // `None` when it would test more points than the budget allows.
+    let run = |per_point: f64| -> Option<LatticePass> {
+        let (s_lat, s_lng) = strides(per_point);
+        let n_lat = ((rows - 1.0) / s_lat).floor() + 1.0;
+        let n_lng = ((cols - 1.0) / s_lng).floor() + 1.0;
+        if n_lat * n_lng > max_points {
+            return None;
+        }
+        let off_lat = ((rows - 1.0) - (n_lat - 1.0) * s_lat) / 2.0;
+        let off_lng = ((cols - 1.0) - (n_lng - 1.0) * s_lng) / 2.0;
+        let mut inside = Vec::new();
+        for i in 0..n_lat as i64 {
+            let q_lat = la0 + (off_lat + i as f64 * s_lat).round() as i64;
+            let lat = q_lat as f64 * lat_step - 90.0;
+            for j in 0..n_lng as i64 {
+                let q_lng = ln0 + (off_lng + j as f64 * s_lng).round() as i64;
+                let lng = q_lng as f64 * lng_step - 180.0;
+                if polygons.iter().any(|p| p.contains(lat, lng)) {
+                    inside.push((q_lat, q_lng));
+                }
+            }
+        }
+        let share = inside.len() as f64 / (n_lat * n_lng);
+        Some((inside, share, n_lat == rows && n_lng == cols))
+    };
+    // First, a lattice that holds `n` inside points (or every cell). The
+    // first pass assumes the polygon fills its bbox; a short pass refines
+    // the stride from the inside share it saw.
+    let mut per_point = (rows * cols / (n as f64 * SAMPLE_OVERSHOOT)).max(1.0);
+    let mut enough: Option<(f64, LatticePass)> = None;
+    let mut too_coarse: Option<f64> = None;
+    let mut fullest_short: Option<LatticePass> = None;
+    for _ in 0..12 {
+        let Some(pass) = run(per_point) else { break };
+        let m = pass.0.len();
+        if m >= n || pass.2 {
+            enough = Some((per_point, pass));
+            break;
+        }
+        too_coarse = Some(per_point);
+        let next = if m == 0 {
+            per_point / 16.0
+        } else {
+            (pass.1 * rows * cols / (n as f64 * SAMPLE_OVERSHOOT)).min(per_point * 0.8)
+        };
+        if fullest_short.as_ref().is_none_or(|f| m > f.0.len()) {
+            fullest_short = Some(pass);
+        }
+        per_point = next.max(1.0);
+    }
+    // Then the coarsest such lattice, so the even thinning below drops
+    // few points and the sample keeps the lattice's two-way spacing.
+    let best = match enough {
+        Some((mut fine, mut best)) => {
+            for _ in 0..10 {
+                if best.0.len() <= n || too_coarse.is_some_and(|c| c / fine < 1.001) {
+                    break;
+                }
+                let mid = too_coarse.map_or(fine * 1.5, |c| (fine * c).sqrt());
+                let Some(pass) = run(mid) else { break };
+                if pass.0.len() >= n {
+                    fine = mid;
+                    if pass.0.len() < best.0.len() {
+                        best = pass;
+                    }
+                } else {
+                    too_coarse = Some(mid);
+                }
+            }
+            Some(best)
+        }
+        None => fullest_short,
+    };
+    let Some((inside, share, unit)) = best.filter(|(v, _, _)| !v.is_empty()) else {
+        // Never-empty: a polygon thinner than one cell holds no cell centre
+        // (the "0 sample cells at Indiranagar" defect). The bbox cells
+        // around it are the honest stand-in, and the sample says so.
+        return bbox_sample(true);
+    };
+    let m = inside.len();
+    let picked: Vec<(i64, i64)> = if m > n {
+        (0..n)
+            .map(|k| inside[((k as f64 + 0.5) * m as f64 / n as f64) as usize])
+            .collect()
+    } else {
+        inside
+    };
+    let mut seen = std::collections::BTreeSet::new();
+    let cells: Vec<String> = picked
+        .into_iter()
+        .map(|(q_lat, q_lng)| {
+            emem_codec::to_cell64(emem_codec::cell_from_latlng(
+                q_lat as f64 * lat_step - 90.0,
+                q_lng as f64 * lng_step - 180.0,
+            ))
+        })
+        .filter(|c| seen.insert(c.clone()))
+        .collect();
+    // Off the unit lattice the bbox holds more cells than lattice points,
+    // so this exceeds `m` and the fraction stays under 1.
+    let cells_inside = if unit { m as f64 } else { share * rows * cols };
+    PolygonSample {
+        exhaustive: unit && m <= n,
+        cells_inside,
+        cells,
+        bbox_fallback: false,
+    }
+}
+
+/// The cells of [`sample_polygon`], for callers that need only those.
 fn sample_cells_in_polygon(
     bbox: (f64, f64, f64, f64),
     target_n: usize,
     polygons: &[emem_core::Polygon],
 ) -> Vec<String> {
-    if polygons.is_empty() {
-        return sample_cells_in_bbox(bbox, target_n);
-    }
-    let (mn_la, mx_la, mn_ln, mx_ln) = bbox;
-    // Densify 2× per axis (4× overall) so the masked retention rate
-    // can drop to ~25 % before we under-fill the budget. Most admin
-    // polygons retain >60 %, so this is a soft upper bound.
-    const OVERSAMPLE: usize = 2;
-    let n_side = ((target_n as f64).sqrt().ceil() as usize * OVERSAMPLE).max(4);
-    let mut seen = std::collections::BTreeSet::new();
-    let mut out = Vec::with_capacity(target_n);
-    for i in 0..n_side {
-        for j in 0..n_side {
-            let la = mn_la + (mx_la - mn_la) * (i as f64 + 0.5) / n_side as f64;
-            let ln = mn_ln + (mx_ln - mn_ln) * (j as f64 + 0.5) / n_side as f64;
-            if !polygons.iter().any(|p| p.contains(la, ln)) {
-                continue;
-            }
-            let s = emem_codec::to_cell64(emem_codec::cell_from_latlng(la, ln));
-            if seen.insert(s.clone()) {
-                out.push(s);
-                if out.len() >= target_n {
-                    return out;
-                }
-            }
-        }
-    }
-    // Never-empty: a polygon thinner than the sample stride (a narrow
-    // neighbourhood, a sliver district) can have ZERO grid points land
-    // inside it even though it has real extent, that was the "0 sample
-    // cells at Indiranagar" defect. Rather than return nothing (which made
-    // downstream recalls silently empty), fall back to the bbox grid so the
-    // caller always gets a representative cell set covering the feature's
-    // footprint. The mask was honestly attempted first; this is the bbox
-    // approximation when the mask is too fine for the grid.
-    if out.is_empty() {
-        return sample_cells_in_bbox(bbox, target_n);
-    }
-    out
+    sample_polygon(bbox, target_n, polygons).cells
 }
 
 /// Resolve a free-text place name to a `(min_lat, max_lat, min_lng,
@@ -99414,6 +99631,141 @@ mod tests {
             ne_in_masked, 0,
             "polygon mask let through {ne_in_masked} NE-quadrant cells"
         );
+    }
+
+    /// A square `side_m` metres on a side centred at (lat, lng), and its bbox.
+    fn square_plot(lat: f64, lng: f64, side_m: f64) -> (emem_core::Polygon, (f64, f64, f64, f64)) {
+        let dlat = side_m / 2.0 / 111_320.0;
+        let dlng = side_m / 2.0 / (111_320.0 * lat.to_radians().cos());
+        let (s, n, w, e) = (lat - dlat, lat + dlat, lng - dlng, lng + dlng);
+        let ring = vec![vec![[w, s], [e, s], [e, n], [w, n], [w, s]]];
+        (
+            emem_core::Polygon::from_geojson_coords(&ring).unwrap(),
+            (s, n, w, e),
+        )
+    }
+
+    /// Every cell64 centre inside `poly`, counted cell by cell.
+    fn cells_inside_by_brute_force(bbox: (f64, f64, f64, f64), poly: &emem_core::Polygon) -> usize {
+        let lat_step = 180.0 / ((1u64 << emem_codec::geo::GEO_LAT_BITS) - 1) as f64;
+        let lng_step = 360.0 / ((1u64 << emem_codec::geo::GEO_LNG_BITS) - 1) as f64;
+        let (la0, la1, ln0, ln1) = bbox_cell_ranges(bbox);
+        let mut n = 0;
+        for qa in la0..=la1 {
+            for qn in ln0..=ln1 {
+                if poly.contains(qa as f64 * lat_step - 90.0, qn as f64 * lng_step - 180.0) {
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
+    /// Cells per quadrant of the bbox (SW, SE, NW, NE), and the sample's
+    /// centroid.
+    fn quadrants_and_centroid(
+        cells: &[String],
+        bbox: (f64, f64, f64, f64),
+    ) -> ([usize; 4], f64, f64) {
+        let (clat, clng) = ((bbox.0 + bbox.1) / 2.0, (bbox.2 + bbox.3) / 2.0);
+        let mut q = [0usize; 4];
+        let (mut slat, mut slng) = (0.0, 0.0);
+        for c in cells {
+            let ll = emem_codec::latlng_from_cell64(c).unwrap();
+            q[usize::from(ll.lat_deg > clat) * 2 + usize::from(ll.lng_deg > clng)] += 1;
+            slat += ll.lat_deg;
+            slng += ll.lng_deg;
+        }
+        let n = cells.len() as f64;
+        (q, slat / n, slng / n)
+    }
+
+    /// The 1.8 ha square the 2026-11-14 audit sampled: 16 cells, all of
+    /// them in its southern 19 %. The systematic sample puts a quarter in
+    /// each quadrant, centres on the plot, repeats itself, and states the
+    /// share of the plot's cells it read.
+    #[test]
+    fn a_polygon_sample_spreads_over_the_whole_polygon() {
+        let (poly, bbox) = square_plot(24.0, 77.0, 134.0);
+        let polys = std::slice::from_ref(&poly);
+        let a = sample_polygon(bbox, 16, polys);
+        assert_eq!(a.cells.len(), 16);
+        let (q, mlat, mlng) = quadrants_and_centroid(&a.cells, bbox);
+        assert_eq!(q, [4, 4, 4, 4], "cells per quadrant");
+        let (h, w) = (bbox.1 - bbox.0, bbox.3 - bbox.2);
+        assert!(
+            (mlat - (bbox.0 + bbox.1) / 2.0).abs() < 0.05 * h,
+            "centroid lat {mlat}"
+        );
+        assert!(
+            (mlng - (bbox.2 + bbox.3) / 2.0).abs() < 0.05 * w,
+            "centroid lng {mlng}"
+        );
+        assert_eq!(
+            sample_polygon(bbox, 16, polys).cells,
+            a.cells,
+            "deterministic"
+        );
+        let inside = cells_inside_by_brute_force(bbox, &poly) as f64;
+        assert!(!a.exhaustive);
+        assert!(
+            (a.cells_inside / inside - 1.0).abs() < 0.1,
+            "{} vs {inside}",
+            a.cells_inside
+        );
+        assert!(
+            (a.fraction(0) / (16.0 / inside) - 1.0).abs() < 0.1,
+            "{}",
+            a.fraction(0)
+        );
+    }
+
+    /// A 1,000 ha plot over a 51,200-cell budget at 24 N. The old sampler
+    /// read its southern 46 %; this reads it end to end, and its count of
+    /// the plot's cells follows the cell64 grid, whose cells narrow by
+    /// cos(lat) (an equator cell area undercounts them by 9 % here).
+    #[test]
+    fn a_large_plot_over_its_budget_is_read_end_to_end() {
+        let (poly, bbox) = square_plot(24.0, 77.0, 3162.3);
+        let s = sample_polygon(bbox, 51_200, std::slice::from_ref(&poly));
+        assert_eq!(s.cells.len(), 51_200);
+        let (q, mlat, _) = quadrants_and_centroid(&s.cells, bbox);
+        for k in q {
+            assert!((k as f64 / 12_800.0 - 1.0).abs() < 0.05, "{q:?}");
+        }
+        let h = bbox.1 - bbox.0;
+        assert!((mlat - (bbox.0 + bbox.1) / 2.0).abs() < 0.01 * h);
+        let lats: Vec<f64> = s
+            .cells
+            .iter()
+            .map(|c| emem_codec::latlng_from_cell64(c).unwrap().lat_deg)
+            .collect();
+        let north = lats.iter().copied().fold(f64::MIN, f64::max);
+        assert!(north > bbox.1 - 0.02 * h, "northernmost cell {north}");
+        let inside = cells_inside_by_brute_force(bbox, &poly) as f64;
+        let equator_count = 1_000.0 * 10_000.0 / emem_codec::CELL_PITCH_M_EQUATOR.powi(2);
+        assert!(inside / equator_count > 1.08, "{inside} vs {equator_count}");
+        assert!((s.cells_inside / inside - 1.0).abs() < 0.02);
+        assert!((s.fraction(0) - 51_200.0 / inside).abs() < 0.01);
+    }
+
+    /// Within budget every cell inside is read and the fraction is 1; one
+    /// cell short of that and it is not 1.
+    #[test]
+    fn a_polygon_within_its_budget_is_read_whole() {
+        let (poly, bbox) = square_plot(-3.5, -60.5, 134.0);
+        let polys = std::slice::from_ref(&poly);
+        let inside = cells_inside_by_brute_force(bbox, &poly);
+        let all = sample_polygon(bbox, inside + 100, polys);
+        assert!(all.exhaustive);
+        assert_eq!(all.cells.len(), inside);
+        assert_eq!(all.cells_inside, inside as f64);
+        assert_eq!(all.fraction(0), 1.0);
+        let short = sample_polygon(bbox, inside - 1, polys);
+        assert!(!short.exhaustive);
+        assert_eq!(short.cells.len(), inside - 1);
+        assert!(short.fraction(0) < 1.0);
+        assert!((short.fraction(0) - (inside - 1) as f64 / inside as f64).abs() < 1e-9);
     }
 
     /// Parsing a Nominatim-shape `Polygon` GeoJSON value yields a

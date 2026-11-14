@@ -86,7 +86,7 @@ The two limits:
 | Field | Meaning |
 |---|---|
 | `cells_sampled` | The number of cells that the call read. |
-| `native_grid_cells_in_polygon` | The number of 10 m cells in the area. |
+| `native_grid_cells_in_polygon` | The number of cells whose centre is inside the area, counted on the cell grid. Cells narrow with latitude, so at 24° N an area holds about 9 % more cells than at the equator. |
 | `coverage_fraction` | `cells_sampled` divided by `native_grid_cells_in_polygon`. |
 | `is_exhaustive` | `true` only when the sample covers every cell in the area. |
 | `converged` | `false` when the time budget ran out before all fetches finished. |
@@ -94,7 +94,10 @@ The two limits:
 | `polygon_bbox.source` | Where the extent came from. See the next table. |
 
 A sample is not the area. Sixteen cells over 120 km² is a sample.
-Report it as a sample.
+Report it as a sample. The cells are an even lattice over the whole
+area, so each part of the area is read, and a repeat reads the same
+cells. When `max_cells` is at least the number of cells in the area,
+the call reads every cell and `is_exhaustive` is `true`.
 
 When you send a `place`, read `polygon_bbox.source`:
 
