@@ -1884,7 +1884,7 @@ fn perception_router(state: AppState) -> Router {
 fn eudr_router(state: AppState) -> Router {
     let timeout_s = eudr_route_timeout_secs();
     Router::new()
-        .route("/v1/eudr_dds", post(post_eudr_dds))
+        .route("/v1/eudr_dds", post(post_eudr_dds_http))
         // The field signals warm a season of scenes before they answer, the
         // same kind of work as a DDS: its ceiling and its concurrency cap.
         .route(
@@ -2368,7 +2368,7 @@ fn apply_cors_headers(response: &mut Response, origin_header: Option<&str>) {
              x-emem-scene-width, x-emem-scene-height, x-emem-scene-format, \
              x-emem-scene-channels, x-emem-scene-stretch-r, x-emem-scene-stretch-g, \
              x-emem-scene-stretch-b, x-emem-scene-sun, x-emem-scene-view, \
-             x-emem-scene-fallback",
+             x-emem-scene-fallback, server-timing",
         ),
     );
     h.insert("access-control-max-age", HeaderValue::from_static("86400"));
@@ -77885,6 +77885,54 @@ fn eudr_methodology_note(computed_baseline: &str) -> String {
     }
 }
 
+tokio::task_local! {
+    /// The steps of one `/v1/eudr_dds` request with their wall time in ms, for
+    /// its `Server-Timing` header and log line. A repeat of an 11 ha plot whose
+    /// 4,856 facts were all reused took 5.1 s, and nothing said where.
+    static EUDR_STEPS: std::cell::RefCell<Vec<(&'static str, f64)>>;
+}
+
+/// Records that `step` ended now and starts the next one. Outside the HTTP
+/// route (the MCP and A2A arms) there is no list, and nothing is recorded.
+fn eudr_step(step: &'static str, since: &mut std::time::Instant) {
+    let now = std::time::Instant::now();
+    let ms = now.duration_since(*since).as_secs_f64() * 1000.0;
+    *since = now;
+    let _ = EUDR_STEPS.try_with(|v| v.borrow_mut().push((step, ms)));
+}
+
+fn server_timing(steps: &[(&'static str, f64)]) -> String {
+    steps
+        .iter()
+        .map(|(name, ms)| format!("{name};dur={ms:.1}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// `POST /v1/eudr_dds`: the answer of [`post_eudr_dds`], with a
+/// `Server-Timing` header that names the time of each step.
+async fn post_eudr_dds_http(
+    State(s): State<AppState>,
+    req: EmemJson<EudrDdsReq>,
+) -> Result<(HeaderMap, Json<JsonValue>), ApiError> {
+    let started = std::time::Instant::now();
+    let (res, mut steps) = EUDR_STEPS
+        .scope(std::cell::RefCell::new(Vec::new()), async {
+            let res = post_eudr_dds(State(s), req).await;
+            (res, EUDR_STEPS.with(|v| v.take()))
+        })
+        .await;
+    steps.push(("total", started.elapsed().as_secs_f64() * 1000.0));
+    let timing = server_timing(&steps);
+    tracing::info!(target: "emem::eudr", ok = res.is_ok(), steps = %timing, "eudr_dds steps");
+    let body = res?;
+    let mut headers = HeaderMap::new();
+    if let Ok(v) = HeaderValue::from_str(&timing) {
+        headers.insert("server-timing", v);
+    }
+    Ok((headers, body))
+}
+
 async fn post_eudr_dds(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<EudrDdsReq>,
@@ -78194,6 +78242,7 @@ async fn post_eudr_dds_inner(
         let plot = req.plots[idx].clone();
         let cap = cell_cc;
         Box::pin(async move {
+            let plot_started = std::time::Instant::now();
             // Safe: pre-pass guarantees this plot parses.
             let (bbox, polygon_opt, area_ha) =
                 extract_plot_geometry(&plot.geometry_geojson).expect("pre-validated");
@@ -78662,7 +78711,9 @@ async fn post_eudr_dds_inner(
                     );
                 }
             }
+            let evaluated_ms = plot_started.elapsed().as_secs_f64() * 1000.0;
             let baseline_versions = forest_baseline_versions(&s, &per_cell, &unsaved).await;
+            let baseline_ms = plot_started.elapsed().as_secs_f64() * 1000.0 - evaluated_ms;
             let ctx = PlotCtx {
                 baseline_versions,
                 unstored: unsaved.keys().cloned().collect(),
@@ -78690,10 +78741,21 @@ async fn post_eudr_dds_inner(
             )
             .into_iter()
             .collect();
+            tracing::info!(
+                target: "emem::eudr",
+                plot = idx,
+                cells = per_cell.len(),
+                evaluated_ms,
+                baseline_ms,
+                total_ms = plot_started.elapsed().as_secs_f64() * 1000.0,
+                "eudr plot steps"
+            );
             (idx, (plot_obj, ctx, per_cell, unsaved))
         })
     };
 
+    let mut since = started;
+    eudr_step("prepare", &mut since);
     // Bounded parallel fan-out across plots (index-preserving). JoinSet
     // bounds in-flight; prime + refill one-for-one.
     let mut plot_set: tokio::task::JoinSet<(usize, PlotWork)> = tokio::task::JoinSet::new();
@@ -78723,6 +78785,7 @@ async fn post_eudr_dds_inner(
             next_plot += 1;
         }
     }
+    eudr_step("plots", &mut since);
     let result_plot_idx: Vec<usize> = (0..per_plot_results.len())
         .filter(|&i| per_plot_results[i].is_some())
         .collect();
@@ -79055,6 +79118,7 @@ async fn post_eudr_dds_inner(
     let observations_reused = to_store
         .iter()
         .all(|(_, f)| matches!(f, Fact::Derivative(_)));
+    eudr_step("assemble", &mut since);
     if !to_store.is_empty() {
         let (want, facts): (Vec<String>, Vec<Fact>) = to_store.into_iter().unzip();
         let got = sign_and_persist_many(&s, facts, &chrono_iso8601_utc()).await;
@@ -79078,6 +79142,7 @@ async fn post_eudr_dds_inner(
             ));
         }
     }
+    eudr_step("store", &mut since);
     let (mut computed_all, mut persisted_all) = (
         std::collections::BTreeSet::new(),
         std::collections::BTreeSet::new(),
@@ -79154,6 +79219,7 @@ async fn post_eudr_dds_inner(
             obj.insert("receipt".into(), receipt_json);
         }
     }
+    eudr_step("receipt", &mut since);
 
     Ok(Json(body))
 }
@@ -111450,6 +111516,37 @@ mod tests {
             })
             .collect();
         assert_eq!(keys, vec!["b".to_string(), "aa".to_string()]);
+    }
+}
+
+#[cfg(test)]
+mod eudr_steps_tests {
+    use super::*;
+
+    #[test]
+    fn server_timing_names_each_step_in_ms() {
+        assert_eq!(
+            server_timing(&[("plots", 12.345), ("total", 20.0)]),
+            "plots;dur=12.3, total;dur=20.0"
+        );
+        assert_eq!(server_timing(&[]), "");
+    }
+
+    #[tokio::test]
+    async fn steps_are_kept_only_inside_the_http_scope() {
+        let mut since = std::time::Instant::now();
+        eudr_step("outside", &mut since);
+        let got = EUDR_STEPS
+            .scope(std::cell::RefCell::new(Vec::new()), async {
+                let mut since = std::time::Instant::now();
+                eudr_step("a", &mut since);
+                eudr_step("b", &mut since);
+                EUDR_STEPS.with(|v| v.take())
+            })
+            .await;
+        let names: Vec<&str> = got.iter().map(|(n, _)| *n).collect();
+        assert_eq!(names, ["a", "b"]);
+        assert!(got.iter().all(|(_, ms)| *ms >= 0.0));
     }
 }
 

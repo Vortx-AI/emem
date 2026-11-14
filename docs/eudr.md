@@ -529,6 +529,11 @@ The 280 s default stays below the client and edge cut of about 300 s.
 Thus a call that cannot finish gets a clear 504 response before the connection closes.
 The 504 body has `code: "source_fetch_failed"` and gives the plot count and the budget in seconds.
 
+A `/v1/eudr_dds` response over HTTP has a `Server-Timing` header with the wall time of each step in ms:
+`prepare` (the plots checked and sampled), `plots` (the band reads and verdicts), `assemble` (the response and
+the facts it names), `store` (the facts signed and written), `receipt` and `total`. The time spent waiting for a
+slot is not in `total`. The MCP tool and the A2A task give the same answer without the header.
+
 The two field routes do not have the 280 s budget.
 Their only limit is the route timeout: `EMEM_EUDR_TIMEOUT_SECS` plus 10 s, which is 610 s when no operator sets the variable.
 That is above the edge cut of about 300 s, so the edge can close a slow field call before the responder sends a 504.
