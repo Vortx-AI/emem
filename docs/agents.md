@@ -1651,7 +1651,7 @@ marks an optional field.
 | `/v1/compare_bands` | `{cell, a, b, tslot_a?, tslot_b?, predicate?}` |
 | `/v1/find_similar` | `{key, k?, band?, mode?, filter?, as_of_tslot?, as_of_signed_at?, scope?}`. `cell` and `cell64` are aliases of `key` |
 | `/v1/trajectory` | `{cell or place or lat and lng, band, window?, as_of_tslot?, as_of_signed_at?, scope?}`, or `from_date` and `to_date` in place of `window` |
-| `/v1/field_series` | `{geometry or bbox or areas or fields, start_date, end_date, index?, sensor?, orbit?, inner_buffer_m?, min_support_px?, min_clear_fraction?, max_scenes?, blocks?, mask_policy?, qa_reject_bits?, memory?}`. `min_valid_share` is an alias of `min_clear_fraction` |
+| `/v1/field_series` | `{geometry or bbox or areas or fields, start_date, end_date, index?, sensor?, orbit?, inner_buffer_m?, min_support_px?, min_clear_fraction?, max_scenes?, blocks?, mask_policy?, qa_reject_bits?, memory?, pool?}`. `min_valid_share` is an alias of `min_clear_fraction` |
 | `/v1/diff` | `{cell or place or lat and lng, band, tslot_a or date_a, tslot_b or date_b}`. A date is `YYYY-MM-DD` |
 
 ##### Two forms of bbox
@@ -1763,6 +1763,14 @@ Contains modified Copernicus Sentinel data 2025.
   line without a cross-calibration.
 - `fields`: up to 500 `{id, geometry}` polygons. emem reads them in one
   window of at most 512 px on each side.
+- `pool: true` (with `fields`, optical only): the answer adds `pooled`, with
+  `area: "pooled"`. It has one row per pass over the union of the fields:
+  median, p10, p25, p75, p90, mean, std, `clear_fraction` and `n_clear`
+  over all clear field pixels together. A pixel inside two fields counts
+  once, so a larger field weighs more. This is not the median of the field
+  medians. `clear_fraction` is the clear pixels of the union over all its
+  pixels, and a pass under `min_clear_fraction` goes to `pooled.excluded`.
+  The rows are in the signed record, so the series token resolves to them.
 - `memory: true` (with `fields`): each field summary carries `memory`, its
   seasonal normal over the window. It holds the mean, a drift per year
   when the window spans two years, and one annual harmonic with amplitude

@@ -820,6 +820,12 @@ pub struct FieldSeriesReq {
     /// or more: a shorter window fits one harmonic and no drift.
     #[serde(default)]
     pub memory: Option<bool>,
+    /// `fields` only, optical only: when `true`, the answer and the signed
+    /// record add `pooled`, one row per pass over the union of the fields'
+    /// pixels ([`Pooled`]). Each pixel counts once, so a larger field weighs
+    /// more and a pixel inside two fields is not counted twice.
+    #[serde(default)]
+    pub pool: Option<bool>,
     /// SCL classes rejected per pixel; defaults to the composite's policy.
     #[serde(default)]
     pub mask_policy: Option<Vec<u8>>,
@@ -1414,6 +1420,142 @@ fn with_memory(mut key: JsonValue, memory: Option<bool>) -> JsonValue {
         key["memory"] = json!(true);
     }
     key
+}
+
+const POOL_NEEDS_FIELDS: &str =
+    "pool reads the union of `fields`: send `fields` with it, not `geometry`, `bbox` or `areas`";
+
+/// The pooled row of a `fields` request: per pass, one distribution over the
+/// union of the fields' pixels. A pixel inside two fields is one pixel, so it
+/// counts once, and a field weighs as many pixels as it holds. This is the
+/// statistic of the fields as one area, which a median of field medians is not.
+struct Pooled {
+    /// The union, sorted: every pixel of every field that was read, once.
+    px: Vec<usize>,
+    /// Fields that added pixels.
+    fields: usize,
+    rows: Vec<JsonValue>,
+    excluded: Vec<JsonValue>,
+    days: Vec<i64>,
+    medians: Vec<f64>,
+}
+
+impl Pooled {
+    fn new(zone_px: &[Vec<usize>]) -> Self {
+        let mut px: Vec<usize> = zone_px.iter().flatten().copied().collect();
+        px.sort_unstable();
+        px.dedup();
+        Pooled {
+            px,
+            fields: zone_px.iter().filter(|p| !p.is_empty()).count(),
+            rows: Vec::new(),
+            excluded: Vec::new(),
+            days: Vec::new(),
+            medians: Vec::new(),
+        }
+    }
+
+    /// One pass, from the index values at the union's pixels (`vals` holds
+    /// only the clear ones). The pass is kept on the union's own clear share.
+    fn add(
+        &mut self,
+        date: &str,
+        scene: &str,
+        day: i64,
+        vals: &mut [f32],
+        min_share: f64,
+        min_support: usize,
+    ) {
+        if self.px.is_empty() {
+            return;
+        }
+        let st = distribution(vals, self.px.len());
+        let share = st.n_clear as f64 / self.px.len() as f64;
+        if share < min_share || st.n_clear < min_support {
+            self.excluded.push(json!({
+                "date": date, "scene": scene,
+                "clear_fraction": round6(share), "n_clear": st.n_clear,
+                "reason": if st.n_clear < min_support {
+                    format!("{} clear pixels in the union, under the {min_support}-pixel support floor", st.n_clear)
+                } else {
+                    format!("{:.0}% of the union clear, under the {:.0}% floor", share * 100.0, min_share * 100.0)
+                },
+            }));
+            return;
+        }
+        self.rows.push(json!({
+            "date": date,
+            "scene": scene,
+            "quality": if share >= CLEAR_SCENE_FRACTION { "clear" } else { "partial" },
+            "clear_fraction": round6(share),
+            "n_clear": st.n_clear,
+            "median": round6(st.median),
+            "p10": round6(st.p10), "p25": round6(st.p25),
+            "p75": round6(st.p75), "p90": round6(st.p90),
+            "mean": round6(st.mean), "std": round6(st.std),
+        }));
+        self.days.push(day);
+        self.medians.push(st.median);
+    }
+
+    /// The `pooled` block of the record and the answer.
+    fn block(
+        mut self,
+        index_key: &str,
+        pass: &str,
+        native_m: f64,
+        buffer_m: f64,
+        min_share: f64,
+        min_support: usize,
+    ) -> JsonValue {
+        // The same check as the area's own rows: a pass both neighbours in
+        // time refute is marked, and stays in the rows for the reader.
+        for (row, dip) in self
+            .rows
+            .iter_mut()
+            .zip(scene_dips(&self.days, &self.medians))
+        {
+            if let (Some((expected, residual)), Some(o)) = (dip, row.as_object_mut()) {
+                o.insert("quality".into(), json!("suspect"));
+                o.insert(
+                    "scene_check".into(),
+                    json!({"expected": round6(expected), "residual": round6(residual),
+                           "reason": "both neighbouring passes refute it: fog, haze or a bad tile the mask passed"}),
+                );
+            }
+        }
+        let n = self.px.len();
+        let inside = if buffer_m > 0.0 {
+            format!(" and at least {buffer_m} m inside its edge")
+        } else {
+            String::new()
+        };
+        json!({
+            "area": "pooled",
+            "estimand": {
+                "quantity": format!("{} of the fields together, per {pass}", index_key.to_uppercase()),
+                "support": format!("pixel-weighted over the union of the fields: the {n} distinct {native_m} m window pixels whose centre lies inside at least one field that was read{inside}. A pixel inside two overlapping fields counts once. A field in `fields.skipped` adds no pixels"),
+                "statistic": "per pass: median and nearest-rank p10/p25/p75/p90 over the clear pixels of the union, plus mean and sample std. Every pixel has the same weight, so a larger field weighs more. This is not the median of the field medians",
+                "clear_fraction_means": "clear pixels of the union divided by all pixels of the union",
+                "kept_when": format!("clear_fraction is at least {min_share} and n_clear is at least {min_support}; other passes are in `excluded`"),
+                "unit": "dimensionless, -1..1",
+            },
+            "n_px": n,
+            "fields_pooled": self.fields,
+            "columns": ["date", "median", "p10", "p25", "p75", "p90", "mean", "std", "clear_fraction", "n_clear"],
+            "rows": self.rows,
+            "excluded": self.excluded,
+        })
+    }
+}
+
+/// The record with its pooled block, when the request asked for one. The
+/// block goes into the signed value, so the series' token resolves to it.
+fn with_pooled(mut record: JsonValue, pooled: Option<JsonValue>) -> JsonValue {
+    if let (Some(o), Some(p)) = (record.as_object_mut(), pooled) {
+        o.insert("pooled".into(), p);
+    }
+    record
 }
 
 /// What a `fields` request carries per field and scene, as it accumulates.
@@ -2371,6 +2513,15 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             crate::canopy_loss::KEY
         )));
     }
+    let pool = req.pool == Some(true);
+    if pool && zones.is_empty() {
+        return Err(bad_request(POOL_NEEDS_FIELDS.into()));
+    }
+    if pool && sensor == Sensor::Sentinel1 {
+        return Err(bad_request(
+            "pool is served for an optical index only (Sentinel-2 or Landsat). For radar, read each field's rows".into(),
+        ));
+    }
     if sensor == Sensor::Sentinel1 {
         return Box::pin(radar_series(req, aoi, zones, index_key, s, started)).await;
     }
@@ -2478,21 +2629,22 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     // otherwise re-read every scene and sign a fresh derivation of identical
     // rows. It also lets a call that outlived the host's budget (the work is
     // not cancelled) answer on the retry.
-    let cache_key = optical_cache_key(
-        sensor,
-        with_memory(
-            json!({
-                "bbox": [b.min_lat, b.min_lng, b.max_lat, b.max_lng],
-                "rings": aoi.rings, "index": index.key, "start": req.start_date, "end": req.end_date,
-                "max_scenes": max_scenes, "min_clear": min_clear, "blocks": blocks,
-                "reject": if landsat { json!({"qa_pixel_bits": qa_bits}) } else { json!(reject_vec) },
-                "buffer_m": buffer_m, "min_support": min_support,
-                "fields": zones.iter().map(|z| (&z.id, &z.polygon_cid)).collect::<Vec<_>>(),
-                "canopy_loss": canopy,
-            }),
-            req.memory,
-        ),
+    let mut cache_key_parts = with_memory(
+        json!({
+            "bbox": [b.min_lat, b.min_lng, b.max_lat, b.max_lng],
+            "rings": aoi.rings, "index": index.key, "start": req.start_date, "end": req.end_date,
+            "max_scenes": max_scenes, "min_clear": min_clear, "blocks": blocks,
+            "reject": if landsat { json!({"qa_pixel_bits": qa_bits}) } else { json!(reject_vec) },
+            "buffer_m": buffer_m, "min_support": min_support,
+            "fields": zones.iter().map(|z| (&z.id, &z.polygon_cid)).collect::<Vec<_>>(),
+            "canopy_loss": canopy,
+        }),
+        req.memory,
     );
+    if pool {
+        cache_key_parts["pool"] = json!(true);
+    }
+    let cache_key = optical_cache_key(sensor, cache_key_parts);
     if let Some(hit) = cache_hit(&cache_key) {
         return Ok(hit);
     }
@@ -2774,6 +2926,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     let mut fields_acc = FieldsAcc::new(zones.len());
     fields_acc.memory = req.memory == Some(true);
     fields_acc.canopy = canopy;
+    let mut pooled = pool.then(|| Pooled::new(&zone_px));
     let quads = block_quads(&lattice, blocks);
 
     // ── read every picked scene: two bands, each masked by its SCL. ───────
@@ -2931,6 +3084,14 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
                 min_clear,
                 min_support,
             );
+        }
+        if let Some(pl) = pooled.as_mut() {
+            let mut vals: Vec<f32> = pl
+                .px
+                .iter()
+                .filter_map(|p| index.at(ga[*p], gb[*p], gc.as_ref().map(|g| g[*p])))
+                .collect();
+            pl.add(&date, &item.id, day, &mut vals, min_clear, min_support);
         }
         let mut source = json!({"scene": item.id, "date": date, "a": meta_a, "b": meta_b});
         if let (Some(o), Some(m)) = (source.as_object_mut(), meta_c) {
@@ -3220,7 +3381,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         "one scene per capture date (least scene cloud), then up to max_scenes evenly spaced in time keeping both ends, plus for the newest the least cloudy scene within 30 days of its day of year in each of up to three earlier years"
     };
     let fn_key = sensor.fn_key();
-    let mut record = json!({
+    let record = json!({
         "schema": "emem.field_series.v1",
         "fn_key": fn_key,
         "aoi": {"bbox": {"min_lat": b.min_lat, "min_lng": b.min_lng, "max_lat": b.max_lat, "max_lng": b.max_lng},
@@ -3260,6 +3421,15 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         "fields": fields_block,
         "sources": sources,
     });
+    let pass = if landsat {
+        "Landsat 8 or 9 overpass"
+    } else {
+        "Sentinel-2 overpass"
+    };
+    let mut record = with_pooled(
+        record,
+        pooled.map(|p| p.block(index.key, pass, native_m, buffer_m, min_clear, min_support)),
+    );
     if let (Some(o), Some((lo, hi))) = (record.as_object_mut(), canopy) {
         let date = |d: i64| {
             let (y, m, dd) = crate::civil_from_days(d);
@@ -3377,6 +3547,9 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     }
     if let (Some(o), Some(c)) = (out.as_object_mut(), record.get("canopy_loss")) {
         o.insert("canopy_loss".into(), c.clone());
+    }
+    if let (Some(o), Some(p)) = (out.as_object_mut(), record.get("pooled")) {
+        o.insert("pooled".into(), p.clone());
     }
     cache_put(cache_key, out.clone());
     Ok(out)
@@ -4282,6 +4455,22 @@ pub(crate) fn mcp_projection(mut v: JsonValue) -> JsonValue {
     omitted.push(
         "rows[].block_medians, rows[].scene, rows[].scene_cloud_cover (in the signed record)",
     );
+    if let Some(pooled) = obj.get_mut("pooled").and_then(|p| p.as_object_mut()) {
+        for key in ["rows", "excluded"] {
+            for row in pooled
+                .get_mut(key)
+                .and_then(|r| r.as_array_mut())
+                .into_iter()
+                .flatten()
+            {
+                if let Some(r) = row.as_object_mut() {
+                    r.remove("scene");
+                    r.values_mut().for_each(round4);
+                }
+            }
+        }
+        omitted.push("pooled.rows[].scene (in the signed record)");
+    }
     if obj.remove("blocks").is_some() {
         omitted.push("blocks");
     }
@@ -4411,6 +4600,9 @@ async fn field_series_areas(req: FieldSeriesReq, s: &AppState) -> Result<JsonVal
             "give `areas`, or one `geometry`/`bbox`, not both".into(),
         ));
     }
+    if req.pool == Some(true) {
+        return Err(bad_request(POOL_NEEDS_FIELDS.into()));
+    }
     let raw = as_object_value(req.areas.as_ref().unwrap_or(&JsonValue::Null), "areas")?;
     let areas: Vec<FieldSeriesArea> = serde_json::from_value(raw)
         .map_err(|e| bad_request(format!("`areas` is a list of {{id, geometry | bbox}}: {e}")))?;
@@ -4454,6 +4646,7 @@ async fn field_series_areas(req: FieldSeriesReq, s: &AppState) -> Result<JsonVal
                     areas: None,
                     fields: None,
                     memory: None,
+                    pool: None,
                     canopy_loss: None,
                 };
                 async move { (id, Box::pin(field_series(one, s)).await) }
@@ -5772,5 +5965,141 @@ mod tests {
         assert_eq!(p["change_summary"]["median_change"], json!(-2.5));
         assert_eq!(p["change_grid"]["change"], json!([-2.5]));
         assert_eq!(p["anomaly"]["anomaly"], json!(-3.5));
+    }
+
+    /// Squares on a 10 m lattice with its north-west corner at (500000,
+    /// 3400000) in UTM 43N, as `fields` would send them: lat/lng rings.
+    fn square_zone(id: &str, x0: f64, x1: f64, y0: f64, y1: f64) -> Zone {
+        let ll = |x: f64, y: f64| {
+            let (lat, lng) = emem_fetch::proj::utm_to_latlng_with_epsg(x, y, 32643).unwrap();
+            [lng, lat]
+        };
+        let (n, s) = (3_400_000.0 - y0, 3_400_000.0 - y1);
+        Zone {
+            id: id.into(),
+            rings: vec![vec![
+                ll(500_000.0 + x0, s),
+                ll(500_000.0 + x1, s),
+                ll(500_000.0 + x1, n),
+                ll(500_000.0 + x0, n),
+                ll(500_000.0 + x0, s),
+            ]],
+            polygon_cid: None,
+        }
+    }
+
+    fn lattice(w: u32, h: u32) -> Lattice {
+        Lattice {
+            epsg: 32643,
+            x0: 500_000.0,
+            y0: 3_400_000.0,
+            step: 10.0,
+            w,
+            h,
+        }
+    }
+
+    /// Two 6 x 6 fields that share a 3 x 6 strip hold 54 distinct pixels,
+    /// not 72: the strip's 18 pixels count once.
+    #[test]
+    fn the_pooled_union_counts_an_overlap_once() {
+        let zones = [
+            square_zone("a", 0.0, 60.0, 0.0, 60.0),
+            square_zone("b", 30.0, 90.0, 0.0, 60.0),
+        ];
+        let (zone_px, skipped) = zone_pixels(&zones, &lattice(10, 10), 0.0, 4);
+        assert!(skipped.is_empty(), "{skipped:?}");
+        assert_eq!((zone_px[0].len(), zone_px[1].len()), (36, 36));
+        let shared = zone_px[0].iter().filter(|p| zone_px[1].contains(p)).count();
+        assert_eq!(shared, 18);
+        let pooled = Pooled::new(&zone_px);
+        assert_eq!(pooled.px.len(), 36 + 36 - shared);
+        assert_eq!(pooled.fields, 2);
+        // A field under the support floor is skipped and adds no pixels.
+        let (zone_px, skipped) = zone_pixels(&zones, &lattice(10, 10), 0.0, 40);
+        assert_eq!(skipped.len(), 2);
+        assert!(Pooled::new(&zone_px).px.is_empty());
+    }
+
+    /// Field a holds 64 pixels at 0.8 and field b 16 at 0.2. The median of
+    /// the two field medians is 0.5; the pooled median is 0.8, because four
+    /// of every five pixels are a's, and the mean is 0.68.
+    #[test]
+    fn the_pooled_row_weighs_each_pixel_once_so_a_larger_field_weighs_more() {
+        let zones = [
+            square_zone("a", 0.0, 80.0, 0.0, 80.0),
+            square_zone("b", 80.0, 120.0, 0.0, 40.0),
+        ];
+        let g = lattice(12, 8);
+        let (zone_px, skipped) = zone_pixels(&zones, &g, 0.0, 4);
+        assert!(skipped.is_empty(), "{skipped:?}");
+        assert_eq!((zone_px[0].len(), zone_px[1].len()), (64, 16));
+        let value = |p: usize| if zone_px[0].contains(&p) { 0.8f32 } else { 0.2 };
+        let mut pooled = Pooled::new(&zone_px);
+        let mut vals: Vec<f32> = pooled.px.iter().map(|p| value(*p)).collect();
+        pooled.add("2026-06-01", "S2B_X", 0, &mut vals, 0.4, 30);
+        let row = &pooled.rows[0];
+        assert_eq!(row["median"], json!(0.8));
+        assert_eq!(row["p10"], json!(0.2));
+        assert_eq!(row["p25"], json!(0.8));
+        assert_eq!(row["mean"], json!(0.68));
+        assert_eq!(row["n_clear"], json!(80));
+        assert_eq!(row["clear_fraction"], json!(1.0));
+        // Half the union under cloud: kept at a 0.4 floor, excluded at 0.6.
+        let mut half: Vec<f32> = vals[..40].to_vec();
+        pooled.add("2026-06-06", "S2A_Y", 5, &mut half, 0.6, 30);
+        assert_eq!(pooled.rows.len(), 1);
+        assert_eq!(pooled.excluded[0]["clear_fraction"], json!(0.5));
+    }
+
+    /// The pooled rows go into the signed value under `pooled`, with
+    /// `area: "pooled"` and the estimand that names the union, and come back
+    /// unchanged through the CBOR the fact is signed as. The film gate reads
+    /// `pooled.rows[].date` and the statistic named in the claim.
+    #[test]
+    fn the_signed_record_carries_the_pooled_rows() {
+        let zones = [
+            square_zone("a", 0.0, 60.0, 0.0, 60.0),
+            square_zone("b", 30.0, 90.0, 0.0, 60.0),
+        ];
+        let (zone_px, _) = zone_pixels(&zones, &lattice(10, 10), 0.0, 4);
+        let mut pooled = Pooled::new(&zone_px);
+        for (i, date) in ["2026-06-01", "2026-06-06", "2026-06-11"]
+            .iter()
+            .enumerate()
+        {
+            let mut vals = vec![0.3 + 0.1 * i as f32; pooled.px.len()];
+            pooled.add(date, "S2B_X", i as i64 * 5, &mut vals, 0.4, 30);
+        }
+        let block = pooled.block("ndsi", "Sentinel-2 overpass", 10.0, 0.0, 0.4, 30);
+        let record = with_pooled(
+            json!({"schema": "emem.field_series.v1", "rows": []}),
+            Some(block),
+        );
+        let signed: JsonValue =
+            serde_json::to_value(crate::change_attribution::json_to_cbor(&record)).unwrap();
+        assert_eq!(signed, record);
+        let p = &signed["pooled"];
+        assert_eq!(p["area"], json!("pooled"));
+        assert_eq!(p["n_px"], json!(54));
+        assert!(p["estimand"]["support"]
+            .as_str()
+            .unwrap()
+            .starts_with("pixel-weighted over the union of the fields"));
+        let dates: Vec<&str> = p["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["date"].as_str().unwrap())
+            .collect();
+        assert_eq!(dates, ["2026-06-01", "2026-06-06", "2026-06-11"]);
+        assert_eq!(p["rows"][2]["median"], json!(0.5));
+        // No pool asked: the record is unchanged.
+        let plain = json!({"schema": "emem.field_series.v1"});
+        assert_eq!(with_pooled(plain.clone(), None), plain);
+        // The MCP answer keeps the pooled rows, rounded, without scene ids.
+        let p = mcp_projection(json!({"rows": [], "pooled": record["pooled"]}));
+        assert!(p["pooled"]["rows"][0].get("scene").is_none());
+        assert_eq!(p["pooled"]["rows"][0]["median"], json!(0.3));
     }
 }

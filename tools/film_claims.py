@@ -72,6 +72,9 @@ The half of docs/media/films/STANDARD.md that film_qc.py cannot do offline. For 
                                    `date`. A first or last `bracket` is the neighbouring pass that does not meet
                                    it, so the screen can say "between". A count needs `total`, the passes in the
                                    window, which the screen states. A date shown must be named in the text.
+                                   `series.area: "pooled"` reads the series' pooled rows (POST /v1/field_series
+                                   with `fields` and `pool: true`: one row per pass over the union of the fields,
+                                   each pixel counted once) in place of the rows of the window's box.
   a conversion                     "99 football pitches" from "71 hectares": `of` is the index of the claim it
                                    converts, `multiply` and `divide` the factors, `formula` the words. The gate
                                    converts the SIGNED value of that claim, not the rounded one on screen.
@@ -658,9 +661,21 @@ def series(c):
         return False, f"rule {rec.get('fn_key')!r}: this gate reads optical index series only ({', '.join(SERIES_FNS)})"
     if rec.get("index") != s.get("index"):
         return False, f"`series.index` is {s.get('index')!r}, the series reads {rec.get('index')!r}"
+    area = s.get("area")
+    if area not in (None, "pooled"):
+        return False, "`series.area` is \"pooled\" or absent"
+    if area == "pooled":
+        pooled = rec.get("pooled")
+        if not isinstance(pooled, dict) or pooled.get("area") != "pooled":
+            return False, "the series holds no pooled rows: it was not read with `fields` and `pool: true`"
+        source = pooled.get("rows")
+    else:
+        source = rec.get("rows")
     lo, hi = str(s.get("after") or "0000-00-00"), str(s.get("before") or "9999-99-99")
     span = f"from {s['after'] or 'its start'} to {s['before'] or 'its end'}" if s.get("after") or s.get("before") else "in the series"
-    rows = sorted((x for x in rec.get("rows") or [] if lo <= str(x.get("date")) <= hi), key=lambda x: x["date"])
+    if area == "pooled":
+        span += " (pooled over the fields)"
+    rows = sorted((x for x in source or [] if lo <= str(x.get("date")) <= hi), key=lambda x: x["date"])
     if not rows:
         return False, f"the series holds no pass {span}"
     text = str(c.get("text", "")).lower()

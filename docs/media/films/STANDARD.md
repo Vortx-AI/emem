@@ -140,7 +140,8 @@ One folder per film, `docs/media/films/<id>/`:
 - a pattern across passes in `claims` has `text`, `token` (the series' `emem:fact:`) and `series`: `{index, stat,
   op, threshold, show, value}`, with `show` one of `first`, `last`, `count` or `at`. Add `after` and `before` to
   keep one winter of a longer series, `bracket` for the neighbouring pass the screen names, `total` for a count
-  (required) and `date` for `at`. A day shown is `YYYY-MM-DD` in `value`, and the text names it;
+  (required) and `date` for `at`. A day shown is `YYYY-MM-DD` in `value`, and the text names it. Add
+  `area: "pooled"` to read the pooled rows of a `fields` series read with `pool: true`;
 - a pass label may add `cloud`, the catalogue's cloud figure shown, which must equal the item's
   `eo:cloud_cover`; the text says it is the tile's. The catalogue's preview of a pass is an illustration segment
   whose `source.stac_item` is the item URL;
