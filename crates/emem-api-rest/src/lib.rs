@@ -72,6 +72,7 @@ mod physics;
 mod rain_series;
 mod range_hash;
 mod reader;
+mod sun;
 mod terrain;
 pub mod topic_router;
 mod tree;
@@ -1509,6 +1510,7 @@ pub fn router(state: AppState) -> Router {
         // A field as a signed derivation: docs/plans/field-tokens.md.
         .route("/v1/band_raster", post(band_raster::post_band_raster))
         .route("/v1/persist", post(persist::post_persist))
+        .route("/v1/sun_position", post(sun::post_sun_position))
         .route("/v1/band_cube", post(band_raster::post_band_cube))
         .route("/v1/band_composite", post(band_raster::post_band_composite))
         .route("/v1/field_series", post(field_series::post_field_series))
@@ -13032,6 +13034,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "change_attribution": "/v1/change_attribution",
             "band_raster": "/v1/band_raster",
             "persist": "/v1/persist",
+            "sun_position": "/v1/sun_position",
             "band_cube": "/v1/band_cube",
             "raster_resolve": "/v1/raster/resolve",
             "cube_resolve": "/v1/cube/resolve",
@@ -36456,6 +36459,11 @@ async fn mcp_tool_call_inner(
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             backfill_inner(req, s).await.map_err(mcp_err)
         }
+        "emem_sun_position" => {
+            let req: sun::SunPositionReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            sun::sun_position(req, s).await.map_err(mcp_err)
+        }
         "emem_heat_solve" => {
             let req: physics::HeatSolveReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
@@ -36835,6 +36843,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/tree/path": {"post":{"summary":"emem:tree over rows the caller holds: the same audit path and root as GET /v1/tree/{file_cid}, from `leaves` (base32 leaf hashes) or `chunks` ({url, offset, length, hash}), with no note and no parser in between.","operationId":"emem_tree_path","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["index"],"properties":{"index":{"type":"integer"},"leaves":{"type":"array","items":{"type":"string"}},"chunks":{"type":"array","items":{"type":"object","properties":{"url":{"type":"string"},"offset":{"type":"integer"},"length":{"type":"integer"},"hash":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/change_attribution": {"post":{"summary":"The attribution ledger for a readout change at a cell: per-term evidence for Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε, with NO numeric split. Reports the observed Tessera year-over-year embedding change, label-free index pairs (NDVI, NBR, NDWI) with raw deltas as environment evidence, the sources each visit was observed through (sensor record), the encoder pinning proof (one signed multi-year fact, one recipe), and the S2 scene-class per visit (noise evidence). `split` is null and `attribution_note` says why: a calibrated cross-encoder, cross-sensor stability model does not exist in this build. The ledger persists as a derivative fact and returns its emem:fact: token under ledger_fact; its cid is a function of the cell and the input facts, so the same inputs return the same token (persistence: existing_derivative_fact on a repeat). The receipt binds the input cids plus the ledger cid.","operationId":"emem_change_attribution","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
             "/v1/persist": {"post":{"summary":"the persistence chain: whether the state one clear Sentinel-2 pass saw held to a later hour, read with the reanalysis between (persistence_snow@1, snow only). It starts from an indices.ndsi fact (the one named in `observation`, else the last pass at or before the day asked) and reads one hourly series from the Open-Meteo archive: ERA5-Land 2 m temperature and snow depth, ERA5 snowfall. Two melt readings run over it, the model's own pack and a declared degree-day bucket, and the verdict is persisted_likely, broken, renewed or unknown under the rule in `rule.text`; a disagreement between the two readings, a glacier pack (10 m or more in the model) or a gap is unknown. Signed as a derivation (band persistence.chain) whose parents are the observation and the modelled depth fact of the hour asked; the upstream series is a content-addressed artifact (GET /v1/artifacts/{cid}) a checker re-reads. model_output: a rule over a reanalysis, not an observation of the day.","operationId":"emem_persist","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["date"],"properties":{"cell":{"type":"string","description":"cell64; or give lat and lng"},"lat":{"type":"number"},"lng":{"type":"number"},"date":{"type":"string","description":"the day asked, YYYY-MM-DD, at least six days ago (the archive runs about five days behind)"},"hour":{"type":"integer","minimum":0,"maximum":23,"description":"UTC hour of the day asked; default 12"},"quantity":{"type":"string","enum":["snow"]},"observation":{"type":"string","description":"fact_cid of an indices.ndsi fact at this cell to start from"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"no pass or no reanalysis series could be read; typed"}}}},
+            "/v1/sun_position": {"post":{"summary":"sun_position@1: the sun's azimuth (degrees clockwise from true north) and elevation (apparent, with the NOAA spreadsheet's refraction approximation stated in the answer, and geometric) at 1 to 50 places and up to 2,000 place-time rows in all, plus sunrise, solar noon and sunset per place and UTC date, in UTC and in local mean solar time. NOAA Solar Calculator spreadsheet equations, after Meeus, Astronomical Algorithms; NOAA states sunrise and sunset accurate to within a minute between 72 S and 72 N and within 10 minutes outside. The whole answer is one signed derivation (band sun.position) whose value holds its inputs. A resolve of its emem:fact: token computes every row again and sets provenance.responder_recomputed to true only when all of them match.","operationId":"emem_sun_position","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["places"],"properties":{"places":{"type":"array","minItems":1,"maxItems":50,"description":"each {lat, lng} or {cell}, with an optional id; a cell is read at its centre","items":{"type":"object","properties":{"lat":{"type":"number"},"lng":{"type":"number"},"cell":{"type":"string"},"id":{"type":"string"}}}},"times":{"type":"array","items":{"type":"string"},"description":"ISO 8601 UTC instants, YYYY-MM-DDTHH:MM[:SS] with Z or +00:00, whole seconds, years 1901 to 2099. Give this or range"},"range":{"type":"object","required":["from","to","step_minutes"],"description":"every step from `from` to `to`; places x steps must be 2,000 or fewer","properties":{"from":{"type":"string"},"to":{"type":"string"},"step_minutes":{"type":"integer","minimum":1}}}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/band_raster": {"post":{"summary":"a field as a signed derivation (docs/plans/field-tokens.md): native-resolution Sentinel-2 window over a bbox, returned as a content-addressed canonical grid artifact plus a persisted derivation record. The receipt attests the derivation, never a byte pipe: its FIELD preimage segment binds (aoi_cid, derivation_cid), the record pins the scene (id, asset, capture time), the recipe (band_raster@1), the grid georeferencing, and best-effort per-cell anchors bridging to existing signed facts. Bands: s2.B02/B03/B04/B08/B11/B12, window cap 512 px per side, refused with the cap named; copdem30m.elevation (dem_raster@1); an encoder band (embedding_raster@1); forest_change.lossyear/treecover2000/gain, jrc_gfc2020.forest_2020 and jrc_tmf.deforestation_year (forest_raster@1, one window on the layer's own pixel lattice, 1024 px per side, with the publisher's licence; a bbox across a 10-degree tile line is read from each tile it touches, up to four, joined without resampling, and the record cites every tile). The artifact is evictable (GET /v1/artifacts/{cid}); the derivation record persists and pins the rebuild.","operationId":"emem_band_raster","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox","band"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"band":{"type":"string","description":"s2.B02|s2.B03|s2.B04|s2.B08|s2.B11|s2.B12, copdem30m.elevation, an encoder band, or a forest layer: forest_change.lossyear|forest_change.treecover2000|forest_change.gain|jrc_gfc2020.forest_2020|jrc_tmf.deforestation_year"},"observed_on":{"type":"string","description":"optional target capture date YYYY-MM-DD; the chosen scene is pinned either way"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"upstream scene fetch failed; typed"}}}},
             "/v1/raster/resolve": {"post":{"summary":"dereference an emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid> token. Every claim in the token binds to the signed derivation record before anything dereferences (the fact-token rule applied to fields): the cid must be a band_raster@1 derivation and the token's aoi_cid, band, and tslot must each match the record's body, so a real derivation_cid cannot be passed off under a false area, band, or date; any mismatch is a typed 409. Returns the record and the artifact status; bytes come from GET /v1/artifacts/{cid}. An evicted artifact is a rebuild recipe, not an error. The receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment.","operationId":"emem_raster_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
             "/v1/band_cube": {"post":{"summary":"a field OVER TIME as a signed manifest (docs/plans/field-tokens.md): mints one band_raster member per target date, each an independent, resolvable emem:raster: derivation, then signs a cube record binding the ordered set. A world model is a field over an AOI across time, and this is the token that names one. Lineage terminates in each member's pinned scene; cube_cid content-addresses the ordered membership. Dates that resolve to the same scene collapse; a cube needs >=2 distinct slices and caps at 24 per mint (refused with the cap named). Each member echoes `requested_dates` and `requested_date_distance_days` so a caller maps a requested date to its slice directly. The receipt's FIELD preimage segment binds (aoi_cid, derivation_cid). Returns the emem:cube: token plus the member emem:raster: tokens.","operationId":"emem_band_cube","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox","band","observed_on"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"band":{"type":"string","description":"s2.B02|s2.B03|s2.B04|s2.B08|s2.B11|s2.B12"},"observed_on":{"type":"array","items":{"type":"string"},"description":"2..24 target capture dates YYYY-MM-DD; each names the nearest scene, pinned per member"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"upstream scene fetch failed; typed"}}}},
@@ -42009,6 +42018,18 @@ async fn echo_verify_core(s: &AppState, req: EchoVerifyReq) -> Result<JsonValue,
 /// every anchor claim to the signed body, sign the dereference. Shared
 /// verbatim by the single and the batch endpoint so the two can never
 /// disagree about what a token means.
+/// A check that computes a signed record again from the inputs it holds.
+type Recompute = fn(&JsonValue) -> Result<(), String>;
+
+/// The check a resolve runs on a responder-signed derivation whose value is a
+/// pure function of the inputs it holds, by `fn_key`.
+fn recompute_on_resolve(fn_key: &str) -> Option<Recompute> {
+    match fn_key {
+        sun::FN_KEY => Some(sun::recompute_matches),
+        _ => None,
+    }
+}
+
 async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResolveResp, ApiError> {
     let started = std::time::Instant::now();
     // U1: accept a bare fact_cid (descriptor head dropped) in DEGRADED mode.
@@ -42276,11 +42297,12 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
                 | "landsat_index_series@1"
                 | "s1_rtc_series@1"
                 | "lossyear_histogram@1"
-                | "eudr_plot_raster@1" => "deterministic_index",
+                | "eudr_plot_raster@1"
+                | sun::FN_KEY => "deterministic_index",
                 "persistence_snow@1" => "estimator",
                 _ => "unclassified",
             };
-            json!({
+            let mut p = json!({
                 "class": class,
                 "computed_by_responder": true,
                 "declared_by_attester": declared,
@@ -42288,7 +42310,24 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
                 "band_class": band_class,
                 "applies_to": "derivation",
                 "note": "This responder computed this record itself under `fn_key`, from the inputs the record pins (scene ids and assets, or upstream bytes by content id). It did not compute it again when it was read: ask again with the same arguments, or recompute it from those inputs. `class` follows from the function, not from a declaration.",
-            })
+            });
+            // A pure function of the inputs its record holds: compute it again
+            // now, and say true only when every row still follows.
+            if let Some(recompute) = recompute_on_resolve(&d.derivation.fn_key) {
+                let record = serde_json::to_value(&d.value).unwrap_or(JsonValue::Null);
+                let verdict = recompute(&record);
+                p["responder_recomputed"] = json!(verdict.is_ok());
+                p["recomputation"] = match verdict {
+                    Ok(()) => {
+                        json!({"verified": true, "fn_key": d.derivation.fn_key, "rule": "every row of the record computed again from its inputs at read time, equal at the stated rounding"})
+                    }
+                    Err(why) => {
+                        json!({"verified": false, "fn_key": d.derivation.fn_key, "mismatch": why})
+                    }
+                };
+                p["note"] = json!("This responder computed this record itself under `fn_key`, and computed every row again from the inputs the record holds when it was read. `responder_recomputed` says whether all of them matched.");
+            }
+            p
         } else {
             json!({
                 "class": if verified { "deterministic_index" } else { declared.as_str() },
@@ -114639,7 +114678,7 @@ mod manifest_covers_tests {
     fn covers_counts_match_the_digested_registries() {
         assert_eq!(
             emem_core::algorithms::DEFAULT.algorithms.len(),
-            173,
+            174,
             "if this moved, `algorithms_cid` covers a different number and any \
              paper citing the old one is now wrong; that is the event this \
              endpoint exists to make visible"

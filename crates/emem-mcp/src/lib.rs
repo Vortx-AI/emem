@@ -1127,6 +1127,12 @@ const SCHEMA_FIELD_SERIES: &str = r#"{"type":"object","required":["start_date","
 "areas":{"type":"array","minItems":1,"maxItems":6,"items":{"type":"object","properties":{"id":{"type":"string"},"geometry":{"type":"object"},"bbox":{"type":"object"}}},"description":"Up to 6 areas compared on one chart, in place of `geometry`/`bbox`. Each is its own signed series; the answer adds `chart_rows` (date, area, median, p10, p90, clear_fraction), sorted by date."}
 }}"#;
 
+const SCHEMA_SUN_POSITION: &str = r#"{"type":"object","required":["places"],"properties":{
+"places":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"object","properties":{"lat":{"type":"number"},"lng":{"type":"number"},"cell":{"type":"string"},"id":{"type":"string"}}},"description":"1 to 50 places. Each is {lat, lng} or {cell}, with an optional id. A cell is read at its centre."},
+"times":{"type":"array","items":{"type":"string"},"description":"ISO 8601 UTC instants, YYYY-MM-DDTHH:MM[:SS] with Z or +00:00, whole seconds, years 1901 to 2099. Give this or range."},
+"range":{"type":"object","required":["from","to","step_minutes"],"properties":{"from":{"type":"string"},"to":{"type":"string"},"step_minutes":{"type":"integer","minimum":1}},"description":"Every step from `from` to `to`, in place of times. Places x steps must be 2000 or fewer."}
+}}"#;
+
 const SCHEMA_TERRAIN: &str = r#"{"type":"object","required":["cell"],"properties":{
 "cell":{"type":"string","description":"cell64 or place name. The 8 neighbours are the Copernicus DEM pixels around the pixel that holds it."},
 "step_cells":{"type":"integer","minimum":1,"description":"A coarser stencil, in cell64 pitches (about 9.55 m each). It is rounded to whole DEM pixels, never under one. Omit it for one pixel (30.9 m north-south); raise it to measure slope at a coarser scale."},
@@ -2269,6 +2275,18 @@ pub const TOOLS: &[ToolDescriptor] = &[
 
     // ── Physics primitives, explicit-FD PDE solvers + closed-form NDVI predictor ──
     ToolDescriptor {
+        name: "emem_sun_position",
+        title: "Sun position: azimuth, elevation, sunrise and sunset, signed",
+        description: "Computes where the sun is in the sky. For each place and UTC instant, it gives the azimuth in degrees clockwise from true north. It gives the apparent elevation, with the standard refraction correction, and the geometric elevation. For each place and UTC date, it gives sunrise, solar noon and sunset in UTC and in local mean solar time. It uses the NOAA Solar Calculator spreadsheet equations, after Meeus. NOAA states sunrise and sunset to within a minute between 72 degrees south and 72 degrees north. The answer is one signed derivation with an emem:fact: token, and its value holds the inputs. A resolve of the token computes every row again. It sets `responder_recomputed` to true only when all rows match.",
+        when_to_use: "Use it to read a shadow, a glint or a dark slope against the sun at that instant. Use it to check a claimed time of day, or to plan when a place has sun. Send 1 to 50 places as {lat, lng} or {cell}. Send `times` as ISO 8601 UTC instants, or `range` with from, to and step_minutes. The cap is 2000 place-time rows in all.",
+        input_schema: SCHEMA_SUN_POSITION,
+        output_schema: None,
+        example_args: r#"{"places":[{"lat":28.6139,"lng":77.209}],"times":["2026-03-21T06:00:00Z"]}"#,
+        level: "L0", category: ToolCategory::Read,
+    read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: false,
+    tier: "extended",
+    },
+    ToolDescriptor {
         name: "emem_heat_solve",
         title: "2-D heat-equation forecast (urban LST evolution)",
         description: "Forward-step 2-D explicit finite-difference solver for the heat equation ∂u/∂t = α∇²u over a 3×3 cell stencil centred on `cell`. It reads `modis.lst_day_8day` (Land Surface Temperature) at the centre and 8 cell64 neighbours. It integrates N hours ahead under a CFL-stable timestep and returns a signed forecast. This is a real PDE rollout, not a decay-scoring heuristic.",
@@ -3230,6 +3248,11 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
         ],
     ),
     (
+        "sun_and_shadow",
+        "Where the sun was at a place and instant, as deterministic geometry. Each answer is one signed derivation that a resolve of its token computes again.",
+        &["emem_sun_position"],
+    ),
+    (
         "transparency_log",
         "Prove this responder is not showing you a private history. Append-only log with inclusion and consistency proofs.",
         &[
@@ -3368,7 +3391,7 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
     (
         "timeseries",
         "A value per timestep at one address. Ask for this when the question is about change over time rather than a moment.",
-        &["emem_trajectory", "emem_temporal_route", "emem_compare_same_doy", "emem_field_series"],
+        &["emem_trajectory", "emem_temporal_route", "emem_compare_same_doy", "emem_field_series", "emem_sun_position"],
     ),
     (
         "raster",

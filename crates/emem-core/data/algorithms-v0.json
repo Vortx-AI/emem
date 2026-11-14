@@ -16651,6 +16651,37 @@
    "documentation_only": true,
    "runtime_path": "/v1/field_series",
    "honest_limits": "Validated against Hansen, which maps loss from Landsat; the rule reads Sentinel-2. A date near the end of the window has fewer than two passes in the next 45 days and is not judged. It reads each cell's median, so a clearing over a small share of a cell barely moves it."
+  },
+  {
+   "key": "sun_position@1",
+   "kind": "solo",
+   "domain": "optical",
+   "inputs": [
+    {
+     "band": "<lat_lng_or_cell64>",
+     "role": "place",
+     "explanation": "1 to 50 places, each a latitude and longitude in degrees or a cell64 read at its centre."
+    },
+    {
+     "band": "<utc_instant>",
+     "role": "time",
+     "explanation": "ISO 8601 UTC instants, or a range with a step in minutes. Places x times is 2000 or fewer."
+    }
+   ],
+   "formula": "NOAA Solar Calculator spreadsheet: T = (JD - 2451545)/36525 with JD = unix/86400 + 2440587.5; L0 = 280.46646 + T(36000.76983 + 0.0003032T); M = 357.52911 + T(35999.05029 - 0.0001537T); e = 0.016708634 - T(0.000042037 + 0.0000001267T); C = sin M (1.914602 - T(0.004817 + 0.000014T)) + sin 2M (0.019993 - 0.000101T) + 0.000289 sin 3M; lambda = L0 + C - 0.00569 - 0.00478 sin(125.04 - 1934.136T); eps = 23 + (26 + (21.448 - T(46.815 + T(0.00059 - 0.001813T)))/60)/60 + 0.00256 cos(125.04 - 1934.136T); dec = asin(sin eps sin lambda); y = tan^2(eps/2); EoT = 4 deg(y sin 2L0 - 2e sin M + 4ey sin M cos 2L0 - y^2/2 sin 4L0 - 5/4 e^2 sin 2M) minutes; H = (minutes UTC + EoT + 4 lng) mod 1440 / 4 - 180; elevation_geometric = 90 - acos(sin lat sin dec + cos lat cos dec cos H); azimuth = atan2(sin H, cos H sin lat - tan dec cos lat) + 180 (Meeus eq. 13.5); elevation = elevation_geometric + refraction (spreadsheet approximation); sunrise and sunset at zenith 90.833, solar noon at H = 0, each solved at its own instant in 3 passes",
+   "output": {
+    "kind": "scalar",
+    "unit": "degrees and UTC instants",
+    "explanation": "Per place and time: azimuth_deg (clockwise from true north), elevation_deg (apparent) and elevation_geometric_deg. Per place and UTC date: sunrise, solar noon and sunset in UTC and in local mean solar time (UTC + 4 min per degree east), day length, noon elevation and the equation of time; or sun_stays_up / sun_stays_down. Angles to 4 decimals, instants to the second."
+   },
+   "when_to_use": "Read a shadow, a glint or a dark slope against the sun at that instant; check a claimed time of day; plan when a place has sun. It describes the sky, not the ground: terrain and buildings can hide a sun that is above the horizon.",
+   "primitive": "POST /v1/sun_position {places, times | range}",
+   "deterministic": true,
+   "citation": "NOAA Global Monitoring Laboratory, NOAA Solar Calculator and NOAA_Solar_Calculations_day.xls (https://gml.noaa.gov/grad/solcalc/calcdetails.html). Meeus, J. 1998. Astronomical Algorithms, 2nd ed., Willmann-Bell, chapters 13, 25 and 28.",
+   "accuracy_band": "NOAA states that the sunrise and sunset results are theoretically accurate to within a minute between 72 degrees south and 72 degrees north, and within 10 minutes outside those latitudes. Refraction near the horizon varies with temperature and pressure, so observed times can differ by more. The spreadsheet limits itself to 1901 to 2099 by its Julian Day approximation; this route computes the Julian Day exactly and keeps the same years.",
+   "documentation_only": true,
+   "runtime_path": "/v1/sun_position",
+   "_deterministic_note": "Fully deterministic given the request body. The signed record holds the inputs, so a resolve of its emem:fact: token computes every row again and reports provenance.responder_recomputed."
   }
  ]
 }
