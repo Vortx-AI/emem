@@ -35,6 +35,7 @@
   - [Whitepaper v1 (archived)](./whitepaper-v1.md)
 - [Protocol](./protocol.md)
 - [Registries](./registries.md)
+- [Memory standard v1: what a good memory is, and the audit](./standards/memory-v1.md)
 - [Federation & scale-out (design)](./federation.md)
 
 # Research
