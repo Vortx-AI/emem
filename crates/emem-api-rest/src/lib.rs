@@ -58,6 +58,7 @@ pub mod enlistment;
 mod eo_runtime;
 mod estimand;
 mod eu_mrl;
+mod eudr_raster;
 mod field_series;
 mod field_signals;
 mod intents;
@@ -22091,8 +22092,8 @@ async fn get_eudr_dds_schema() -> Json<JsonValue> {
                             "address": {"type": ["string", "null"], "$comment": "Annex II §1(c)"}
                         }
                     },
-                    "verdict": {"type": "string", "enum": ["pass", "fail", "not_in_scope", "indeterminate", "below_mmu"], "$comment": "Overall DDS verdict aggregated across plots. pass: no post-cut-off loss in forest at the 2020 baseline. fail: post-cut-off loss above the 0.5 ha MMU. below_mmu: loss under the MMU, counted compliant. not_in_scope: a FOREST-BASELINE scope, the land was not forest at the cut-off (or a loss was natural-cause); it is not Article 1 commodity scope, which is annex_i_status. A plot with deforestation_free_non_forest true counts compliant. indeterminate: baseline inputs missing"},
-                    "verdict_code": {"type": "integer", "enum": [1, 2, 3, 4, 6], "$comment": "Numeric verdict from eudr_compliance@1 output values + 6 = below_mmu (Article 2(4) 0.5 ha MMU floor)"},
+                    "verdict": {"type": "string", "enum": ["pass", "fail", "review", "not_in_scope", "indeterminate", "below_mmu"], "$comment": "Overall DDS verdict aggregated across plots. pass: no indication of post-cut-off loss in forest at the 2020 baseline (not a finding of compliance). review: post-cut-off loss on land the JRC map calls non-forest, which the operator must explain before filing. fail: post-cut-off loss above the 0.5 ha MMU. below_mmu: loss under the MMU, counted compliant. not_in_scope: a FOREST-BASELINE scope, the land was not forest at the cut-off (or a loss was natural-cause); it is not Article 1 commodity scope, which is annex_i_status. A plot with deforestation_free_non_forest true counts compliant. indeterminate: baseline inputs missing"},
+                    "verdict_code": {"type": "integer", "enum": [1, 2, 3, 4, 6, 7], "$comment": "Numeric verdict from eudr_compliance@1 output values + 6 = below_mmu (Article 2(4) 0.5 ha MMU floor) + 7 = review (loss on JRC non-forest); 5 was a de-minimis variant never emitted (Article 2(4) 0.5 ha MMU floor)"},
                     "n_plots":      {"type": "integer", "minimum": 1}
                 }
             },
@@ -36857,7 +36858,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/intent":            {"post":{"summary":"typed agent intent → execution plan. Body is a tagged Intent enum: pass `{type:\"where_is\",description:...}`, `{type:\"what_is_here\",cell:...|place:...}`, `{type:\"is_like\",a:...,b:...}`, `{type:\"did_change\",cell,band,window:[u64,u64]}`, `{type:\"find_like\",key,k?,filter?}`, `{type:\"confirm\",claim,cell}`, `{type:\"ask\",description,place?,cell?}`, or `{type:\"area_over_time\",geometry|bbox|areas,start_date,end_date,index?,max_scenes?}`. New variants ship under semver.","operationId":"emem_intent","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["type"],"properties":{"type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask","area_over_time"]},"cell":{"type":"string"},"place":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"geometry":{"type":"object","description":"area_over_time: GeoJSON Polygon or Feature, WGS-84"},"bbox":{"type":"object","properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"index":{"type":"string","enum":["ndvi","ndwi","ndmi","lswi","evi","nbr","ndti","ndsi","mndwi","vv","vh","vh_vv"]},"start_date":{"type":"string"},"end_date":{"type":"string"},"max_scenes":{"type":"integer","minimum":3,"maximum":96},"areas":{"type":"array","maxItems":6,"items":{"type":"object","properties":{"id":{"type":"string"},"geometry":{"type":"object"},"bbox":{"type":"object"}}},"description":"area_over_time: up to 6 areas on one chart, in place of geometry/bbox; the answer adds chart_rows"},"description":{"type":"string"},"a":{"type":"string"},"b":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2},"key":{"type":"string"},"k":{"type":"integer"},"filter":{"$ref":"#/components/schemas/Claim"},"claim":{"$ref":"#/components/schemas/Claim"}}}}}},"responses":{"200":json_ok}}},
             "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence. The envelope carries `reasoning`: the ordered stages (located, routed, recalled, scored) with the fact_cids each grounded, and one emem:state: address per stage. Send `Accept: text/event-stream` to receive the same stages as they complete, one emem.ask_stage.v1 JSON object per event, ending in an `answer` stage that carries the envelope a plain POST returns for the same body, or a `failed` stage. One additional event, schema `emem.spatial_trace_event.v1` with `stage: \"splat\"`, is emitted at `recalled`: the signed readings as drawable primitives (band, value, unit, age, provenance class, and an index into the fact_cids already cited), so a consumer can render the evidence before the prose is written. The same projection is in every envelope under `spatial_trace`. One route, negotiated by Accept; there is no separate stream path.","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":{"description":"application/json envelope by default; text/event-stream of emem.ask_stage.v1 events when the request sends Accept: text/event-stream","content":{"application/json":{"schema":{"type":"object"}},"text/event-stream":{"schema":{"type":"string"}}}}}}},
             "/v1/hunt":              {"post":{"summary":"hunter-mode event discovery: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text or polygon_bbox); returns the top 8 ranked hotspots with cell64, primary-band value, fact_cid, and scene URL. Algal-bloom and water-turbidity ranks are NDWI-gated; UHI uses a slow-band fan-out cap. Tessera embedding rerank fires when ≥3 cells have geotessera vectors, otherwise the response falls back to primary-scalar order with the reason exposed. Oil-slick is honestly not-yet-implemented; closest available physics are flood_extent_sar_threshold@1 and water_turbidity_red_band@1.","operationId":"emem_hunt","tags":["hunter"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HuntReq"}}}},"responses":{"200":json_ok}}},
-            "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115, Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 baseline + Hansen GFC v1.13 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence, under its own 60 s budget (EMEM_EUDR_VISUAL_BUDGET_SECS): a first-time plot whose timeline does not finish returns its verdict with `visual_evidence.verdict: \"incomplete\"`, and a repeat fills it in from what was stored. Each plot also carries a `loss_year_histogram`: the per-year distribution of Hansen loss-year over the plot's sampled cells (calendar years, plus `after_cutoff_cells`), emitted as its own signed `forest_change.lossyear_histogram` derivative whose CID is folded into the receipt, so the loss-year breakdown is a verifiable figure, not an unsigned sample (weight by the plot's `sampled_polygon_fraction` to extrapolate to the full polygon). The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the per-cell fact_cids (the first EMEM_EUDR_RECEIPT_MAX_FACTS by cid when there are more, disclosed as `receipt_fact_cids_capped` and `receipt_fact_cids_total`); verifiable offline at `/verify` (or `/v1/verify_receipt`). Every sampled cell's facts decide the verdict and are stored, because each plot's `per_cell_rows_cid` addresses all of them, inlined or not (`facts_computed` vs `facts_persisted`, per plot and in total); every fact_cid in the response, and every one behind `per_cell_rows_cid`, resolves at /v1/facts/<cid>.","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. By default every 10 m pixel of a polygon is read and each plot signs one fact holding its areas (method raster); forest_rule jrc_only takes forest from the JRC GFC2020 map. Per Regulation (EU) 2023/1115, Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 baseline + Hansen GFC v1.13 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence, under its own 60 s budget (EMEM_EUDR_VISUAL_BUDGET_SECS): a first-time plot whose timeline does not finish returns its verdict with `visual_evidence.verdict: \"incomplete\"`, and a repeat fills it in from what was stored. Each plot also carries a `loss_year_histogram`: the per-year distribution of Hansen loss-year over the plot's pixels (raster) or sampled cells (calendar years, plus `after_cutoff_cells`), emitted as its own signed `forest_change.lossyear_histogram` derivative whose CID is folded into the receipt, so the loss-year breakdown is a verifiable figure, not an unsigned sample (weight by the plot's `sampled_polygon_fraction` to extrapolate to the full polygon). The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the per-cell fact_cids (the first EMEM_EUDR_RECEIPT_MAX_FACTS by cid when there are more, disclosed as `receipt_fact_cids_capped` and `receipt_fact_cids_total`); verifiable offline at `/verify` (or `/v1/verify_receipt`). Every sampled cell's facts decide the verdict and are stored, because each plot's `per_cell_rows_cid` addresses all of them, inlined or not (`facts_computed` vs `facts_persisted`, per plot and in total); every fact_cid in the response, and every one behind `per_cell_rows_cid`, resolves at /v1/facts/<cid>.","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
             "/v1/attest":            {"post":{"summary":"Submit a signed attestation (JSON). FACT PLANE IS CLOSED BY DEFAULT: an attestation whose facts occupy an address (cell, band, tslot) is accepted only from this responder's own key, a device enrolled through the OS-trace gate, or a key the operator lists; any other verified signature is refused 403 level_too_low. Derivations and edges take no address and are accepted from any T1 key (see /v1/derive). Body carries a batch envelope: `batch_root` (the 32-byte BLAKE3 merkle root over the per-fact CIDs, serialized as a 32-element array of byte integers, NOT a hex string), `attester`, `attester_key_epoch`, `registry_cid`, `schema_cid`, `attested_at`, `signature`, and `facts[]` (each is a tagged variant carrying `kind` plus cell, band, tslot, value, and per-fact metadata). `preimage_version` selects the rule for both the root and the signature. Set it to 1 for new writes: leaves and nodes take the 0x00/0x01 prefixes, a duplicate leaf is refused, and the signature is ed25519 over the domain-separated attestation preimage (GET /v1/verifier_spec, `preimage_v1`). Omitted or 0 is the legacy v0 rule, still accepted: unprefixed merkle hashing and ed25519 over blake3(batch_root||registry_cid||schema_cid). The responder rejects facts that don't hash into the named batch_root, and rejects the envelope if the signature does not verify against the attester pubkey under the corresponding ed25519 key.","operationId":"emem_attest","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["batch_root","attester","attester_key_epoch","registry_cid","schema_cid","signature","attested_at","facts"],"properties":{"batch_root":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte BLAKE3 merkle root over the per-fact CIDs, as a 32-element array of byte integers (serde [u8;32]). A hex string is NOT accepted."},"attester":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte ed25519 attester pubkey, as a 32-element array of byte integers (serde [u8;32]). NOT a base32 string, despite base32 being the spelling everywhere else on this responder: these bytes sit inside the canonical CBOR that fact_cid hashes, so the wire form cannot be changed without moving every content address ever issued. Convert with base64.b32decode(pubkey_b32.upper()+'='*((8-len(pubkey_b32)%8)%8))."},"signature":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":64,"maxItems":64,"description":"ed25519 signature over the preimage `preimage_version` selects (v1: the domain-separated attestation preimage; v0: blake3(batch_root||registry_cid||schema_cid)), as a 64-element array of byte integers (serde [u8;64]). Same reason as `attester`: not a base32 string."},"attester_key_epoch":{"type":"integer","minimum":0,"description":"Key rotation epoch of `attester` (u32)."},"registry_cid":{"type":"string","description":"CID of the function-registry version in force. Signed: part of the preimage."},"schema_cid":{"type":"string","description":"CID of the CDDL schema profile in force. Signed: part of the preimage."},"attested_at":{"type":"string","description":"ISO 8601 wall clock at submission. Not signed."},"preimage_version":{"type":"integer","enum":[0,1],"default":0,"description":"Signature-preimage and merkle rule. 1 for new writes; 0 or omitted is the legacy v0 rule."},"scope":{"type":"object","description":"Optional multi-tenant scope. An index hint only: not in batch_root and not signed."},"edges":{"type":"array","items":{"type":"object"},"description":"Optional temporal edges. Each edge's blake3(canonical_cbor(edge)) joins the leaf set before sorting, so the signature covers them."},"facts":{"type":"array","items":{"type":"object","required":["kind","cell","band","value"],"properties":{"kind":{"type":"string","enum":["primary","derivative","absence"],"description":"Tagged fact variant; required. `primary` = direct observation, `derivative` = deterministic function over parent facts, `absence` = signed confirmed-absence."},"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"},"value":{},"signed_at":{"type":"string"},"privacy_class":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/attest_cbor":       {"post":{"summary":"Submit a signed attestation (CBOR). The body is the CBOR encoding of the same Attestation that POST /v1/attest takes as JSON, with the same fields, write gate, per-key rate limit and `preimage_version` rule. The responder decodes the body, recomputes batch_root from the canonical CBOR of each decoded fact and edge, and checks the signature over the preimage built from batch_root, registry_cid and schema_cid. The request bytes are not the preimage: two encodings that decode to the same Attestation verify alike. A body that does not decode returns 400 canonical_encoding_divergence. Returns {cids, count}.","operationId":"emem_attest_cbor","requestBody":{"required":true,"description":"CBOR, not JSON. Fields and byte-array forms as in the /v1/attest JSON schema.","content":{"application/cbor":{"schema":{"type":"string","format":"binary","description":"CBOR-encoded Attestation"}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             // A2A surface. Absent from this spec until 2026-08-05, which
@@ -37064,7 +37065,7 @@ fn openapi_spec() -> JsonValue {
                     "region":{"type":"string","description":"Free-text region. Resolved through the same geocoder as /v1/locate. REQUIRED unless `polygon_bbox` is provided."},
                     "polygon_bbox":{"type":"object","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"}},"description":"Explicit polygon bbox; alternative to `region`."}
                 }, "description":"Hunter-mode body. Either `region` (geocoded) or `polygon_bbox` (explicit). The responder sets a target n = ceil(sqrt(area_km2) / 8), at least 12 and at most EMEM_HUNT_MAX_CELLS (default 64, clamped 12 to 128), and samples at most n distinct cells. A bbox grid gives at most floor(sqrt(n))^2, so a target of 12 gives 9 cells; a region with a boundary polygon can give up to n. Slow primary bands such as MODIS LST use a target of 8 (EMEM_HUNTER_SLOW_BAND_CAP), so 4 cells on a bbox grid. It recalls the algorithm's primary scalar input plus any configured gate band, ranks each cell on its newest reading of the primary band, optionally re-ranks the top-K via Tessera embedding coherence, and returns the top 8 hotspots."},
-                "EudrDdsReq": {"type":"object","required":["plots"],"description":"POST /v1/eudr_dds body, produces a signed Annex II-shaped Due Diligence Statement per Regulation (EU) 2023/1115. Pair every plot with its operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint runs eudr_compliance@1 per cell (JRC GFC2020 legal baseline + Hansen GFC v1.13 post-cut-off loss-year consensus; JRC GFC2020 is read as 10° COG tiles for fast cold reads across all geographies). JRC TMF DeforestationYear is read on every cell and reported as `tmf_cross_check` (a TMF-only loss sets review_required); WRI-Sims driver attribution and RADD SAR are not wired here. Applies the Article 2(4) 0.5 ha MMU floor at plot aggregation, validates `commodity_hs` against Annex I, and emits the structured envelope. The response carries an explicit `legality_disclaimer` because Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) is structurally out of Earth-observation scope. Response includes an ed25519-signed `receipt` over the per-cell fact_cids (the first EMEM_EUDR_RECEIPT_MAX_FACTS by cid when there are more, disclosed as `receipt_fact_cids_capped` and `receipt_fact_cids_total`); verifiable offline at `/verify` (or `/v1/verify_receipt`). Every sampled cell's facts decide the verdict and are stored, because each plot's `per_cell_rows_cid` addresses all of them, inlined or not (`facts_computed` vs `facts_persisted`, per plot and in total); every fact_cid in the response, and every one behind `per_cell_rows_cid`, resolves at /v1/facts/<cid>. Pass an optional `scope` block (`{user_id, agent_id, run_id, org_id}`) to bind the receipt to a tenant.", "properties":{
+                "EudrDdsReq": {"type":"object","required":["plots"],"description":"POST /v1/eudr_dds body, produces a signed Annex II-shaped Due Diligence Statement per Regulation (EU) 2023/1115. Pair every plot with its operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. By default (method raster) each polygon or bbox plot is read whole: eudr_compliance@1 runs on every 10 m JRC GFC2020 pixel inside it, areas are true pixel areas, and the plot signs one fact (plot_fact_cid) whose source windows resolve at /v1/artifacts/<cid>. forest_rule jrc_only (default) takes forest from the JRC map; loss on JRC non-forest is the verdict review. On the sampled method the endpoint runs eudr_compliance@1 per cell (JRC GFC2020 legal baseline + Hansen GFC v1.13 post-cut-off loss-year consensus; JRC GFC2020 is read as 10° COG tiles for fast cold reads across all geographies). JRC TMF DeforestationYear is read on every cell and reported as `tmf_cross_check` (a TMF-only loss sets review_required); WRI-Sims driver attribution and RADD SAR are not wired here. Applies the Article 2(4) 0.5 ha MMU floor at plot aggregation, validates `commodity_hs` against Annex I, and emits the structured envelope. The response carries an explicit `legality_disclaimer` because Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) is structurally out of Earth-observation scope. Response includes an ed25519-signed `receipt` over the per-cell fact_cids (the first EMEM_EUDR_RECEIPT_MAX_FACTS by cid when there are more, disclosed as `receipt_fact_cids_capped` and `receipt_fact_cids_total`); verifiable offline at `/verify` (or `/v1/verify_receipt`). Every sampled cell's facts decide the verdict and are stored, because each plot's `per_cell_rows_cid` addresses all of them, inlined or not (`facts_computed` vs `facts_persisted`, per plot and in total); every fact_cid in the response, and every one behind `per_cell_rows_cid`, resolves at /v1/facts/<cid>. Pass an optional `scope` block (`{user_id, agent_id, run_id, org_id}`) to bind the receipt to a tenant.", "properties":{
                     "operator_role":{"type":"string","enum":["OPERATOR","REPRESENTATIVE_OPERATOR"],"description":"The filer's role in the EUDR Information System, required by its V4 schema. Without it traces_nt_v4 is not fileable and says so."},"activity_type":{"type":"string","enum":["DOMESTIC","IMPORT","EXPORT"],"description":"Annex II activity: DOMESTIC (placing on the market), IMPORT (release for free circulation) or EXPORT. traces_nt_v4 leaves it out when absent; the V1 envelope defaults it to DOMESTIC."},"internal_reference_number":{"type":"string","maxLength":50,"description":"The operator's own reference, echoed into both envelopes."},"geolocation_confidential":{"type":"boolean","default":false,"description":"Whether the production places are confidential in the EUDR Information System."},"per_cell_detail":{"type":"string","enum":["rows","anchor"],"description":"rows (default) inlines per_cell_verdicts; anchor leaves them out and keeps per_cell_rows_cid, a blake3 address over every cell's verdict and fact cids. Ask again with rows to expand it."},
                     "per_cell_offset":{"type":"integer","minimum":0,"description":"page the rows in the order per_cell_rows_cid hashes them, from this index, one inline cap at a time; follow per_cell_next_offset until null, and the joined pages recompute per_cell_rows_cid"},
                     "plots":{"type":"array","minItems":1,"description":"One or more plots to evaluate.","items":{"type":"object","required":["plot_id","geometry_geojson","country_of_production","commodity_hs","quantity_kg"],"properties":{
@@ -37075,13 +37076,16 @@ fn openapi_spec() -> JsonValue {
                         "commodity_name":{"type":"string","description":"Optional plain-English commodity name."},
                         "quantity_kg":{"type":"number","description":"Net mass in kilograms (Annex II §3)."},
                         "supplier":{"type":"string","description":"Optional supplier identifier."},
+                        "plot_salt":{"type":"string","pattern":"^[0-9a-fA-F]{32}$","description":"Optional 16 bytes as 32 hex characters. Signed facts carry plot_commitment = blake3(\"emem.eudr.plot_commitment.v1\" || 0x00 || salt || plot_id), never plot_id. Send the same salt to get the same commitment; without it each request draws a fresh one. The answer returns the salt to you only; reveal it with the plot_id to prove the link."},
                         "request_visual_evidence":{"type":"boolean","default":false,"description":"Opt-in: build a per-year visual deforestation-evidence block for this plot. Adds a `visual_evidence` field to the per-plot result containing a Sentinel-2 NDVI annual timeline from 2020..current_year + Sentinel-1 RTC VV-backscatter cloud-independent confirmation + per-cell scene.png URLs the agent can render as a 6-up year-by-year grid. Adds upstream Sentinel fan-out per plot, bounded by its own budget (EMEM_EUDR_VISUAL_BUDGET_SECS, default 60 s): past it the verdict is returned with `visual_evidence.verdict: \"incomplete\"`, and what finished is stored so the next request for the plot fills it in. The whole call has 280 s by default, under the ~300 s client/edge cut. Visual-evidence concurrency is bounded (EMEM_EUDR_VISUAL_CONCURRENCY) and the route is capped (EMEM_EUDR_MAX_INFLIGHT) so a visual-evidence burst can't starve the server. The block carries its own `verdict` (`no_visual_deforestation` / `visual_deforestation_suspected` / `indeterminate_no_baseline`) computed from NDVI drop ≥ EMEM_VISUAL_NDVI_DROP_THRESHOLD (default 0.15 vs 2020, Pelletier 2024) and S1 VV drop ≥ EMEM_VISUAL_S1_DROP_DB_THRESHOLD (default 3 dB, Reiche 2018). All underlying facts are signed Primary records under the responder's identity; auditors cite ndvi_fact_cids + s1_fact_cids."}
                     }}},
                     "cut_off_date":{"type":"string","default":"2020-12-31","description":"EUDR cut-off date (ISO 8601). The regulation's value is 2020-12-31."},
                     "forest_baseline_override":{"type":"string","description":"Optional baseline override: 'jrc_gfc2020_v4' (default; 'jrc_gfc2020_v3' is accepted and reports the version that ran), 'hansen_only', or 'both' (consensus)."},
                     "legality_module":{"type":"string","description":"Operator-chosen legality provider. Default 'none' surfaces the explicit Article 9(1)(b) out-of-scope disclaimer."},
                     "operator":{"type":"object","description":"Operator identification per Annex II §1.","properties":{"name":{"type":"string"},"eori":{"type":"string"},"address":{"type":"string"}}},
-                    "max_cells_per_plot":{"type":"integer","minimum":1,"maximum":51200,"description":"Sample budget per POLYGON plot. Omit and it is auto-derived from the polygon area (~110 cells/ha, clamped to 51,200); there is no fixed default to declare, which is why this carries none. POINT plots evaluate at 1 cell regardless of this value."}
+                    "max_cells_per_plot":{"type":"integer","minimum":1,"maximum":51200,"description":"Sample budget per POLYGON plot on the sampled method. Omit and it is auto-derived from the polygon area (~110 cells/ha, clamped to 51,200); there is no fixed default to declare, which is why this carries none. POINT plots evaluate at 1 cell regardless of this value. The raster method reads every pixel and ignores it."},
+                    "method":{"type":"string","enum":["raster","sampled"],"default":"raster","description":"raster reads every 10 m JRC GFC2020 pixel inside a polygon or bbox plot, adds up true pixel areas and signs one fact per plot (plot_fact_cid), whose source windows are served at /v1/artifacts/<cid>. sampled is the per-cell sample with one fact per cell per band, kept for one release. A Point plot reads its one pixel either way; a plot the raster method cannot read says why in method_note and is sampled."},
+                    "forest_rule":{"type":"string","enum":["jrc_only","jrc_or_hansen"],"default":"jrc_only","description":"Which baseline says a cell was forest at the cut-off. jrc_only (default): the JRC GFC2020 map; Hansen tree cover only where JRC has no reading. Loss after the cut-off on JRC non-forest is the verdict review, not fail. jrc_or_hansen: JRC forest or Hansen tree cover of 10 % or more, the rule before 14 November 2026, kept for one release. The answer echoes the rule in forest_rule."}
                 }},
                 "BackfillReq":     {"type":"object","required":["cell","band"],"properties":{"cell":{"type":"string","description":"cell64 string (or place name; resolved through the same geocoder as /v1/locate)"},"band":{"type":"string","description":"band key to backfill, e.g. 'open_meteo.t2m'"},"start_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window start. Default: 30 days ago for fast bands, 365 days ago for slow."},"end_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window end. Default: now."},"max_facts":{"type":"integer","minimum":1,"maximum":1024,"default":16,"description":"Cap on facts materialized in one call. Default 16, fits inside a 60s tool-call window for any LLM host. Raise for explicit wide backfills (cap 1024)."},"refresh":{"type":"boolean","default":false,"description":"Force re-materialization even where a fact already exists, superseding it (the old fact stays resolvable by cid and as_of_signed_at). Use to pick up a materializer change on already-warmed cells, e.g. re-running foundation-model embedding enrichment after the per-pixel-SCL chip selection landed."}}},
                 "HeatSolveReq":    {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 string. The solver evaluates LST evolution at this cell's centre."},"hours_ahead":{"type":"number","default":6,"description":"Forecast horizon in hours. Capped at 168 (one week)."},"diffusivity_m2_per_s":{"type":"number","default":1.0e-6,"description":"Thermal diffusivity α (m²/s). Default 1e-6 matches urban surfaces (Oke 2017 §2.3 Table 2.4); use ~5e-7 for vegetation, ~1.4e-7 for water."}}},
@@ -42254,7 +42258,8 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
                 "s2_index_series@1"
                 | "landsat_index_series@1"
                 | "s1_rtc_series@1"
-                | "lossyear_histogram@1" => "deterministic_index",
+                | "lossyear_histogram@1"
+                | "eudr_plot_raster@1" => "deterministic_index",
                 "persistence_snow@1" => "estimator",
                 _ => "unclassified",
             };
@@ -74403,10 +74408,19 @@ struct EudrDdsReq {
     /// Operator identification per Annex II §1.
     #[serde(default)]
     operator: Option<EudrOperator>,
-    /// Sample budget per plot. Default 16; hard max 256. Small plots
+    /// Sample budget per plot for the sampled method. Small plots
     /// (≤ 4 ha) get a 1-cell evaluation regardless of this value.
     #[serde(default)]
     max_cells_per_plot: Option<usize>,
+    /// `raster` (default) reads every 10 m pixel of a polygon or bbox plot
+    /// and signs one fact per plot; `sampled` keeps the per-cell sample for
+    /// one release. A Point plot reads its one pixel either way.
+    #[serde(default)]
+    method: Option<String>,
+    /// `jrc_only` (default) or `jrc_or_hansen`: which baseline says a cell
+    /// was forest at the cut-off. See [`ForestRule`].
+    #[serde(default)]
+    forest_rule: Option<String>,
     /// Annex II §1 activity type: DOMESTIC | IMPORT | EXPORT | TRADE.
     #[serde(default)]
     activity_type: Option<String>,
@@ -74503,6 +74517,12 @@ struct EudrPlot {
     /// fast. Defaults to false.
     #[serde(default)]
     request_visual_evidence: Option<bool>,
+    /// 32 hex characters (16 bytes) that salt `plot_commitment`, the value
+    /// that stands for `plot_id` in signed facts. Send the same salt to get
+    /// the same commitment; without it each request draws a fresh one. The
+    /// salt is returned to the caller and never stored or logged.
+    #[serde(default)]
+    plot_salt: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -74650,6 +74670,9 @@ fn signable_held_because(overall_label: &str, held: &[&str]) -> Vec<String> {
     if overall_label != "pass" {
         out.push(format!("verdict_{overall_label}"));
     }
+    if overall_label == "review" {
+        out.push("review_loss_on_jrc_non_forest".into());
+    }
     out.extend(held.iter().map(|s| s.to_string()));
     out
 }
@@ -74668,7 +74691,7 @@ fn non_forest_deforestation_free(plot_verdict: u8, per_cell: &[EudrCellVerdict])
             .all(|c| c.verdict == 3 && c.refinement_applied.is_none())
 }
 
-const FAILING_CELLS_BASIS: &str = "failing_cells counts sampled cells that were forest at the cut-off (JRC GFC2020 forest, OR Hansen treecover2000 >= 10% with no loss up to the cut-off year) and show loss after it, BEFORE the plot-level Article 2(4) 0.5 ha floor. A plot can carry failing_cells > 0 and verdict below_mmu. in_scope_failing_cells is the part the plot verdict rests on: failing_cells when the verdict is fail, else 0. failing_cells_by_baseline splits the count by which baseline called the cell forest.";
+const FAILING_CELLS_BASIS: &str = "failing_cells counts the cells (10 m pixels on the raster method) that were forest at the cut-off under forest_rule and show loss after it, BEFORE the plot-level Article 2(4) 0.5 ha floor. A plot can carry failing_cells > 0 and verdict below_mmu. in_scope_failing_cells is the part the plot verdict rests on: failing_cells when the verdict is fail, else 0. failing_cells_by_baseline splits the count by which baseline called the cell forest; under jrc_only only JRC forest, or Hansen where JRC has no reading, can fail. Loss on land JRC calls non-forest is review_cells, not failing_cells.";
 
 /// Failing cells split by which baseline called them forest at the cut-off:
 /// JRC GFC2020, or Hansen alone where JRC said non-forest or had no reading.
@@ -74696,6 +74719,7 @@ fn verdict_label(code: u8) -> &'static str {
         2 => "fail",
         3 => "not_in_scope",
         4 => "indeterminate",
+        7 => "review",
         6 => "below_mmu",
         _ => "unknown",
     }
@@ -74833,25 +74857,55 @@ struct MmuDemotion {
 /// The per-plot response also surfaces `sampled_area_ha` and
 /// `sampled_polygon_fraction` so an auditor sees the sampling density
 /// alongside the verdict.
-fn mmu_demote(failing_cells: usize, total_cells: usize, polygon_area_ha: f64) -> MmuDemotion {
-    let fail_fraction = if total_cells > 0 {
-        failing_cells as f64 / total_cells as f64
-    } else {
-        0.0
+///
+/// Review cells (loss on JRC non-forest) are projected the same way.
+fn mmu_demote(
+    failing_cells: usize,
+    review_cells: usize,
+    total_cells: usize,
+    polygon_area_ha: f64,
+) -> MmuDemotion {
+    let share = |k: usize| {
+        if total_cells > 0 {
+            k as f64 / total_cells as f64
+        } else {
+            0.0
+        }
     };
-    let failing_area_ha = fail_fraction * polygon_area_ha;
-    if failing_cells > 0 && failing_area_ha < EUDR_MMU_THRESHOLD_HA {
-        MmuDemotion {
-            verdict_code: 6,
-            failing_area_ha,
-            mmu_floor_applied: true,
-        }
+    mmu_by_area(
+        share(failing_cells) * polygon_area_ha,
+        share(review_cells) * polygon_area_ha,
+        failing_cells > 0,
+        review_cells > 0,
+    )
+}
+
+/// The Article 2(4) 0.5 ha floor over areas, one rule for both methods. A
+/// failing area of 0.5 ha or more is `fail`. Below it, loss on land the JRC
+/// map calls non-forest (`review_area_ha`), with the failing area added
+/// because the two may be one clearing the map split, gives `review` when
+/// the sum reaches 0.5 ha. Any smaller loss is `below_mmu`; no loss is
+/// `pass` (code 1).
+fn mmu_by_area(
+    failing_area_ha: f64,
+    review_area_ha: f64,
+    any_fail: bool,
+    any_review: bool,
+) -> MmuDemotion {
+    let (verdict_code, mmu_floor_applied) = if any_fail && failing_area_ha >= EUDR_MMU_THRESHOLD_HA
+    {
+        (2, false)
+    } else if any_review && failing_area_ha + review_area_ha >= EUDR_MMU_THRESHOLD_HA {
+        (7, false)
+    } else if any_fail || any_review {
+        (6, true)
     } else {
-        MmuDemotion {
-            verdict_code: 2,
-            failing_area_ha,
-            mmu_floor_applied: false,
-        }
+        (1, false)
+    };
+    MmuDemotion {
+        verdict_code,
+        failing_area_ha,
+        mmu_floor_applied,
     }
 }
 
@@ -74918,8 +74972,7 @@ async fn forest_baseline_versions(
         .get_facts_many_uncited(&cids)
         .await
         .unwrap_or_default();
-    let mut jrc = std::collections::BTreeSet::new();
-    let mut hansen = std::collections::BTreeSet::new();
+    let mut versions = BaselineVersions::default();
     let built = all.iter().filter_map(|c| unsaved.get(c.as_str()));
     for f in stored.iter().flatten().chain(built) {
         let emem_fact::Fact::Primary(p) = f else {
@@ -74928,17 +74981,24 @@ async fn forest_baseline_versions(
         let Some(url) = p.sources.first().and_then(|src| src.url.clone()) else {
             continue;
         };
-        if p.band == "jrc_gfc2020.forest_2020" {
-            jrc.insert(dataset_version(&url, "JRC_GFC2020_V").map(|v| format!("V{v}")));
-        } else if p.band.starts_with("forest_change.") {
-            hansen.insert(
-                dataset_version(&url, "/GFC-")
-                    .and_then(|y| url.split("-v1.").nth(1).map(|v| (y, v)))
-                    .map(|(y, v)| format!("v1.{} ({y})", v.split(['/', '_']).next().unwrap_or(v))),
-            );
-        }
+        note_baseline_version(&mut versions, &p.band, &url);
     }
-    (jrc, hansen)
+    versions
+}
+
+/// Adds the dataset version a file of `band` names to `versions`.
+fn note_baseline_version(versions: &mut BaselineVersions, band: &str, url: &str) {
+    if band == "jrc_gfc2020.forest_2020" {
+        versions
+            .0
+            .insert(dataset_version(url, "JRC_GFC2020_V").map(|v| format!("V{v}")));
+    } else if band.starts_with("forest_change.") {
+        versions.1.insert(
+            dataset_version(url, "/GFC-")
+                .and_then(|y| url.split("-v1.").nth(1).map(|v| (y, v)))
+                .map(|(y, v)| format!("v1.{} ({y})", v.split(['/', '_']).next().unwrap_or(v))),
+        );
+    }
 }
 
 fn forest_baseline_dataset(versions: &BaselineVersions) -> JsonValue {
@@ -74983,12 +75043,21 @@ fn jrc_baseline_label(versions: &std::collections::BTreeSet<Option<String>>) -> 
 /// shipped value can differ from the operator-requested override when
 /// JRC fails: e.g. requesting `jrc_gfc2020_v4` but JRC errored and the
 /// algorithm ran on Hansen alone surfaces `hansen_only_jrc_unavailable`.
-fn aggregate_baseline_provenance(per_cell: &[EudrCellVerdict]) -> &'static str {
-    if per_cell.is_empty() {
+/// Whether any cell was read, and whether any had a JRC or a Hansen value.
+fn read_flags_of(per_cell: &[EudrCellVerdict]) -> (bool, bool, bool) {
+    (
+        !per_cell.is_empty(),
+        per_cell.iter().any(|v| v.jrc_forest_2020.is_some()),
+        per_cell.iter().any(|v| v.hansen_treecover_2000.is_some()),
+    )
+}
+
+/// The baseline label from whether any cell or pixel was read at all, and
+/// whether any had a JRC value or a Hansen value.
+fn baseline_provenance((any_read, any_jrc, any_hansen): (bool, bool, bool)) -> &'static str {
+    if !any_read {
         return "neither_available";
     }
-    let any_jrc = per_cell.iter().any(|v| v.jrc_forest_2020.is_some());
-    let any_hansen = per_cell.iter().any(|v| v.hansen_treecover_2000.is_some());
     if any_jrc {
         "jrc_gfc2020"
     } else if any_hansen {
@@ -76691,29 +76760,77 @@ async fn batch_materialize_eudr_band(
     out
 }
 
-/// THE single source of truth for a per-cell EUDR verdict, shared by both
-/// [`evaluate_eudr_cell`] (per-cell fan-out) and [`evaluate_eudr_plot_batched`]
-/// (the default batched-polygon path). Pure: takes the resolved band values +
-/// the operator's cut-off year and returns `(verdict_code, refinement_label)`.
+/// Which baseline says a cell was forest at the cut-off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ForestRule {
+    /// JRC GFC2020 decides. Hansen tree cover never makes a cell forest where
+    /// JRC has a reading; it decides only where JRC has none, and such a cell
+    /// carries `jrc_unavailable_hansen_only`. Loss after the cut-off on land
+    /// JRC calls non-forest is `review`, not `fail` and not `pass`.
+    JrcOnly,
+    /// JRC GFC2020 forest, or Hansen tree cover of 10 % or more with no loss
+    /// up to the cut-off year: the union this endpoint used until 2026-11-14.
+    /// Kept for one release.
+    JrcOrHansen,
+}
+
+/// The forest rule a request gets when it names none. One place, so the
+/// rule changes in one edit. The owner chose `jrc_only` on 2026-11-14:
+/// Art. 2(4) to 2(6) and Recital 37 put tree crops outside "forest", and
+/// Hansen tree cover counts every tree over 5 m, cocoa and oil palm included.
+const EUDR_FOREST_RULE_DEFAULT: ForestRule = ForestRule::JrcOnly;
+
+impl ForestRule {
+    fn label(self) -> &'static str {
+        match self {
+            ForestRule::JrcOnly => "jrc_only",
+            ForestRule::JrcOrHansen => "jrc_or_hansen",
+        }
+    }
+
+    fn parse(s: Option<&str>) -> Result<Self, String> {
+        match s.map(str::trim) {
+            None => Ok(EUDR_FOREST_RULE_DEFAULT),
+            Some("jrc_only") => Ok(ForestRule::JrcOnly),
+            Some("jrc_or_hansen") => Ok(ForestRule::JrcOrHansen),
+            Some(other) => Err(format!(
+                "eudr_dds: `forest_rule` is `jrc_only` or `jrc_or_hansen`, not `{other}`"
+            )),
+        }
+    }
+
+    fn means(self) -> &'static str {
+        match self {
+            ForestRule::JrcOnly => "jrc_only: a cell is forest at the cut-off when the JRC GFC2020 map calls it forest. Hansen tree cover never makes a cell forest by itself. Where JRC has no reading, Hansen tree cover (10 % or more, no loss up to the cut-off year) decides, and the cell carries jrc_unavailable_hansen_only. JRC forest with loss after the cut-off is fail. Loss after the cut-off on land JRC calls non-forest is review: confirm that the land was in agricultural use before 2021. JRC non-forest with Hansen tree cover and no loss is pass, and the plot reports that area as a disagreement between the maps.",
+            ForestRule::JrcOrHansen => "jrc_or_hansen: a cell is forest at the cut-off when JRC GFC2020 calls it forest, or when Hansen tree cover in 2000 is 10 % or more with no loss up to the cut-off year. Tree crops read as tree cover in Hansen, so failing_cells_by_baseline says which baseline made each failing cell forest. Kept for one release; the default is jrc_only.",
+        }
+    }
+}
+
+/// Why a `review` cell or plot needs a person, in the words the answer uses.
+const EUDR_REVIEW_REASON: &str = "loss after the cut-off on land the JRC map calls non-forest: confirm the land was already in agricultural use before 2021 (imagery before 2021, farm or cadastral records)";
+
+/// THE single source of truth for a per-cell EUDR verdict, shared by the
+/// sampled paths ([`evaluate_eudr_cell`], [`evaluate_eudr_plot_batched`]) and
+/// the whole-plot raster path (`eudr_raster`). Pure: takes the resolved band
+/// values, the operator's cut-off year and the forest rule, and returns
+/// `(verdict_code, refinement_label)`.
 ///
-/// Codes: 1 pass, 2 fail, 3 not_in_scope, 4 indeterminate.
+/// Codes: 1 pass, 2 fail, 3 not_in_scope, 4 indeterminate, 7 review (5 is
+/// a retired de-minimis code and is never emitted).
 ///
-/// Two correctness rules, both keyed off `cutoff_year` (the calendar year of
-/// the EUDR cut-off date, 2020 for the regulation's fixed 2020-12-31, but
-/// honoured when an operator passes a different `cut_off_date` for a
-/// what-if/time-series audit):
+/// Rules, keyed off `cutoff_year` (the calendar year of the EUDR cut-off
+/// date, 2020 for the regulation's fixed 2020-12-31, but honoured when an
+/// operator passes a different `cut_off_date` for a what-if audit):
 ///
-/// 1. **forest-at-cut-off** = JRC GFC2020 says forest, OR Hansen treecover2000
-///    ≥ 10 % AND the cell was *still forest at the cut-off*, i.e. it had NO
-///    Hansen loss in 2001..=cutoff_year. `hansen_ly` is a CALENDAR year
-///    (2001..=2025; the materializer adds 2000) or 0 for "no loss". A cell
-///    cleared in e.g. 2008 was not forest at a 2020 cut-off, so it is
-///    `not_in_scope`, never `pass`. (Previously the per-cell path compared
-///    the calendar `hansen_ly > 20`, always true, a no-op, and the batched
-///    path omitted the check entirely, so a pre-cut-off-cleared cell with high
-///    treecover2000 false-passed. This unifies and fixes both.)
+/// 1. **forest-at-cut-off** by `forest_rule` (see [`ForestRule`]). The Hansen
+///    leg is treecover2000 ≥ 10 % AND no Hansen loss in 2001..=cutoff_year:
+///    `hansen_ly` is a CALENDAR year (2001..=2025) or 0 for "no loss", and a
+///    cell cleared in 2008 was not forest at a 2020 cut-off.
 /// 2. **loss-after-cut-off** = any of Hansen lossyear, JRC TMF deforestation
-///    year, or RADD alert year strictly AFTER `cutoff_year` → fail.
+///    year, or RADD alert year strictly AFTER `cutoff_year`. Forest with loss
+///    is `fail`. Under `jrc_only`, JRC non-forest with loss is `review`.
+#[allow(clippy::too_many_arguments)]
 fn eudr_verdict_for(
     jrc: Option<i64>,
     hansen_tc: Option<i64>,
@@ -76722,6 +76839,7 @@ fn eudr_verdict_for(
     wri_class: Option<i64>,
     radd_date: Option<i64>,
     cutoff_year: i64,
+    forest_rule: ForestRule,
 ) -> (u8, Option<&'static str>) {
     let jrc_absent = jrc.is_none();
     let hansen_filled_for_jrc = jrc_absent && hansen_tc.is_some();
@@ -76730,13 +76848,12 @@ fn eudr_verdict_for(
     // before the cut-off year (lossyear 0 = no loss, else a calendar year).
     let hansen_forest_at_cutoff = matches!(hansen_tc, Some(v) if v >= 10)
         && matches!(hansen_ly, Some(ly) if ly == 0 || ly > cutoff_year);
-    let forest_at_cutoff = matches!(jrc, Some(v) if v >= 1) || hansen_forest_at_cutoff;
-    if !forest_at_cutoff {
-        if jrc.is_none() && hansen_tc.is_none() {
-            return (4, Some("no_baseline_input"));
-        }
-        return (3, None);
-    }
+    let jrc_forest = matches!(jrc, Some(v) if v >= 1);
+    let forest_at_cutoff = match forest_rule {
+        ForestRule::JrcOrHansen => jrc_forest || hansen_forest_at_cutoff,
+        ForestRule::JrcOnly if jrc_absent => hansen_forest_at_cutoff,
+        ForestRule::JrcOnly => jrc_forest,
+    };
 
     // Loss strictly after the cut-off year (multi-product consensus).
     let hansen_loss = matches!(hansen_ly, Some(v) if v > cutoff_year);
@@ -76745,6 +76862,25 @@ fn eudr_verdict_for(
     // first post-cut-off year.
     let radd_post_cutoff = matches!(radd_date, Some(v) if v > (cutoff_year + 1) * 1000);
     let any_loss = hansen_loss || tmf_loss || radd_post_cutoff;
+
+    if !forest_at_cutoff {
+        if jrc.is_none() && hansen_tc.is_none() {
+            return (4, Some("no_baseline_input"));
+        }
+        // The map is not binding (Commission FAQ §9.10): land it calls
+        // non-forest that lost trees after the cut-off may have been forest
+        // it missed, so it is neither cleared nor failed without a look.
+        if forest_rule == ForestRule::JrcOnly && !jrc_absent {
+            if any_loss {
+                return (7, Some("loss_on_jrc_non_forest"));
+            }
+            if hansen_forest_at_cutoff {
+                return (1, Some("hansen_tree_cover_jrc_non_forest"));
+            }
+        }
+        return (3, None);
+    }
+
     if !any_loss {
         let refinement = if hansen_filled_for_jrc {
             Some("jrc_unavailable_hansen_only")
@@ -76790,13 +76926,64 @@ fn verdict_support(
     area_ha: f64,
     plot_verdict: u8,
 ) -> JsonValue {
-    let n = per_cell.len().max(1) as f64;
-    let both = per_cell
-        .iter()
-        .filter(|c| c.jrc_forest_2020.is_some() && c.hansen_lossyear.is_some())
-        .count() as f64
-        / n;
-    let borderline = per_cell.iter().filter(|c| c.borderline_canopy).count() as f64 / n;
+    let n = per_cell.len();
+    verdict_support_from(
+        &SupportInputs {
+            units: n,
+            both: per_cell
+                .iter()
+                .filter(|c| c.jrc_forest_2020.is_some() && c.hansen_lossyear.is_some())
+                .count(),
+            borderline: per_cell.iter().filter(|c| c.borderline_canopy).count(),
+            fails: per_cell.iter().filter(|c| c.verdict == 2).count(),
+            fails_jrc_non_forest: per_cell
+                .iter()
+                .filter(|c| c.verdict == 2 && matches!(c.jrc_forest_2020, Some(v) if v < 1))
+                .count(),
+            // What sampling can miss is set by spacing, not by the share of
+            // area read: a 0.5 ha clearance (the Art. 2(4) floor) is a 71 m
+            // square, and a grid no wider than that has a sample inside it.
+            spacing_m: (area_ha.max(0.0) * 10_000.0 / n.max(1) as f64).sqrt(),
+            in_tmf_belt: per_cell
+                .first()
+                .and_then(|c| emem_codec::latlng_from_cell64(&c.cell).ok())
+                .is_some_and(|p| p.lat_deg.abs() < 30.0),
+            noun: "cells",
+        },
+        tmf,
+        area_ha,
+        plot_verdict,
+    )
+}
+
+/// The counts [`verdict_support_from`] grades, from sampled cells or from
+/// the 10 m pixels of a whole plot.
+struct SupportInputs {
+    /// Cells sampled, or pixels inside the plot.
+    units: usize,
+    /// Units with both the JRC baseline and the Hansen loss year.
+    both: usize,
+    /// Units within 2 points of the 10 % canopy threshold.
+    borderline: usize,
+    fails: usize,
+    /// Failing units that JRC calls non-forest (forest by Hansen alone).
+    fails_jrc_non_forest: usize,
+    spacing_m: f64,
+    in_tmf_belt: bool,
+    /// How the limits name a unit: `cells` or `pixels`.
+    noun: &'static str,
+}
+
+fn verdict_support_from(
+    i: &SupportInputs,
+    tmf: &JsonValue,
+    area_ha: f64,
+    plot_verdict: u8,
+) -> JsonValue {
+    let noun = i.noun;
+    let n = i.units.max(1) as f64;
+    let both = i.both as f64 / n;
+    let borderline = i.borderline as f64 / n;
     let agreement = tmf["agreement"].as_f64();
     let loss_agreement = tmf["loss_agreement"].as_f64();
     let loss_cells = tmf["loss_cells"].as_u64().unwrap_or(0);
@@ -76816,44 +77003,41 @@ fn verdict_support(
         both < 0.8,
         both < 0.95,
         format!(
-            "{:.0} % of cells have both the JRC baseline and the Hansen loss year",
+            "{:.0} % of {noun} have both the JRC baseline and the Hansen loss year",
             both * 100.0
         ),
     );
+    // A fail or a review rests on the loss cells, so TMF is graded on them.
     match (plot_verdict, loss_agreement, agreement) {
-        (2, Some(a), _) => check(
+        (2 | 7, Some(a), _) => check(
             a < 0.7 && loss_cells >= 10,
             a < 0.9,
             format!(
-                "TMF confirms post-cut-off loss at {confirmed} of the {loss_cells} cells where TMF or Hansen sees it"
+                "TMF confirms post-cut-off loss at {confirmed} of the {loss_cells} {noun} where TMF or Hansen sees it"
             ),
         ),
-        (2, None, _) => {}
+        (2 | 7, None, _) => {}
         (_, _, Some(a)) => check(
             a < 0.7,
             a < 0.9,
             format!(
-                "TMF and Hansen agree on post-cut-off loss at {:.0} % of the cells TMF covers",
+                "TMF and Hansen agree on post-cut-off loss at {:.0} % of the {noun} TMF covers",
                 a * 100.0
             ),
         ),
         _ => {}
     }
-    // A cell is forest at the cut-off when JRC says so OR by Hansen tree
-    // cover in 2000. When the fail rests on the second alone, the
-    // Commission's own baseline disagrees with it.
-    let fails = per_cell.iter().filter(|c| c.verdict == 2).count();
-    let jrc_non_forest = per_cell
-        .iter()
-        .filter(|c| c.verdict == 2 && matches!(c.jrc_forest_2020, Some(v) if v < 1))
-        .count();
-    if plot_verdict == 2 && fails > 0 {
-        let share = jrc_non_forest as f64 / fails as f64;
+    // Under jrc_or_hansen a unit is forest at the cut-off when JRC says so
+    // OR by Hansen tree cover in 2000. When the fail rests on the second
+    // alone, the Commission's own baseline disagrees with it.
+    if plot_verdict == 2 && i.fails > 0 {
+        let share = i.fails_jrc_non_forest as f64 / i.fails as f64;
         check(
-            jrc_non_forest == fails,
+            i.fails_jrc_non_forest == i.fails,
             share >= 0.5,
             format!(
-                "{jrc_non_forest} of {fails} failing cells are forest only by Hansen tree cover in 2000: the JRC GFC2020 baseline calls them non-forest at the cut-off. Tree crops such as cocoa, oil palm and rubber read as tree cover in Hansen and are not forest under Article 2(4), so check the land use before relying on this fail"
+                "{} of {} failing {noun} are forest only by Hansen tree cover in 2000: the JRC GFC2020 baseline calls them non-forest at the cut-off. Tree crops such as cocoa, oil palm and rubber read as tree cover in Hansen and are not forest under Article 2(4), so check the land use before relying on this fail",
+                i.fails_jrc_non_forest, i.fails
             ),
         );
     }
@@ -76861,47 +77045,58 @@ fn verdict_support(
         borderline > 0.3,
         borderline > 0.1,
         format!(
-            "{:.0} % of cells sit within 2 points of the 10 % canopy threshold",
+            "{:.0} % of {noun} sit within 2 points of the 10 % canopy threshold",
             borderline * 100.0
         ),
     );
-    // What sampling can miss is set by spacing, not by the share of area
-    // read: a 0.5 ha clearance (the Art. 2(4) floor) is a 71 m square, and a
-    // grid no wider than that has a sample inside any such square.
-    let spacing_m = (area_ha.max(0.0) * 10_000.0 / n).sqrt();
     // Inside TMF's tropical belt a cross-check that read nothing is a
     // missing input, not agreement.
     let tmf_read = tmf["cells_read"].as_u64().unwrap_or(0);
     let tmf_unread = tmf["cells_unread"].as_u64().unwrap_or(0);
-    let in_tmf_belt = per_cell
-        .first()
-        .and_then(|c| emem_codec::latlng_from_cell64(&c.cell).ok())
-        .is_some_and(|p| p.lat_deg.abs() < 30.0);
     check(
         false,
-        in_tmf_belt && tmf_read == 0 && tmf_unread > 0,
-        "TMF read no cell on this plot, so its cross-check did not run".to_string(),
+        i.in_tmf_belt && tmf_read == 0 && tmf_unread > 0,
+        format!(
+            "TMF read no {} on this plot, so its cross-check did not run",
+            noun.trim_end_matches('s')
+        ),
     );
     // A point is what Art. 2(28) allows for a plot of 4 ha or less, and it
     // sees one pixel: legitimate, but not coverage of the plot.
     check(
         false,
-        per_cell.len() == 1,
+        i.units == 1,
         "one point sample: a clearance elsewhere on the plot is not seen".to_string(),
     );
-    if let Some((weakens, why)) = spacing_limit(area_ha, spacing_m) {
+    if let Some((weakens, why)) = spacing_limit(area_ha, i.spacing_m) {
         check(weakens, !weakens, why);
     }
     json!({
         "level": if weak { "weak" } else if moderate { "moderate" } else { "strong" },
-        "rule": "strong when every input is complete (>= 95 % of cells with both baselines, TMF confirming >= 90 % of the cells where TMF or Hansen sees post-cut-off loss, <= 10 % borderline canopy, samples no more than 71 m apart so a 0.5 ha clearance cannot fall between them, and fewer than half the failing cells forest by Hansen alone where JRC says non-forest); weak when any falls below 80 % / 70 % (from 10 loss cells) / above 30 % / beyond 141 m, or when every failing cell is forest by Hansen alone; moderate between. The spacing limit applies only to a plot of 0.5 ha or more: a smaller plot holds no 0.5 ha clearance, so its size is a qualifier, never a weakener. Not a calibrated probability.",
+        "rule": "strong when every input is complete (>= 95 % of cells with both baselines, TMF confirming >= 90 % of the cells where TMF or Hansen sees post-cut-off loss, <= 10 % borderline canopy, samples no more than 71 m apart so a 0.5 ha clearance cannot fall between them, and fewer than half the failing cells forest by Hansen alone where JRC says non-forest); weak when any falls below 80 % / 70 % (from 10 loss cells) / above 30 % / beyond 141 m, or when every failing cell is forest by Hansen alone; moderate between. The spacing limit applies only to a plot of 0.5 ha or more: a smaller plot holds no 0.5 ha clearance, so its size is a qualifier, never a weakener. On the raster method a cell is a 10 m pixel and the spacing is the pixel side. Not a calibrated probability.",
         "plot_area_ha": (area_ha * 1e4).round() / 1e4,
         "cells_with_both_baselines": (both * 1e4).round() / 1e4,
         "borderline_canopy_fraction": (borderline * 1e4).round() / 1e4,
         "tmf_agreement": agreement,
         "tmf_loss_agreement": loss_agreement,
-        "sample_spacing_m": (spacing_m * 10.0).round() / 10.0,
+        "sample_spacing_m": (i.spacing_m * 10.0).round() / 10.0,
         "limits": limits,
+        "pass_means": EUDR_PASS_MEANS,
+    })
+}
+
+/// What a `pass` says and what it does not, in every answer that can carry one.
+const EUDR_PASS_MEANS: &str = "A pass means that no indication of deforestation after the cut-off was found in the maps read. It is not a finding of compliance: the operator's due diligence under Articles 9 to 11 decides that, and actual forest properties on the ground prevail over any map (Guidance C/2026/3896, section 5).";
+
+/// The forest map a verdict read, named with its version, and what the
+/// Commission says such a map is worth.
+fn eudr_baseline_map(versions: &BaselineVersions) -> JsonValue {
+    let named: Vec<String> = versions.0.iter().flatten().cloned().collect();
+    json!({
+        "name": "JRC Global Forest Cover 2020 (GFC2020)",
+        "versions": named,
+        "binding": false,
+        "note": "The Commission's FAQ (v5, April 2026, section 9.10) calls the JRC GFC2020 map non-mandatory, non-exclusive and non-legally binding, and not a definitive source of information for compliance. Land outside mapped forest is not thereby compliant, and mapped forest may indicate a risk to investigate (Art. 10(2)(m)).",
     })
 }
 
@@ -76968,45 +77163,63 @@ fn polygon_area_ha(geojson: &JsonValue) -> Option<f64> {
 /// degradation-to-clearance Hansen missed; a Hansen-only loss is often
 /// plantation harvest outside TMF's moist-forest scope).
 fn tmf_cross_check(per_cell: &[EudrCellVerdict], cutoff_year: i64) -> JsonValue {
-    let (mut read, mut both, mut hansen_only, mut tmf_only, mut neither) = (0, 0, 0, 0, 0);
-    let mut review_cells: Vec<&str> = Vec::new();
-    for c in per_cell {
-        let Some(tmf) = c.jrc_tmf_deforestation_year else {
+    let mut c = TmfCounts::default();
+    let mut review_cells: Vec<String> = Vec::new();
+    for cell in per_cell {
+        let Some(tmf) = cell.jrc_tmf_deforestation_year else {
+            c.unread += 1;
             continue;
         };
-        read += 1;
+        c.read += 1;
         let t = tmf > cutoff_year;
-        let h = matches!(c.hansen_lossyear, Some(v) if v > cutoff_year);
+        let h = matches!(cell.hansen_lossyear, Some(v) if v > cutoff_year);
         match (h, t) {
-            (true, true) => both += 1,
-            (true, false) => hansen_only += 1,
+            (true, true) => c.both += 1,
+            (true, false) => c.hansen_only += 1,
             (false, true) => {
-                tmf_only += 1;
-                review_cells.push(c.cell.as_str());
+                c.tmf_only += 1;
+                review_cells.push(cell.cell.clone());
             }
-            (false, false) => neither += 1,
+            (false, false) => c.neither += 1,
         }
     }
+    tmf_cross_check_json(&c, review_cells)
+}
+
+/// TMF against Hansen after the cut-off, counted over cells or pixels.
+#[derive(Debug, Default, Clone)]
+struct TmfCounts {
+    read: u64,
+    unread: u64,
+    both: u64,
+    hansen_only: u64,
+    tmf_only: u64,
+    neither: u64,
+}
+
+fn tmf_cross_check_json(c: &TmfCounts, review_cells: Vec<String>) -> JsonValue {
+    let (read, both, neither) = (c.read, c.both, c.neither);
+    let loss = c.both + c.hansen_only + c.tmf_only;
     json!({
         "band": "jrc_tmf.deforestation_year",
         "in_verdict": false,
         "cells_read": read,
-        "cells_unread": per_cell.len() - read,
+        "cells_unread": c.unread,
         "post_cutoff_loss": {
             "both": both,
-            "hansen_only": hansen_only,
-            "tmf_only": tmf_only,
+            "hansen_only": c.hansen_only,
+            "tmf_only": c.tmf_only,
             "neither": neither,
         },
         "agreement": if read == 0 { JsonValue::Null } else { json!(((both + neither) as f64 / read as f64 * 1e4).round() / 1e4) },
         // `agreement` counts the cells both call loss-free, so a plot where
         // Hansen alone sees loss on 57 of 324 cells read 0.82. This one is
         // over the cells where either product sees post-cut-off loss.
-        "loss_cells": both + hansen_only + tmf_only,
-        "loss_agreement": if both + hansen_only + tmf_only == 0 { JsonValue::Null } else { json!((both as f64 / (both + hansen_only + tmf_only) as f64 * 1e4).round() / 1e4) },
+        "loss_cells": loss,
+        "loss_agreement": if loss == 0 { JsonValue::Null } else { json!((both as f64 / loss as f64 * 1e4).round() / 1e4) },
         // Loss only TMF sees is not negligible risk (Art. 10): the verdict
         // stands, but the statement is not signable until someone looks.
-        "review_required": tmf_only > 0,
+        "review_required": c.tmf_only > 0,
         "review_cells": review_cells,
     })
 }
@@ -77038,6 +77251,7 @@ async fn evaluate_eudr_plot_batched(
     cells: Vec<String>,
     cell_cc: usize,
     cutoff_year: i64,
+    forest_rule: ForestRule,
 ) -> (Vec<EudrCellVerdict>, EudrUnsaved) {
     if cells.is_empty() {
         return (Vec::new(), EudrUnsaved::new());
@@ -77205,6 +77419,7 @@ async fn evaluate_eudr_plot_batched(
             wri_class,
             radd_date,
             cutoff_year,
+            forest_rule,
         );
         verdicts.push(EudrCellVerdict {
             cell: cell64.into(),
@@ -77245,7 +77460,12 @@ fn eudr_batch_path_enabled() -> bool {
     )
 }
 
-async fn evaluate_eudr_cell(s: &AppState, cell64: &str, cutoff_year: i64) -> EudrCellVerdict {
+async fn evaluate_eudr_cell(
+    s: &AppState,
+    cell64: &str,
+    cutoff_year: i64,
+    forest_rule: ForestRule,
+) -> EudrCellVerdict {
     // EUDR core bands: JRC GFC2020 (legal baseline) + Hansen GFC
     // (confirming + post-cut-off loss-year). JRC TMF, WRI GDM and RADD
     // all removed from the hot path, each is slow (TMF = 119 MB / ~78 s
@@ -77341,6 +77561,7 @@ async fn evaluate_eudr_cell(s: &AppState, cell64: &str, cutoff_year: i64) -> Eud
         wri_class,
         radd_date,
         cutoff_year,
+        forest_rule,
     );
     EudrCellVerdict {
         cell: cell64.into(),
@@ -77509,32 +77730,59 @@ fn compute_lossyear_tally(
 }
 
 fn aggregate_plot_verdict(per_cell: &[EudrCellVerdict]) -> (u8, f64, usize, usize) {
-    if per_cell.is_empty() {
-        return (4, 0.0, 0, 0);
-    }
+    let count = |code: u8| per_cell.iter().filter(|v| v.verdict == code).count();
     let n = per_cell.len();
-    let mut n_fail = 0usize;
-    let mut n_indeterminate = 0usize;
-    let mut n_not_in_scope = 0usize;
-    for v in per_cell {
-        match v.verdict {
-            2 => n_fail += 1,
-            3 => n_not_in_scope += 1,
-            4 => n_indeterminate += 1,
-            _ => {}
-        }
+    let n_fail = count(2);
+    let (verdict, fail_fraction) =
+        aggregate_plot_verdict_counts(n, n_fail, count(4), count(3), count(7));
+    (verdict, fail_fraction, n_fail, n)
+}
+
+/// The plot verdict from per-cell verdict counts, before the 0.5 ha floor:
+/// every unit not_in_scope gives not_in_scope; more than half indeterminate
+/// gives indeterminate; then fail before review before pass. Returns the
+/// code and the failing fraction.
+fn aggregate_plot_verdict_counts(
+    n: usize,
+    n_fail: usize,
+    n_indeterminate: usize,
+    n_not_in_scope: usize,
+    n_review: usize,
+) -> (u8, f64) {
+    aggregate_plot_verdict_measure(
+        n as f64,
+        n_fail as f64,
+        n_indeterminate as f64,
+        n_not_in_scope as f64,
+        n_review as f64,
+    )
+}
+
+/// [`aggregate_plot_verdict_counts`] over measures: cell counts on the
+/// sampled method, covered areas on the raster method.
+fn aggregate_plot_verdict_measure(
+    total: f64,
+    fail: f64,
+    indeterminate: f64,
+    not_in_scope: f64,
+    review: f64,
+) -> (u8, f64) {
+    if total <= 0.0 {
+        return (4, 0.0);
     }
-    let fail_fraction = n_fail as f64 / n as f64;
-    if n_not_in_scope == n {
-        return (3, fail_fraction, n_fail, n);
-    }
-    if n_indeterminate as f64 / n as f64 > 0.5 {
-        return (4, fail_fraction, n_fail, n);
-    }
-    if n_fail == 0 {
-        return (1, fail_fraction, n_fail, n);
-    }
-    (2, fail_fraction, n_fail, n)
+    let fail_fraction = fail / total;
+    let verdict = if not_in_scope >= total {
+        3
+    } else if indeterminate / total > 0.5 {
+        4
+    } else if fail > 0.0 {
+        2
+    } else if review > 0.0 {
+        7
+    } else {
+        1
+    };
+    (verdict, fail_fraction)
 }
 
 /// HS-code prefix detection for cattle per Annex I of Regulation
@@ -77826,6 +78074,7 @@ fn traces_nt_v4(
 fn statement_of_compliance(verdict: &str, held_for_review: bool) -> &'static str {
     match (verdict, held_for_review) {
         ("pass", false) => ANNEX_II_POINT_5,
+        ("review", _) => "Statement of compliance cannot be signed yet: a plot shows loss after the cut-off on land the JRC GFC2020 map calls non-forest (review_area_ha in per_plot_results). The map is not binding, so this is neither a fail nor a pass. The operator must assess the risk under Articles 10 and 11 and confirm the land was already in agricultural use before 2021 (imagery before 2021, farm or cadastral records) before filing.",
         ("pass", true) => "The due diligence outcome is 'pass', but the statement is held until a person reviews the plots flagged in per_plot_results (tmf_cross_check.review_required, or verdict_support.level 'weak'), or reviews a verdict that ran without the JRC baseline (forest_baseline_computed 'hansen_only_jrc_unavailable'). The declaration is the Annex II point 5 text; it is not offered for signature until then.",
         _ => "Statement of compliance cannot be signed because the due diligence outcome is not 'pass'. Operator must address the underlying findings (see per_plot_results) before submitting a DDS to TRACES NT.",
     }
@@ -77930,7 +78179,7 @@ fn build_producer_geojson(
 /// even when JRC errored and the verdict ran on Hansen alone; a partner copied
 /// it into a signed statement whose own baseline field said the opposite.
 fn eudr_methodology_note(computed_baseline: &str) -> String {
-    let base = "Per-cell verdict from eudr_compliance@1 (JRC GFC2020 legal baseline, version in `forest_baseline_dataset` + Hansen GFC v1.13 post-cut-off loss-year). A cell cleared at or before the cut-off year is `not_in_scope` (no longer forest at the cut-off), not `pass`. Plot aggregation applies Article 2(4) 0.5 ha MMU floor (per-cell ≈91 m², ≈55 cells = 0.5 ha). Borderline-canopy flag at ±2 pp of the Article 2(4) 10% threshold. No de-minimis fail-fraction (strict EUDR). JRC TMF v1.2025 DeforestationYear is read on every cell and reported per plot as `tmf_cross_check` (post-cut-off loss agreement with Hansen), NOT counted in the verdict; it is read by HTTP Range from a COG re-encoding of the JRC tiles (source.coop/epoch/jrc-tmf, pixel values spot-checked equal), falling back to the JRC dispatcher. WRI-Sims driver attribution and RADD SAR alerts are off the hot path (signed Absence today). The verdict is the JRC GFC2020 + Hansen consensus only.";
+    let base = "Per-cell verdict from eudr_compliance@1 (JRC GFC2020 baseline, version in `forest_baseline_dataset` + Hansen GFC v1.13 post-cut-off loss-year), with the forest rule in `forest_rule`, applied to every 10 m pixel of the plot on the raster method or to sampled cells on the sampled method (each plot's `method`). A cell cleared at or before the cut-off year is `not_in_scope` (no longer forest at the cut-off), not `pass`. Plot aggregation applies Article 2(4) 0.5 ha MMU floor (per-cell ≈91 m², ≈55 cells = 0.5 ha). Borderline-canopy flag at ±2 pp of the Article 2(4) 10% threshold. No de-minimis fail-fraction (strict EUDR). JRC TMF v1.2025 DeforestationYear is read on every cell and reported per plot as `tmf_cross_check` (post-cut-off loss agreement with Hansen), NOT counted in the verdict; it is read by HTTP Range from a COG re-encoding of the JRC tiles (source.coop/epoch/jrc-tmf, pixel values spot-checked equal), falling back to the JRC dispatcher. WRI-Sims driver attribution and RADD SAR alerts are off the hot path (signed Absence today). The verdict is the JRC GFC2020 + Hansen consensus only.";
     if computed_baseline == "hansen_only_jrc_unavailable" {
         format!("{base} ON THIS REQUEST JRC GFC2020 WAS UNAVAILABLE: the verdict ran on Hansen GFC alone, without the Commission's expected baseline; see `forest_baseline_computed`. Do not describe it as the JRC + Hansen consensus.")
     } else {
@@ -77984,6 +78233,425 @@ async fn post_eudr_dds_http(
         headers.insert("server-timing", v);
     }
     Ok((headers, body))
+}
+
+/// A plot as the raster method reads it, or `None` for a Point, which is
+/// read at its one pixel.
+fn raster_plot_input(
+    plot: &EudrPlot,
+    idx: usize,
+    salt: &[u8; 16],
+) -> Option<eudr_raster::PlotInput> {
+    let (bbox, polygon, _) = extract_plot_geometry(&plot.geometry_geojson).ok()?;
+    let rings = match polygon {
+        Some(p) => p.rings,
+        None if plot.geometry_geojson.get("bbox").is_some() => vec![eudr_raster::bbox_ring(bbox)],
+        None => return None,
+    };
+    let (lat_c, lng_c) = ((bbox.0 + bbox.1) * 0.5, (bbox.2 + bbox.3) * 0.5);
+    Some(eudr_raster::PlotInput {
+        idx,
+        cell: emem_codec::cell64_from_latlng(lat_c, lng_c),
+        bbox: band_raster::BBox {
+            min_lat: bbox.0,
+            max_lat: bbox.1,
+            min_lng: bbox.2,
+            max_lng: bbox.3,
+        },
+        commitments: (
+            eudr_raster::plot_commitment(salt, &plot.plot_id),
+            eudr_raster::geometry_commitment(&rings),
+        ),
+        rings,
+    })
+}
+
+/// What one method made of one plot, before the fields both share.
+struct EudrMethodOut {
+    method: &'static str,
+    fields: serde_json::Map<String, JsonValue>,
+    verdict: u8,
+    per_cell: Vec<EudrCellVerdict>,
+    /// Cells for the visual evidence and the forest context.
+    cells: Vec<String>,
+    /// The plot's own derivative: the loss-year histogram on the sampled
+    /// method, the plot fact on the raster method.
+    plot_fact_cid: Option<String>,
+    unsaved: EudrUnsaved,
+    /// The dataset versions read, when the method knows them without
+    /// reading its facts back.
+    versions: Option<BaselineVersions>,
+    /// Whether the plot read any cell, any JRC value, any Hansen value.
+    read_flags: (bool, bool, bool),
+}
+
+/// The sampled method for one plot: cells sampled inside the polygon (or one
+/// cell for a point), one signed fact per cell per band, and a signed
+/// loss-year histogram over them. Kept for one release beside the raster
+/// method, and used where the raster method cannot run.
+#[allow(clippy::too_many_arguments)]
+async fn evaluate_plot_sampled(
+    s: AppState,
+    geometry: EudrPlotGeometry,
+    geometry_kind: &'static str,
+    max_cells_default: usize,
+    cap: usize,
+    cutoff_year: i64,
+    forest_rule: ForestRule,
+    plot_commitment: String,
+    polygon_ha: f64,
+    per_cell_offset: Option<usize>,
+    rows_anchor_only: bool,
+) -> EudrMethodOut {
+    let (bbox, polygon_opt, area_ha) = geometry;
+    let n_cells = if geometry_kind == "point" {
+        1
+    } else {
+        max_cells_default
+    };
+    let cells: Vec<String> = if let Some(poly) = polygon_opt.clone() {
+        sample_cells_in_polygon(bbox, n_cells, &[poly])
+    } else {
+        sample_cells_in_bbox(bbox, n_cells)
+    };
+
+    // Per-plot evaluation: the batched path unless `EMEM_EUDR_BATCH_PATH=0`.
+    // The batched path ([`evaluate_eudr_plot_batched`]) collapses the
+    // per-(cell, band) writes from N×4 to 4 per plot; the per-cell path is
+    // preserved so a regression can be flipped back with one env var.
+    let (per_cell, mut unsaved): (Vec<EudrCellVerdict>, EudrUnsaved) = if eudr_batch_path_enabled()
+    {
+        evaluate_eudr_plot_batched(s.clone(), cells.clone(), cap, cutoff_year, forest_rule).await
+    } else {
+        // Bounded parallel fan-out over cells (index-preserving). The
+        // JoinSet itself bounds in-flight count, we prime up to cell_cc,
+        // then refill one-for-one as each finishes.
+        let mut set: tokio::task::JoinSet<(usize, EudrCellVerdict)> = tokio::task::JoinSet::new();
+        let prime = cap.min(cells.len());
+        let mut next: usize = 0;
+        let mut results: Vec<Option<EudrCellVerdict>> = (0..cells.len()).map(|_| None).collect();
+        while next < prime {
+            let s_c = s.clone();
+            let c = cells[next].clone();
+            let i = next;
+            set.spawn(async move {
+                (
+                    i,
+                    evaluate_eudr_cell(&s_c, &c, cutoff_year, forest_rule).await,
+                )
+            });
+            next += 1;
+        }
+        while let Some(res) = set.join_next().await {
+            if let Ok((i, v)) = res {
+                results[i] = Some(v);
+            }
+            if next < cells.len() {
+                let s_c = s.clone();
+                let c = cells[next].clone();
+                let i = next;
+                set.spawn(async move {
+                    (
+                        i,
+                        evaluate_eudr_cell(&s_c, &c, cutoff_year, forest_rule).await,
+                    )
+                });
+                next += 1;
+            }
+        }
+        (results.into_iter().flatten().collect(), EudrUnsaved::new())
+    };
+
+    let (raw_verdict, fail_fraction, n_fail, n_total) = aggregate_plot_verdict(&per_cell);
+    let n_review = per_cell.iter().filter(|c| c.verdict == 7).count();
+    // Failing-area projection follows the polygon's actual area, not the
+    // sampled-cell area, see [`mmu_demote`] for the 2026-05-29 audit + the
+    // reason behind the change. A plot sampled at 0.04 % coverage must
+    // extrapolate from fail_fraction to get a regulator-defensible verdict.
+    let share = |k: usize| {
+        if n_total > 0 {
+            k as f64 / n_total as f64
+        } else {
+            0.0
+        }
+    };
+    let review_area_ha = share(n_review) * area_ha;
+    let mmu = if matches!(raw_verdict, 2 | 7) {
+        mmu_demote(n_fail, n_review, n_total, area_ha)
+    } else {
+        MmuDemotion {
+            verdict_code: raw_verdict,
+            failing_area_ha: share(n_fail) * area_ha,
+            mmu_floor_applied: false,
+        }
+    };
+    let plot_verdict = mmu.verdict_code;
+    // Sampling-density disclosure, how much of the polygon was actually
+    // inspected. An auditor needs both the failing-area projection and the
+    // coverage to weight the verdict's confidence.
+    let sampled_area_ha = (n_total as f64 * EUDR_CELL_AREA_M2) / 10_000.0;
+    let sampled_polygon_fraction = if area_ha > 0.0 {
+        (sampled_area_ha / area_ha).min(1.0)
+    } else {
+        0.0
+    };
+    let (lat_c, lng_c) = ((bbox.0 + bbox.1) * 0.5, (bbox.2 + bbox.3) * 0.5);
+    let centroid_cell = emem_codec::cell64_from_latlng(lat_c, lng_c);
+
+    // Signed per-year loss-year histogram. The per-cell
+    // `forest_change.lossyear` facts are already signed; this folds their
+    // distribution into ONE plot-level `DerivativeFact` so the report's
+    // loss-year numbers become a verifiable, reproducible figure (bound by
+    // the response receipt) instead of an unsigned sample. Counts are over
+    // the SAMPLED cells. Skipped when no cells were sampled and best-effort:
+    // a signing error never fails the verdict, it just omits the fact_cid.
+    let mut histogram_fact_cid: Option<String> = None;
+    let loss_year_histogram_json: Option<JsonValue> = if n_total > 0 {
+        let tally =
+            compute_lossyear_tally(&per_cell, cutoff_year, EUDR_LOSSYEAR_HISTOGRAM_PARENTS_CAP);
+        let by_year_json: Vec<JsonValue> = tally
+            .by_year
+            .iter()
+            .map(|(y, c)| json!({ "year": y, "cells": c }))
+            .collect();
+        // Deterministic CBOR value for the fact (sorted year pairs +
+        // totals) so a second node aggregating the same cells signs the
+        // same bytes.
+        let by_year_cbor = ciborium::Value::Array(
+            tally
+                .by_year
+                .iter()
+                .map(|(y, c)| {
+                    ciborium::Value::Array(vec![
+                        ciborium::Value::Integer((*y).into()),
+                        ciborium::Value::Integer((*c as i64).into()),
+                    ])
+                })
+                .collect(),
+        );
+        let hist_value = ciborium::Value::Map(vec![
+            (ciborium::Value::Text("by_year".into()), by_year_cbor),
+            (
+                ciborium::Value::Text("after_cutoff_cells".into()),
+                ciborium::Value::Integer((tally.after_cutoff_cells as i64).into()),
+            ),
+            (
+                ciborium::Value::Text("no_loss_cells".into()),
+                ciborium::Value::Integer((tally.no_loss_cells as i64).into()),
+            ),
+            (
+                ciborium::Value::Text("unknown_cells".into()),
+                ciborium::Value::Integer((tally.unknown_cells as i64).into()),
+            ),
+            (
+                ciborium::Value::Text("total_sampled_cells".into()),
+                ciborium::Value::Integer((tally.total_sampled_cells as i64).into()),
+            ),
+            (
+                ciborium::Value::Text("cutoff_year".into()),
+                ciborium::Value::Integer(cutoff_year.into()),
+            ),
+        ]);
+        let signed_at = emem_storage::server::iso8601_now();
+        let hist_fact = emem_fact::Fact::Derivative(emem_fact::DerivativeFact {
+            cell: centroid_cell.clone(),
+            band: "forest_change.lossyear_histogram".into(),
+            tslot_window: [
+                tslot_for_year(2001, "forest_change.lossyear"),
+                tslot_for_year(2024, "forest_change.lossyear"),
+            ],
+            op: "histogram".into(),
+            parents: tally
+                .parents
+                .iter()
+                .map(|c| emem_fact::FactCid::new(c.as_str()))
+                .collect(),
+            value: hist_value,
+            confidence: 1.0,
+            derivation: emem_fact::Derivation {
+                fn_key: "lossyear_histogram@1".into(),
+                // A public fact: the caller's plot id stays out of it, and
+                // the salted commitment stands for it.
+                args: Some(ciborium::Value::Map(vec![
+                    (
+                        ciborium::Value::Text("plot_commitment".into()),
+                        ciborium::Value::Text(plot_commitment),
+                    ),
+                    (
+                        ciborium::Value::Text("cutoff_year".into()),
+                        ciborium::Value::Integer(cutoff_year.into()),
+                    ),
+                    (
+                        ciborium::Value::Text("n_sampled_cells".into()),
+                        ciborium::Value::Integer((n_total as i64).into()),
+                    ),
+                ])),
+            },
+            schema_cid: s.manifests.schema_cid.clone(),
+            signer: s.identity.pubkey,
+            signed_at: signed_at.clone(),
+        });
+        // Stored with the per-cell facts it cites, once the response says
+        // which those are.
+        match eudr_prepare_unsaved(vec![hist_fact]).map(|v| v.into_iter().next()) {
+            Ok(Some((cid, f))) => {
+                unsaved.insert(cid.as_str().to_string(), f);
+                histogram_fact_cid = Some(cid.as_str().to_string());
+            }
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!(error=%e, "lossyear histogram sign failed (verdict unaffected)");
+            }
+        }
+        let cell_area_ha = EUDR_CELL_AREA_M2 / 10_000.0;
+        Some(json!({
+            "by_year": by_year_json,
+            "after_cutoff_cells": tally.after_cutoff_cells,
+            "after_cutoff_year": cutoff_year,
+            "no_loss_cells": tally.no_loss_cells,
+            "unknown_cells": tally.unknown_cells,
+            "total_sampled_cells": tally.total_sampled_cells,
+            // Honest projection: sampled-cell area, NOT polygon area. The
+            // plot's `sampled_polygon_fraction` is the weight a caller
+            // applies to extrapolate to the polygon.
+            "after_cutoff_area_ha_sampled": ((tally.after_cutoff_cells as f64 * cell_area_ha) * 10_000.0).round() / 10_000.0,
+            "cell_area_ha": (cell_area_ha * 1_000_000.0).round() / 1_000_000.0,
+            "basis": "sampled_cells",
+            "note": format!("Per-year counts are over the cells actually sampled in this plot (total_sampled_cells), derived from the per-cell forest_change.lossyear facts (Hansen GFC v1.13). Weight by the plot's sampled_polygon_fraction to extrapolate to the full polygon. The tally is itself signed as a forest_change.lossyear_histogram derivative (signed_fact_cid, also bound into receipt.fact_cids unless the receipt cap cut it) whose parents are the first {EUDR_LOSSYEAR_HISTOGRAM_PARENTS_CAP} of those per-cell facts by cid; the derivative and its parents are stored and resolve at /v1/facts/<cid>."),
+            "signed_fact_cid": histogram_fact_cid,
+            "parents_capped": tally.parents_capped,
+        }))
+    } else {
+        None
+    };
+
+    // Cap the inlined per_cell_verdicts. A large plot can sample tens of
+    // thousands of cells, and inlining every full verdict object balloons
+    // the response to megabytes. FAILING cells are kept first (they are what
+    // an auditor inspects), then a head of the rest, deterministic, never
+    // random.
+    let per_cell_cap = std::env::var("EMEM_EUDR_PER_CELL_VERDICTS_MAX")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| (1..=51_200).contains(n))
+        .unwrap_or(256);
+    let page = per_cell_offset.map(|o| o.min(per_cell.len()));
+    let per_cell_truncated = per_cell.len() > per_cell_cap || page.is_some_and(|o| o > 0);
+    // A truncated sample is not page 0, so its next page is the first one:
+    // 0. It was null, which a caller reads as "nothing more" with thousands
+    // of rows behind the cap.
+    let per_cell_next_offset = match page {
+        Some(o) => Some(o + per_cell_cap).filter(|n| *n < per_cell.len()),
+        None => per_cell_truncated.then_some(0),
+    };
+    let per_cell_for_response: Vec<EudrCellVerdict> = if let Some(o) = page {
+        per_cell
+            .iter()
+            .skip(o)
+            .take(per_cell_cap)
+            .cloned()
+            .collect()
+    } else if per_cell_truncated {
+        let mut fails: Vec<EudrCellVerdict> = per_cell
+            .iter()
+            .filter(|c| c.verdict == 2)
+            .cloned()
+            .collect();
+        fails.truncate(per_cell_cap);
+        if fails.len() < per_cell_cap {
+            let need = per_cell_cap - fails.len();
+            fails.extend(
+                per_cell
+                    .iter()
+                    .filter(|c| c.verdict != 2)
+                    .take(need)
+                    .cloned(),
+            );
+        }
+        fails
+    } else {
+        per_cell.clone()
+    };
+
+    let tmf = tmf_cross_check(&per_cell, cutoff_year);
+    let support = verdict_support(&per_cell, &tmf, polygon_ha, plot_verdict);
+    let hansen_tc_jrc_non_forest = per_cell
+        .iter()
+        .filter(|c| c.refinement_applied == Some("hansen_tree_cover_jrc_non_forest"))
+        .count();
+    let fields = json!({
+        "verdict":         verdict_label(plot_verdict),
+        "verdict_code":    plot_verdict,
+        "fail_fraction":   fail_fraction,
+        "failing_cells":   n_fail,
+        // `failing_cells` is counted before the plot-level area floor. A
+        // reader who took it for "cells the verdict rests on" read a
+        // `below_mmu` plot as deforested (eudr.dev, 2026-10-10). These say
+        // what the count is and how much of it the verdict uses.
+        "failing_cells_basis": FAILING_CELLS_BASIS,
+        "failing_cells_by_baseline": failing_cells_by_baseline(&per_cell),
+        "in_scope_failing_cells": if plot_verdict == 2 { n_fail } else { 0 },
+        // Projected to the polygon's real area, not the sampled-cell area
+        // (audit 2026-05-29 fix, see [`mmu_demote`] docs).
+        "failing_area_ha": mmu.failing_area_ha,
+        "failing_area_projection": "fail_fraction × polygon_area_ha",
+        "review_cells": n_review,
+        "review_area_ha": review_area_ha,
+        "review_reason": (n_review > 0).then_some(EUDR_REVIEW_REASON),
+        "hansen_tree_cover_on_jrc_non_forest": {
+            "cells": hansen_tc_jrc_non_forest,
+            "area_ha": share(hansen_tc_jrc_non_forest) * area_ha,
+            "note": "Cells the JRC map calls non-forest where Hansen sees 10 % or more tree cover in 2000 and no loss. They pass: the maps disagree, often over tree crops, which are not forest under Article 2(4). The area is projected like failing_area_ha.",
+        },
+        "sampled_area_ha": (sampled_area_ha * 100.0).round() / 100.0,
+        "sampled_polygon_fraction": (sampled_polygon_fraction * 10_000.0).round() / 10_000.0,
+        "sampling_note": if sampled_polygon_fraction < 0.5 {
+            "Polygon is larger than this request's cell budget (`max_cells_per_plot`, auto-derived at about 110 cells per hectare up to 51,200). `failing_area_ha` is the polygon-area projection of `fail_fraction`; `sampled_area_ha` is the area actually inspected. Confidence widens as sampled_polygon_fraction shrinks."
+        } else {
+            "Polygon was fully sampled, failing_area is per-cell-counted, not projected."
+        },
+        "mmu_threshold_ha": EUDR_MMU_THRESHOLD_HA,
+        "mmu_floor_applied": mmu.mmu_floor_applied,
+        "total_cells":     n_total,
+        "per_cell_verdicts": if rows_anchor_only { json!([]) } else { json!(per_cell_for_response) },
+        "per_cell_verdicts_total": n_total,
+        "per_cell_verdicts_truncated": per_cell_truncated || rows_anchor_only,
+        "per_cell_detail": if rows_anchor_only { "anchor" } else { "rows" },
+        "per_cell_offset": page,
+        "per_cell_next_offset": per_cell_next_offset,
+        "per_cell_verdicts_means": EUDR_ROWS_MEANS,
+        "per_cell_rows_cid": eudr_rows_cid(&per_cell),
+        "per_cell_rows_cid_means": EUDR_ROWS_CID_MEANS,
+        "loss_year_histogram": loss_year_histogram_json,
+        // `not_in_scope` on a plot is a forest-baseline verdict, not an
+        // Article 1 one (that is `annex_i_status`). When every cell was
+        // non-forest at the cut-off and none carries a loss refinement, the
+        // plot is deforestation-free by Article 2(13) and counts as
+        // compliant in the DDS.
+        "deforestation_free_non_forest": non_forest_deforestation_free(plot_verdict, &per_cell),
+        "verdict_support": support,
+        "tmf_cross_check": tmf,
+    });
+    let mut fields = match fields {
+        JsonValue::Object(m) => m,
+        _ => serde_json::Map::new(),
+    };
+    // A plot that sampled no cell carries no histogram, as before.
+    if fields.get("loss_year_histogram") == Some(&JsonValue::Null) {
+        fields.remove("loss_year_histogram");
+    }
+    let read_flags = read_flags_of(&per_cell);
+    EudrMethodOut {
+        method: "sampled",
+        fields,
+        verdict: plot_verdict,
+        per_cell,
+        cells,
+        plot_fact_cid: histogram_fact_cid,
+        unsaved,
+        versions: None,
+        read_flags,
+    }
 }
 
 async fn post_eudr_dds(
@@ -78100,6 +78768,36 @@ async fn post_eudr_dds_inner(
         }
         d[..4].parse::<i64>().unwrap_or(2020)
     };
+    let bad = |message: String| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message,
+                details: None,
+            },
+        )
+    };
+    let forest_rule = ForestRule::parse(req.forest_rule.as_deref()).map_err(bad)?;
+    let use_raster = match req.method.as_deref().map(str::trim) {
+        None | Some("raster") => true,
+        Some("sampled") => false,
+        Some(other) => {
+            return Err(bad(format!(
+                "eudr_dds: `method` is `raster` (default: every 10 m pixel of a polygon) or `sampled` (the per-cell sample, kept for one release), not `{other}`"
+            )))
+        }
+    };
+    for (i, p) in req.plots.iter().enumerate() {
+        if let Some(salt) = p.plot_salt.as_deref() {
+            // The salt is the caller's secret: the refusal does not repeat it.
+            if eudr_raster::salt_from(Some(salt)).is_err() {
+                return Err(bad(format!(
+                    "eudr_dds: plots[{i}]: `plot_salt` is 32 hex characters (16 bytes)"
+                )));
+            }
+        }
+    }
     // Per-plot input validation that the serde layer can't express. A signed
     // Due Diligence Statement is a legal artefact, so reject nonsensical input
     // loudly rather than sign it: (1) `quantity_kg` must be > 0 (a DDS claiming
@@ -78234,20 +78932,26 @@ async fn post_eudr_dds_inner(
         producer_geojson: Option<JsonValue>,
         precision_warning: Option<String>,
         centroid_cell: Option<String>,
-        /// CID of this plot's signed `forest_change.lossyear_histogram`
-        /// derivative, folded into the response receipt's `fact_cids` so
-        /// the per-year loss tally is bound by the same signature as the
-        /// per-cell facts. `None` when the plot sampled no cells.
+        /// CID of this plot's own signed derivative: the loss-year histogram
+        /// on the sampled method, the plot fact on the raster method. Folded
+        /// into the response receipt's `fact_cids`, so the plot's tally is
+        /// bound by the same signature. `None` when the plot read no cell.
         histogram_fact_cid: Option<String>,
         /// Every distinct fact cid this plot computed, stored or not.
         fact_cids: std::collections::BTreeSet<String>,
         baseline_versions: BaselineVersions,
         /// The cids in `fact_cids` that were built here and not stored.
         unstored: std::collections::BTreeSet<String>,
+        /// Whether the plot read any cell, any JRC value, any Hansen value.
+        read_flags: (bool, bool, bool),
+        /// The cell the receipt names for a raster plot, which has no rows.
+        raster_cell: Option<String>,
     }
     let mut plot_ctx: Vec<Option<PlotCtx>> = (0..req.plots.len()).map(|_| None).collect();
     let mut per_plot_results: Vec<Option<JsonValue>> = (0..req.plots.len()).map(|_| None).collect();
     let mut all_cells_for_provenance: Vec<EudrCellVerdict> = Vec::new();
+    let mut raster_cells: Vec<String> = Vec::new();
+    let mut read_flags = (false, false, false);
     let mut unsaved = EudrUnsaved::new();
     let mut baseline_versions = BaselineVersions::default();
 
@@ -78279,11 +78983,56 @@ async fn post_eudr_dds_inner(
                 fact_cids: Default::default(),
                 baseline_versions: Default::default(),
                 unstored: Default::default(),
+                read_flags: (false, false, false),
+                raster_cell: None,
             });
             continue;
         }
         valid_plot_indices.push(idx);
     }
+
+    let mut since = started;
+    eudr_step("prepare", &mut since);
+    // The salt behind each plot's commitment: the caller's, or drawn here.
+    let salts: Vec<[u8; 16]> = req
+        .plots
+        .iter()
+        .map(|p| eudr_raster::salt_from(p.plot_salt.as_deref()).unwrap_or_default())
+        .collect();
+    // The raster method reads by consignment, not plot by plot: plots near
+    // each other share one read of each source (see `evaluate_consignment`).
+    // Its own task: the per-plot futures then hold no read, and stay
+    // provably `Send`.
+    let raster_inputs: Vec<eudr_raster::PlotInput> = if use_raster {
+        valid_plot_indices
+            .iter()
+            .filter_map(|&idx| raster_plot_input(&req.plots[idx], idx, &salts[idx]))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let outcomes: std::collections::HashMap<usize, eudr_raster::Outcome> = if raster_inputs
+        .is_empty()
+    {
+        Default::default()
+    } else {
+        match tokio::spawn(eudr_raster::evaluate_consignment(
+            s.clone(),
+            raster_inputs,
+            cutoff_year,
+            forest_rule,
+        ))
+        .await
+        {
+            Ok(v) => v.into_iter().collect(),
+            Err(e) => {
+                tracing::warn!(error = %e, "eudr raster consignment stopped; plots are sampled");
+                Default::default()
+            }
+        }
+    };
+    eudr_step("raster", &mut since);
+    let outcomes = std::sync::Arc::new(std::sync::Mutex::new(outcomes));
 
     // Per-plot work returns (plot_obj, plot_ctx, per_cell_verdicts).
     type PlotWork = (JsonValue, PlotCtx, Vec<EudrCellVerdict>, EudrUnsaved);
@@ -78294,6 +79043,8 @@ async fn post_eudr_dds_inner(
     > {
         let plot = req.plots[idx].clone();
         let cap = cell_cc;
+        let outcomes = outcomes.clone();
+        let salts = salts.clone();
         Box::pin(async move {
             let plot_started = std::time::Instant::now();
             // Safe: pre-pass guarantees this plot parses.
@@ -78315,235 +79066,113 @@ async fn post_eudr_dds_inner(
             } else {
                 "point"
             };
-            let n_cells = if geometry_kind == "point" {
-                1
-            } else {
-                max_cells_default
-            };
-            let cells: Vec<String> = if let Some(poly) = polygon_opt.clone() {
-                sample_cells_in_polygon(bbox, n_cells, &[poly])
-            } else {
-                sample_cells_in_bbox(bbox, n_cells)
-            };
-
-            // Per-plot evaluation: pick the batched path when
-            // `EMEM_EUDR_BATCH_PATH=1`, else fall back to the
-            // historical per-cell JoinSet. The batched path
-            // ([`evaluate_eudr_plot_batched`]) collapses the
-            // per-(cell, band) sled writes from N×4 to 4 per plot;
-            // the per-cell path is preserved so a regression can
-            // be flipped back with one env var.
-            let (per_cell, mut unsaved): (Vec<EudrCellVerdict>, EudrUnsaved) =
-                if eudr_batch_path_enabled() {
-                    // Clone cells before await: the Box::pin'd outer
-                    // future needs `+ Send`, and passing `&cells`
-                    // straight to a sub-future across the await
-                    // tripped a higher-rank lifetime inference
-                    // ("Send is not general enough") at compile time.
-                    evaluate_eudr_plot_batched(s.clone(), cells.clone(), cap, cutoff_year).await
-                } else {
-                    // Bounded parallel fan-out over cells (index-preserving). The
-                    // JoinSet itself bounds in-flight count, we prime up to cell_cc,
-                    // then refill one-for-one as each finishes.
-                    let mut set: tokio::task::JoinSet<(usize, EudrCellVerdict)> =
-                        tokio::task::JoinSet::new();
-                    let prime = cap.min(cells.len());
-                    let mut next: usize = 0;
-                    let mut results: Vec<Option<EudrCellVerdict>> =
-                        (0..cells.len()).map(|_| None).collect();
-                    while next < prime {
-                        let s_c = s.clone();
-                        let c = cells[next].clone();
-                        let i = next;
-                        set.spawn(
-                            async move { (i, evaluate_eudr_cell(&s_c, &c, cutoff_year).await) },
-                        );
-                        next += 1;
-                    }
-                    while let Some(res) = set.join_next().await {
-                        if let Ok((i, v)) = res {
-                            results[i] = Some(v);
-                        }
-                        if next < cells.len() {
-                            let s_c = s.clone();
-                            let c = cells[next].clone();
-                            let i = next;
-                            set.spawn(async move {
-                                (i, evaluate_eudr_cell(&s_c, &c, cutoff_year).await)
-                            });
-                            next += 1;
-                        }
-                    }
-                    (results.into_iter().flatten().collect(), EudrUnsaved::new())
-                };
-
-            let (raw_verdict, fail_fraction, n_fail, n_total) = aggregate_plot_verdict(&per_cell);
-            // Failing-area projection follows the polygon's actual area,
-            // not the sampled-cell area, see [`mmu_demote`] for the
-            // 2026-05-29 audit + the reason behind the change. A plot
-            // sampled at 0.04 % coverage (n_cells capped at 512 on a
-            // 12 kha polygon) must extrapolate from fail_fraction to
-            // get a regulator-defensible verdict.
-            let mmu = if raw_verdict == 2 {
-                mmu_demote(n_fail, n_total, area_ha)
-            } else {
-                MmuDemotion {
-                    verdict_code: raw_verdict,
-                    failing_area_ha: if n_total > 0 {
-                        (n_fail as f64 / n_total as f64) * area_ha
-                    } else {
-                        0.0
-                    },
-                    mmu_floor_applied: false,
-                }
-            };
-            let plot_verdict = mmu.verdict_code;
-            // Sampling-density disclosure, how much of the polygon was
-            // actually inspected. At n_cells = 512 (the cap) and a
-            // 12 kha plot, this is ~0.04 %. An auditor needs both the
-            // failing-area projection and the coverage to weight the
-            // verdict's confidence.
-            let sampled_area_ha = (n_total as f64 * EUDR_CELL_AREA_M2) / 10_000.0;
-            let sampled_polygon_fraction = if area_ha > 0.0 {
-                (sampled_area_ha / area_ha).min(1.0)
-            } else {
-                0.0
-            };
             let (lat_c, lng_c) = ((bbox.0 + bbox.1) * 0.5, (bbox.2 + bbox.3) * 0.5);
             let centroid_cell = emem_codec::cell64_from_latlng(lat_c, lng_c);
-
-            // Signed per-year loss-year histogram. The per-cell
-            // `forest_change.lossyear` facts are already signed; this folds
-            // their distribution into ONE plot-level `DerivativeFact` so the
-            // report's loss-year numbers become a verifiable, reproducible
-            // figure (bound by the response receipt) instead of an unsigned
-            // sample. Counts are over the SAMPLED cells, honest framing is
-            // carried alongside (`total_sampled_cells`, the plot's
-            // `sampled_polygon_fraction`). Skipped when no cells were
-            // sampled (indeterminate plots) and best-effort: a signing
-            // error never fails the verdict, it just omits the fact_cid.
-            let mut histogram_fact_cid: Option<String> = None;
-            // Initialised by the branch rather than declared and assigned in
-            // it: same control flow, one fewer place for the two to disagree.
-            let loss_year_histogram_json: Option<JsonValue> = if n_total > 0 {
-                let tally = compute_lossyear_tally(
-                    &per_cell,
-                    cutoff_year,
-                    EUDR_LOSSYEAR_HISTOGRAM_PARENTS_CAP,
-                );
-                let by_year_json: Vec<JsonValue> = tally
-                    .by_year
-                    .iter()
-                    .map(|(y, c)| json!({ "year": y, "cells": c }))
-                    .collect();
-                // Deterministic CBOR value for the fact (sorted year pairs +
-                // totals) so a second node aggregating the same cells signs
-                // the same bytes.
-                let by_year_cbor = ciborium::Value::Array(
-                    tally
-                        .by_year
-                        .iter()
-                        .map(|(y, c)| {
-                            ciborium::Value::Array(vec![
-                                ciborium::Value::Integer((*y).into()),
-                                ciborium::Value::Integer((*c as i64).into()),
-                            ])
-                        })
-                        .collect(),
-                );
-                let hist_value = ciborium::Value::Map(vec![
-                    (ciborium::Value::Text("by_year".into()), by_year_cbor),
-                    (
-                        ciborium::Value::Text("after_cutoff_cells".into()),
-                        ciborium::Value::Integer((tally.after_cutoff_cells as i64).into()),
-                    ),
-                    (
-                        ciborium::Value::Text("no_loss_cells".into()),
-                        ciborium::Value::Integer((tally.no_loss_cells as i64).into()),
-                    ),
-                    (
-                        ciborium::Value::Text("unknown_cells".into()),
-                        ciborium::Value::Integer((tally.unknown_cells as i64).into()),
-                    ),
-                    (
-                        ciborium::Value::Text("total_sampled_cells".into()),
-                        ciborium::Value::Integer((tally.total_sampled_cells as i64).into()),
-                    ),
-                    (
-                        ciborium::Value::Text("cutoff_year".into()),
-                        ciborium::Value::Integer(cutoff_year.into()),
-                    ),
-                ]);
-                let signed_at = emem_storage::server::iso8601_now();
-                let hist_fact = emem_fact::Fact::Derivative(emem_fact::DerivativeFact {
-                    cell: centroid_cell.clone(),
-                    band: "forest_change.lossyear_histogram".into(),
-                    tslot_window: [
-                        tslot_for_year(2001, "forest_change.lossyear"),
-                        tslot_for_year(2024, "forest_change.lossyear"),
-                    ],
-                    op: "histogram".into(),
-                    parents: tally
-                        .parents
-                        .iter()
-                        .map(|c| emem_fact::FactCid::new(c.as_str()))
-                        .collect(),
-                    value: hist_value,
-                    confidence: 1.0,
-                    derivation: emem_fact::Derivation {
-                        fn_key: "lossyear_histogram@1".into(),
-                        args: Some(ciborium::Value::Map(vec![
-                            (
-                                ciborium::Value::Text("plot_id".into()),
-                                ciborium::Value::Text(plot.plot_id.clone()),
-                            ),
-                            (
-                                ciborium::Value::Text("cutoff_year".into()),
-                                ciborium::Value::Integer(cutoff_year.into()),
-                            ),
-                            (
-                                ciborium::Value::Text("n_sampled_cells".into()),
-                                ciborium::Value::Integer((n_total as i64).into()),
-                            ),
-                        ])),
-                    },
-                    schema_cid: s.manifests.schema_cid.clone(),
-                    signer: s.identity.pubkey,
-                    signed_at: signed_at.clone(),
-                });
-                // Stored with the per-cell facts it cites, once the response
-                // says which those are.
-                match eudr_prepare_unsaved(vec![hist_fact]).map(|v| v.into_iter().next()) {
-                    Ok(Some((cid, f))) => {
-                        unsaved.insert(cid.as_str().to_string(), f);
-                        histogram_fact_cid = Some(cid.as_str().to_string());
+            let polygon_ha = polygon_area_ha(&plot.geometry_geojson).unwrap_or(area_ha);
+            // The caller's plot id never enters a signed fact. A salted
+            // commitment stands for it there, and only the caller holds the
+            // salt that opens it.
+            let salt = salts[idx];
+            let plot_commitment = eudr_raster::plot_commitment(&salt, &plot.plot_id);
+            let precomputed = outcomes
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&idx);
+            let raster = match precomputed {
+                Some(outcome) => outcome,
+                None if !use_raster => {
+                    eudr_raster::Outcome::Sampled("the request asked for the sampled method".into())
+                }
+                None if raster_plot_input(&plot, idx, &salt).is_none() => {
+                    eudr_raster::Outcome::Sampled(
+                        "a Point plot is read at its one pixel (one JRC and one Hansen pixel); send the plot as a polygon to read all of it".into(),
+                    )
+                }
+                None => eudr_raster::Outcome::Sampled("the raster read stopped".into()),
+            };
+            let sample_note = match &raster {
+                eudr_raster::Outcome::Sampled(why) => Some(why.clone()),
+                eudr_raster::Outcome::Done(_) => None,
+            };
+            let m: EudrMethodOut = match raster {
+                eudr_raster::Outcome::Done(mut rp) => {
+                    let mut un = EudrUnsaved::new();
+                    let reused = rp.unsaved.is_none() && rp.fact_cid.is_some();
+                    if let Some((cid, f)) = rp.unsaved.take() {
+                        un.insert(cid, f);
                     }
-                    Ok(None) => {}
-                    Err(e) => {
-                        tracing::warn!(error=%e, plot_id=%plot.plot_id, "lossyear histogram sign failed (verdict unaffected)");
+                    let plot_fact_cid = rp.fact_cid.clone();
+                    let mut fields = eudr_raster::plot_fields(
+                        &rp,
+                        cutoff_year,
+                        plot_fact_cid.as_deref(),
+                        &centroid_cell,
+                    );
+                    let support = verdict_support_from(
+                        &eudr_raster::support_inputs(&rp, lat_c),
+                        &fields["tmf_cross_check"],
+                        polygon_ha,
+                        rp.mmu.verdict_code,
+                    );
+                    fields.insert("verdict_support".into(), support);
+                    fields.insert(
+                        "deforestation_free_non_forest".into(),
+                        json!(rp.mmu.verdict_code == 3),
+                    );
+                    fields.insert("plot_fact_reused".into(), json!(reused));
+                    let mut versions = BaselineVersions::default();
+                    for (_, layers) in &rp.chunks {
+                        for l in layers {
+                            for url in &l.files {
+                                note_baseline_version(&mut versions, l.band, url);
+                            }
+                        }
+                    }
+                    let c = &rp.classified;
+                    let cells = match &polygon_opt {
+                        Some(p) => sample_cells_in_polygon(bbox, 64, std::slice::from_ref(p)),
+                        None => sample_cells_in_bbox(bbox, 64),
+                    };
+                    EudrMethodOut {
+                        method: "raster",
+                        fields,
+                        verdict: rp.mmu.verdict_code,
+                        per_cell: Vec::new(),
+                        cells,
+                        plot_fact_cid,
+                        unsaved: un,
+                        versions: Some(versions),
+                        read_flags: (c.plot.pixels > 0, c.jrc_read > 0, c.hansen_read > 0),
                     }
                 }
-                let cell_area_ha = EUDR_CELL_AREA_M2 / 10_000.0;
-                Some(json!({
-                    "by_year": by_year_json,
-                    "after_cutoff_cells": tally.after_cutoff_cells,
-                    "after_cutoff_year": cutoff_year,
-                    "no_loss_cells": tally.no_loss_cells,
-                    "unknown_cells": tally.unknown_cells,
-                    "total_sampled_cells": tally.total_sampled_cells,
-                    // Honest projection: sampled-cell area, NOT polygon area.
-                    // The plot's `sampled_polygon_fraction` (above) is the
-                    // weight a caller applies to extrapolate to the polygon.
-                    "after_cutoff_area_ha_sampled": ((tally.after_cutoff_cells as f64 * cell_area_ha) * 10_000.0).round() / 10_000.0,
-                    "cell_area_ha": (cell_area_ha * 1_000_000.0).round() / 1_000_000.0,
-                    "basis": "sampled_cells",
-                    "note": format!("Per-year counts are over the cells actually sampled in this plot (total_sampled_cells), derived from the per-cell forest_change.lossyear facts (Hansen GFC v1.13). Weight by the plot's sampled_polygon_fraction to extrapolate to the full polygon. The tally is itself signed as a forest_change.lossyear_histogram derivative (signed_fact_cid, also bound into receipt.fact_cids unless the receipt cap cut it) whose parents are the first {EUDR_LOSSYEAR_HISTOGRAM_PARENTS_CAP} of those per-cell facts by cid; the derivative and its parents are stored and resolve at /v1/facts/<cid>."),
-                    "signed_fact_cid": histogram_fact_cid,
-                    "parents_capped": tally.parents_capped,
-                }))
-            } else {
-                None
+                eudr_raster::Outcome::Sampled(_) => {
+                    evaluate_plot_sampled(
+                        s.clone(),
+                        (bbox, polygon_opt.clone(), area_ha),
+                        geometry_kind,
+                        max_cells_default,
+                        cap,
+                        cutoff_year,
+                        forest_rule,
+                        plot_commitment.clone(),
+                        polygon_ha,
+                        per_cell_offset,
+                        rows_anchor_only,
+                    )
+                    .await
+                }
             };
+            let EudrMethodOut {
+                method,
+                fields,
+                verdict: plot_verdict,
+                per_cell,
+                cells,
+                plot_fact_cid,
+                mut unsaved,
+                versions,
+                read_flags,
+            } = m;
 
             // Article 2(28) precision: pull GeoJSON polygon coords (if any)
             // for the TRACES envelope, and check operator-supplied decimal
@@ -78575,11 +79204,16 @@ async fn post_eudr_dds_inner(
                 // which never needed the imagery. What finished is stored, so
                 // the next request for the plot reuses it.
                 let budget = eudr_visual_budget_secs();
+                // Owned, not borrowed: a borrow of the state or the cells
+                // held across these awaits made the per-plot future fail
+                // the higher-ranked `Send` check.
+                let (s_ve, cells_ve) = (s.clone(), cells.clone());
+                let (s_fc, cells_fc) = (s.clone(), cells.clone());
                 let (ve, fc) = tokio::join!(
-                    async {
+                    async move {
                         match tokio::time::timeout(
                             std::time::Duration::from_secs(budget),
-                            build_plot_visual_evidence(&s, &cells, now_unix),
+                            build_plot_visual_evidence(&s_ve, &cells_ve, now_unix),
                         )
                         .await
                         {
@@ -78593,94 +79227,23 @@ async fn post_eudr_dds_inner(
                             }),
                         }
                     },
-                    build_plot_forest_context(&s, &cells),
+                    async move { build_plot_forest_context(&s_fc, &cells_fc).await },
                 );
                 (Some(ve), Some(fc))
             } else {
                 (None, None)
             };
 
-            // Cap the inlined per_cell_verdicts. A large plot can sample tens
-            // of thousands of cells (a 123 ha plot ≈ 13.5k cells), and
-            // inlining every full verdict object balloons the response to
-            // megabytes, far past the MCP cap and slow to encode. The
-            // verdict + fail_fraction + failing_area already summarise the
-            // plot; the per-cell array is supporting evidence, so we cap it
-            // (env EMEM_EUDR_PER_CELL_VERDICTS_MAX, default 256) and surface
-            // the true total + a truncation flag. FAILING cells are kept
-            // first (they are what an auditor inspects), then a head of the
-            // rest, deterministic, never random.
-            let per_cell_cap = std::env::var("EMEM_EUDR_PER_CELL_VERDICTS_MAX")
-                .ok()
-                .and_then(|v| v.parse::<usize>().ok())
-                .filter(|n| (1..=51_200).contains(n))
-                .unwrap_or(256);
-            let page = per_cell_offset.map(|o| o.min(per_cell.len()));
-            let per_cell_truncated = per_cell.len() > per_cell_cap || page.is_some_and(|o| o > 0);
-            // A truncated sample is not page 0, so its next page is the first
-            // one: 0. It was null, which a caller reads as "nothing more" with
-            // thousands of rows behind the cap.
-            let per_cell_next_offset = match page {
-                Some(o) => Some(o + per_cell_cap).filter(|n| *n < per_cell.len()),
-                None => per_cell_truncated.then_some(0),
-            };
-            let per_cell_for_response: Vec<EudrCellVerdict> = if let Some(o) = page {
-                per_cell
-                    .iter()
-                    .skip(o)
-                    .take(per_cell_cap)
-                    .cloned()
-                    .collect()
-            } else if per_cell_truncated {
-                let mut fails: Vec<EudrCellVerdict> = per_cell
-                    .iter()
-                    .filter(|c| c.verdict == 2)
-                    .cloned()
-                    .collect();
-                fails.truncate(per_cell_cap);
-                if fails.len() < per_cell_cap {
-                    let need = per_cell_cap - fails.len();
-                    fails.extend(
-                        per_cell
-                            .iter()
-                            .filter(|c| c.verdict != 2)
-                            .take(need)
-                            .cloned(),
-                    );
-                }
-                fails
-            } else {
-                per_cell.clone()
-            };
-
             let mut plot_obj = json!({
                 "plot_id":         plot.plot_id,
-                "verdict":         verdict_label(plot_verdict),
-                "verdict_code":    plot_verdict,
-                "fail_fraction":   fail_fraction,
-                "failing_cells":   n_fail,
-                // `failing_cells` is counted before the plot-level area floor,
-                // and a cell counts as forest when EITHER baseline says so. A
-                // reader who took it for "cells the verdict rests on" read a
-                // `below_mmu` plot as deforested (eudr.dev, 2026-10-10). These
-                // say what the count is and how much of it the verdict uses.
-                "failing_cells_basis": FAILING_CELLS_BASIS,
-                "failing_cells_by_baseline": failing_cells_by_baseline(&per_cell),
-                "in_scope_failing_cells": if plot_verdict == 2 { n_fail } else { 0 },
-                // Projected to the polygon's real area, not the sampled-cell area
-                // (audit 2026-05-29 fix, see [`mmu_demote`] docs).
-                "failing_area_ha": mmu.failing_area_ha,
-                "failing_area_projection": "fail_fraction × polygon_area_ha",
-                "sampled_area_ha": (sampled_area_ha * 100.0).round() / 100.0,
-                "sampled_polygon_fraction": (sampled_polygon_fraction * 10_000.0).round() / 10_000.0,
-                "sampling_note": if sampled_polygon_fraction < 0.5 {
-                    "Polygon is larger than this request's cell budget (`max_cells_per_plot`, auto-derived at about 110 cells per hectare up to 51,200). `failing_area_ha` is the polygon-area projection of `fail_fraction`; `sampled_area_ha` is the area actually inspected. Confidence widens as sampled_polygon_fraction shrinks."
-                } else {
-                    "Polygon was fully sampled, failing_area is per-cell-counted, not projected."
-                },
-                "mmu_threshold_ha": EUDR_MMU_THRESHOLD_HA,
-                "mmu_floor_applied": mmu.mmu_floor_applied,
-                "total_cells":     n_total,
+                "method":          method,
+                "method_note":     sample_note,
+                "forest_rule":     forest_rule.label(),
+                // The plot id stays out of every signed fact; this stands for
+                // it there. Reveal the salt and the plot id to prove the link.
+                "plot_commitment": plot_commitment,
+                "plot_salt":       data_encoding::HEXLOWER.encode(&salt),
+                "plot_commitment_rule": "plot_commitment = blake3(\"emem.eudr.plot_commitment.v1\" || 0x00 || plot_salt (16 bytes) || plot_id as UTF-8), hex. Keep plot_salt with the plot id: it is in this answer only, never stored or logged, and anyone given both can check the commitment in the signed fact.",
                 "area_ha_approx":  area_ha,
                 "geometry_kind":   geometry_kind,
                 "is_cattle":       is_cattle,
@@ -78695,61 +79258,21 @@ async fn post_eudr_dds_inner(
                     "bbox":       {"min_lat": bbox.0, "max_lat": bbox.1, "min_lng": bbox.2, "max_lng": bbox.3},
                     "decimal_digits_per_article_2_28": 6,
                 },
-                "per_cell_verdicts": if rows_anchor_only { json!([]) } else { json!(per_cell_for_response) },
-                "per_cell_verdicts_total": n_total,
-                "per_cell_verdicts_truncated": per_cell_truncated || rows_anchor_only,
-                "per_cell_detail": if rows_anchor_only { "anchor" } else { "rows" },
-                "per_cell_offset": page,
-                "per_cell_next_offset": per_cell_next_offset,
-                "per_cell_verdicts_means": EUDR_ROWS_MEANS,
-                "per_cell_rows_cid": eudr_rows_cid(&per_cell),
-                "per_cell_rows_cid_means": EUDR_ROWS_CID_MEANS,
+                "verdict_scope": "forest baseline at the cut-off; Article 1 commodity scope is annex_i_status",
             });
-            if let (Some(obj), Some(lh)) = (plot_obj.as_object_mut(), loss_year_histogram_json) {
-                obj.insert("loss_year_histogram".into(), lh);
-            }
             if let Some(obj) = plot_obj.as_object_mut() {
-                // `not_in_scope` on a plot is a forest-baseline verdict, not an
-                // Article 1 one (that is `annex_i_status`). When every cell was
-                // non-forest at the cut-off and none carries a loss refinement,
-                // the plot is deforestation-free by Article 2(13) and counts as
-                // compliant in the DDS, where it used to withhold the statement
-                // from a legitimately compliant non-forest plot.
-                obj.insert(
-                    "deforestation_free_non_forest".into(),
-                    json!(non_forest_deforestation_free(plot_verdict, &per_cell)),
-                );
-                obj.insert(
-                    "verdict_scope".into(),
-                    json!("forest baseline at the cut-off; Article 1 commodity scope is annex_i_status"),
-                );
-                let tmf = tmf_cross_check(&per_cell, cutoff_year);
-                obj.insert(
-                    "verdict_support".into(),
-                    verdict_support(
-                        &per_cell,
-                        &tmf,
-                        polygon_area_ha(&plot.geometry_geojson).unwrap_or(area_ha),
-                        plot_verdict,
-                    ),
-                );
-                obj.insert("tmf_cross_check".into(), tmf);
-            }
-            if let (Some(obj), Some(ve)) = (plot_obj.as_object_mut(), visual_evidence_json) {
-                obj.insert("visual_evidence".into(), ve);
-            }
-            if let (Some(obj), Some(fc)) = (plot_obj.as_object_mut(), forest_context_json) {
-                obj.insert("forest_context".into(), fc);
-            }
-            if let (Some(obj), Some(warning)) =
-                (plot_obj.as_object_mut(), precision_warning.clone())
-            {
-                obj.insert("precision_warning".into(), JsonValue::String(warning));
-            }
-            // POINT sampling caveat, same as before.
-            if geometry_kind == "point" {
-                let sampled_area_ha = EUDR_CELL_AREA_M2 / 10_000.0;
-                if let Some(obj) = plot_obj.as_object_mut() {
+                obj.extend(fields);
+                if let Some(ve) = visual_evidence_json {
+                    obj.insert("visual_evidence".into(), ve);
+                }
+                if let Some(fc) = forest_context_json {
+                    obj.insert("forest_context".into(), fc);
+                }
+                if let Some(warning) = precision_warning.clone() {
+                    obj.insert("precision_warning".into(), JsonValue::String(warning));
+                }
+                // POINT sampling caveat, for a plot read at one cell.
+                if geometry_kind == "point" && method == "sampled" {
                     obj.insert(
                         "sampling_caveat".into(),
                         JsonValue::String(
@@ -78758,28 +79281,39 @@ async fn post_eudr_dds_inner(
                     );
                     obj.insert(
                         "sampled_area_ha".into(),
-                        serde_json::Number::from_f64(sampled_area_ha)
+                        serde_json::Number::from_f64(EUDR_CELL_AREA_M2 / 10_000.0)
                             .map(JsonValue::Number)
                             .unwrap_or(JsonValue::Null),
                     );
                 }
             }
             let evaluated_ms = plot_started.elapsed().as_secs_f64() * 1000.0;
-            let baseline_versions = forest_baseline_versions(&s, &per_cell, &unsaved).await;
+            let baseline_versions = match versions {
+                Some(v) => v,
+                None => forest_baseline_versions(&s, &per_cell, &unsaved).await,
+            };
             let baseline_ms = plot_started.elapsed().as_secs_f64() * 1000.0 - evaluated_ms;
+            if let Some(vs) = plot_obj
+                .get_mut("verdict_support")
+                .and_then(|v| v.as_object_mut())
+            {
+                vs.insert("baseline_map".into(), eudr_baseline_map(&baseline_versions));
+            }
             let ctx = PlotCtx {
                 baseline_versions,
                 unstored: unsaved.keys().cloned().collect(),
                 verdict_code: plot_verdict,
                 producer_geojson: Some(producer_geojson),
                 precision_warning,
+                raster_cell: (method == "raster").then(|| centroid_cell.clone()),
                 centroid_cell: Some(centroid_cell),
                 fact_cids: per_cell
                     .iter()
                     .flat_map(|c| c.fact_cids.iter().cloned())
-                    .chain(histogram_fact_cid.clone())
+                    .chain(plot_fact_cid.clone())
                     .collect(),
-                histogram_fact_cid,
+                histogram_fact_cid: plot_fact_cid,
+                read_flags,
             };
             // What the plot object names, and every cell's facts: the plot's
             // `per_cell_rows_cid` addresses all of them, inlined or not, so
@@ -78787,7 +79321,7 @@ async fn post_eudr_dds_inner(
             // rows are paged or asked for again. Storing only the inlined
             // rows let every other cell be rebuilt with a new time and a new
             // cid on the next call, and the anchor moved under the caller.
-            let unsaved: EudrUnsaved = eudr_facts_named(
+            unsaved = eudr_facts_named(
                 &plot_obj,
                 ctx.fact_cids.iter().map(String::as_str),
                 &unsaved,
@@ -78807,8 +79341,6 @@ async fn post_eudr_dds_inner(
         })
     };
 
-    let mut since = started;
-    eudr_step("prepare", &mut since);
     // Bounded parallel fan-out across plots (index-preserving). JoinSet
     // bounds in-flight; prime + refill one-for-one.
     let mut plot_set: tokio::task::JoinSet<(usize, PlotWork)> = tokio::task::JoinSet::new();
@@ -78822,6 +79354,10 @@ async fn post_eudr_dds_inner(
     while let Some(res) = plot_set.join_next().await {
         if let Ok((idx, (plot_obj, ctx, per_cell, plot_unsaved))) = res {
             all_cells_for_provenance.extend(per_cell);
+            raster_cells.extend(ctx.raster_cell.iter().cloned());
+            read_flags.0 |= ctx.read_flags.0;
+            read_flags.1 |= ctx.read_flags.1;
+            read_flags.2 |= ctx.read_flags.2;
             unsaved.extend(plot_unsaved);
             baseline_versions
                 .0
@@ -78863,9 +79399,12 @@ async fn post_eudr_dds_inner(
         })
         .count();
     // DDS-level aggregation: `below_mmu` (code 6) and a deforestation-free
-    // non-forest plot count as compliant, not as fail.
+    // non-forest plot count as compliant, not as fail. A `review` plot keeps
+    // the statement from `pass` until its loss is explained.
     let overall = if overall_verdicts.contains(&2) {
         2
+    } else if overall_verdicts.contains(&7) {
+        7
     } else if non_forest_other == 0 && overall_verdicts.iter().all(|&v| v == 1 || v == 6 || v == 3)
     {
         1
@@ -78877,7 +79416,7 @@ async fn post_eudr_dds_inner(
 
     // Honest baseline provenance: surface what JRC and Hansen actually
     // contributed at request time, not what the algorithm spec says.
-    let computed_baseline = match aggregate_baseline_provenance(&all_cells_for_provenance) {
+    let computed_baseline = match baseline_provenance(read_flags) {
         "jrc_gfc2020" => jrc_baseline_label(&baseline_versions.0),
         other => other.to_string(),
     };
@@ -79056,6 +79595,10 @@ async fn post_eudr_dds_inner(
         "forest_baseline_dataset": baseline_datasets,
         "baseline_note":   "JRC GFC2020 is the EU Commission's expected (non-binding) baseline per Regulation 2023/1115; operators may use a defensible alternative. `forest_baseline_computed` reflects what actually fired at request time (hansen_only_jrc_unavailable if JRC errored); when JRC ran it names the version its facts were read from (`jrc_gfc2020_v4`), the same version `forest_baseline_dataset` lists.",
         "methodology_note": eudr_methodology_note(&computed_baseline),
+        "forest_rule":     forest_rule.label(),
+        "forest_rule_means": forest_rule.means(),
+        "verdict_meaning": EUDR_PASS_MEANS,
+        "method_means":    "raster (the default for a polygon or bbox plot) reads every 10 m JRC GFC2020 pixel whose centre is inside the plot, applies the per-cell rule to each, adds up true pixel areas, and signs one fact per plot. sampled (method: \"sampled\", kept for one release, and the fallback a plot's method_note explains) reads cells sampled inside the plot and signs one fact per cell per band. A Point plot is read at its one pixel.",
         "legality_module": req.legality_module.clone().unwrap_or_else(|| "none".into()),
         "legality_disclaimer": "Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin laws under Article 2(40)) is structurally out of Earth-observation scope. This DDS covers the geolocation + deforestation parts of Annex II only. Operators must pair with a legality module before submitting to the EU Information System (TRACES NT).",
         "degradation_disclaimer": "The verdict measures DEFORESTATION, conversion of forest to non-forest after the cut-off (Article 2(3)), via canopy loss (JRC GFC2020 baseline + Hansen loss-year). It does NOT measure forest DEGRADATION (Article 2(7): structural changes that reduce a forest's biomass or ecological capacity, e.g. primary or naturally regenerating forest converted to planted/plantation forest, or selective/partial-canopy loss that stays above the 10% threshold). The standard `pass` statement-of-compliance wording asserts both; the operator must separately satisfy the degradation limb. The JRC TMF v2025 degradation layer (`jrc_tmf.degradation_year`) is available as an explicit band request; it is not read on this path and does not enter the verdict.",
@@ -79122,9 +79665,11 @@ async fn post_eudr_dds_inner(
     //     `blake3(canonical_cbor(scope))` when at least one field is
     //     `Some` (v0.0.8 receipt rule). Filtering on scope is the
     //     v0.0.9 follow-up; this is the receipt-binding pass.
+    // A raster plot has no rows: the receipt names its centre cell.
     let mut all_cells: Vec<String> = all_cells_for_provenance
         .iter()
         .map(|cv| cv.cell.clone())
+        .chain(raster_cells)
         .collect();
     let fact_cap = eudr_receipt_max_facts();
     let cells_cap = eudr_receipt_max_cells();
@@ -79220,7 +79765,7 @@ async fn post_eudr_dds_inner(
         obj.insert("facts_persisted".into(), json!(persisted_all.len()));
         obj.insert(
             "facts_note".into(),
-            json!("Every sampled cell's facts are computed, decide the verdict and are stored (facts_computed, facts_persisted, per plot and in total), because each plot's per_cell_rows_cid addresses all of them, inlined or not. Every fact_cid in this response, and every one behind per_cell_rows_cid, resolves at /v1/facts/<cid>. A fact stored by an earlier request is reused rather than signed again."),
+            json!("A plot on the raster method signs one fact (plot_fact_cid): it holds every count and area of the plot and names the source windows it was computed from. On the sampled method every sampled cell's facts are computed, decide the verdict and are stored (facts_computed, facts_persisted, per plot and in total), because each plot's per_cell_rows_cid addresses all of them, inlined or not. Every fact_cid in this response, and every one behind per_cell_rows_cid, resolves at /v1/facts/<cid>. A fact stored by an earlier request is reused rather than signed again."),
         );
     }
 
@@ -99262,37 +99807,180 @@ mod tests {
         // NOT forest at the cut-off → not_in_scope (3), never pass. This is
         // the bug the old `hansen_ly > 20` (always true on a calendar year)
         // and the batched path's missing check both got wrong.
-        let (v, _) = eudr_verdict_for(None, Some(60), Some(2008), None, None, None, 2020);
+        let (v, _) = eudr_verdict_for(
+            None,
+            Some(60),
+            Some(2008),
+            None,
+            None,
+            None,
+            2020,
+            EUDR_FOREST_RULE_DEFAULT,
+        );
         assert_eq!(
             v, 3,
             "pre-cut-off clearing with high treecover2000 = not_in_scope"
         );
 
         // High canopy, no loss → forest at cut-off, no post-cut-off loss → pass.
-        let (v, _) = eudr_verdict_for(None, Some(60), Some(0), None, None, None, 2020);
+        let (v, _) = eudr_verdict_for(
+            None,
+            Some(60),
+            Some(0),
+            None,
+            None,
+            None,
+            2020,
+            EUDR_FOREST_RULE_DEFAULT,
+        );
         assert_eq!(v, 1, "intact forest = pass");
 
         // High canopy, loss in 2022 (after 2020 cut-off) → fail.
-        let (v, _) = eudr_verdict_for(None, Some(60), Some(2022), None, None, None, 2020);
+        let (v, _) = eudr_verdict_for(
+            None,
+            Some(60),
+            Some(2022),
+            None,
+            None,
+            None,
+            2020,
+            EUDR_FOREST_RULE_DEFAULT,
+        );
         assert_eq!(v, 2, "post-cut-off clearing = fail");
 
         // cut_off_date wiring: the SAME 2018 clearing is a FAIL when the
         // operator audits against an earlier 2015 cut-off (loss is after it),
         // and not_in_scope against the default 2020 cut-off (loss is before).
-        let (v2015, _) = eudr_verdict_for(None, Some(60), Some(2018), None, None, None, 2015);
+        let (v2015, _) = eudr_verdict_for(
+            None,
+            Some(60),
+            Some(2018),
+            None,
+            None,
+            None,
+            2015,
+            EUDR_FOREST_RULE_DEFAULT,
+        );
         assert_eq!(v2015, 2, "2018 loss fails a 2015 cut-off audit");
-        let (v2020, _) = eudr_verdict_for(None, Some(60), Some(2018), None, None, None, 2020);
+        let (v2020, _) = eudr_verdict_for(
+            None,
+            Some(60),
+            Some(2018),
+            None,
+            None,
+            None,
+            2020,
+            EUDR_FOREST_RULE_DEFAULT,
+        );
         assert_eq!(v2020, 3, "2018 loss is pre-2020-cut-off → not_in_scope");
 
         // No baseline at all → indeterminate (4), never a silent pass.
-        let (v, r) = eudr_verdict_for(None, None, None, None, None, None, 2020);
+        let (v, r) = eudr_verdict_for(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            2020,
+            EUDR_FOREST_RULE_DEFAULT,
+        );
         assert_eq!(v, 4);
         assert_eq!(r, Some("no_baseline_input"));
 
         // JRC TMF consensus: TMF deforestation after cut-off fails even if
         // Hansen shows no loss.
-        let (v, _) = eudr_verdict_for(Some(1), Some(60), Some(0), Some(2023), None, None, 2020);
+        let (v, _) = eudr_verdict_for(
+            Some(1),
+            Some(60),
+            Some(0),
+            Some(2023),
+            None,
+            None,
+            2020,
+            EUDR_FOREST_RULE_DEFAULT,
+        );
         assert_eq!(v, 2, "TMF post-cut-off loss fails via consensus");
+    }
+
+    /// The default is jrc_only: Hansen tree cover never makes forest where
+    /// the JRC map has a reading, and loss on JRC non-forest is review.
+    #[test]
+    fn jrc_only_takes_forest_from_the_jrc_map() {
+        assert_eq!(EUDR_FOREST_RULE_DEFAULT, ForestRule::JrcOnly);
+        let rule = ForestRule::JrcOnly;
+        // Cocoa: JRC non-forest, Hansen tree cover, loss in 2024.
+        assert_eq!(
+            eudr_verdict_for(Some(0), Some(60), Some(2024), None, None, None, 2020, rule),
+            (7, Some("loss_on_jrc_non_forest"))
+        );
+        // The same land without loss passes, and says the maps disagree.
+        assert_eq!(
+            eudr_verdict_for(Some(0), Some(60), Some(0), None, None, None, 2020, rule),
+            (1, Some("hansen_tree_cover_jrc_non_forest"))
+        );
+        // JRC non-forest, no tree cover, no loss: not in scope.
+        assert_eq!(
+            eudr_verdict_for(Some(0), Some(3), Some(0), None, None, None, 2020, rule).0,
+            3
+        );
+        // JRC forest with loss fails; JRC forest without loss passes.
+        assert_eq!(
+            eudr_verdict_for(Some(1), Some(60), Some(2022), None, None, None, 2020, rule).0,
+            2
+        );
+        assert_eq!(
+            eudr_verdict_for(Some(1), Some(60), Some(0), None, None, None, 2020, rule),
+            (1, None)
+        );
+        // No JRC reading: Hansen decides, marked as Hansen alone.
+        assert_eq!(
+            eudr_verdict_for(None, Some(60), Some(2022), None, None, None, 2020, rule),
+            (2, Some("jrc_unavailable_hansen_only"))
+        );
+        assert_eq!(ForestRule::parse(None), Ok(ForestRule::JrcOnly));
+        assert!(ForestRule::parse(Some("hansen")).is_err());
+    }
+
+    /// jrc_or_hansen is the union this endpoint used before: the cocoa cell
+    /// fails, and its fail is forest by Hansen alone.
+    #[test]
+    fn jrc_or_hansen_keeps_the_union() {
+        let rule = ForestRule::JrcOrHansen;
+        assert_eq!(ForestRule::parse(Some("jrc_or_hansen")), Ok(rule));
+        assert_eq!(
+            eudr_verdict_for(Some(0), Some(60), Some(2024), None, None, None, 2020, rule).0,
+            2
+        );
+        assert_eq!(
+            eudr_verdict_for(Some(0), Some(60), Some(0), None, None, None, 2020, rule),
+            (1, None)
+        );
+        assert_eq!(
+            eudr_verdict_for(Some(0), Some(60), Some(2008), None, None, None, 2020, rule).0,
+            3
+        );
+    }
+
+    /// Fail before review before pass, and the 0.5 ha floor on both.
+    #[test]
+    fn a_plot_fails_before_it_is_reviewed_and_the_floor_holds_for_both() {
+        assert_eq!(aggregate_plot_verdict_counts(10, 1, 0, 0, 3).0, 2);
+        assert_eq!(aggregate_plot_verdict_counts(10, 0, 0, 0, 3).0, 7);
+        assert_eq!(aggregate_plot_verdict_counts(10, 0, 0, 7, 0).0, 1);
+        assert_eq!(aggregate_plot_verdict_counts(10, 0, 0, 10, 0).0, 3);
+        assert_eq!(aggregate_plot_verdict_counts(10, 0, 6, 0, 0).0, 4);
+        assert_eq!(aggregate_plot_verdict_counts(0, 0, 0, 0, 0).0, 4);
+        assert_eq!(mmu_by_area(0.6, 0.0, true, false).verdict_code, 2);
+        assert_eq!(mmu_by_area(0.0, 0.6, false, true).verdict_code, 7);
+        assert_eq!(mmu_by_area(0.0, 0.3, false, true).verdict_code, 6);
+        // A sub-floor fail and a review that together reach 0.5 ha are one
+        // clearing the map may have split: review, not below_mmu.
+        assert_eq!(mmu_by_area(0.3, 0.3, true, true).verdict_code, 7);
+        assert_eq!(mmu_by_area(0.0, 0.0, false, false).verdict_code, 1);
+        assert_eq!(verdict_label(7), "review");
+        assert!(signable_held_because("review", &[])
+            .contains(&"review_loss_on_jrc_non_forest".to_string()));
     }
 
     #[test]
@@ -99416,14 +100104,14 @@ mod tests {
     fn mmu_floor_demotes_sub_05ha_failures() {
         // Dense sampling: 10 fail / 100 total over a 1 ha plot → 0.10 ha
         // failing-area projection. Below 0.5 ha → demote to below_mmu.
-        let v = mmu_demote(10, 100, 1.0);
+        let v = mmu_demote(10, 0, 100, 1.0);
         assert_eq!(v.verdict_code, 6); // below_mmu
         assert!(v.failing_area_ha < 0.5);
         assert!(v.mmu_floor_applied);
 
         // 10 fail / 100 total over a 10 ha plot → 1.0 ha failing-area
         // projection. Above MMU → keep fail.
-        let v2 = mmu_demote(10, 100, 10.0);
+        let v2 = mmu_demote(10, 0, 100, 10.0);
         assert_eq!(v2.verdict_code, 2);
         assert!(!v2.mmu_floor_applied);
 
@@ -99431,7 +100119,7 @@ mod tests {
         // over a 12,298 ha plot → ~528 ha failing-area projection
         // (NOT 0.20 ha from the old `n_fail × cell_area` math).
         // Must trigger fail, not below_mmu.
-        let v3 = mmu_demote(22, 512, 12_298.67);
+        let v3 = mmu_demote(22, 0, 512, 12_298.67);
         assert_eq!(
             v3.verdict_code, 2,
             "polygon-projected fail must not be demoted to below_mmu"
@@ -99461,7 +100149,7 @@ mod tests {
 
         // Every verdict code the aggregation/MMU logic can actually emit
         // resolves to a real, non-"unknown" label.
-        for code in [1u8, 2, 3, 4, 6] {
+        for code in [1u8, 2, 3, 4, 6, 7] {
             assert_ne!(
                 verdict_label(code),
                 "unknown",
@@ -99935,14 +100623,14 @@ mod tests {
             },
         ];
         assert_eq!(
-            aggregate_baseline_provenance(&cells),
+            baseline_provenance(read_flags_of(&cells)),
             "hansen_only_jrc_unavailable"
         );
 
         // JRC present at one cell → jrc_gfc2020, named by version at the call site.
         let mut cells2 = cells.clone();
         cells2[0].jrc_forest_2020 = Some(1);
-        assert_eq!(aggregate_baseline_provenance(&cells2), "jrc_gfc2020");
+        assert_eq!(baseline_provenance(read_flags_of(&cells2)), "jrc_gfc2020");
 
         // Neither baseline anywhere → neither_available.
         let none_cells = vec![EudrCellVerdict {
@@ -99961,7 +100649,7 @@ mod tests {
             lossyear_fact_cid: None,
         }];
         assert_eq!(
-            aggregate_baseline_provenance(&none_cells),
+            baseline_provenance(read_flags_of(&none_cells)),
             "neither_available"
         );
     }
@@ -99975,8 +100663,16 @@ mod tests {
         // false-pass the raw byte caused in the default batched path.
         let cutoff = 2020i64;
         // forest in 2020 (jrc=1), cleared in 2022 → MUST fail (code 2).
-        let (verdict_calendar, _) =
-            eudr_verdict_for(Some(1), Some(80), Some(2022), None, None, None, cutoff);
+        let (verdict_calendar, _) = eudr_verdict_for(
+            Some(1),
+            Some(80),
+            Some(2022),
+            None,
+            None,
+            None,
+            cutoff,
+            EUDR_FOREST_RULE_DEFAULT,
+        );
         assert_eq!(
             verdict_calendar, 2,
             "2022 clearing of 2020-forest must FAIL"
@@ -99986,8 +100682,16 @@ mod tests {
         // is false, so the loss is missed and the cell PASSES, the exact
         // false-pass the decode fix removes. We assert it does NOT fail, to
         // prove the bug was real and that storing bytes is unsafe.
-        let (verdict_byte_bug, _) =
-            eudr_verdict_for(Some(1), Some(80), Some(22), None, None, None, cutoff);
+        let (verdict_byte_bug, _) = eudr_verdict_for(
+            Some(1),
+            Some(80),
+            Some(22),
+            None,
+            None,
+            None,
+            cutoff,
+            EUDR_FOREST_RULE_DEFAULT,
+        );
         assert_ne!(
             verdict_byte_bug, 2,
             "raw-byte lossyear (22) silently false-PASSES a 2022 clearing, \
@@ -99996,8 +100700,16 @@ mod tests {
 
         // Pre-cut-off clearing (2008, calendar) → not_in_scope (code 3),
         // never pass: the cell was not forest at the 2020 cut-off.
-        let (verdict_old_loss, _) =
-            eudr_verdict_for(None, Some(80), Some(2008), None, None, None, cutoff);
+        let (verdict_old_loss, _) = eudr_verdict_for(
+            None,
+            Some(80),
+            Some(2008),
+            None,
+            None,
+            None,
+            cutoff,
+            EUDR_FOREST_RULE_DEFAULT,
+        );
         assert_eq!(
             verdict_old_loss, 3,
             "2008 clearing → not_in_scope at a 2020 cut-off"
@@ -105783,12 +106495,15 @@ mod tests {
                 producer_name: None,
                 producer_country: None,
                 request_visual_evidence: None,
+                plot_salt: None,
             }],
             cut_off_date: default_eudr_cutoff_date(),
             forest_baseline_override: None,
             legality_module: None,
             operator: None,
             max_cells_per_plot: Some(1),
+            method: None,
+            forest_rule: None,
             activity_type: None,
             operator_role: None,
             internal_reference_number: None,
@@ -106086,12 +106801,15 @@ mod tests {
                 producer_name: None,
                 producer_country: None,
                 request_visual_evidence: None,
+                plot_salt: None,
             }],
             cut_off_date: default_eudr_cutoff_date(),
             forest_baseline_override: None,
             legality_module: None,
             operator: None,
             max_cells_per_plot: Some(1024), // > cap of 256
+            method: Some("sampled".into()),
+            forest_rule: None,
             activity_type: None,
             operator_role: None,
             internal_reference_number: None,
