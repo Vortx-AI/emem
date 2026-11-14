@@ -127,6 +127,21 @@ pub type IndexRows = Vec<(Vec<u8>, Vec<u8>)>;
 /// Raw rows of a byte-to-byte table.
 pub type KvRows = Vec<(Vec<u8>, Vec<u8>)>;
 
+/// Reads `keys` through `get` in key order and returns the values in the
+/// order the keys were given.
+fn sorted_gets<K: AsRef<[u8]>>(
+    keys: &[K],
+    mut get: impl FnMut(&[u8]) -> Result<Option<Vec<u8>>, CacheError>,
+) -> Result<Vec<Option<Vec<u8>>>, CacheError> {
+    let mut order: Vec<usize> = (0..keys.len()).collect();
+    order.sort_by(|a, b| keys[*a].as_ref().cmp(keys[*b].as_ref()));
+    let mut out: Vec<Option<Vec<u8>>> = vec![None; keys.len()];
+    for i in order {
+        out[i] = get(keys[i].as_ref())?;
+    }
+    Ok(out)
+}
+
 fn rb<E: std::fmt::Display>(e: E) -> CacheError {
     CacheError::Backend(e.to_string())
 }
@@ -498,13 +513,23 @@ impl RedbFacts {
         })
         .map_err(rb)?;
         {
+            // Each table in its own key order: a plot's facts arrive band by
+            // band, and a B-tree filled in key order touches each leaf once.
+            // The sorts are stable, so a key written twice keeps its last value.
             let mut f = w.open_table(FACTS).map_err(rb)?;
-            let mut i = w.open_table(INDEX).map_err(rb)?;
-            for (cid, cbor, key) in items {
+            let mut by_cid: Vec<&FactRow> = items.iter().collect();
+            by_cid.sort_by(|a, b| a.0.cmp(&b.0));
+            for (cid, cbor, _) in by_cid {
                 f.insert(cid.as_slice(), cbor.as_slice()).map_err(rb)?;
-                if let Some(k) = key {
-                    i.insert(k.as_slice(), cid.as_slice()).map_err(rb)?;
-                }
+            }
+            let mut i = w.open_table(INDEX).map_err(rb)?;
+            let mut by_key: Vec<(&Vec<u8>, &Vec<u8>)> = items
+                .iter()
+                .filter_map(|(cid, _, key)| key.as_ref().map(|k| (k, cid)))
+                .collect();
+            by_key.sort_by(|a, b| a.0.cmp(b.0));
+            for (k, cid) in by_key {
+                i.insert(k.as_slice(), cid.as_slice()).map_err(rb)?;
             }
         }
         let bytes: usize = items
@@ -523,6 +548,20 @@ impl RedbFacts {
         let r = self.begin_read()?;
         let tb = r.open_table(t.def()).map_err(rb)?;
         Ok(tb.get(key).map_err(rb)?.map(|v| v.value().to_vec()))
+    }
+
+    /// [`Self::kv_get`] for many keys, in one read transaction and in key
+    /// order. Results are in the order of `keys`.
+    pub fn kv_get_many(
+        &self,
+        t: KvTable,
+        keys: &[&[u8]],
+    ) -> Result<Vec<Option<Vec<u8>>>, CacheError> {
+        let r = self.begin_read()?;
+        let tb = r.open_table(t.def()).map_err(rb)?;
+        sorted_gets(keys, |k| {
+            Ok(tb.get(k).map_err(rb)?.map(|v| v.value().to_vec()))
+        })
     }
 
     pub fn kv_put_batch(
@@ -648,12 +687,19 @@ impl RedbFacts {
     /// `lookup` for many keys under one read transaction. Per-key
     /// transactions cost ~0.7 ms each on this store, which is 3 s for a
     /// 4,300-cell EUDR plot.
-    pub fn lookup_many(&self, keys: &[Vec<u8>]) -> Result<Vec<Option<Vec<u8>>>, CacheError> {
+    /// Index lookups in one read transaction, taken in key order so that
+    /// neighbouring keys share the pages a cold read brings in: a cold 11 ha
+    /// plot made 4,845 lookups, one transaction each, at about 2.7 ms apiece.
+    /// Results are in the order of `keys`.
+    pub fn lookup_many<K: AsRef<[u8]>>(
+        &self,
+        keys: &[K],
+    ) -> Result<Vec<Option<Vec<u8>>>, CacheError> {
         let r = self.begin_read()?;
         let t = r.open_table(INDEX).map_err(rb)?;
-        keys.iter()
-            .map(|k| Ok(t.get(k.as_slice()).map_err(rb)?.map(|g| g.value().to_vec())))
-            .collect()
+        sorted_gets(keys, |k| {
+            Ok(t.get(k).map_err(rb)?.map(|g| g.value().to_vec()))
+        })
     }
 
     /// `get_fact` for many cids under one read transaction.

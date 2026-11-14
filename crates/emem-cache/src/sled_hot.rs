@@ -1005,14 +1005,41 @@ impl Cache for SledHotCache {
         let out = off_thread(move || {
             let mut out = Vec::with_capacity(facts_in.len());
             let mut items: Vec<FactRow> = Vec::with_capacity(facts_in.len());
+            let mut rows: Vec<(FactCid, Vec<u8>, Option<Vec<u8>>)> = Vec::with_capacity(facts_in.len());
             for f in &facts_in {
                 let cbor = fact_to_cbor(f)?;
                 let mut h = Hasher::new();
                 h.update(&cbor);
                 let hash = h.finalize();
                 let cid_s = BASE32_NOPAD.encode(hash.as_bytes()).to_lowercase();
-                let cid = FactCid::new(cid_s);
-                let mut key = fact_canonical_key(f).map(|k| encode_key(&k));
+                rows.push((FactCid::new(cid_s), cbor, fact_canonical_key(f).map(|k| encode_key(&k))));
+            }
+            // Who holds each address now, read in one transaction (redb) so a
+            // cold plot's thousands of lookups share pages instead of each
+            // paying its own disk read.
+            let holders: Vec<Option<Vec<u8>>> = match &redb {
+                Some(r) => {
+                    let keys: Vec<&[u8]> = rows
+                        .iter()
+                        .map(|(_, _, k)| k.as_deref().unwrap_or(&[]))
+                        .collect();
+                    r.lookup_many(&keys)?
+                        .into_iter()
+                        .zip(rows.iter())
+                        .map(|(h, (_, _, k))| h.filter(|_| k.is_some()))
+                        .collect()
+                }
+                None => rows
+                    .iter()
+                    .map(|(_, _, k)| -> Result<Option<Vec<u8>>, CacheError> {
+                        match k {
+                            Some(kb) => Ok(idx.get(kb)?.map(|v| v.to_vec())),
+                            None => Ok(None),
+                        }
+                    })
+                    .collect::<Result<_, CacheError>>()?,
+            };
+            for ((f, (cid, cbor, mut key)), holder) in facts_in.iter().zip(rows).zip(holders) {
                 // The index at (cell, band, tslot) was last-writer-wins, so a
                 // second signer's fact silently REPLACED what every reader
                 // recalled at that address. Now the address stays with the key
@@ -1020,26 +1047,20 @@ impl Cache for SledHotCache {
                 // reachable by its own cid (and by the multi-attester index and
                 // the contradiction scan), but it does not take the slot. The
                 // same signer refreshing its own reading still does.
-                if let Some(kb) = key.as_ref() {
-                    let holder: Option<Vec<u8>> = match &redb {
-                        Some(r) => r.lookup(kb)?,
-                        None => idx.get(kb)?.map(|v| v.to_vec()),
+                if let Some(holder_cid) = holder {
+                    let holder_fact: Option<Vec<u8>> = match &redb {
+                        Some(r) => r.get_fact(&holder_cid)?,
+                        None => facts_tree.get(&holder_cid)?.map(|v| v.to_vec()),
                     };
-                    if let Some(holder_cid) = holder {
-                        let holder_fact: Option<Vec<u8>> = match &redb {
-                            Some(r) => r.get_fact(&holder_cid)?,
-                            None => facts_tree.get(&holder_cid)?.map(|v| v.to_vec()),
-                        };
-                        if let Some(hb) = holder_fact {
-                            if let Ok(hf) = cbor_to_fact(&hb) {
-                                if fact_signer(&hf) != fact_signer(f) {
-                                    tracing::info!(
-                                        target: "emem::fact_plane",
-                                        cid = %cid.as_str(),
-                                        "address held by another signer; fact stored without taking the index"
-                                    );
-                                    key = None;
-                                }
+                    if let Some(hb) = holder_fact {
+                        if let Ok(hf) = cbor_to_fact(&hb) {
+                            if fact_signer(&hf) != fact_signer(f) {
+                                tracing::info!(
+                                    target: "emem::fact_plane",
+                                    cid = %cid.as_str(),
+                                    "address held by another signer; fact stored without taking the index"
+                                );
+                                key = None;
                             }
                         }
                     }

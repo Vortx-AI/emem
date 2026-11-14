@@ -1761,27 +1761,41 @@ fn append_multi_attester(
     let multi_done = redb
         .map(|r| r.table_backfill_done(emem_cache::KvTable::Multi))
         .unwrap_or(false);
-    for (f, cid) in facts.iter().zip(cids.iter()) {
-        let key_bytes = match fact_canonical_key_bytes(f) {
-            Some(k) => k,
-            None => continue, // derivative facts have no canonical key
-        };
+    let keyed: Vec<(Vec<u8>, &FactCid)> = facts
+        .iter()
+        .zip(cids.iter())
+        // Derivative facts have no canonical key.
+        .filter_map(|(f, cid)| fact_canonical_key_bytes(f).map(|k| (k, cid)))
+        .collect();
+    // The current rows in one read, and the new ones in one write: a read
+    // and a write transaction per fact were thousands of each on a cold plot.
+    let from_redb: Vec<Option<Vec<u8>>> = match redb {
+        Some(r) => {
+            let keys: Vec<&[u8]> = keyed.iter().map(|(k, _)| k.as_slice()).collect();
+            r.kv_get_many(emem_cache::KvTable::Multi, &keys)
+                .map_err(StorageError::Cache)?
+        }
+        None => vec![None; keyed.len()],
+    };
+    // A key written earlier in this same batch is read from here, not from
+    // the store, which has not seen it yet.
+    let mut pending: std::collections::HashMap<Vec<u8>, Vec<u8>> = std::collections::HashMap::new();
+    let mut redb_rows: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
+    for ((key_bytes, cid), stored) in keyed.into_iter().zip(from_redb) {
         let sled_get = || -> Result<Option<Vec<u8>>, StorageError> {
             Ok(tree
                 .get(&key_bytes)
                 .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?
                 .map(|v| v.to_vec()))
         };
-        let current: Option<Vec<u8>> = match redb {
-            Some(r) => match r
-                .kv_get(emem_cache::KvTable::Multi, &key_bytes)
-                .map_err(StorageError::Cache)?
-            {
+        let current: Option<Vec<u8>> = match (pending.get(&key_bytes), redb) {
+            (Some(b), _) => Some(b.clone()),
+            (None, Some(_)) => match stored {
                 Some(b) => Some(b),
                 None if !multi_done => sled_get()?,
                 None => None,
             },
-            None => sled_get()?,
+            (None, None) => sled_get()?,
         };
         let existing: Vec<String> = match current {
             Some(b) => ciborium::de::from_reader::<Vec<String>, _>(&*b)
@@ -1796,18 +1810,18 @@ fn append_multi_attester(
         let mut buf = Vec::new();
         ciborium::ser::into_writer(&updated, &mut buf)
             .map_err(|e| StorageError::Cbor(format!("multi_attester encode: {e}")))?;
-        if let Some(r) = redb {
-            r.kv_put_batch(
-                emem_cache::KvTable::Multi,
-                &[(key_bytes.clone(), buf.clone())],
-                false,
-            )
-            .map_err(StorageError::Cache)?;
+        if redb.is_some() {
+            pending.insert(key_bytes.clone(), buf.clone());
+            redb_rows.push((key_bytes.clone(), buf.clone()));
         }
         if redb.is_none() || !multi_done {
             tree.insert(&key_bytes, buf)
                 .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
         }
+    }
+    if let Some(r) = redb {
+        r.kv_put_batch(emem_cache::KvTable::Multi, &redb_rows, false)
+            .map_err(StorageError::Cache)?;
     }
     Ok(())
 }
@@ -2147,6 +2161,9 @@ fn persist_fact_proofs(
     let tree = db
         .open_tree(TREE_FACT_PROOFS)
         .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    // One redb write for the whole attestation: a write per proof was 4,845
+    // commits for one cold 11 ha plot, most of the 8.5 s its index rows took.
+    let mut redb_rows: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
     for (sorted_idx, (_, orig_idx)) in leaves_with_orig.iter().enumerate() {
         let cid = &cids[*orig_idx];
         let proof = MerkleProof {
@@ -2165,18 +2182,16 @@ fn persist_fact_proofs(
         match redb {
             // New proofs go to redb only: looked up there first, and the sled
             // tree is read only until its backfill reports done.
-            Some(r) => r
-                .kv_put_batch(
-                    emem_cache::KvTable::Proofs,
-                    &[(cid.as_str().as_bytes().to_vec(), buf)],
-                    false,
-                )
-                .map_err(StorageError::Cache)?,
+            Some(_) => redb_rows.push((cid.as_str().as_bytes().to_vec(), buf)),
             None => tree
                 .insert(cid.as_str().as_bytes(), buf)
                 .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))
                 .map(|_| ())?,
         }
+    }
+    if let Some(r) = redb {
+        r.kv_put_batch(emem_cache::KvTable::Proofs, &redb_rows, false)
+            .map_err(StorageError::Cache)?;
     }
     // Durability is forced once by `put_attestation` (this fn's only
     // caller) after all index writes — sled fsyncs the whole Db, so a
