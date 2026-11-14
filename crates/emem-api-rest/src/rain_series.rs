@@ -19,6 +19,7 @@
 //!   window that score is the standardized precipitation index computed
 //!   without a fitted distribution (Farahmand & AghaKouchak 2015).
 
+use emem_storage::PutAttestationDetached;
 use std::time::Instant;
 
 use axum::extract::State;
@@ -477,7 +478,7 @@ pub(crate) async fn rain_series(req: RainSeriesReq, s: &AppState) -> Result<Json
     .map_err(|e| upstream_error(format!("rain series attestation: {e}")))?;
     let cids = s
         .storage
-        .put_attestation(&att)
+        .put_attestation_detached(&att)
         .await
         .map_err(ApiError::from)?;
     let derivation_cid = cids

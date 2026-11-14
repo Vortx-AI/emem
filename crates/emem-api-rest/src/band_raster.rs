@@ -25,6 +25,7 @@
 //! the static forest layers, and the window caps at `MAX_SIDE_PX` per
 //! side (`FOREST_MAX_SIDE_PX` for a forest layer).
 
+use emem_storage::PutAttestationDetached;
 use std::sync::LazyLock;
 use std::time::Instant;
 
@@ -485,7 +486,7 @@ pub async fn band_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, 
     .map_err(|e| upstream_error(format!("derivation attestation: {e}")))?;
     let cids = s
         .storage
-        .put_attestation(&att)
+        .put_attestation_detached(&att)
         .await
         .map_err(ApiError::from)?;
     let derivation_cid = cids
@@ -729,7 +730,7 @@ async fn dem_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, ApiEr
     .map_err(|e| upstream_error(format!("derivation attestation: {e}")))?;
     let cids = s
         .storage
-        .put_attestation(&att)
+        .put_attestation_detached(&att)
         .await
         .map_err(ApiError::from)?;
     let derivation_cid = cids
@@ -1457,7 +1458,7 @@ async fn forest_raster_tiles(
     .map_err(|e| upstream_error(format!("derivation attestation: {e}")))?;
     let cids = s
         .storage
-        .put_attestation(&att)
+        .put_attestation_detached(&att)
         .await
         .map_err(ApiError::from)?;
     let derivation_cid = cids
@@ -1681,7 +1682,7 @@ async fn embedding_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue,
     .map_err(|e| upstream_error(format!("derivation attestation: {e}")))?;
     let cids = s
         .storage
-        .put_attestation(&att)
+        .put_attestation_detached(&att)
         .await
         .map_err(ApiError::from)?;
     let derivation_cid = cids
@@ -1928,7 +1929,7 @@ pub async fn raster_bundle(req: RasterBundleReq, s: &AppState) -> Result<JsonVal
     .map_err(|e| upstream_error(format!("bundle attestation: {e}")))?;
     let cids = s
         .storage
-        .put_attestation(&att)
+        .put_attestation_detached(&att)
         .await
         .map_err(ApiError::from)?;
     let derivation_cid = cids
@@ -2751,7 +2752,7 @@ pub async fn band_cube(req: BandCubeReq, s: &AppState) -> Result<JsonValue, ApiE
     .map_err(|e| upstream_error(format!("cube attestation: {e}")))?;
     let cids = s
         .storage
-        .put_attestation(&att)
+        .put_attestation_detached(&att)
         .await
         .map_err(ApiError::from)?;
     let derivation_cid = cids
@@ -3476,7 +3477,7 @@ pub async fn band_composite(req: BandCompositeReq, s: &AppState) -> Result<JsonV
     .map_err(|e| upstream_error(format!("composite attestation: {e}")))?;
     let cids = s
         .storage
-        .put_attestation(&att)
+        .put_attestation_detached(&att)
         .await
         .map_err(ApiError::from)?;
     let derivation_cid = cids

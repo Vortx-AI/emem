@@ -100,6 +100,7 @@ use emem_primitives::{
     MemoryEventFilter, MemoryKind, MemorySearchReq, QueryRegionReq, RecallReq, RecallResp,
     TrajectoryReq, VerifyReq,
 };
+use emem_storage::PutAttestationDetached;
 use emem_storage::{Server, StorageError};
 
 /// Shared application state.
@@ -21577,7 +21578,7 @@ async fn post_edges_write(
         .iter()
         .map(|e| e.cid().as_str().to_string())
         .collect();
-    match s.storage.put_attestation(&att).await {
+    match s.storage.put_attestation_detached(&att).await {
         Ok(cids) => {
             metrics_inc(&ATTEST_TOTAL);
             let cid_strs: Vec<&str> = cids.iter().map(|c| c.as_str()).collect();
@@ -43611,7 +43612,7 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
 
     let cids = s
         .storage
-        .put_attestation(&att)
+        .put_attestation_detached(&att)
         .await
         .map_err(ApiError::from)?;
     let fact_cid = cids
@@ -52298,7 +52299,7 @@ pub(crate) async fn run_refinement_pass(s: &AppState) -> Result<(usize, usize), 
     // no-op), but the logical dedupe above already guarantees we never
     // hand it a duplicate across ticks.
     s.storage
-        .put_attestation(&att)
+        .put_attestation_detached(&att)
         .await
         .map_err(ApiError::from)?;
 
@@ -54635,7 +54636,7 @@ async fn materialize_modis_ndvi_window(
 
     let cids = s
         .storage
-        .put_attestation(&att)
+        .put_attestation_detached(&att)
         .await
         .map_err(|e| format!("put_attestation (modis): {e}"))?;
     cids.into_iter()
@@ -63908,7 +63909,7 @@ async fn sign_and_persist_many(
     .map_err(|e| format!("attestation build (batch): {e}"))?;
     let cids = s
         .storage
-        .put_attestation(&att)
+        .put_attestation_detached(&att)
         .await
         .map_err(|e| format!("put_attestation: {e}"))?;
     // Bump the global corpus write-generation so result caches keyed on it
@@ -64197,7 +64198,7 @@ async fn sign_band_absence(
 
     let cids = s
         .storage
-        .put_attestation(&att)
+        .put_attestation_detached(&att)
         .await
         .map_err(|e| format!("put_attestation (absence): {e}"))?;
     cids.into_iter()
@@ -106501,7 +106502,11 @@ mod tests {
             scope: None,
             preimage_version: 0,
         };
-        let cids = s.storage.put_attestation(&att).await.expect("seed put");
+        let cids = s
+            .storage
+            .put_attestation_detached(&att)
+            .await
+            .expect("seed put");
         cids[0].as_str().to_string()
     }
 

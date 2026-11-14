@@ -457,6 +457,42 @@ pub struct MaterializingStorage {
     locators_present: bool,
 }
 
+/// Attestation writes that finish when the caller goes away.
+///
+/// `put_attestation` stores the facts, appends the log, then writes the proof
+/// and index rows, awaiting each in turn. A caller that is dropped between
+/// those steps (a client that disconnects, a timeout around the call) leaves
+/// facts stored and signed but never logged and without proofs: an EUDR
+/// batch was left that way when its caller timed out at 32 s on 13 November
+/// 2026. Run as its own task, the write completes whatever the caller does;
+/// a caller that stays still waits for it and gets its result.
+#[async_trait]
+pub trait PutAttestationDetached {
+    /// [`Storage::put_attestation`], run to completion on its own task.
+    async fn put_attestation_detached(
+        &self,
+        att: &Attestation,
+    ) -> Result<Vec<FactCid>, StorageError>;
+}
+
+#[async_trait]
+impl PutAttestationDetached for Arc<dyn Storage> {
+    async fn put_attestation_detached(
+        &self,
+        att: &Attestation,
+    ) -> Result<Vec<FactCid>, StorageError> {
+        let storage = Arc::clone(self);
+        let att = att.clone();
+        tokio::spawn(async move { storage.put_attestation(&att).await })
+            .await
+            .map_err(|e| {
+                StorageError::Io(std::io::Error::other(format!(
+                    "attestation write task: {e}"
+                )))
+            })?
+    }
+}
+
 /// The protocol-level storage trait. All primitives program against this
 /// surface. Async + batch-shaped from day one.
 // async_trait marks each declared method #[must_use] on a future that
@@ -2647,6 +2683,57 @@ mod multi_attester_tests {
             signed_at: "2026-05-28T00:00:00Z".into(),
             served_via: None,
         })
+    }
+
+    #[tokio::test]
+    async fn a_dropped_caller_does_not_cut_a_write_short() {
+        let bands = Arc::new(emem_core::bands::DEFAULT.clone());
+        let functions =
+            Arc::new(emem_core::FunctionRegistry::parse_default().expect("default functions"));
+        let sources =
+            Arc::new(emem_core::SourceRegistry::parse_default().expect("default sources"));
+        let concrete = Arc::new(
+            MaterializingStorage::ephemeral(bands, functions, sources).expect("ephemeral storage"),
+        );
+        concrete.set_fact_plane_policy(FactPlanePolicy {
+            open: true,
+            ..Default::default()
+        });
+        let storage: Arc<dyn Storage> = concrete.clone();
+        let mut sec = [0u8; 32];
+        sec[0] = 7;
+        let pk = SigningKey::from_bytes(&sec).verifying_key().to_bytes();
+        let cell = "damO.zb000.xUti.zde78";
+        let (att, _) = build_signed(vec![mk_ndvi_fact(cell, 12, 0.5, pk)], sec);
+        let before = concrete.log.record_count().await;
+        // A zero timeout polls the write once, so it has started, then drops it.
+        let dropped = tokio::time::timeout(
+            std::time::Duration::ZERO,
+            storage.put_attestation_detached(&att),
+        )
+        .await;
+        assert!(
+            dropped.is_err(),
+            "the caller gave up before the write returned"
+        );
+        let key = CanonicalKey {
+            cell: cell.into(),
+            band: "indices.ndvi".into(),
+            tslot: 12,
+        };
+        let mut stored = false;
+        for _ in 0..200 {
+            let hit = storage
+                .lookup_canonical_many(std::slice::from_ref(&key))
+                .await
+                .unwrap();
+            if hit[0].is_some() && concrete.log.record_count().await == before + 1 {
+                stored = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(stored, "the write finished: fact stored and logged");
     }
 
     #[tokio::test]

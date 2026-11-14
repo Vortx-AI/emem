@@ -57,6 +57,7 @@
 //! together. When no env pair exists the window collapses to the
 //! Tessera fact's tslot on both ends.
 
+use emem_storage::PutAttestationDetached;
 use std::time::Instant;
 
 use axum::extract::State;
@@ -480,7 +481,7 @@ pub async fn change_attribution(
             signed_at,
             None,
         ) {
-            Ok(att) => match s.storage.put_attestation(&att).await {
+            Ok(att) => match s.storage.put_attestation_detached(&att).await {
                 Ok(cids) if !cids.is_empty() => {
                     let cid = cids[0].as_str().to_string();
                     let token = format!("emem:fact:{cell}:{cid}");

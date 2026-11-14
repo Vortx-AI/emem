@@ -15,6 +15,7 @@
 //! for a degree above zero to melt what a spring degree-day melts. The rule
 //! calls a disagreement UNKNOWN and shows both, rather than choose one.
 
+use emem_storage::PutAttestationDetached;
 use std::collections::BTreeMap;
 use std::time::Instant;
 
@@ -636,7 +637,7 @@ pub(crate) async fn build_chain(
     .map_err(|e| format!("chain attestation: {e}"))?;
     let cids = s
         .storage
-        .put_attestation(&att)
+        .put_attestation_detached(&att)
         .await
         .map_err(|e| format!("store: {e}"))?;
     let cid = cids

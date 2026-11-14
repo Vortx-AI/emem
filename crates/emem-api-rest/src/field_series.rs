@@ -29,6 +29,7 @@
 //! on the corresponding OLI bands, 30 m pixels masked by QA_PIXEL bits, the
 //! same rows and statistics. It reaches back to 2013, before Sentinel-2.
 
+use emem_storage::PutAttestationDetached;
 use std::time::Instant;
 
 use axum::extract::State;
@@ -3308,7 +3309,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     .map_err(|e| upstream_error(format!("series attestation: {e}")))?;
     let cids = s
         .storage
-        .put_attestation(&att)
+        .put_attestation_detached(&att)
         .await
         .map_err(ApiError::from)?;
     let derivation_cid = cids
@@ -4020,7 +4021,7 @@ async fn radar_series(
     .map_err(|e| upstream_error(format!("series attestation: {e}")))?;
     let cids = s
         .storage
-        .put_attestation(&att)
+        .put_attestation_detached(&att)
         .await
         .map_err(ApiError::from)?;
     let derivation_cid = cids
