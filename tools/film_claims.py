@@ -22,7 +22,10 @@ The half of docs/media/films/STANDARD.md that film_qc.py cannot do offline. For 
                                    of the two public catalogues below, `shown_utc` the date or minute shown
                                    (2026-05-30 or 2026-05-30T11:06Z). The item's `datetime`, cut to that
                                    precision as a clock shows it, must equal it; the text must name the same day;
-                                   and when film.json has segments, an evidence segment must list the item id.
+                                   and when film.json has segments, an evidence segment must list the item id, or
+                                   an illustration segment (the catalogue's own preview) must name the item URL in
+                                   `source.stac_item`. `cloud`, when the screen shows the catalogue's cloud figure,
+                                   must equal the item's eo:cloud_cover, and the text must say it is the tile's.
   emem:bundle:<cid> + `rule`        a share or count over an area, such as "72 % of the park reads as snow". The
                                    bundle binds the signed per-cell facts; `rule` is {band, op, threshold} with op
                                    one of ge, gt, le, lt; `statistic` is count, share or percent. The gate resolves
@@ -48,6 +51,16 @@ The half of docs/media/films/STANDARD.md that film_qc.py cannot do offline. For 
                                    strictly between, and one must hold a pass on each of the two days. `value`,
                                    when shown, is the gap, before minus after, in days. A record that has no
                                    reading for a day does not show that no satellite passed.
+  emem:fact (a chain) + `fused`     a verdict that joins an observation and the reanalysis since, such as "whether
+                                   the snow seen on 31 October lasted to 3 December: UNKNOWN", from POST
+                                   /v1/persist. `token` is the chain's emem:fact; `fused` is {verdict?, field?,
+                                   value?}: the verdict shown, and a number shown with the JSON pointer of the
+                                   record field it is (/snowfall/total_cm). The gate resolves the chain, fetches
+                                   the upstream series it read (GET /v1/artifacts/<cid>, bytes checked against the
+                                   cid, needs the blake3 module), runs persistence_snow@1 again on those bytes and
+                                   requires every number and the verdict to match; the observation and the depth
+                                   fact it cites must resolve to the values it used. The text must say it is a
+                                   model or reanalysis reading.
   a conversion                     "99 football pitches" from "71 hectares": `of` is the index of the claim it
                                    converts, `multiply` and `divide` the factors, `formula` the words. The gate
                                    converts the SIGNED value of that claim, not the rounded one on screen.
@@ -403,11 +416,197 @@ def label(c, meta):
     named = y in text and re.search(rf"(?<!\d)0?{int(d)}(?!\d)", text) and (MONTHS[int(mo) - 1] in text or f"-{mo}-" in text)
     if not named or (hh and f"{hh}:{mi}" not in text):
         return False, f"the text does not say {want}; `shown_utc` must be what the screen shows"
+    cc = (item.get("properties") or {}).get("eo:cloud_cover")
+    if "cloud" in c:
+        if cc is None or not same(c["cloud"], cc):
+            return False, f"shown {c['cloud']!r} % cloud, the catalogue item says {cc!r}"
+        if "tile" not in text and "scene" not in text:
+            return False, "the catalogue's cloud figure is the whole tile's, not the box's: the text must say tile or scene"
     segs = meta.get("segments") or []
     listed = {str(s) for g in segs if g.get("role") == "evidence" for s in (g.get("scenes") or [])}
-    if segs and item.get("id") not in listed:
-        return False, f"no evidence segment lists {item.get('id')!r}; name scenes by their catalogue item id"
-    return True, f"catalogue datetime {dt}"
+    # A catalogue's own preview of a pass is an illustration (a rendering, not source pixels) that names its item.
+    previews = {str((g.get("source") or {}).get("stac_item")) for g in segs if g.get("role") == "illustration"}
+    if segs and item.get("id") not in listed and url not in previews:
+        return False, (f"no evidence segment lists {item.get('id')!r}, and no illustration segment's source names "
+                       "this item; name scenes by their catalogue item id")
+    return True, f"catalogue datetime {dt}" + (f", {cc} % tile cloud" if "cloud" in c else "")
+
+
+# persistence_snow@1, as crates/emem-api-rest/src/persist.rs declares it. A record whose rule differs is
+# refused rather than recomputed under its own numbers.
+PERSIST_RULE = {"ndsi_snow": 0.4, "ndsi_no_snow": 0.0, "melt_out_m": 0.01, "snow_on_ground_m": 0.05,
+                "glacier_pack_m": 10.0, "ddf_mm_per_degc_day": 3.0, "start_density_kg_m3": 300.0,
+                "snowfall_cm_per_mm": 0.7, "max_missing_share": 0.1}
+
+
+def f64_round(v):
+    """Rust's f64::round: half away from zero."""
+    f = math.floor(v)
+    d = v - f
+    return f + 1 if d > 0.5 or (d == 0.5 and v > 0) else f
+
+
+def r2(x):
+    return None if x is None else f64_round(x * 100.0) / 100.0
+
+
+def utc(s):
+    from datetime import datetime, timezone
+    s = s.rstrip("Z")
+    fmt = "%Y-%m-%dT%H:%M:%S" if s.count(":") == 2 else "%Y-%m-%dT%H:%M"
+    return int(datetime.strptime(s, fmt).replace(tzinfo=timezone.utc).timestamp())
+
+
+def iso_hour(u):
+    from datetime import datetime, timezone
+    return datetime.fromtimestamp(u, timezone.utc).strftime("%Y-%m-%dT%H:00Z")
+
+
+def iso_day(u):
+    return iso_hour(u)[:10]
+
+
+def persist_judge(ndsi, obs_unix, to_unix, body):
+    """The same chain as persist.rs `judge`, hour by hour in the same order, so the floats agree bit for bit."""
+    R = PERSIST_RULE
+    h = body["hourly"]
+    hours = [utc(t) for t in h["time"]]
+    T, S, D = h["temperature_2m_era5_land"], h["snowfall_era5"], h["snow_depth_era5_land"]
+    obs_h, to_h = obs_unix // 3600 * 3600, to_unix // 3600 * 3600
+    win = [i for i, x in enumerate(hours) if obs_h < x <= to_h]
+    n = len(win)
+    gaps = [sum(1 for i in win if v[i] is None) for v in (T, S, D)]
+    start = hours.index(obs_h) if obs_h in hours else None
+    d0 = D[start] if start is not None else None
+    d_end = D[hours.index(to_h)] if to_h in hours else None
+    days, thaw_h, pdd, total = {}, 0, 0.0, 0.0
+    t_max = d_min = d_max = last_thaw = m_out = m_snow = dd_out = None
+    glacier = d0 is not None and d0 >= R["glacier_pack_m"]
+    swe = d0 * R["start_density_kg_m3"] if d0 is not None else 0.0
+    swe0 = swe
+    for i in win:
+        x = hours[i]
+        day = days.setdefault(iso_day(x), {"t_max": None, "thaw": 0, "pdd": 0.0, "fall": 0.0, "dmin": None, "dmax": None})
+        t = T[i]
+        if t is not None:
+            day["t_max"] = t if day["t_max"] is None else max(day["t_max"], t)
+            if t_max is None or t > t_max[0]:
+                t_max = (t, x)
+            if t > 0.0:
+                thaw_h += 1; day["thaw"] += 1; pdd += t / 24.0; day["pdd"] += t / 24.0; last_thaw = x
+        fall = S[i] if S[i] is not None else 0.0
+        total += fall; day["fall"] += fall
+        d = D[i]
+        if d is not None:
+            day["dmin"] = d if day["dmin"] is None else min(day["dmin"], d)
+            day["dmax"] = d if day["dmax"] is None else max(day["dmax"], d)
+            if d_min is None or d < d_min[0]:
+                d_min = (d, x)
+            d_max = d if d_max is None else max(d_max, d)
+            glacier = glacier or d >= R["glacier_pack_m"]
+            if m_out is None and d < R["melt_out_m"]:
+                m_out = x
+            if m_snow is None and d >= R["snow_on_ground_m"]:
+                m_snow = x
+        before = swe
+        swe = max(swe + fall / R["snowfall_cm_per_mm"] - (max(t, 0.0) * R["ddf_mm_per_degc_day"] / 24.0 if t is not None else 0.0), 0.0)
+        if dd_out is None and before > 0.0 and swe <= 0.0:
+            dd_out = x
+    state = "snow" if ndsi >= R["ndsi_snow"] else "no_snow" if ndsi < R["ndsi_no_snow"] else "snow_or_cloud"
+    if n == 0 or glacier or max(gaps) > R["max_missing_share"] * n or state == "snow_or_cloud":
+        verdict = "unknown"
+    elif state == "snow":
+        if d0 is None or d0 < R["melt_out_m"] or (m_out is None) != (dd_out is None):
+            verdict = "unknown"
+        elif m_out is None:
+            verdict = "persisted_likely"
+        else:
+            verdict = "renewed" if d_end is not None and d_end >= R["snow_on_ground_m"] else "broken"
+    elif d0 is not None and d0 >= R["snow_on_ground_m"]:
+        verdict = "unknown"
+    else:
+        verdict = "broken" if m_snow is not None else "persisted_likely"
+    fall_day = None
+    for k, v in sorted(days.items()):  # Rust's max_by keeps the last of equal maxima
+        if fall_day is None or v["fall"] >= fall_day[1]:
+            fall_day = (k, v["fall"])
+    return {
+        "window": {"from": iso_hour(obs_h), "to": iso_hour(to_h), "hours": n},
+        "verdict": verdict,
+        "/thaw/hours_above_0c": thaw_h, "/thaw/days_with_thaw": sum(1 for v in days.values() if v["thaw"]),
+        "/thaw/positive_degree_days": r2(pdd), "/thaw/max_t2m_c/value": r2(t_max[0]) if t_max else None,
+        "/snowfall/total_cm": r2(total),
+        "/snowfall/max_day/cm": r2(fall_day[1]) if fall_day and fall_day[1] > 0 else None,
+        "/model_pack/depth_at_observation_m": r2(d0), "/model_pack/min_m/value": r2(d_min[0]) if d_min else None,
+        "/model_pack/max_m": r2(d_max), "/model_pack/melt_out_at": iso_hour(m_out) if m_out is not None else None,
+        "/model_pack/depth_at_date_m": r2(d_end),
+        "/degree_day_pack/swe_start_mm": r2(swe0), "/degree_day_pack/swe_at_date_mm": r2(swe),
+        "/degree_day_pack/melt_out_at": iso_hour(dd_out) if dd_out is not None else None,
+        "/daily": [{"day": k, "t_max_c": r2(v["t_max"]), "thaw_hours": v["thaw"], "positive_degree_days": r2(v["pdd"]),
+                    "snowfall_cm": r2(v["fall"]), "depth_min_m": r2(v["dmin"]), "depth_max_m": r2(v["dmax"])}
+                   for k, v in sorted(days.items())],
+    }
+
+
+def pointer(doc, p):
+    for k in p.strip("/").split("/"):
+        if isinstance(doc, list) and k.isdigit() and int(k) < len(doc):
+            doc = doc[int(k)]
+        elif isinstance(doc, dict) and k in doc:
+            doc = doc[k]
+        else:
+            return None
+    return doc
+
+
+def fused(c):
+    r = json.loads(get(f"{EMEM}/v1/memory_token/resolve", {"token": c["token"]}))
+    if not r.get("resolved"):
+        return False, f"does not resolve: {r.get('message', 'no reason given')}"
+    if r.get("cell_matches") is False:
+        return False, "resolves only without its cell; cite it as emem:fact:<cell>:<cid>"
+    rec = r.get("value")
+    if not isinstance(rec, dict) or rec.get("schema") != "emem.persistence.v1":
+        return False, "the token is not a persistence chain (schema emem.persistence.v1)"
+    if rec.get("fn_key") != "persistence_snow@1":
+        return False, f"rule {rec.get('fn_key')!r}: this gate recomputes persistence_snow@1 only"
+    declared = {k: (rec.get("rule") or {}).get(k) for k in PERSIST_RULE}
+    if declared != PERSIST_RULE:
+        return False, f"the record's rule numbers differ from persistence_snow@1: {declared}"
+    text = str(c.get("text", "")).lower()
+    if "model" not in text and "reanalysis" not in text:
+        return False, "the text must say this is a model or reanalysis reading"
+    try:
+        import blake3
+    except ImportError:
+        return False, "the blake3 module is needed to check the series artifact (pip install blake3)"
+    art = (rec.get("series") or {}).get("artifact_cid", "")
+    raw = get(f"{EMEM}/v1/artifacts/{art}")
+    if base64.b32encode(blake3.blake3(raw).digest()).decode().rstrip("=").lower() != art:
+        return False, f"the series bytes do not hash to {art}"
+    ob = rec.get("observation") or {}
+    cell = c["token"].split(":")[2]
+    o = json.loads(get(f"{EMEM}/v1/memory_token/resolve", {"token": f"emem:fact:{cell}:{ob.get('fact_cid')}"}))
+    if not o.get("resolved") or o.get("value") != ob.get("value"):
+        return False, f"the observation {ob.get('fact_cid')} does not resolve to {ob.get('value')!r}"
+    want = persist_judge(ob["value"], utc(ob["observed_at"]), utc(rec["window"]["to"]), json.loads(raw))
+    bad = [k for k, v in want.items() if (rec.get(k) if not k.startswith("/") else pointer(rec, k)) != v]
+    if bad:
+        k = bad[0]
+        return False, f"recomputed {k} = {want[k]!r}, the record says {(rec.get(k) if not k.startswith('/') else pointer(rec, k))!r}"
+    dep = rec.get("depth_fact")
+    if dep:
+        d = json.loads(get(f"{EMEM}/v1/memory_token/resolve", {"token": f"emem:fact:{cell}:{dep.get('fact_cid')}"}))
+        if not d.get("resolved") or r2(d.get("value")) != want["/model_pack/depth_at_date_m"]:
+            return False, f"the depth fact {dep.get('fact_cid')} does not resolve to the depth at the hour asked"
+    shown = c.get("fused") if isinstance(c.get("fused"), dict) else {}
+    if shown.get("verdict") is not None and str(shown["verdict"]).lower().replace(" ", "_") != rec["verdict"]:
+        return False, f"shown verdict {shown['verdict']!r}, the chain says {rec['verdict']!r}"
+    if shown.get("field"):
+        v = pointer(rec, shown["field"])
+        if v is None or not same(shown.get("value"), v):
+            return False, f"shown {shown.get('value')!r} for {shown['field']}, the chain says {v!r}"
+    return True, f"recomputed {len(want)} links: {rec['verdict']} over {rec['window']['hours']} hours"
 
 
 def convert(c, i, claims, signed):
@@ -468,6 +667,8 @@ def main():
                     why = f"computed by {c['reproduce']}; output {'matches' if ok else 'differs from'} its sha256"
             elif BUNDLE.match(tok):
                 ok, why = bundle(c)
+            elif FACT.match(tok) and c.get("fused") is not None:
+                ok, why = fused(c)
             elif FACT.match(tok) or TREE.match(tok):
                 m = TREE.match(tok)
                 ok, why, *val = tree(c, m) if m else fact(c)

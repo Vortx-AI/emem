@@ -39,6 +39,15 @@ fails a technical gate is sent back with the report.
   "nothing is signed for" a day, and that does not say the satellite did not pass: over Santa Claus Village it
   passed on 1, 5 and 8 November 2024 under 98 to 100 % cloud. The claim names the passes on each side and the
   gate searches both public catalogues for any pass between them.
+- A pass that the catalogue lists under cloud can be shown: "the satellite passed; it saw cloud". The picture is
+  the catalogue's own preview of that item, so it is an illustration, not evidence, and no verdict rests on it.
+  Its segment's `source` names the item URL (`stac_item`). Its label is a pass label, and a cloud figure on it is
+  the catalogue's figure for the whole tile, checked against the item: the screen says "of the tile", never
+  that the place was under cloud.
+- A verdict that joins an observation and the weather since, such as whether the snow seen on 31 October lasted
+  to 3 December, is a `fused` claim on a chain from `POST /v1/persist`. The gate runs the rule again on the
+  series the chain read. The screen says it is a model reading, and it shows both melt readings when they
+  disagree.
 - A picture from a map provider (a high-resolution base image, a 3D city) is an illustration. While it shows,
   the screen says "drawing of data" or "map image", and the provider's attribution is on the picture. Its segment
   in `film.json` names the provider, the product, the licence and the capture date, or "unknown" when the
@@ -117,6 +126,12 @@ One folder per film, `docs/media/films/<id>/`:
   the same box. The rules must read exactly the rasters given;
 - an absence in `claims` has `text`, `absence` (`{collection, lng, lat, after, before}`, the days of the passes on
   each side, and `max_cloud` for "no clear pass") and, when the screen shows the gap in days, `value`;
+- a pass label may add `cloud`, the catalogue's cloud figure shown, which must equal the item's
+  `eo:cloud_cover`; the text says it is the tile's. The catalogue's preview of a pass is an illustration segment
+  whose `source.stac_item` is the item URL;
+- a chain verdict in `claims` has `text`, `token` (the chain's `emem:fact`) and `fused`: `{verdict, field,
+  value}`, the verdict shown and a number shown with the JSON pointer of its field in the record
+  (`/snowfall/total_cm`). The check needs the `blake3` module;
 - a conversion in `claims` has `text`, `of` (the index of the claim it converts), `multiply`, `divide`,
   `formula` and the `value` shown;
 - in `film.json` when the film has them: `segments`, each `{start, end, role: "evidence" | "illustration",
