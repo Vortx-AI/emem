@@ -61,6 +61,114 @@ struct LogState {
     /// until somebody asks for it: the count is a length-driven walk over
     /// every byte of every segment, and open() is on the boot path.
     prior: Option<u64>,
+    /// Makes the next group write fail part way, as a full disk does.
+    #[cfg(test)]
+    fault: Option<WriteFault>,
+}
+
+/// A group write that failed, and whether the segment it wrote to must be
+/// left behind.
+struct GroupFailure {
+    error: std::io::Error,
+    /// The segment may now end in a partial frame, so nothing may be
+    /// appended after it.
+    rotate: bool,
+}
+
+/// The file a group write appends to. Tests wrap it to fail part way.
+struct SegmentFile {
+    f: std::fs::File,
+    #[cfg(test)]
+    fault: Option<WriteFault>,
+}
+
+/// Where an injected write stops, and whether cutting the file back fails.
+#[cfg(test)]
+#[derive(Debug, Clone, Copy)]
+struct WriteFault {
+    /// File length at which writes stop with "no space left".
+    stop_at: u64,
+    cut_fails: bool,
+}
+
+impl Write for SegmentFile {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        #[cfg(test)]
+        if let Some(fault) = self.fault {
+            let room = fault.stop_at.saturating_sub(self.f.metadata()?.len()) as usize;
+            if room == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::StorageFull,
+                    "injected: no space left on device",
+                ));
+            }
+            return self.f.write(&buf[..buf.len().min(room)]);
+        }
+        self.f.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.f.flush()
+    }
+}
+
+impl SegmentFile {
+    fn size(&self) -> std::io::Result<u64> {
+        Ok(self.f.metadata()?.len())
+    }
+
+    fn cut_to(&self, len: u64) -> std::io::Result<()> {
+        #[cfg(test)]
+        if self.fault.is_some_and(|f| f.cut_fails) {
+            return Err(std::io::Error::other("injected: the cut failed"));
+        }
+        self.f.set_len(len)?;
+        self.f.sync_all()
+    }
+}
+
+/// Append `bytes` whole, or leave the segment as it was.
+///
+/// On a full disk a write fills the last allocated block and then fails,
+/// which leaves part of a frame on disk. Nothing used to cut it back, and
+/// the next append started after it. The length-driven walk that builds the
+/// tree then read the torn length, took 32 bytes of the next record as a
+/// leaf, and never reached the records after it (four tears, May to
+/// September 2026). So a failed write or fsync cuts the file back to its
+/// length before the write. When the cut fails as well, the caller leaves
+/// the segment: a partial frame at the end of a segment is harmless, a
+/// partial frame with records after it is not.
+fn write_whole_or_nothing(
+    f: &mut SegmentFile,
+    expect: u64,
+    bytes: &[u8],
+) -> Result<(), GroupFailure> {
+    let before = f.size().map_err(|error| GroupFailure {
+        error,
+        rotate: false,
+    })?;
+    if before != expect {
+        return Err(GroupFailure {
+            error: std::io::Error::other(format!(
+                "the segment holds {before} bytes and this log wrote {expect}; \
+                 no record is framed after bytes this log did not write"
+            )),
+            rotate: true,
+        });
+    }
+    let Err(error) = f.write_all(bytes).and_then(|()| f.f.sync_all()) else {
+        return Ok(());
+    };
+    let rotate = f.cut_to(before).is_err();
+    Err(GroupFailure { error, rotate })
+}
+
+/// Leave the current segment without a trailer, as a restart does. The next
+/// write creates the next segment.
+fn start_next_segment(s: &mut LogState) {
+    s.segment_index += 1;
+    s.bytes_in_segment = 0;
+    s.segment_hasher = Hasher::new();
 }
 
 impl AttestationLog {
@@ -224,9 +332,14 @@ async fn write_batch(root: &std::path::Path, s: &mut LogState, batch: Vec<Pendin
         if used > 0 && used + len > SEGMENT_BYTES {
             write_group(root, s, std::mem::take(&mut group)).await;
             group_bytes = 0;
-            if let Err(e) = seal_segment(root, s) {
-                let _ = p.done.send(Err(e));
-                continue;
+            // A failed group write may already have moved to a new segment,
+            // and a new segment is never sealed empty.
+            let full = s.bytes_in_segment > 0 && s.bytes_in_segment + len > SEGMENT_BYTES;
+            if full {
+                if let Err(e) = seal_segment(root, s) {
+                    let _ = p.done.send(Err(e));
+                    continue;
+                }
             }
         }
         group_bytes += len;
@@ -244,16 +357,46 @@ async fn write_group(root: &std::path::Path, s: &mut LogState, group: Vec<Pendin
     for p in &group {
         bytes.extend_from_slice(&p.record);
     }
+    let expect = s.bytes_in_segment;
+    #[cfg(test)]
+    let fault = s.fault.take();
     // The open + write + fsync stay on the blocking pool so an fsync never
     // parks an async worker.
-    let written = tokio::task::spawn_blocking(move || -> std::io::Result<()> {
-        let mut f = OpenOptions::new().create(true).append(true).open(&path)?;
-        f.write_all(&bytes)?;
-        f.sync_all()
+    let written = tokio::task::spawn_blocking(move || -> Result<(), GroupFailure> {
+        let f = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .map_err(|error| GroupFailure {
+                error,
+                rotate: false,
+            })?;
+        let mut f = SegmentFile {
+            f,
+            #[cfg(test)]
+            fault,
+        };
+        write_whole_or_nothing(&mut f, expect, &bytes)
     })
     .await
-    .map_err(|e| std::io::Error::other(format!("merkle log append task panicked: {e}")))
-    .and_then(|r| r);
+    .unwrap_or_else(|e| {
+        // What reached the disk is unknown, so nothing goes after it.
+        Err(GroupFailure {
+            error: std::io::Error::other(format!("merkle log append task panicked: {e}")),
+            rotate: true,
+        })
+    });
+    let written = written.map_err(|GroupFailure { error, rotate }| {
+        if rotate {
+            tracing::error!(
+                segment = s.segment_index,
+                error = %error,
+                "a log write failed and the segment could not be cut back; appends move to a new segment"
+            );
+            start_next_segment(s);
+        }
+        error
+    });
     match written {
         Ok(()) => {
             for p in group {
@@ -670,16 +813,29 @@ fn check_segment(bytes: &[u8]) -> Result<SegmentEnd, String> {
     }
 }
 
+/// Append the segment hash and move to the next segment. The move happens
+/// even when the trailer write fails: the segment is full, and a later
+/// record must never follow a partial trailer. A segment whose trailer
+/// failed ends like one a restart closed, or with a torn tail when the cut
+/// back failed as well.
 fn seal_segment(root: &std::path::Path, s: &mut LogState) -> std::io::Result<()> {
     let segment_hash_bytes = s.segment_hasher.finalize();
     let path = root.join(format!("merkle.log.{}", s.segment_index));
-    let mut f = OpenOptions::new().append(true).open(&path)?;
-    f.write_all(segment_hash_bytes.as_bytes())?;
-    f.sync_all()?;
-    s.segment_index += 1;
-    s.bytes_in_segment = 0;
-    s.segment_hasher = Hasher::new();
-    Ok(())
+    let records = s.bytes_in_segment;
+    let sealed = OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .and_then(|mut f| {
+            let r = f
+                .write_all(segment_hash_bytes.as_bytes())
+                .and_then(|()| f.sync_all());
+            if r.is_err() {
+                let _ = f.set_len(records).and_then(|()| f.sync_all());
+            }
+            r
+        });
+    start_next_segment(s);
+    sealed
 }
 
 /// Decide which segment this process will write to, by name only.
@@ -717,6 +873,8 @@ fn scan_existing(root: &std::path::Path) -> std::io::Result<LogState> {
         first_own_segment: segment_index,
         appended: 0,
         prior: None,
+        #[cfg(test)]
+        fault: None,
     })
 }
 
@@ -1580,6 +1738,110 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
         assert_eq!(again.entry_for_batch_root(&[4u8; 32]), Some((leaves[4], 0)));
+    }
+
+    impl AttestationLog {
+        async fn inject_fault(&self, fault: WriteFault) {
+            self.state.lock().await.fault = Some(fault);
+        }
+    }
+
+    /// A record of about `pad` bytes, so a test can place block boundaries.
+    fn padded(i: u64, pad: usize) -> Vec<u8> {
+        let mut buf = Vec::new();
+        let v = serde_json::json!({"kind": "test.pad", "i": i, "pad": "x".repeat(pad)});
+        ciborium::ser::into_writer(&v, &mut buf).unwrap();
+        buf
+    }
+
+    fn assert_entries_rehash_to_leaves(log: &AttestationLog) {
+        let leaves = log.leaf_hashes().unwrap();
+        let all = log.entries(0, u64::MAX).unwrap();
+        assert_eq!(all.len(), leaves.len());
+        for ((i, cbor), leaf) in all.iter().zip(&leaves) {
+            assert_eq!(blake3::hash(cbor).as_bytes(), leaf, "entry {i}");
+        }
+    }
+
+    /// A full disk stops a write at the end of its last block. The segment
+    /// is cut back, the caller gets the error, and the next append lands
+    /// where the failed one began: every frame still checks, and the tree
+    /// grows by exactly the new leaf.
+    #[tokio::test]
+    async fn a_write_cut_at_a_block_boundary_leaves_no_partial_frame() {
+        let tmp = tempfile::tempdir().unwrap();
+        let log = AttestationLog::open(tmp.path()).unwrap();
+        let mut want = Vec::new();
+        for i in 0..2 {
+            want.push(log.append_cbor(padded(i, 1500)).await.unwrap().record_hash);
+        }
+        let seg = tmp.path().join("merkle.log.0");
+        let before = std::fs::metadata(&seg).unwrap().len();
+        assert!(before < 4096 && before + 1500 > 4096, "{before}");
+        log.inject_fault(WriteFault {
+            stop_at: 4096,
+            cut_fails: false,
+        })
+        .await;
+        let e = log.append_cbor(padded(2, 1500)).await.unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::StorageFull);
+        assert_eq!(std::fs::metadata(&seg).unwrap().len(), before);
+        assert_eq!(log.leaf_hashes().unwrap(), want);
+
+        let next = log.append_cbor(padded(3, 1500)).await.unwrap();
+        assert_eq!((next.segment_index, next.offset_in_segment), (0, before));
+        want.push(next.record_hash);
+        let bytes = std::fs::read(&seg).unwrap();
+        assert!(matches!(check_segment(&bytes), Ok(SegmentEnd::Closed)));
+        assert_eq!(log.leaf_hashes().unwrap(), want);
+        assert_entries_rehash_to_leaves(&log);
+        assert_eq!(log.record_count().await, 3);
+    }
+
+    /// When the cut fails as well, the torn frame stays at the end of its
+    /// segment and the next append starts a new one. No leaf is read out of
+    /// the torn frame.
+    #[tokio::test]
+    async fn when_the_cut_fails_too_appends_move_to_a_new_segment() {
+        let tmp = tempfile::tempdir().unwrap();
+        let log = AttestationLog::open(tmp.path()).unwrap();
+        let mut want = Vec::new();
+        for i in 0..2 {
+            want.push(log.append_cbor(padded(i, 1500)).await.unwrap().record_hash);
+        }
+        log.inject_fault(WriteFault {
+            stop_at: 4096,
+            cut_fails: true,
+        })
+        .await;
+        assert!(log.append_cbor(padded(2, 1500)).await.is_err());
+        let seg = tmp.path().join("merkle.log.0");
+        assert_eq!(std::fs::metadata(&seg).unwrap().len(), 4096);
+
+        let next = log.append_cbor(padded(3, 1500)).await.unwrap();
+        assert_eq!((next.segment_index, next.offset_in_segment), (1, 0));
+        want.push(next.record_hash);
+        assert_eq!(log.leaf_hashes().unwrap(), want);
+        assert_entries_rehash_to_leaves(&log);
+    }
+
+    /// Bytes this log did not write end their segment: the append that
+    /// finds them fails, and the next one starts a new segment.
+    #[tokio::test]
+    async fn no_record_is_framed_after_bytes_the_log_did_not_write() {
+        let tmp = tempfile::tempdir().unwrap();
+        let log = AttestationLog::open(tmp.path()).unwrap();
+        let a = log.append_cbor(padded(0, 100)).await.unwrap();
+        OpenOptions::new()
+            .append(true)
+            .open(tmp.path().join("merkle.log.0"))
+            .unwrap()
+            .write_all(&[7u8; 10])
+            .unwrap();
+        assert!(log.append_cbor(padded(1, 100)).await.is_err());
+        let b = log.append_cbor(padded(2, 100)).await.unwrap();
+        assert_eq!(b.segment_index, 1);
+        assert_eq!(log.leaf_hashes().unwrap(), vec![a.record_hash, b.record_hash]);
     }
 
     #[tokio::test]

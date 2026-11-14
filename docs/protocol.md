@@ -2527,12 +2527,24 @@ disk (fsynced) before `append` returns. Receipts depend on this.
 `AppendOutcome` gives `segment_index`, `offset_in_segment` and
 `record_hash`. These values are enough to find the record again.
 
+A write can fail part way. On a full disk, the write fills the last
+allocated block and then stops. If a write or its fsync fails, the
+writer cuts the segment back to its length before the write, and fsyncs.
+If the cut also fails, the writer leaves that segment, and the next
+record goes into a new segment. Each caller in the group gets the error.
+So a partial record can only be the last bytes of a segment, and no
+record ever follows one. The walk in §9.1 stops at a partial record at
+the end of a segment, so the walk does not make a leaf from it.
+
 ### 9.3 Rotation
 
 Before a write that would make the open segment larger than 1 GiB
 (`SEGMENT_BYTES = 1 << 30`), `seal_segment` completes the segment hash.
 It appends the 32-byte hash as a trailer, fsyncs, and increments
-`segment_index`. The next record goes into a new segment.
+`segment_index`. The next record goes into a new segment. If the
+trailer write fails, the writer cuts it back and still moves to a new
+segment. The full segment then has no trailer, like a segment that a
+restart closed.
 
 ### 9.4 Verify
 
