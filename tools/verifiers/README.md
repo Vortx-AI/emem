@@ -2,7 +2,7 @@
 
 These scripts check emem's signed output without trusting emem.dev: a
 receipt, a transparency-log proof, a memory note, a Merkle tree row, an
-artifact hash and a document receipt. Each folder is named after the skill
+artifact hash, a document receipt and an EUDR plot verdict. Each folder is named after the skill
 of the emem plugin that describes the check.
 
 They used to ship inside the plugin, in each skill's `scripts/`. Anthropic's
@@ -17,6 +17,7 @@ compute again by hand. These files are the reference for that computation.
 | `emem-transparency-log` | `verify_log.py` | checks a signed tree head against a pinned key, an inclusion proof and a consistency proof |
 | `emem-document-evidence` | `verify_doc.py` | checks OCR and parse receipts and the hashes of the document |
 | `emem-field-tokens` | `rehash.py` | computes the BLAKE3 of an artifact again and compares it with its cid |
+| `emem-eudr-due-diligence` | `verify_plot.py` | checks an EUDR plot fact: its id, the polygon and plot commitments, each source window's cid, and every count, area and the verdict counted again |
 | `emem-multi-agent-handoff` | `verify_note.py`, `seal_note.py` | checks which key wrote a memory note; seals a note to one key (`emem_sealed.py`) |
 | `emem-tokenise-files` | `tree_proof.py` | builds a pointer.v1 index; checks a row's audit path and the bytes of a unit |
 | `emem-long-horizon-memory` | `verify_note.py`, `watch_inbox.py` | the same note check; waits for a new note in an inbox |
