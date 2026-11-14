@@ -1043,12 +1043,27 @@ pub(crate) async fn evaluate_consignment(
     use futures_util::StreamExt;
     // Each plot's JRC window, planned and not read: its size and the pixel
     // size decide the grouping.
-    let planned = futures_util::future::join_all(
-        plots
-            .iter()
-            .map(|p| band_raster::plan_layer(JRC, p.bbox.clone(), u64::MAX)),
-    )
-    .await;
+    // The other three layers' file headers are opened at the same time, so
+    // the reads below find them in memory rather than waiting a round trip.
+    let first = plots.first().map(|p| grown(&p.bbox, MARGIN_DEG));
+    let warm = |band: &'static str| {
+        let b = first.clone();
+        async move {
+            if let Some(b) = b {
+                let _ = band_raster::plan_layer(band, b, u64::MAX).await;
+            }
+        }
+    };
+    let (planned, _, _, _) = tokio::join!(
+        futures_util::future::join_all(plots.iter().map(|p| band_raster::plan_layer(
+            JRC,
+            p.bbox.clone(),
+            u64::MAX
+        )),),
+        warm(TREECOVER),
+        warm(LOSSYEAR),
+        warm(TMF),
+    );
     let mut out: Vec<(usize, Outcome)> = Vec::new();
     let mut small: Vec<(PlotInput, (f64, f64))> = Vec::new();
     let mut large: Vec<(PlotInput, i64, i64)> = Vec::new();

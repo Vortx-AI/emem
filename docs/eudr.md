@@ -766,7 +766,8 @@ Thus a call that cannot finish gets a clear 504 response before the connection c
 The 504 body has `code: "source_fetch_failed"` and gives the plot count and the budget in seconds.
 
 A `/v1/eudr_dds` response over HTTP has a `Server-Timing` header with the wall time of each step in ms:
-`prepare` (the plots checked and sampled), `plots` (the band reads and verdicts), `assemble` (the response and
+`prepare` (the plots checked), `raster` (the raster method's reads and counts for all its plots),
+`plots` (the sampled method's band reads and verdicts, and each plot's answer), `assemble` (the response and
 the facts it names), `store` (the facts signed and written), `receipt` and `total`. The time spent waiting for a
 slot is not in `total`. The MCP tool and the A2A task give the same answer without the header.
 
