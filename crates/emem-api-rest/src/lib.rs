@@ -63,6 +63,7 @@ mod intents;
 mod ledger;
 mod next_acquisition;
 mod next_step;
+mod persist;
 mod physics;
 mod rain_series;
 mod range_hash;
@@ -1503,6 +1504,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/decide", post(decide::post_decide))
         // A field as a signed derivation: docs/plans/field-tokens.md.
         .route("/v1/band_raster", post(band_raster::post_band_raster))
+        .route("/v1/persist", post(persist::post_persist))
         .route("/v1/band_cube", post(band_raster::post_band_cube))
         .route("/v1/band_composite", post(band_raster::post_band_composite))
         .route("/v1/field_series", post(field_series::post_field_series))
@@ -13001,6 +13003,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             // materializable.
             "change_attribution": "/v1/change_attribution",
             "band_raster": "/v1/band_raster",
+            "persist": "/v1/persist",
             "band_cube": "/v1/band_cube",
             "raster_resolve": "/v1/raster/resolve",
             "cube_resolve": "/v1/cube/resolve",
@@ -36768,6 +36771,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/range_hash": {"post":{"summary":"range_hash: BLAKE3-256 of exactly `length` bytes at `offset` of a public https url, as fetched by this responder, under a signed receipt binding url, offset, length, hash, ETag and fetch time (PreimageV1 emem.range_hash.v1). Also returns the pointer-row leaf, so the answer slots into an emem:tree. Bounds: https on 443 only, no IP literals or local names, DNS pinned to publicly routable addresses, at most three redirects each admitted and pinned the same way (the receipt binds the url asked and the url fetched), the upstream must answer 206 with the exact Content-Range, at most 16 MiB per call, a per-IP daily quota.","operationId":"emem_range_hash","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["url","offset","length"],"properties":{"url":{"type":"string"},"offset":{"type":"integer"},"length":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/tree/path": {"post":{"summary":"emem:tree over rows the caller holds: the same audit path and root as GET /v1/tree/{file_cid}, from `leaves` (base32 leaf hashes) or `chunks` ({url, offset, length, hash}), with no note and no parser in between.","operationId":"emem_tree_path","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["index"],"properties":{"index":{"type":"integer"},"leaves":{"type":"array","items":{"type":"string"}},"chunks":{"type":"array","items":{"type":"object","properties":{"url":{"type":"string"},"offset":{"type":"integer"},"length":{"type":"integer"},"hash":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/change_attribution": {"post":{"summary":"The attribution ledger for a readout change at a cell: per-term evidence for Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε, with NO numeric split. Reports the observed Tessera year-over-year embedding change, label-free index pairs (NDVI, NBR, NDWI) with raw deltas as environment evidence, the sources each visit was observed through (sensor record), the encoder pinning proof (one signed multi-year fact, one recipe), and the S2 scene-class per visit (noise evidence). `split` is null and `attribution_note` says why: a calibrated cross-encoder, cross-sensor stability model does not exist in this build. The ledger persists as a derivative fact and returns its emem:fact: token under ledger_fact; its cid is a function of the cell and the input facts, so the same inputs return the same token (persistence: existing_derivative_fact on a repeat). The receipt binds the input cids plus the ledger cid.","operationId":"emem_change_attribution","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/persist": {"post":{"summary":"the persistence chain: whether the state one clear Sentinel-2 pass saw held to a later hour, read with the reanalysis between (persistence_snow@1, snow only). It starts from an indices.ndsi fact (the one named in `observation`, else the last pass at or before the day asked) and reads one hourly series from the Open-Meteo archive: ERA5-Land 2 m temperature and snow depth, ERA5 snowfall. Two melt readings run over it, the model's own pack and a declared degree-day bucket, and the verdict is persisted_likely, broken, renewed or unknown under the rule in `rule.text`; a disagreement between the two readings, a glacier pack (10 m or more in the model) or a gap is unknown. Signed as a derivation (band persistence.chain) whose parents are the observation and the modelled depth fact of the hour asked; the upstream series is a content-addressed artifact (GET /v1/artifacts/{cid}) a checker re-reads. model_output: a rule over a reanalysis, not an observation of the day.","operationId":"emem_persist","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["date"],"properties":{"cell":{"type":"string","description":"cell64; or give lat and lng"},"lat":{"type":"number"},"lng":{"type":"number"},"date":{"type":"string","description":"the day asked, YYYY-MM-DD, at least six days ago (the archive runs about five days behind)"},"hour":{"type":"integer","minimum":0,"maximum":23,"description":"UTC hour of the day asked; default 12"},"quantity":{"type":"string","enum":["snow"]},"observation":{"type":"string","description":"fact_cid of an indices.ndsi fact at this cell to start from"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"no pass or no reanalysis series could be read; typed"}}}},
             "/v1/band_raster": {"post":{"summary":"a field as a signed derivation (docs/plans/field-tokens.md): native-resolution Sentinel-2 window over a bbox, returned as a content-addressed canonical grid artifact plus a persisted derivation record. The receipt attests the derivation, never a byte pipe: its FIELD preimage segment binds (aoi_cid, derivation_cid), the record pins the scene (id, asset, capture time), the recipe (band_raster@1), the grid georeferencing, and best-effort per-cell anchors bridging to existing signed facts. Bands: s2.B02/B03/B04/B08/B11/B12, window cap 512 px per side, refused with the cap named; copdem30m.elevation (dem_raster@1); an encoder band (embedding_raster@1); forest_change.lossyear/treecover2000/gain, jrc_gfc2020.forest_2020 and jrc_tmf.deforestation_year (forest_raster@1, one window on the layer's own pixel lattice, 1024 px per side, with the publisher's licence; a bbox across a 10-degree tile line is read from each tile it touches, up to four, joined without resampling, and the record cites every tile). The artifact is evictable (GET /v1/artifacts/{cid}); the derivation record persists and pins the rebuild.","operationId":"emem_band_raster","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox","band"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"band":{"type":"string","description":"s2.B02|s2.B03|s2.B04|s2.B08|s2.B11|s2.B12, copdem30m.elevation, an encoder band, or a forest layer: forest_change.lossyear|forest_change.treecover2000|forest_change.gain|jrc_gfc2020.forest_2020|jrc_tmf.deforestation_year"},"observed_on":{"type":"string","description":"optional target capture date YYYY-MM-DD; the chosen scene is pinned either way"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"upstream scene fetch failed; typed"}}}},
             "/v1/raster/resolve": {"post":{"summary":"dereference an emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid> token. Every claim in the token binds to the signed derivation record before anything dereferences (the fact-token rule applied to fields): the cid must be a band_raster@1 derivation and the token's aoi_cid, band, and tslot must each match the record's body, so a real derivation_cid cannot be passed off under a false area, band, or date; any mismatch is a typed 409. Returns the record and the artifact status; bytes come from GET /v1/artifacts/{cid}. An evicted artifact is a rebuild recipe, not an error. The receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment.","operationId":"emem_raster_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
             "/v1/band_cube": {"post":{"summary":"a field OVER TIME as a signed manifest (docs/plans/field-tokens.md): mints one band_raster member per target date, each an independent, resolvable emem:raster: derivation, then signs a cube record binding the ordered set. A world model is a field over an AOI across time, and this is the token that names one. Lineage terminates in each member's pinned scene; cube_cid content-addresses the ordered membership. Dates that resolve to the same scene collapse; a cube needs >=2 distinct slices and caps at 24 per mint (refused with the cap named). Each member echoes `requested_dates` and `requested_date_distance_days` so a caller maps a requested date to its slice directly. The receipt's FIELD preimage segment binds (aoi_cid, derivation_cid). Returns the emem:cube: token plus the member emem:raster: tokens.","operationId":"emem_band_cube","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox","band","observed_on"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"band":{"type":"string","description":"s2.B02|s2.B03|s2.B04|s2.B08|s2.B11|s2.B12"},"observed_on":{"type":"array","items":{"type":"string"},"description":"2..24 target capture dates YYYY-MM-DD; each names the nearest scene, pinned per member"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"upstream scene fetch failed; typed"}}}},
@@ -36777,7 +36781,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/cube/resolve": {"post":{"summary":"dereference an emem:cube:<aoi_cid>:<band>:<tslot_lo>..<tslot_hi>:<derivation_cid> token. Same fail-closed rule as raster/resolve: the cid must be a band_cube@1 derivation, the token's aoi_cid/band/tslot-range must each match the signed record, and cube_cid is recomputed from the record's members so an altered membership is refused (typed 409). Returns the record plus the member emem:raster: tokens to resolve independently or batch via resolve_many. The receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment.","operationId":"emem_cube_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
             "/v1/raster_bundle": {"post":{"summary":"bind 2..64 already-minted emem:raster: field tokens (band_raster / s2_median_composite / dem_raster / embedding_raster) into ONE signed manifest, named by an emem:rasterset: token (raster_bundle@1). The composition primitive a world or a DDS cites when it needs one token pointing at every signed layer (ground + geometry + embedding). Mints no new pixels: each member resolves and re-derives on its own. bundle_cid=blake3(ordered member derivation_cids + purpose); a member that is not a live raster-shaped derivation fails the mint by name. Signs and persists the manifest.","operationId":"emem_raster_bundle","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tokens"],"properties":{"tokens":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":64},"purpose":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
             "/v1/raster_bundle/resolve": {"post":{"summary":"dereference an emem:rasterset:<bundle_cid>:<derivation_cid> token. Fail-closed: the cid must be a raster_bundle@1 derivation, bundle_cid is recomputed from the record's ordered members and matched against both the token and the record (mismatch = 409, refusing an altered set), and every member emem:raster: token is re-verified as a live raster derivation. Returns the members with a per-member resolves flag.","operationId":"emem_raster_bundle_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
-            "/v1/artifacts/{cid}": {"get":{"summary":"raw canonical grid bytes by artifact cid, Cache-Control immutable (content-addressed bytes never change). A 404 is typed and says how to rebuild: eviction is a design property (the derivation record persists and pins the scene, recipe, and geometry), never data loss.","operationId":"emem_artifact_bytes","responses":{"200":{"description":"application/x.emem-grid-f32.v1 bytes"},"404":{"description":"evicted or unknown; the derivation record pins the rebuild"}}}},
+            "/v1/artifacts/{cid}": {"get":{"summary":"raw canonical grid bytes by artifact cid, Cache-Control immutable (content-addressed bytes never change). A 404 is typed and says how to rebuild: eviction is a design property (the derivation record persists and pins the scene, recipe, and geometry), never data loss.","operationId":"emem_artifact_bytes","responses":{"200":{"description":"application/x.emem-grid-f32.v1 bytes, or application/json for the upstream series a persistence chain read"},"404":{"description":"evicted or unknown; the derivation record pins the rebuild"}}}},
             "/v1/deforestation_alert":{"post":{"summary":"carbon.deforestation_alert_proxy: alert_score = 0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20). Each half degrades independently, a missing band drops its half and renames the output so a half-score can't be mistaken for the full composite; if neither half is computable the response is a signed `inconclusive`.","operationId":"emem_deforestation_alert","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
             "/v1/sar_forest_disturbance":{"post":{"summary":"Sentinel-1 VV backscatter-drop forest-disturbance scout (cloud- and night-independent). Samples VV at a baseline-year July-1 anchor and the latest scene; vv_drop_db = baseline − recent, disturbed when drop ≥ 3 dB (Reiche et al. 2018). Both VV reads are signed Primary facts (cited fact_cids); honest `inconclusive` when either S1 vintage is unavailable. ADDITIVE scout signal, NOT a standalone legal verdict, confirm with the optical JRC GFC2020/Hansen consensus (/v1/eudr_dds, /v1/deforestation_alert). Source: MPC sentinel-1-rtc (anonymous SAS, no requester-pays).","operationId":"emem_sar_forest_disturbance","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"baseline_year":{"type":"integer","description":"Baseline calendar year the VV drop is measured against (default 2020)."}}}}}},"responses":{"200":json_ok}}},
             "/v1/spi":               {"post":{"summary":"McKee-1993 Standardized Precipitation Index drought metric: fits a gamma to the same-window precipitation-accumulation history and standardizes the current accumulation to a z-score + drought class. Honest `inconclusive` (no z-score) when fewer than the minimum samples exist. Supply `precip_history_mm` + `current_accumulation_mm` directly, or omit to read the stored `weather.precipitation_mm` trajectory.","operationId":"emem_spi","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"window_days":{"type":"integer","description":"Accumulation window (SPI-3 = 90 d default; SPI-1 = 30 d; SPI-12 = 360 d)."},"precip_history_mm":{"type":"array","items":{"type":"number"},"description":"Optional explicit same-window precipitation accumulations (mm)."},"current_accumulation_mm":{"type":"number","description":"Current-window accumulation (mm); required when precip_history_mm is supplied."}}}}}},"responses":{"200":json_ok}}},
@@ -56498,6 +56502,8 @@ async fn materialize_era5_band(
         "era5.surface_pressure" => ("surface_pressure", Some("hPa"), 0.85),
         "era5.dewpoint_2m" => ("dew_point_2m", Some("degC"), 0.85),
         "era5.snow_depth" => ("snow_depth", Some("m"), 0.70),
+        // ERA5 itself: through this archive ERA5-Land returns no snowfall.
+        "era5.snowfall" => ("snowfall", Some("cm"), 0.80),
         _ => return Err(format!("era5 band not wired: {band}")),
     };
     // (Open-Meteo model, source scheme, derivation fn_key). The existing bands
@@ -63604,6 +63610,7 @@ fn band_valid_range(band: &str) -> Option<(f64, f64, &'static str)> {
         "weather.cloud_cover" => (0.0, 100.0, "percent"),
         // Over glaciers ERA5-Land holds a capped pack of about 33 m.
         "era5.snow_depth" => (0.0, 100.0, "m"),
+        "era5.snowfall" => (0.0, 50.0, "cm per hour"),
         "soilgrids.clay_0_30cm" | "soilgrids.sand_0_30cm" => (0.0, 100.0, "percent"),
         "soilgrids.phh2o_0_30cm" => (2.0, 11.0, "pH"),
         "soilgrids.bdod_0_30cm" => (0.05, 2.8, "kg/dm^3"),
@@ -64934,6 +64941,9 @@ fn all_materializable_bands() -> Vec<String> {
     // ERA5-Land through the same archive: snow on the ground when no optical
     // pass can see it (polar night, cloud). A model value, not an observation.
     out.push("era5.snow_depth".into());
+    // ERA5 snowfall per hour (Open-Meteo derives cm from water equivalent,
+    // 7 cm per 10 mm): what fell between two passes, for the persistence chain.
+    out.push("era5.snowfall".into());
     // Open-Meteo Marine (hourly, 2022-08-01 onward, ocean only).
     out.push("marine.wave_height".into());
     out.push("marine.swell_period".into());
@@ -81739,6 +81749,10 @@ async fn ask_inner_traced(
     // its reading is near the date. The answer says where the nearest reading
     // of the first lead band was.
     let mut lead_fallback_note: Option<String> = None;
+    // The chain from the last pass of the first lead band to the hour the
+    // fallback read, when that pair has a persistence rule (snow: NDSI, then
+    // the ERA5-Land depth). `Err` carries why it could not be read.
+    let mut persistence_chain: Option<Result<JsonValue, String>> = None;
     if let (Some(t), Some(qt)) = (dated.as_ref(), quantity) {
         let near = |resp: &RecallResp, band: &str| {
             let slot = band_tempo_for_key(band).map_or(0, |tp| tp.slot_seconds() as i64);
@@ -81765,6 +81779,31 @@ async fn ask_inner_traced(
                     .max()
                     .map(|at| (*b, at))
             });
+            let first_obs: Option<persist::Obs> = qt
+                .lead_bands
+                .first()
+                .filter(|b| **b == "indices.ndsi")
+                .and_then(|b| {
+                    recall_resp
+                        .facts
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, f)| match f {
+                            emem_fact::Fact::Primary(p) if p.band == *b => {
+                                Some((i, p, recall_resp.receipt.fact_cids.get(i)?))
+                            }
+                            _ => None,
+                        })
+                        .max_by_key(|(_, p, _)| p.tslot)
+                        .and_then(|(_, p, cid)| {
+                            Some(persist::Obs {
+                                fact_cid: cid.as_str().to_string(),
+                                band: p.band.clone(),
+                                value: persist::cbor_f64(&p.value)?,
+                                unix: persist::observed_unix(p)?,
+                            })
+                        })
+                });
             for alt in qt.lead_bands.iter().skip(1) {
                 let Some(tp) = band_tempo_for_key(alt) else {
                     continue;
@@ -81795,6 +81834,33 @@ async fn ask_inner_traced(
                     recall_with_auto_materialize_capped(&alt_req, &s, ask_cap).await?;
                 materialize_notes.extend(alt_notes);
                 if near(&alt_resp, alt) {
+                    let depth = alt_resp
+                        .facts
+                        .iter()
+                        .enumerate()
+                        .find_map(|(i, f)| match f {
+                            emem_fact::Fact::Primary(p) if p.band == "era5.snow_depth" => Some((
+                                alt_resp.receipt.fact_cids.get(i)?.as_str().to_string(),
+                                persist::cbor_f64(&p.value)?,
+                                p.tslot as i64 * 3600,
+                            )),
+                            _ => None,
+                        });
+                    if let (Some(o), Some((cid, v, hour))) = (&first_obs, depth) {
+                        if qt.key == "snow_cover" && o.unix < hour {
+                            persistence_chain = Some(
+                                match tokio::time::timeout(
+                                    std::time::Duration::from_secs(12),
+                                    persist::build_chain(&s, &cell, o, hour, Some((cid, v))),
+                                )
+                                .await
+                                {
+                                    Ok(r) => r,
+                                    Err(_) => Err("the reanalysis series took over 12 s".into()),
+                                },
+                            );
+                        }
+                    }
                     recall_resp = alt_resp;
                     dated_dropped.retain(|b| b != alt);
                     lead_fallback_note = Some(match nearest_first {
@@ -82573,6 +82639,29 @@ async fn ask_inner_traced(
         place_notes: &place_notes,
         now_unix: now,
     });
+    let direct = match (direct, persistence_chain.take()) {
+        (Some(mut d), Some(chain)) => {
+            if let Some(m) = d.as_object_mut() {
+                let line = match &chain {
+                    Ok(c) => c
+                        .get("sentence")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                    Err(e) => Some(format!(
+                        "The persistence chain from the last pass could not be read: {e}."
+                    )),
+                };
+                if let (Some(line), Some(JsonValue::Array(l))) = (line, m.get_mut("limits")) {
+                    l.push(json!(line));
+                }
+                if let Ok(c) = &chain {
+                    m.insert("persistence".into(), persist::brief(c));
+                }
+            }
+            Some(d)
+        }
+        (d, _) => d,
+    };
     // One pixel in a channel is water at every tide. What shows the tide is
     // the foreshore around it, so an undecided high-or-low answer names the
     // area read that can decide it: the green and SWIR rasters MNDWI is made

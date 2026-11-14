@@ -87,8 +87,9 @@ CANON = {
     # +1 each for /v1/arcade/fleet.
     # +1 each for /v1/rain_series.
     # +1 each for /v1/cells/{cell64}/next_acquisition.
-    "rest_paths_v1": 183,           # documented /v1/* paths in OpenAPI
-    "rest_paths_openapi_total": 194,  # all paths in OpenAPI
+    # +1 each for /v1/persist.
+    "rest_paths_v1": 184,           # documented /v1/* paths in OpenAPI
+    "rest_paths_openapi_total": 195,  # all paths in OpenAPI
     "cube_slots": 43,
     # 129 -> 125 on 2026-09-15: the four foundation encoders were retired for
     # this deployment (EMEM_RETIRED_BANDS) when the GPU behind them was
@@ -100,7 +101,9 @@ CANON = {
     # retired when NOAA's composites moved behind a login (RETIRED_UPSTREAM_GONE_BANDS).
     # 115 -> 116 on 2026-11-13: era5.snow_depth (ERA5-Land through the same
     # archive), so a snow question has an answer when no optical pass sees.
-    "materializer_wired": 116,
+    # 116 -> 117 on 2026-11-14: era5.snowfall, what fell between two passes,
+    # for the persistence chain (POST /v1/persist).
+    "materializer_wired": 117,
     "source_schemes": 46,
     "topics": 27,
     # 0 since 2026-09-15. Four were declared and none is wired: the GPU was

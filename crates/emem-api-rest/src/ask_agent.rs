@@ -465,6 +465,10 @@ pub(crate) struct Rule {
     pub(crate) no: &'static str,
     pub(crate) between: &'static str,
     pub(crate) basis: &'static str,
+    /// At or above this value the reading does not measure the quantity at
+    /// all, and the text says what it is instead: a glacier pack in a snow
+    /// model is not snow that fell or lay on the date asked.
+    void_from: Option<(f64, &'static str)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -476,6 +480,9 @@ pub(crate) enum Judgement {
 
 impl Rule {
     pub(crate) fn judge(&self, v: f64) -> Judgement {
+        if self.void_at(v).is_some() {
+            return Judgement::Between;
+        }
         let (yes, no) = if self.higher_is_yes {
             (v >= self.yes_from, v < self.no_from)
         } else {
@@ -488,6 +495,10 @@ impl Rule {
         } else {
             Judgement::Between
         }
+    }
+
+    fn void_at(&self, v: f64) -> Option<&'static str> {
+        self.void_from.filter(|(x, _)| v >= *x).map(|(_, t)| t)
     }
 
     fn near_line(&self, v: f64) -> bool {
@@ -561,6 +572,7 @@ pub(crate) static QUANTITIES: &[Quantity] = &[
                 no: "no snow on the ground",
                 between: "snow or cloud, which this index cannot tell apart",
                 basis: "snow_likelihood_from_ndsi@1: NDSI at or above 0.4 reads as snow, below 0 as no snow, and between them as snow or cloud (Salomonson and Appel 2004)",
+                void_from: None,
             },
             Rule {
                 band: "era5.snow_depth",
@@ -572,6 +584,10 @@ pub(crate) static QUANTITIES: &[Quantity] = &[
                 no: "no snow on the ground in the ERA5-Land reanalysis",
                 between: "a layer under 5 cm in the ERA5-Land reanalysis, too thin to call",
                 basis: "ERA5-Land snow depth (Munoz-Sabater et al. 2021): 5 cm or more reads as snow on the ground, under 1 cm as none",
+                void_from: Some((
+                    crate::persist::GLACIER_PACK_M,
+                    "a pack of 10 m or more, which ERA5-Land holds on a glacier all year, so it says nothing about snow on the date asked",
+                )),
             },
         ],
         uncertainty: "One pixel on one scene. Cloud raises NDSI as snow does, so a reading between 0 and 0.4 is not decisive.",
@@ -615,6 +631,7 @@ pub(crate) static QUANTITIES: &[Quantity] = &[
                 no: "no open water",
                 between: "",
                 basis: "MNDWI above 0 reads as open water (Xu 2006)",
+                void_from: None,
             },
             Rule {
                 band: "indices.ndwi",
@@ -626,6 +643,7 @@ pub(crate) static QUANTITIES: &[Quantity] = &[
                 no: "no open water",
                 between: "",
                 basis: "NDWI above 0 reads as open water (McFeeters 1996)",
+                void_from: None,
             },
             Rule {
                 band: "sentinel1_raw",
@@ -637,6 +655,7 @@ pub(crate) static QUANTITIES: &[Quantity] = &[
                 no: "no open water",
                 between: "",
                 basis: "flood_extent_sar_threshold@1: Sentinel-1 VV backscatter below -16 dB reads as open water (Twele et al. 2016)",
+                void_from: None,
             },
         ],
         uncertainty: "One pixel. A pixel that mixes water and land reads near the line, so a value close to it is weak evidence either way.",
@@ -686,6 +705,7 @@ pub(crate) static QUANTITIES: &[Quantity] = &[
             no: "little or no live vegetation",
             between: "sparse cover that this index does not separate from bare ground",
             basis: "NDVI below about 0.1 is bare ground, built surface, water or snow, and above about 0.2 live vegetation",
+            void_from: None,
         }],
         uncertainty: "One pixel on one scene. Thin cloud and haze lower NDVI.",
     },
@@ -1083,10 +1103,11 @@ pub(crate) fn direct_answer(inp: &AnswerInputs) -> Option<JsonValue> {
         }
         (AnswerForm::YesNo, Some(r)) | (AnswerForm::Choice(..), Some(r)) => {
             let j = r.judge(v);
-            let what = match j {
-                Judgement::Yes => r.yes,
-                Judgement::No => r.no,
-                Judgement::Between => r.between,
+            let what = match (r.void_at(v), j) {
+                (Some(t), _) => t,
+                (None, Judgement::Yes) => r.yes,
+                (None, Judgement::No) => r.no,
+                (None, Judgement::Between) => r.between,
             };
             let lead_word = match j {
                 Judgement::Yes => "Yes",
@@ -1578,6 +1599,45 @@ mod tests {
             "{limits}"
         );
         assert!(!limits.contains("One pixel on one scene"), "{limits}");
+    }
+
+    #[test]
+    fn a_glacier_pack_in_the_reanalysis_cannot_tell() {
+        // Everest Base Camp, 15 July 2025: ERA5-Land holds 26.67 m all year.
+        // On emem.dev that read "Yes ... snow depth 26.67 m" until this rule.
+        let t = asked_time("Was there snow on the ground on 15 July 2025?", NOW).unwrap();
+        let mut hour = reading(
+            "era5.snow_depth",
+            26.67,
+            Some("m"),
+            Some(day(2025, 7, 15) + 12 * 3600),
+            "source_capture_time",
+        );
+        hour.slot_s = 3600;
+        let r = [
+            reading(
+                "indices.ndsi",
+                0.12,
+                None,
+                Some(day(2025, 7, 7) + 18_000),
+                "source_capture_time",
+            ),
+            hour,
+        ];
+        let out = direct_answer(&AnswerInputs {
+            form: &AnswerForm::YesNo,
+            quantity: asked_quantity("snow"),
+            time: Some(&t),
+            readings: &r,
+            place: "Everest Base Camp",
+            place_notes: &[],
+            now_unix: NOW,
+        })
+        .unwrap();
+        assert_eq!(out["verdict"], "cannot_tell", "{out}");
+        let s = out["sentence"].as_str().unwrap();
+        assert!(s.contains("holds on a glacier all year"), "{s}");
+        assert!(!s.starts_with("Yes"), "{s}");
     }
 
     #[test]

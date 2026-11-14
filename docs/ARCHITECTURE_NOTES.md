@@ -380,7 +380,7 @@ and no L2 tool.
 ## Counts, and what guards them
 
 `scripts/sync_counts.py --check` compares the canonical counts with the
-registries and the live responder. The counts are 116 tools, 183 /v1
+registries and the live responder. The counts are 116 tools, 184 /v1
 paths, 46 sources, 43 slots, 129 wired bands, 173 algorithms, 27 topics
 and 19 crates. CI runs it (`.github/workflows/ci.yml`, step "prose counts
 match the responder"). If the origin does not answer, it warns and does

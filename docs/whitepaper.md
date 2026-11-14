@@ -1225,7 +1225,7 @@ is the hardest honest test available: open, adversarially large, and
 already full of the drift the protocol exists to stop.
 
 Open data from ESA, NASA, USGS, and the EU JRC fills the memory on
-demand: **46 declared source schemes** and **116 materializer-wired
+demand: **46 declared source schemes** and **117 materializer-wired
 measurements**, live at `/v1/sources` and `/v1/bands`, spanning elevation
 and NDVI through weather, forest change, surface water, and the Tessera
 foundation embedding. Earlier versions also ran Clay, Prithvi and Galileo;
@@ -1262,7 +1262,7 @@ new bands without breaking existing offsets.
      704    10  sentinel2_raw      optical      fast    public
 ```
 
-The gap between 43 slots and 116 wired names is parametric expansion:
+The gap between 43 slots and 117 wired names is parametric expansion:
 every Sentinel-2 reflectance band, every spectral index, every Tessera
 vintage, and every Open-Meteo variant rides a fixed underlying slot.
 
@@ -1388,7 +1388,7 @@ them attributes a change, which is exactly the §10.3 gap.
 ## 11. The agent-discoverable surface
 
 `emem-server` serves HTTP/REST and MCP JSON-RPC on one port (default
-`0.0.0.0:5051`): **183 documented REST paths under `/v1/*`** (194 total
+`0.0.0.0:5051`): **184 documented REST paths under `/v1/*`** (195 total
 in OpenAPI) and **116 MCP tools (18 core, 98 extended)**.
 
 Discovery on first contact:

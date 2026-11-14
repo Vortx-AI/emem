@@ -570,7 +570,24 @@ catalogue lists between the date asked and the reading served, with the
 scene's cloud cover, and the cloud rule of the read. An empty list means that
 no image of those days exists, clear or cloudy. For snow in the dark months,
 when no optical pass can see the ground, `era5.snow_depth` gives the ERA5-Land
-reanalysis snow depth in metres. It is a model value, not an observation.
+reanalysis snow depth in metres. It is a model value, not an observation. On
+a glacier cell the model holds a pack of about 27 to 33 m all year, so a depth
+of 10 m or more says nothing about the date: `/v1/ask` answers `cannot_tell`
+there. `era5.snowfall` gives ERA5 snowfall in centimetres per hour.
+
+`POST /v1/persist {"cell": "<cell64>", "date": "YYYY-MM-DD", "hour": 12}`
+says whether what the last clear pass saw lasted to a later hour. It starts
+from the NDSI reading at or before the date (or the `indices.ndsi` fact you
+name in `observation`). It reads the hours between: ERA5-Land temperature and
+snow depth, and ERA5 snowfall. Two melt readings run over them: the model's
+own pack, and a degree-day bucket. The verdict is `persisted_likely`,
+`broken` or `renewed`. It is `unknown` when the two readings disagree, when
+the model holds a glacier pack, or when a series has gaps. The rule is in
+`rule.text`. The upstream series is an artifact at `series.url`, and the
+record is a signed fact whose parents are the observation and the depth of
+the hour asked. A dated snow question that `/v1/ask` answers from the
+reanalysis has the same chain in `direct_answer.persistence`. It is a model
+reading: the response says so, and so must anything that quotes it.
 
 ### Job: check a yes or no claim about a place
 

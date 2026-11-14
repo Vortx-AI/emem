@@ -61,7 +61,7 @@ same binary in one column. It follows one call through seven steps: call,
 look up, fetch on a miss, hash, sign, log and answer. Its numbers come from
 live reads of emem.dev on 7 November 2026 at 12:22 UTC.
 
-<img src="../media/diagrams/architecture.svg" alt="What answers when an agent calls emem.dev, from live reads on 7 November 2026 at 12:22 UTC. REST (183 paths under /v1) and MCP (116 tools) reach the same handlers in one Rust binary, emem-server 2.4.4. It looks up a redb fact store, fetches from 46 registered open-data sources on a miss, hashes canonical CBOR with BLAKE3 into a fact id, signs with one Ed25519 key, and appends to an RFC 6962 log of 3,250,469 entries. Anyone checks the receipt offline with the public key at /.well-known/emem.json." width="480">
+<img src="../media/diagrams/architecture.svg" alt="What answers when an agent calls emem.dev, from live reads on 7 November 2026 at 12:22 UTC. REST (183 routes under /v1 that day) and MCP (116 tools) reach the same handlers in one Rust binary, emem-server 2.4.4. It looks up a redb fact store, fetches from 46 registered open-data sources on a miss, hashes canonical CBOR with BLAKE3 into a fact id, signs with one Ed25519 key, and appends to an RFC 6962 log of 3,250,469 entries. Anyone checks the receipt offline with the public key at /.well-known/emem.json." width="480">
 
 ## Process topology
 
@@ -287,8 +287,9 @@ call waits for the first one and does not start a new fetch.
 The responder key signs each materialized fact. Its
 `derivation.fn_key` names the function that made the value.
 
-The `agent_card` reports 116 materializer-wired band names. It reported 115
-until `era5.snow_depth` was added on 13 November 2026. On 7 November 2026,
+The `agent_card` reports 117 materializer-wired band names. It reported 115
+until `era5.snow_depth` was added on 13 November 2026, and 116 until
+`era5.snowfall` was added on 14 November 2026. On 7 November 2026,
 `GET /v1/materializers` listed 113 bands. In those 113 listed
 bands, the largest prefix families are `indices.*` (19), `s2.*` (13),
 `weather.*` (8), `modis.*`, `power.*`, `cams.*` and `era5.*` (7 each), and

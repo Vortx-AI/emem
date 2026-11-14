@@ -2090,7 +2090,16 @@ pub async fn get_artifact(AxumPath(cid): AxumPath<String>) -> impl IntoResponse 
         Ok(Some(bytes)) => (
             StatusCode::OK,
             [
-                (axum::http::header::CONTENT_TYPE, GRID_MEDIA_TYPE),
+                // A grid starts with its magic; the persistence chain stores
+                // the upstream JSON series it read, byte for byte.
+                (
+                    axum::http::header::CONTENT_TYPE,
+                    if bytes.first() == Some(&b'{') {
+                        "application/json"
+                    } else {
+                        GRID_MEDIA_TYPE
+                    },
+                ),
                 (
                     axum::http::header::CACHE_CONTROL,
                     "public, max-age=31536000, immutable",

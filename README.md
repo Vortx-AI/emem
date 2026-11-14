@@ -326,11 +326,11 @@ Also live: the [gallery](https://emem.dev/gallery) of encoded files (Webb's Cosm
 
 ## Earth is the first corpus, not the limit
 
-The protocol does not care what a record is about. Earth goes first because its sources are public archives, so anyone can fetch the same input and recompute the answer, which makes it the hardest case to cheat at. Open data from ESA, NASA, USGS and the EU JRC fills the memory on demand: 116 wired measurements from 46 declared source schemes. Eighteen contributor profiles are published and one is active, `earth.satellite.v0`; the rest are candidates. Every registry that governs meaning is one of ten content-addressed manifests at [`/v1/manifests`](https://emem.dev/v1/manifests), so citing its cid pins the exact semantics a fact was written under.
+The protocol does not care what a record is about. Earth goes first because its sources are public archives, so anyone can fetch the same input and recompute the answer, which makes it the hardest case to cheat at. Open data from ESA, NASA, USGS and the EU JRC fills the memory on demand: 117 wired measurements from 46 declared source schemes. Eighteen contributor profiles are published and one is active, `earth.satellite.v0`; the rest are candidates. Every registry that governs meaning is one of ten content-addressed manifests at [`/v1/manifests`](https://emem.dev/v1/manifests), so citing its cid pins the exact semantics a fact was written under.
 
 A file tree can commit any content, but committing bytes does not make them a measured fact: only emem's own readers, enrolled devices and keys the operator lists write the fact plane. Devices join by proving how they ran, never by their own word: the [device-platform registry](https://emem.dev/v1/device_platforms) names the 17 platforms that may enrol a key and the evidence each must present, `emem_trace_verify` checks an execution trace today, and the public gate admits no real hardware yet ([the staged path](docs/plans/encoder-substrates.md)).
 
-**By the numbers:** [116 MCP tools](https://emem.dev/mcp/full) (an [18-tool core loop](https://emem.dev/mcp) by default), 183 paths under /v1/* ([`/openapi.json`](https://emem.dev/openapi.json)), and a transparency log of 2,811,200 signed entries on 2026-10-10. Measured on the production node ([methods](docs/benchmarks.md)): warm recall p50 2.5 ms, offline receipt verification p50 0.13 ms, 632 requests/s on one node.
+**By the numbers:** [116 MCP tools](https://emem.dev/mcp/full) (an [18-tool core loop](https://emem.dev/mcp) by default), 184 paths under /v1/* ([`/openapi.json`](https://emem.dev/openapi.json)), and a transparency log of 2,811,200 signed entries on 2026-10-10. Measured on the production node ([methods](docs/benchmarks.md)): warm recall p50 2.5 ms, offline receipt verification p50 0.13 ms, 632 requests/s on one node.
 
 ## Use it where you already work
 
@@ -422,12 +422,12 @@ Issues and pull requests welcome: [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.
 
 ## Content address
 
-Every section above this one is a unit of one signed tree: `emem:tree:x66b4ptgprdoe2mbwng244xcfu`, root `ggcxmy4pvzxi4yqvgh2v3d74mxp5bf6hywrywfjoib2dfvjtmrcq`, published under the key `k572x7go`. A single section is `emem:tree:x66b4ptgprdoe2mbwng244xcfu#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
+Every section above this one is a unit of one signed tree: `emem:tree:jywo6sychueirl7b4suqfxbkiy`, root `odawd52hsw4ybxk6sb4aarhyqxbh5a62guqvwy6h47as2gf4oq3a`, published under the key `k572x7go`. A single section is `emem:tree:jywo6sychueirl7b4suqfxbkiy#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
 
 ```bash
-curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261113.md" > index.md
-curl -s "https://emem.dev/v1/tree/x66b4ptgprdoe2mbwng244xcfu?row=3" > row.json
+curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261114.md" > index.md
+curl -s "https://emem.dev/v1/tree/jywo6sychueirl7b4suqfxbkiy?row=3" > row.json
 python3 tools/verifiers/emem-tokenise-files/tree_proof.py check row.json index.md README.md
 ```
 
-`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261113.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261113.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
+`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261114.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261114.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
