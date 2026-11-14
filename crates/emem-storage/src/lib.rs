@@ -2707,16 +2707,22 @@ mod multi_attester_tests {
         let cell = "damO.zb000.xUti.zde78";
         let (att, _) = build_signed(vec![mk_ndvi_fact(cell, 12, 0.5, pk)], sec);
         let before = concrete.log.record_count().await;
-        // A zero timeout polls the write once, so it has started, then drops it.
-        let dropped = tokio::time::timeout(
-            std::time::Duration::ZERO,
-            storage.put_attestation_detached(&att),
-        )
+        // Poll the write exactly once, so its task is spawned, then drop the
+        // caller. A zero `timeout` raced: its timer rounds up to the next tick,
+        // and on a fast runner the spawned write finished before the timer
+        // fired, so the caller was never dropped and the test failed CI. On
+        // this current-thread runtime the spawned task cannot run before the
+        // first poll returns, so the poll is Pending every time.
+        let mut write = Box::pin(storage.put_attestation_detached(&att));
+        let first = std::future::poll_fn(|cx| {
+            std::task::Poll::Ready(std::future::Future::poll(write.as_mut(), cx))
+        })
         .await;
         assert!(
-            dropped.is_err(),
+            first.is_pending(),
             "the caller gave up before the write returned"
         );
+        drop(write);
         let key = CanonicalKey {
             cell: cell.into(),
             band: "indices.ndvi".into(),
