@@ -1,6 +1,6 @@
 # emem Terms of Service
 
-_Last updated: 2026-07-31_
+_Last updated: 2026-11-14_
 
 These terms govern your use of the canonical emem responder operated by
 **Vortx AI Private Limited** (India) at `https://emem.dev` (and mirrored
@@ -39,7 +39,13 @@ You agree not to:
 
 ## 3. Rate limits and SLA
 
-The hosted responder enforces a per-IP rate limit (60 req/min, 120 burst).
+The hosted responder enforces a per-IP rate limit: 30 requests a second
+sustained (1800 req/min), with a burst of 300. A request over the limit
+gets HTTP 429 with `Retry-After: 1`. The EUDR routes (`/v1/eudr_dds`,
+`/v1/field_burn_scar` and `/v1/field_actual_et`) also share 6 slots across
+all callers. A request waits up to 60 s for a slot, and then gets HTTP 503
+with `code: "overloaded"` and `Retry-After: 1`. Send all the plots of one
+consignment in one `/v1/eudr_dds` call, not one call per plot.
 The service is offered **as-is, without uptime SLA**. For production
 workloads, run your own instance; the canonical image is at
 `ghcr.io/vortx-ai/emem`.
