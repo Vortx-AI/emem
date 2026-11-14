@@ -18,8 +18,8 @@
 //!      mean(Z_neighbours_8)`. Positive = ridge/crest, negative = valley.
 //!
 //! All three are computed from the **same** 3×3 elevation neighbourhood
-//! (`copdem30m.elevation_mean` at the centre cell + its 8 immediate cell64
-//! neighbours), so `/v1/terrain` materializes the neighbourhood once and
+//! (`copdem30m.elevation_mean` at the centre cell and at the cells on the
+//! centres of the 8 Copernicus DEM pixels around its pixel), so `/v1/terrain` materializes the neighbourhood once and
 //! returns `{slope, tri, tpi}` together. Each stays flagged
 //! `documentation_only` in the registry — the scalar AST sees one cell and
 //! cannot reach the neighbours. These endpoints are the honest runnable
@@ -75,7 +75,7 @@ fn bad_request(msg: impl Into<String>) -> ApiError {
 pub(crate) const NEIGHBOUR_ORDER: [&str; 8] = ["NW", "N", "NE", "W", "E", "SW", "S", "SE"];
 
 /// `(centre_cell64, [(dir, cell64); 8], cell_w_m, cell_h_m)` — the output
-/// of [`neighbourhood`]. `cell_w_m`/`cell_h_m` are the true ground spacing
+/// of [`neighbourhood`] and [`dem_stencil`]. `cell_w_m`/`cell_h_m` are the true ground spacing
 /// of ONE STEP at the centre latitude (Horn needs ground metres).
 pub(crate) type Neighbourhood = (String, Vec<(&'static str, String)>, f64, f64);
 
@@ -84,15 +84,11 @@ pub(crate) type Neighbourhood = (String, Vec<(&'static str, String)>, f64, f64);
 /// grid is uniform in lat/lng *degrees*, so one step = the per-axis degree
 /// quantum (`180/2^21` lat, `360/2^22` lng); `step_cells` multiplies it.
 ///
-/// `step_cells` matters: at `step_cells = 1` the 8 neighbours are the
-/// immediate ~9.55 m buckets (used by the embedding-neighbourhood analytic,
-/// where adjacency is the point). For DEM terrain, Copernicus DEM is ~30 m
-/// native, so one cell step lands inside the SAME source pixel as the
-/// centre and the slope/TRI/TPI collapse to zero — a real artefact of
-/// sampling below the data's resolution. Stepping `step_cells ≈ 3`
-/// (~28.7 m) straddles distinct DEM pixels so the Horn finite difference
-/// sees a genuine gradient. `cell_w_m`/`cell_h_m` are returned for the
-/// chosen step so the slope denominator matches the stencil spacing.
+/// At `step_cells = 1` the 8 neighbours are the immediate ~9.55 m buckets,
+/// which the embedding-neighbourhood analytic uses, where adjacency is the
+/// point. DEM terrain does not use this: no whole number of cells is one
+/// 30.9 m DEM pixel, so [`dem_stencil`] steps the pixels themselves.
+/// `cell_w_m`/`cell_h_m` are returned for the chosen step.
 pub(crate) fn neighbourhood(
     centre_cell64: &str,
     step_cells: u32,
@@ -132,10 +128,96 @@ pub(crate) fn neighbourhood(
     Ok((centre, neighbours, cell_w_m, cell_h_m))
 }
 
-/// Default neighbour step for DEM terrain: 3 cells ≈ 28.7 m, matching the
-/// ~30 m Copernicus DEM native resolution so the Horn stencil straddles
-/// distinct source pixels instead of collapsing inside one.
-pub(crate) const DEM_STEP_CELLS: u32 = 3;
+/// Metres along a meridian per degree, as the codec counts them.
+const M_PER_DEG: f64 = 111_319.491;
+
+/// The DEM terrain stencil: the caller's cell and, for each compass
+/// direction, the cell at the centre of the DEM pixel `step_px` pixels away
+/// from the pixel that holds the caller's cell. `pixel_centre` is that
+/// pixel's centre and `pixel_deg` the pixel size, both `(lat, lng)` in
+/// degrees. A cell is a third of a pixel, so the cell at a pixel's centre
+/// reads that pixel: the nine reads are nine different source pixels, and
+/// the step the slope divides by is the pixel spacing itself.
+///
+/// Until 2026-11-14 the stencil stepped three cells (28.7 m) from the
+/// cell's own point, less than one 30.9 m pixel, so for about 15 % of
+/// points a neighbour read the centre's own pixel and the slope read steep
+/// over a spacing the data did not have.
+pub(crate) fn dem_stencil(
+    centre_cell64: &str,
+    pixel_centre: (f64, f64),
+    pixel_deg: (f64, f64),
+    step_px: u32,
+) -> Result<Neighbourhood, ApiError> {
+    let ll = emem_codec::latlng_from_cell64(centre_cell64)
+        .map_err(|e| bad_request(format!("cannot decode centre cell64: {e}")))?;
+    let step = f64::from(step_px.max(1));
+    let (dlat, dlng) = (step * pixel_deg.0, step * pixel_deg.1);
+    let cell_h_m = dlat * M_PER_DEG;
+    let cell_w_m = dlng * M_PER_DEG * pixel_centre.0.to_radians().cos().abs().max(1e-9);
+    let offsets: [(&'static str, f64, f64); 8] = [
+        ("NW", 1.0, -1.0),
+        ("N", 1.0, 0.0),
+        ("NE", 1.0, 1.0),
+        ("W", 0.0, -1.0),
+        ("E", 0.0, 1.0),
+        ("SW", -1.0, -1.0),
+        ("S", -1.0, 0.0),
+        ("SE", -1.0, 1.0),
+    ];
+    let neighbours = offsets
+        .iter()
+        .map(|(dir, slat, slng)| {
+            let nlat = (pixel_centre.0 + slat * dlat).clamp(-90.0, 90.0);
+            let nlng = pixel_centre.1 + slng * dlng;
+            (*dir, emem_codec::cell64_from_latlng(nlat, nlng))
+        })
+        .collect();
+    let centre = emem_codec::cell64_from_latlng(ll.lat_deg, ll.lng_deg);
+    Ok((centre, neighbours, cell_w_m, cell_h_m))
+}
+
+/// The centre of the Copernicus GLO-30 pixel that holds `(lat, lng)` and the
+/// pixel size, both `(lat, lng)` in degrees, from the tile's own header.
+/// Without the header (open ocean has no tile) it falls back to the
+/// product's grid: pixel centres on whole multiples of the pixel size, the
+/// tiles being pixel-is-point, and the longitude spacing widening north of
+/// 50 degrees.
+async fn dem_pixel_at(lat: f64, lng: f64) -> ((f64, f64), (f64, f64), &'static str) {
+    let url = emem_fetch::copernicus_dem::tile_url_for(lat, lng);
+    let cli = crate::s2_http_client();
+    if let Ok(prof) = emem_fetch::cog::open_profile(&cli, &url).await {
+        let (sx, sy) = prof.pixel_scale;
+        if sx > 0.0 && sy > 0.0 {
+            let (col, row) = prof.world_to_pixel(lng, lat);
+            let (x, y) = prof.pixel_to_world(col, row);
+            let centre = if prof.pixel_is_point {
+                (y, x)
+            } else {
+                (y - sy / 2.0, x + sx / 2.0)
+            };
+            return (centre, (sy, sx), "tile_header");
+        }
+    }
+    let size = (
+        1.0 / 3600.0,
+        crate::estimand::copdem_lng_arcsec(lat) / 3600.0,
+    );
+    let centre = (
+        (lat / size.0).round() * size.0,
+        (lng / size.1).round() * size.1,
+    );
+    (centre, size, "product_grid")
+}
+
+/// DEM pixels per stencil step for a caller's `step_cells`, which counts
+/// cell64 pitches: the nearest whole number of pixels, at least one.
+fn step_px_for(step_cells: Option<u32>, pixel_lat_deg: f64) -> u32 {
+    let Some(cells) = step_cells else { return 1 };
+    let cell_m = emem_codec::CELL_PITCH_M_EQUATOR;
+    let pixel_m = pixel_lat_deg * M_PER_DEG;
+    ((f64::from(cells) * cell_m / pixel_m).round() as u32).max(1)
+}
 
 // ════════════════════════════════════════════════════════════════════
 //  Pure terrain math (unit-tested)
@@ -199,9 +281,9 @@ pub(crate) fn tpi_class(tpi_m: f64) -> &'static str {
 
 #[derive(Debug, Deserialize)]
 pub struct TerrainReq {
-    /// cell64 OR a place name (alias `place`/`q`). The 8 neighbour cell64s
-    /// are derived by perturbing the decoded lat/lng `step_cells` pitches
-    /// per axis. Omit when supplying `lat`+`lng` instead.
+    /// cell64 OR a place name (alias `place`/`q`). The 8 neighbours are
+    /// the DEM pixels around the one that holds it. Omit when supplying
+    /// `lat`+`lng` instead.
     #[serde(default, alias = "place", alias = "q")]
     pub cell: Option<String>,
     /// Explicit coordinates, used when `cell`/`place` is absent.
@@ -209,11 +291,9 @@ pub struct TerrainReq {
     pub lat: Option<f64>,
     #[serde(default)]
     pub lng: Option<f64>,
-    /// Stencil step in cell64 pitches (default 3 ≈ 28.7 m, matching the
-    /// ~30 m Copernicus DEM native resolution so the Horn finite difference
-    /// straddles distinct source pixels). Raise it to measure slope at a
-    /// coarser scale (slope is scale-dependent); 1 samples below the DEM
-    /// resolution and will read flat inside one source pixel.
+    /// A coarser stencil, in cell64 pitches (about 9.55 m each). It is
+    /// rounded to whole DEM pixels, at least one: the default is one pixel
+    /// (30.9 m north-south), and slope is scale-dependent.
     #[serde(default)]
     pub step_cells: Option<u32>,
 }
@@ -253,8 +333,12 @@ async fn recall_elevation(cell: &str, s: &AppState) -> (Option<f64>, Option<Stri
 pub async fn terrain(req: TerrainReq, s: &AppState) -> Result<JsonValue, ApiError> {
     let started = Instant::now();
     let (cell, resolved) = crate::resolve_cell_input(req.cell.as_deref(), req.lat, req.lng).await?;
-    let step_cells = req.step_cells.unwrap_or(DEM_STEP_CELLS).max(1);
-    let (centre_cell, neighbours, cell_w_m, cell_h_m) = neighbourhood(&cell, step_cells)?;
+    let ll = emem_codec::latlng_from_cell64(&cell)
+        .map_err(|e| bad_request(format!("cannot decode centre cell64: {e}")))?;
+    let (pixel_centre, pixel_deg, grid_from) = dem_pixel_at(ll.lat_deg, ll.lng_deg).await;
+    let step_px = step_px_for(req.step_cells, pixel_deg.0);
+    let (centre_cell, neighbours, cell_w_m, cell_h_m) =
+        dem_stencil(&cell, pixel_centre, pixel_deg, step_px)?;
 
     // Recall the centre + 8 neighbours. Each is one elevation recall.
     // These 9 recalls are independent and almost always land on the same
@@ -430,14 +514,21 @@ pub async fn terrain(req: TerrainReq, s: &AppState) -> Result<JsonValue, ApiErro
         "resolved_from": resolved_env,
         "centre_elevation_m": z_centre_opt,
         "n_neighbours_materialized": n_neighbours,
-        "step_cells": step_cells,
+        "stencil": {
+            "kind": "dem_pixels",
+            "step_px": step_px,
+            "pixel_deg": {"lat": pixel_deg.0, "lng": pixel_deg.1},
+            "centre_pixel": {"lat": pixel_centre.0, "lng": pixel_centre.1},
+            "grid_from": grid_from,
+        },
+        "step_cells": req.step_cells,
         "step_w_m": cell_w_m,
         "step_h_m": cell_h_m,
         "slope": slope_block,
         "ruggedness": tri_block,
         "topo_position": tpi_block,
         "neighbour_cells": neighbour_cells,
-        "honest_note": "All three indices share one 3×3 copdem30m.elevation_mean neighbourhood sampled at step_cells pitches (default 3 ≈ 28.7 m, matching the ~30 m Cop-DEM native resolution; step_cells=1 would sample below it and read flat inside one source pixel). Slope/TRI require the full 8-neighbour ring; TPI degrades gracefully to ≥1 neighbour. Cop-DEM is bathymetry-free — ocean cells return inconclusive, never a fabricated terrain value.",
+        "honest_note": "All three indices share one 3×3 neighbourhood of Copernicus GLO-30 pixels: the pixel that holds the cell and the eight pixels step_px pixels around it (default 1), each read at the cell at its centre, so the nine elevations are nine different source pixels and step_w_m/step_h_m are the pixel spacing. Slope/TRI require the full 8-neighbour ring; TPI degrades gracefully to ≥1 neighbour. Cop-DEM is bathymetry-free — ocean cells return inconclusive, never a fabricated terrain value.",
         "responder_pubkey_b32": pubkey,
         "input_fact_cids": cids,
         "receipt": receipt,
@@ -522,6 +613,78 @@ mod tests {
         assert!((valley + 10.0).abs() < 1e-9);
         assert_eq!(tpi_class(valley), "valley_or_depression");
         assert_eq!(tpi_class(0.4), "flat_or_midslope");
+    }
+
+    /// The pixel a cell reads, as an index pair on a pixel grid whose
+    /// centres sit on multiples of `px` degrees.
+    fn pixel_of(cell: &str, px: (f64, f64)) -> (i64, i64) {
+        let ll = emem_codec::latlng_from_cell64(cell).unwrap();
+        (
+            (ll.lat_deg / px.0).round() as i64,
+            (ll.lng_deg / px.1).round() as i64,
+        )
+    }
+
+    /// Across 400 points spread over about 20 by 20 GLO-30 pixels, so every
+    /// phase of the cell grid against the pixel grid occurs, the old
+    /// three-cell stencil put a neighbour in the centre's own pixel at more
+    /// than half of them (a tenth of all neighbour reads). The pixel stencil
+    /// reads the eight pixels around the centre's every time, one pixel away
+    /// in the stated direction, and steps the pixel spacing.
+    #[test]
+    fn the_dem_stencil_reads_the_eight_pixels_around_the_centre() {
+        let px = (1.0 / 3600.0, 1.0 / 3600.0);
+        let (mut old_collapsed, mut points) = (0, 0);
+        for i in 0..20 {
+            for j in 0..20 {
+                let lat = 12.97 + (i as f64 * 1.0137 + 0.37) * px.0;
+                let lng = 77.59 + (j as f64 * 1.0137 + 0.21) * px.1;
+                let cell = emem_codec::cell64_from_latlng(lat, lng);
+                let home = pixel_of(&cell, px);
+                points += 1;
+                let (_, old, _, _) = neighbourhood(&cell, 3).unwrap();
+                if old.iter().any(|(_, c)| pixel_of(c, px) == home) {
+                    old_collapsed += 1;
+                }
+                let centre = (home.0 as f64 * px.0, home.1 as f64 * px.1);
+                let (c, new, w, h) = dem_stencil(&cell, centre, px, 1).unwrap();
+                assert_eq!(c, cell);
+                for (dir, n) in &new {
+                    let p = pixel_of(n, px);
+                    let want = match *dir {
+                        "NW" => (1, -1),
+                        "N" => (1, 0),
+                        "NE" => (1, 1),
+                        "W" => (0, -1),
+                        "E" => (0, 1),
+                        "SW" => (-1, -1),
+                        "S" => (-1, 0),
+                        _ => (-1, 1),
+                    };
+                    assert_eq!((p.0 - home.0, p.1 - home.1), want, "{dir} at {lat},{lng}");
+                }
+                assert!((h - 30.92).abs() < 0.01, "{h}");
+                assert!(
+                    (w - 30.92 * 12.97_f64.to_radians().cos()).abs() < 0.05,
+                    "{w}"
+                );
+            }
+        }
+        assert!(
+            old_collapsed * 100 >= points * 30,
+            "the old stencil collapsed at {old_collapsed} of {points} points"
+        );
+    }
+
+    /// `step_cells` asks for a coarser stencil in cell pitches; it becomes
+    /// whole pixels, never less than one.
+    #[test]
+    fn step_cells_rounds_to_whole_dem_pixels() {
+        let px = 1.0 / 3600.0;
+        assert_eq!(step_px_for(None, px), 1);
+        assert_eq!(step_px_for(Some(1), px), 1);
+        assert_eq!(step_px_for(Some(3), px), 1);
+        assert_eq!(step_px_for(Some(10), px), 3);
     }
 
     /// The neighbourhood generator must produce 8 DISTINCT neighbour

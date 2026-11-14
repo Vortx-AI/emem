@@ -86,7 +86,7 @@ fn grid_m(deg: f64) -> f64 {
 
 /// GLO-30 widens its longitude spacing with latitude (Copernicus DEM product
 /// handbook); 1 arc-second at 12 N and 2 at 66 N were read from the tiles.
-fn copdem_lng_arcsec(lat: f64) -> f64 {
+pub(crate) fn copdem_lng_arcsec(lat: f64) -> f64 {
     match lat.abs() {
         a if a < 50.0 => 1.0,
         a if a < 60.0 => 1.5,

@@ -1127,8 +1127,8 @@ const SCHEMA_FIELD_SERIES: &str = r#"{"type":"object","required":["start_date","
 }}"#;
 
 const SCHEMA_TERRAIN: &str = r#"{"type":"object","required":["cell"],"properties":{
-"cell":{"type":"string","description":"cell64 or place name. The 8 neighbour cell64s are derived by perturbing the decoded lat/lng step_cells pitches per axis."},
-"step_cells":{"type":"integer","minimum":1,"default":3,"description":"Stencil step in cell64 pitches (default 3 ≈ 28.7 m, matching the ~30 m Copernicus DEM native resolution). step_cells=1 samples below the DEM resolution and reads flat inside one source pixel; raise it to measure slope at a coarser scale."},
+"cell":{"type":"string","description":"cell64 or place name. The 8 neighbours are the Copernicus DEM pixels around the pixel that holds it."},
+"step_cells":{"type":"integer","minimum":1,"description":"A coarser stencil, in cell64 pitches (about 9.55 m each). It is rounded to whole DEM pixels, never under one. Omit it for one pixel (30.9 m north-south); raise it to measure slope at a coarser scale."},
 "place":{"type":"string","description":"Alias for `cell`."},
 "q":{"type":"string","description":"Alias for `cell`."},
 "lat":{"type":"number","description":"Explicit latitude, used when neither `cell` nor `place` is given."},

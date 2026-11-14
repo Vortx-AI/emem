@@ -203,10 +203,11 @@ On 7 November 2026, this cell had a slope of 7.0 degrees (12.3 percent),
 computed with the Horn 1981 method.
 
 The `honest_note` field says which neighbourhood emem sampled, and at what
-step. A slope has no meaning without its baseline. The default is a 3x3 Cop-DEM
-neighbourhood at about 29 m pitch (`step_cells: 3`). This matches the 30 m
-source. A 3x3 neighbourhood at 90 m gives a different number. A machine that
-mixes the two grades to the wrong plane.
+step. A slope has no meaning without its baseline. The default is the 3x3
+block of Cop-DEM pixels around the pixel that holds the cell, so the step is
+one pixel (30.9 m north-south). The `stencil` field names the pixels. A 3x3
+block at 90 m gives a different number. A machine that mixes the two grades to
+the wrong plane.
 
 The DEM has no bathymetry. For an ocean cell, the result is inconclusive. It is
 not a flat value.
