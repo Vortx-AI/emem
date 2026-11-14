@@ -39,6 +39,14 @@ const MULTI: TableDefinition<&[u8], &[u8]> = TableDefinition::new("emem.multi_at
 /// emits its reasoning states, so `GET /v1/state/<cid>` can return the bytes
 /// the address commits to. Content-addressed, so a repeat is a no-op.
 const STATES: TableDefinition<&[u8], &[u8]> = TableDefinition::new("emem.state_records");
+/// `blake3 digest of a fact (32 bytes) -> where its bytes sit in the
+/// transparency log and its place in its batch`. Written only when
+/// `EMEM_DERIVED_PROOFS` is set, and created by its first write, so a
+/// store that never set it has no such table.
+const LOCATORS: TableDefinition<&[u8], &[u8]> = TableDefinition::new("emem.fact_locators");
+/// `log position -> one attestation's sorted fact leaves`, in chunks, and
+/// the header a proof is derived from. Same flag, same lazy creation.
+const BATCHES: TableDefinition<&[u8], &[u8]> = TableDefinition::new("emem.batch_leaves");
 
 /// Which byte-to-byte table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,6 +54,8 @@ pub enum KvTable {
     Proofs,
     Multi,
     States,
+    Locators,
+    Batches,
 }
 
 impl KvTable {
@@ -54,15 +64,17 @@ impl KvTable {
             KvTable::Proofs => PROOFS,
             KvTable::Multi => MULTI,
             KvTable::States => STATES,
+            KvTable::Locators => LOCATORS,
+            KvTable::Batches => BATCHES,
         }
     }
-    /// The sled tree this table replaces, for the backfill. States never
-    /// lived in sled.
+    /// The sled tree this table replaces, for the backfill. States,
+    /// locators and batches never lived in sled.
     pub fn sled_tree(self) -> Option<&'static str> {
         match self {
             KvTable::Proofs => Some("emem.fact_proofs"),
             KvTable::Multi => Some("emem.multi_attester_index"),
-            KvTable::States => None,
+            KvTable::States | KvTable::Locators | KvTable::Batches => None,
         }
     }
     fn table_name(self) -> &'static str {
@@ -70,6 +82,8 @@ impl KvTable {
             KvTable::Proofs => "emem.fact_proofs",
             KvTable::Multi => "emem.multi_attester_index",
             KvTable::States => "emem.state_records",
+            KvTable::Locators => "emem.fact_locators",
+            KvTable::Batches => "emem.batch_leaves",
         }
     }
     fn meta_done(self) -> String {
@@ -596,6 +610,39 @@ impl RedbFacts {
             durable,
             started.elapsed(),
         );
+        Ok(())
+    }
+
+    /// Rows for several tables in one write transaction, each table in the
+    /// order given, so a reader never sees one table's rows without the
+    /// other's. Creates a table that does not exist yet.
+    pub fn kv_put_tables(
+        &self,
+        tables: &[(KvTable, &KvRows)],
+        durable: bool,
+    ) -> Result<(), CacheError> {
+        if tables.iter().all(|(_, rows)| rows.is_empty()) {
+            return Ok(());
+        }
+        let mut w = self.begin_write()?;
+        w.set_durability(if durable {
+            Durability::Immediate
+        } else {
+            Durability::None
+        })
+        .map_err(rb)?;
+        let (mut rows_n, mut bytes) = (0usize, 0usize);
+        for (t, rows) in tables {
+            let mut tb = w.open_table(t.def()).map_err(rb)?;
+            for (k, v) in rows.iter() {
+                tb.insert(k.as_slice(), v.as_slice()).map_err(rb)?;
+                rows_n += 1;
+                bytes += k.len() + v.len();
+            }
+        }
+        let started = std::time::Instant::now();
+        w.commit().map_err(rb)?;
+        log_slow_commit("kv_tables", rows_n, bytes, durable, started.elapsed());
         Ok(())
     }
 

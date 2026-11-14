@@ -179,6 +179,7 @@ pub struct FactContestedRecord {
 
 pub mod artifacts;
 pub mod attesters;
+mod fact_locator;
 pub mod merkle_log;
 pub mod server;
 pub mod trace_gate;
@@ -448,6 +449,12 @@ pub struct MaterializingStorage {
     /// [`MaterializingStorage::put_attestation_gated`] enforces the
     /// trace-admission rule for enrolled device keys.
     pub trace_gate: Option<trace_gate::TraceGate>,
+    /// `EMEM_DERIVED_PROOFS`, read once at construction.
+    derived_proofs: fact_locator::DerivedProofs,
+    /// The store held fact locators when it was opened (the flag was on at
+    /// some point), so a proof missing from the proof table is looked for
+    /// there even with the flag off. False on a store that never set it.
+    locators_present: bool,
 }
 
 /// The protocol-level storage trait. All primitives program against this
@@ -831,6 +838,57 @@ impl MaterializingStorage {
             *p = policy;
         }
     }
+
+    /// As a restart with `EMEM_DERIVED_PROOFS=mode` would set the flags.
+    #[cfg(test)]
+    fn reopen_with_derived_proofs(&mut self, mode: fact_locator::DerivedProofs) {
+        self.derived_proofs = mode;
+        self.locators_present = self
+            .hot
+            .as_ref()
+            .and_then(|h| h.redb())
+            .is_some_and(|r| fact_locator::any_locators(r));
+    }
+
+    /// Append `att` and say where each fact's bytes sit in the record.
+    ///
+    /// The record is the same CBOR `AttestationLog::append` writes; it is
+    /// serialised here so the spans are taken from the bytes that go to
+    /// disk. The walk and the per-span hash check run off the async
+    /// workers. Any failure to find or check the spans still appends the
+    /// record and returns no spans, so the attestation's proofs are then
+    /// stored the old way.
+    async fn append_with_spans(
+        &self,
+        att: &Attestation,
+        cids: &[FactCid],
+    ) -> Result<(AppendOutcome, Option<Vec<fact_locator::FactSpan>>), StorageError> {
+        let mut buf = Vec::new();
+        ciborium::ser::into_writer(att, &mut buf)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+        let cids = cids.to_vec();
+        let checked = tokio::task::spawn_blocking(move || {
+            let spans = fact_locator::verified_fact_spans(&buf, &cids);
+            (buf, spans)
+        })
+        .await;
+        match checked {
+            Ok((buf, spans)) => {
+                if spans.is_none() {
+                    tracing::warn!(
+                        target: "emem::storage",
+                        facts = att.facts.len(),
+                        "fact spans did not check against their cids; this attestation's proofs are stored"
+                    );
+                }
+                Ok((self.log.append_cbor(buf).await?, spans))
+            }
+            Err(e) => {
+                tracing::warn!(target: "emem::storage", error = %e, "fact span task failed; proofs are stored");
+                Ok((self.log.append(att).await?, None))
+            }
+        }
+    }
 }
 
 impl StorageError {
@@ -878,6 +936,8 @@ impl MaterializingStorage {
         let log = Arc::new(AttestationLog::open(log_dir)?);
         let mut fetch = Dispatcher::new();
         emem_fetch::connectors::register_default_https(&mut fetch);
+        let derived_proofs = fact_locator::DerivedProofs::from_env();
+        let locators_present = hot.redb().is_some_and(|r| fact_locator::any_locators(r));
         Ok(Self {
             cache: hot.clone(),
             hot: Some(hot),
@@ -889,6 +949,8 @@ impl MaterializingStorage {
             fact_plane: std::sync::RwLock::new(FactPlanePolicy::default()),
             attesters,
             trace_gate,
+            derived_proofs,
+            locators_present,
         })
     }
 
@@ -908,6 +970,8 @@ impl MaterializingStorage {
         let log = Arc::new(AttestationLog::open(root.join("log"))?);
         let mut fetch = Dispatcher::new();
         emem_fetch::connectors::register_default_https(&mut fetch);
+        let derived_proofs = fact_locator::DerivedProofs::from_env();
+        let locators_present = hot.redb().is_some_and(|r| fact_locator::any_locators(r));
         Ok(Self {
             cache: hot.clone(),
             hot: Some(hot),
@@ -919,6 +983,8 @@ impl MaterializingStorage {
             fact_plane: std::sync::RwLock::new(FactPlanePolicy::default()),
             attesters,
             trace_gate,
+            derived_proofs,
+            locators_present,
         })
     }
 
@@ -1126,9 +1192,21 @@ impl Storage for MaterializingStorage {
         let cids = self.cache.put_many(&att.facts).await?;
         write_stage("storage.put_facts", t);
         let t = std::time::Instant::now();
-        let appended = self.log.append(att).await?;
+        let locating = self.derived_proofs.writes_locators()
+            && self.hot.as_ref().is_some_and(|h| h.redb().is_some());
+        let (appended, spans) = if locating {
+            self.append_with_spans(att, &cids).await?
+        } else {
+            (self.log.append(att).await?, None)
+        };
         write_stage("storage.log_append", t);
         let log_entry = appended.record_hash;
+        let locator_input = spans.map(|spans| fact_locator::LocatorInput {
+            segment: appended.segment_index,
+            offset: appended.offset_in_segment,
+            entry_hash: appended.record_hash,
+            spans,
+        });
         // Persist a per-fact merkle inclusion proof so receipts citing
         // any of these CIDs can ship a verifier-ready proof. Best-effort:
         // a tree-write error never fails the attestation itself.
@@ -1157,16 +1235,33 @@ impl Storage for MaterializingStorage {
             let cids_c = cids.clone();
             let pv = att.preimage_version;
             let scope = att.scope.clone();
+            let mode = self.derived_proofs;
             let idx_writes = tokio::task::spawn_blocking(move || {
-                if let Err(e) = persist_fact_proofs(
-                    &db,
-                    redb_w.as_deref(),
-                    &facts,
-                    &cids_c,
-                    pv,
-                    Some(log_entry),
-                ) {
-                    tracing::warn!(error=%e, "fact proof persistence error (ignored)");
+                // With EMEM_DERIVED_PROOFS the attestation's locators and
+                // sorted leaves are written, and under `on` they replace the
+                // per-fact proof rows. A failed locator write falls back to
+                // storing the proofs, so no fact is left without either.
+                let located = match (redb_w.as_deref(), locator_input.as_ref()) {
+                    (Some(r), Some(inp)) => match fact_locator::write(r, inp, pv) {
+                        Ok(()) => true,
+                        Err(e) => {
+                            tracing::warn!(error=%e, "fact locator write error; proofs are stored");
+                            false
+                        }
+                    },
+                    _ => false,
+                };
+                if !(located && mode == fact_locator::DerivedProofs::On) {
+                    if let Err(e) = persist_fact_proofs(
+                        &db,
+                        redb_w.as_deref(),
+                        &facts,
+                        &cids_c,
+                        pv,
+                        Some(log_entry),
+                    ) {
+                        tracing::warn!(error=%e, "fact proof persistence error (ignored)");
+                    }
                 }
                 if let Err(e) = append_multi_attester(&db, redb_w.as_deref(), &facts, &cids_c) {
                     tracing::warn!(error=%e, "multi-attester index append error (ignored)");
@@ -1313,7 +1408,21 @@ impl Storage for MaterializingStorage {
     }
 
     fn proof_for_cid(&self, cid: &FactCid) -> Option<MerkleProof> {
-        let mut p = stored_proof_for_cid(self.hot.as_deref()?, cid)?;
+        let hot = self.hot.as_deref()?;
+        let mut p = match stored_proof_for_cid(hot, cid) {
+            Some(stored) => {
+                if self.derived_proofs == fact_locator::DerivedProofs::Shadow {
+                    shadow_compare(hot, cid, &stored);
+                }
+                stored
+            }
+            // A store that never set EMEM_DERIVED_PROOFS has no locators and
+            // stops here, as before.
+            None if self.derived_proofs.writes_locators() || self.locators_present => {
+                fact_locator::derived_proof(hot.redb()?, cid)?
+            }
+            None => return None,
+        };
         // A proof written before the log link existed names its batch root
         // and nothing else. The batch's log entry and size are recovered
         // from the log itself; neither is in the receipt's signed binding,
@@ -2105,6 +2214,35 @@ fn scan_multi_attester_tree(
         keep(&mut out, &k, &v)?;
     }
     Ok(out)
+}
+
+/// `EMEM_DERIVED_PROOFS=shadow`: the proof served is the stored one, and
+/// the one the locator rebuilds is compared with it byte for byte. A fact
+/// written before the flag was set has no locator and is not counted.
+fn shadow_compare(hot: &SledHotCache, cid: &FactCid, stored: &MerkleProof) {
+    static COMPARED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    static DIFFERED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let Some(derived) = hot.redb().and_then(|r| fact_locator::derived_proof(r, cid)) else {
+        return;
+    };
+    let n = COMPARED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    if fact_locator::proof_bytes(&derived) != fact_locator::proof_bytes(stored) {
+        let d = DIFFERED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        tracing::warn!(
+            target: "emem::storage",
+            cid = %cid.as_str(),
+            compared = n,
+            differed = d,
+            "derived proof differs from the stored proof"
+        );
+    } else if n.is_power_of_two() {
+        tracing::info!(
+            target: "emem::storage",
+            compared = n,
+            differed = DIFFERED.load(std::sync::atomic::Ordering::Relaxed),
+            "derived proofs compared with stored proofs"
+        );
+    }
 }
 
 fn stored_proof_for_cid(hot: &SledHotCache, cid: &FactCid) -> Option<MerkleProof> {
