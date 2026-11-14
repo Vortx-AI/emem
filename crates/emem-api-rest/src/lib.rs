@@ -65,6 +65,7 @@ mod ledger;
 mod mcd64a1_pc;
 mod next_acquisition;
 mod next_step;
+mod ops_orphans;
 mod persist;
 mod physics;
 mod rain_series;
@@ -1641,6 +1642,8 @@ pub fn router(state: AppState) -> Router {
         // dispatches to the underlying MCP tool, and returns an A2A
         // Task with the emem response as a `data` artifact part.
         .route("/a2a/tasks", post(post_a2a_task))
+        // Operator maintenance, loopback and a token file only: ops_orphans.rs.
+        .route("/ops/orphan-facts", post(ops_orphans::post_orphan_facts))
         // Fallback: any path the route table doesn't claim renders the
         // canonical 404 HTML for browser clients (with a 20 s soft
         // redirect to `/`) or a `{schema:"emem.error.v1", code:"not_found"}`

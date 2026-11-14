@@ -295,6 +295,7 @@ $EMEM_DATA/
 ├── models/                 optional model files
 ├── splats-site/            the files that /splats/ serves, when you add them
 ├── acme.cache/             TLS certificates
+├── maint/                  the operator token and orphan-pass runs, when you make them
 ├── warm_priority.json      the warmer's list, when you put it here
 └── warm_state.json         the time of the last warmer pass
 ```
@@ -473,6 +474,75 @@ docker logs emem 2>&1 | grep -i acme        # for the container
 
 The usual causes: the internet cannot reach port 443, `EMEM_TLS_CONTACT` is wrong, or you hit the Let's Encrypt rate
 limit. Use `EMEM_TLS_STAGING=1` while you test.
+
+### Facts that the log never received
+
+A write stores its facts first and appends them to the log second. A caller that went away between the two steps
+left facts that recall serves but that have no log entry and no inclusion proof. Those are orphans.
+`POST /ops/orphan-facts` finds them, backs them up and removes them while the node runs. The code is
+`crates/emem-storage/src/orphans.rs`.
+
+The rule:
+
+1. The fact has no row in the proof table and no locator. Both are written only after the log append, so either
+   one proves the fact is logged.
+2. One pass over every record of every log segment finds no fact whose bytes hash to the fact's cid.
+3. The same pass found every control. A control is a sample of facts that have a proof row, so they are certainly
+   in the log. If the pass misses a control, or meets a record that it cannot read or whose hash is wrong, the scan
+   reports a failed log check and the delete refuses.
+
+A fact written before the proof table existed has no proof row, but the log has it, so it stays. A fact that was
+signed less than `min_age_hours` before the scan began is kept as well. Its write can still be between the two steps.
+
+The route is off by default. It answers only on loopback, and only with the token in `$EMEM_DATA/maint/ops.token`.
+The file must have mode 0600. Any other request gets the same 404 as a path that does not exist. The token is not in
+the repository, the unit file or the container environment. Delete the file to turn the route off. No restart is
+necessary.
+
+```bash
+cd "$EMEM_DATA"
+mkdir -p maint && chmod 700 maint
+(umask 077; head -c 32 /dev/urandom | base32 | tr -d '=' > maint/ops.token)
+ops() { curl -sS -H "authorization: Bearer $(cat "$EMEM_DATA/maint/ops.token")" \
+  -d "$1" http://127.0.0.1:5051/ops/orphan-facts; }
+```
+
+Run it in this order. A request starts a pass and returns. Read the progress and the result with `status`.
+
+| Step | Request | What it changes |
+|---|---|---|
+| Scan | `ops '{"action":"scan","run":"r1"}'` | Nothing in the store. It writes `maint/orphans/r1/report.json` and the backup `orphans.jsonl`. |
+| Watch | `ops '{"action":"status","run":"r1"}'` | Nothing. |
+| Dry run | `ops '{"action":"delete","run":"r1"}'` | Nothing. It counts what the delete would do. |
+| Delete | `ops '{"action":"delete","run":"r1","apply":true,"confirm":"<export.blake3>"}'` | Fact rows and the index rows that name them. |
+| Check | `ops '{"action":"verify","run":"r1"}'` | Nothing. It counts exported facts that are still stored and index rows that still name one. |
+| Stop | `ops '{"action":"stop"}'` | Nothing. The pass stops after its current batch. |
+
+`confirm` is the `export.blake3` value from `report.json`. Without it, the delete does not start. The delete
+refuses an export whose hash has changed since the scan, and a line whose bytes do not hash to its cid.
+
+The scan takes `prefix` (walk only cids that start with it, as a sample), `page` (facts per read transaction,
+default 2,000), `duty` (share of wall time for reads, default 0.25), `min_age_hours` (default 1) and `log_mb_s`
+(default 50). The delete takes `batch` (facts per write transaction, default 1,000, at most 2,000), `duty`, and
+`signed_from` and `signed_until` to remove only one window.
+
+The delete writes only to `facts.redb`, and only rows that name an exported orphan. In the write transaction that
+removes a fact, it checks again that the fact has no proof row, no locator and no multi-attester row, and that the
+stored bytes are the exported bytes. If any check fails, the fact stays. An index row that names the orphan goes
+back to the newest logged fact at the same key by the same signer. If there is no such fact, the delete removes the
+row, and the next read materialises the fact again. When `cache.sled/` still holds a copy of an orphan, the delete
+fixes the index rows and keeps the body, because a read by cid would copy it back. The delete never writes the log,
+sled or a receipt.
+
+A restart stops a pass. Send the same request again to continue. The walk and the delete continue from the state
+that they saved after their last batch. The log pass and the plan run again in full. A delete that runs twice
+counts `already_gone` and changes nothing.
+
+Keep `orphans.jsonl`. It is the only copy of the removed bytes. A token or a statement that cites a removed cid gets
+a 404 after the delete. `facts.redb` does not get smaller, because redb uses the free pages again for new writes.
+
+The scan reads each fact row and proof row once, and each log segment once. These reads push other pages out of the
+page cache. Each delete batch holds the redb writer while it runs. Use the default `duty` while the node is busy.
 
 ### Known risks
 
