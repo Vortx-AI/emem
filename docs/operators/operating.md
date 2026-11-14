@@ -201,8 +201,8 @@ upstreams and background work. Each default comes from the code.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `EMEM_RATE_LIMIT_RPS` | `10` | Tokens per second in the rate limit of each client address, from 0.01 to 1000. |
-| `EMEM_RATE_LIMIT_BURST` | `120` | The bucket size of the rate limit, from 1 to 100000. |
+| `EMEM_RATE_LIMIT_RPS` | `30` | Tokens per second in the rate limit of each client address, from 0.01 to 1000. |
+| `EMEM_RATE_LIMIT_BURST` | `300` | The bucket size of the rate limit, from 1 to 100000. |
 | `EMEM_TRUST_FORWARDED` | unset | `1` takes the client address from `X-Forwarded-For`. Set it only behind a proxy that you control. |
 | `EMEM_TIMEOUT_SECS` | `40` | The timeout of one request, from 1 to 600 seconds. |
 | `EMEM_ASK_TIMEOUT_SECS` | `30` | The time budget of `/v1/ask`, from 10 to 180 seconds. |

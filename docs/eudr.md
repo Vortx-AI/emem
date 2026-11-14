@@ -70,6 +70,11 @@ It reads a COG copy of the JRC tiles with HTTP Range requests.
 The per-cell path does not read TMF. It reads only the three bands in the table above.
 The plot result reports the TMF reading as `tmf_cross_check`, which shows where TMF and Hansen agree on
 loss after the cut-off.
+`agreement` counts every cell TMF read, including the cells where neither product sees loss.
+`loss_agreement` counts only the `loss_cells`, the cells where TMF or Hansen sees loss after the cut-off.
+On a 2.9 ha cocoa plot where Hansen alone saw loss on 57 of 324 cells, `agreement` was 0.82 and
+`loss_agreement` was 0. On a plot that fails, `verdict_support` uses `loss_agreement`; on any other
+verdict it uses `agreement`, as before.
 TMF does not change the verdict.
 A cell can show loss after the cut-off in TMF but not in Hansen.
 One such cell sets `tmf_cross_check.review_required` to `true` and lists the cell in `review_cells`.
@@ -82,6 +87,11 @@ Each cell gets a verdict first.
 A cell is forest at the cut-off when JRC GFC2020 calls it forest.
 It is also forest when Hansen `treecover2000` is 10 % or more and the Hansen loss year is `0` or after the cut-off year.
 A missing Hansen loss year does not make a cell forest.
+`failing_cells_by_baseline` says which of the two made each failing cell forest.
+Tree crops such as cocoa, oil palm and rubber read as tree cover in Hansen, and Article 2(4) excludes them from forest.
+So when a plot fails and every failing cell is forest by Hansen alone where JRC calls it non-forest,
+`verdict_support` is `weak`, and
+its limit says to check the land use before relying on the fail. When half or more are, the limit qualifies the fail.
 
 | Cell state | Cell verdict |
 |---|---|
@@ -467,8 +477,8 @@ In 2026 that is 7 years × 8 cells × 2 bands = 112 reads for each plot.
 | Visual block, for each plot | 60 s | `EMEM_EUDR_VISUAL_BUDGET_SECS` | 5 to 150 s |
 | Whole `/v1/eudr_dds` call | 280 s | `EMEM_EUDR_TIMEOUT_SECS` | 15 to 600 s |
 | Visual reads at one time | 6 | `EMEM_EUDR_VISUAL_CONCURRENCY` | 1 to 64 |
-| EUDR requests at one time | 3 | `EMEM_EUDR_MAX_INFLIGHT` | 1 to 64 |
-| Wait for a free EUDR slot | 30 s | `EMEM_EUDR_QUEUE_SECS` | 0 to 120 s |
+| EUDR requests at one time | 6 | `EMEM_EUDR_MAX_INFLIGHT` | 1 to 64 |
+| Wait for a free EUDR slot | 60 s | `EMEM_EUDR_QUEUE_SECS` | 0 to 120 s |
 
 The limit of 6 visual reads applies to the whole responder, not to one plot.
 All plots in all running requests share it.

@@ -1901,7 +1901,7 @@ fn eudr_router(state: AppState) -> Router {
         // process (including `/health` and the static site). A small cap means
         // the (N+1)th concurrent compile gets a fast 503 and frees its socket
         // instead of piling up, the heavy endpoint can no longer take the
-        // site down. Cap via EMEM_EUDR_MAX_INFLIGHT (default 3, clamped 1..=64).
+        // site down. Cap via EMEM_EUDR_MAX_INFLIGHT (default 6, clamped 1..=64).
         .layer(axum::middleware::from_fn(eudr_admission_layer))
         .layer(axum::middleware::from_fn(security_headers_layer))
         .layer(axum::middleware::from_fn(rate_limit_layer))
@@ -2046,12 +2046,18 @@ fn max_inflight() -> usize {
 /// connection for minutes (visual-evidence compiles), so a small cap keeps a
 /// burst from starving the shared runtime and taking the whole site down (the
 /// 2026-06-02 wedge). The (N+1)th concurrent compile is shed with a fast 503.
-/// Default 3; tunable via `EMEM_EUDR_MAX_INFLIGHT` (clamped 1..=64).
+/// Default 6; tunable via `EMEM_EUDR_MAX_INFLIGHT` (clamped 1..=64).
+///
+/// 6, not 3: the slots are shared with field_burn_scar and field_actual_et,
+/// which hold one for 14 s at p95, and on 2026-11-13 a batch of eight plots
+/// queued five behind three slots and lost them at the 30 s wait. The batched
+/// cold path (four HTTP reads per band per plot) is far lighter than the
+/// per-cell fan-out that wedged the runtime on 2026-06-02.
 fn eudr_max_inflight() -> usize {
     std::env::var("EMEM_EUDR_MAX_INFLIGHT")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(3)
+        .unwrap_or(6)
         .clamp(1, 64)
 }
 
@@ -2059,13 +2065,13 @@ fn eudr_max_inflight() -> usize {
 ///
 /// The cap used to shed the (N+1)th request at once. eudr.dev sends four plots
 /// at a time, so the fourth of every burst got a 503 a second before a slot
-/// freed. Waiting holds a socket, not runtime work. Default 30 s, tunable via
+/// freed. Waiting holds a socket, not runtime work. Default 60 s, tunable via
 /// `EMEM_EUDR_QUEUE_SECS` (clamped 0..=120; 0 restores immediate shedding).
 fn eudr_queue_secs() -> u64 {
     std::env::var("EMEM_EUDR_QUEUE_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(30)
+        .unwrap_or(60)
         .min(120)
 }
 
@@ -2978,7 +2984,7 @@ fn version_header_value() -> &'static HeaderValue {
 
 // ── In-process token-bucket rate limit ───────────────────────────────────
 //
-// 600 req/min per remote IP, 1200 burst. Sized for agent traffic patterns
+// 1,800 req/min per remote IP, 300 burst. Sized for agent traffic patterns
 // (a single Claude/ChatGPT/Cursor session opens many parallel tool calls
 // for fan-out reads, 60/min throttled noticeably during composite
 // recipes that touch 10+ bands). State is held in a single Mutex (cheap;
@@ -2988,20 +2994,24 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 /// Default per-IP token-bucket refill rate, in tokens per second.
-/// 10 tok/s ≈ 600 req/min sustained, with `RATE_LIMIT_BURST` as the ceiling.
+/// 30 tok/s ≈ 1,800 req/min sustained, with `RATE_LIMIT_BURST` as the ceiling.
 /// Tunable via `EMEM_RATE_LIMIT_RPS` (clamped to 0.01..=1000.0).
+///
+/// 30, not 10: a platform that serves its own users from one address (an
+/// EUDR operator platform rendering a page of plot scenes) peaked at 34 a
+/// second and 637 a minute, and 417 of its image reads were refused.
 fn rate_limit_rps() -> f64 {
     std::env::var("EMEM_RATE_LIMIT_RPS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(10.0_f64)
+        .unwrap_or(30.0_f64)
         .clamp(0.01, 1000.0)
 }
 
 /// Default per-IP burst capacity (max tokens in the bucket).
 /// Tunable via `EMEM_RATE_LIMIT_BURST` (clamped to 1.0..=100_000.0).
 ///
-/// 120 rather than 1200, and the sustained rate is unchanged.
+/// 300 rather than 1200 (it was 120 until 2026-11-14, with 10 a second).
 ///
 /// The burst is how much damage a runaway can do before it is told anything.
 /// At 1200 a client with a poll loop and no sleep got twelve hundred free
@@ -3013,8 +3023,8 @@ fn rate_limit_rps() -> f64 {
 /// unreasonable for an agent running a multi-tool loop, and tightening THAT
 /// would punish the callers this responder exists to serve.
 ///
-/// 120 still absorbs any honest burst — a discovery sequence, a fan-out over a
-/// dozen cells, a page of tool schemas — and stops a runaway inside twelve
+/// 300 absorbs any honest burst — a discovery sequence, a fan-out over a
+/// dozen cells, a page of plot scenes — and still stops a runaway within
 /// seconds with a Retry-After instead of letting it quietly poison its own
 /// view of the world. A limit that never fires is not protection, it is a
 /// constant with a comment.
@@ -3022,7 +3032,7 @@ fn rate_limit_burst() -> f64 {
     std::env::var("EMEM_RATE_LIMIT_BURST")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(120.0_f64)
+        .unwrap_or(300.0_f64)
         .clamp(1.0, 100_000.0)
 }
 
@@ -3281,6 +3291,18 @@ pub(crate) struct ApiError(StatusCode, ErrorBody);
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let ApiError(status, body) = self;
+        // A 5xx is ours or an upstream's, and the caller is the only one who
+        // saw why: 37 instant 502s to a partner on 10 November left no reason
+        // in this log. The message is the one the caller already received.
+        if status.is_server_error() {
+            tracing::warn!(
+                target: "emem::error",
+                http_status = status.as_u16(),
+                error_code = ?body.code,
+                error_message = %body.message.chars().take(300).collect::<String>(),
+                "server_error"
+            );
+        }
         // Serialize the typed body, then stamp the `schema` discriminator
         // that `docs/errors.md` promises on every error response. Done at
         // serialization time (rather than as a struct field) so the ~195
@@ -12624,7 +12646,7 @@ fn errors_payload() -> JsonValue {
         ("compute_quota_exceeded",       "function call hit per-attester quota",
          "Throttle and retry inside the window published at /v1/limits; the quota is per key and per day."),
         ("rate_limited",                 "per-IP rate limit hit",
-         "Backoff per the `Retry-After` header, which this responder sets to 1. The bucket refills continuously (600 req/min sustained, 120 burst), so a short sleep is the right response, not a minute. Operators tune via EMEM_RATE_LIMIT_RPS / EMEM_RATE_LIMIT_BURST."),
+         "Backoff per the `Retry-After` header, which this responder sets to 1. The bucket refills continuously (1,800 req/min sustained, 300 burst), so a short sleep is the right response, not a minute. Operators tune via EMEM_RATE_LIMIT_RPS / EMEM_RATE_LIMIT_BURST."),
         ("cache_error",                  "responder's hot cache (sled) had an internal error",
          "Retry; if persistent, the responder's storage may need recovery, operators see the cause in the journald log."),
         ("internal",                     "responder-side bug",
@@ -69207,7 +69229,24 @@ async fn get_cell_scene_png(
     let cell = cell64.trim_end_matches(".png").to_string();
     let (scene, fallback) = match scene_for_request(&cell, &qs).await {
         Ok(s) => s,
-        Err(resp) => return resp,
+        Err(mut resp) => {
+            // No clear scene in a window that closed more than two weeks
+            // ago stays true: the catalogues ingest within days. Without a
+            // cache header one partner asked for the same empty window 13
+            // times.
+            let closed = qs
+                .get("datetime")
+                .and_then(|w| w.split('/').nth(1))
+                .and_then(parse_iso8601_unix)
+                .is_some_and(|end| end < now_unix_s() - 14 * 86_400);
+            if resp.status() == StatusCode::NOT_FOUND && closed {
+                resp.headers_mut().insert(
+                    axum::http::header::CACHE_CONTROL,
+                    axum::http::HeaderValue::from_static("public, max-age=86400"),
+                );
+            }
+            return resp;
+        }
     };
     let resp = Response::builder()
         .status(StatusCode::OK)
@@ -76631,7 +76670,15 @@ const MMU_SIDE_M: f64 = 70.710_678;
 /// What a plot's verdict rests on, and how firmly, by a stated rule rather
 /// than a probability: a calibrated one needs outcomes the responder does
 /// not hold. Each limit names itself, so a reviewer knows what to check.
-fn verdict_support(per_cell: &[EudrCellVerdict], tmf: &JsonValue, area_ha: f64) -> JsonValue {
+/// `plot_verdict` is the plot's code: the loss-cell and Hansen-only limits
+/// speak to a fail, the only verdict they can make less sure, and leave the
+/// support of every other verdict, and so whether it is signable, as it was.
+fn verdict_support(
+    per_cell: &[EudrCellVerdict],
+    tmf: &JsonValue,
+    area_ha: f64,
+    plot_verdict: u8,
+) -> JsonValue {
     let n = per_cell.len().max(1) as f64;
     let both = per_cell
         .iter()
@@ -76640,6 +76687,9 @@ fn verdict_support(per_cell: &[EudrCellVerdict], tmf: &JsonValue, area_ha: f64) 
         / n;
     let borderline = per_cell.iter().filter(|c| c.borderline_canopy).count() as f64 / n;
     let agreement = tmf["agreement"].as_f64();
+    let loss_agreement = tmf["loss_agreement"].as_f64();
+    let loss_cells = tmf["loss_cells"].as_u64().unwrap_or(0);
+    let confirmed = tmf["post_cutoff_loss"]["both"].as_u64().unwrap_or(0);
     let mut limits = Vec::new();
     let (mut weak, mut moderate) = (false, false);
     let mut check = |bad: bool, soft: bool, why: String| {
@@ -76659,13 +76709,40 @@ fn verdict_support(per_cell: &[EudrCellVerdict], tmf: &JsonValue, area_ha: f64) 
             both * 100.0
         ),
     );
-    if let Some(a) = agreement {
-        check(
+    match (plot_verdict, loss_agreement, agreement) {
+        (2, Some(a), _) => check(
+            a < 0.7 && loss_cells >= 10,
+            a < 0.9,
+            format!(
+                "TMF confirms post-cut-off loss at {confirmed} of the {loss_cells} cells where TMF or Hansen sees it"
+            ),
+        ),
+        (2, None, _) => {}
+        (_, _, Some(a)) => check(
             a < 0.7,
             a < 0.9,
             format!(
                 "TMF and Hansen agree on post-cut-off loss at {:.0} % of the cells TMF covers",
                 a * 100.0
+            ),
+        ),
+        _ => {}
+    }
+    // A cell is forest at the cut-off when JRC says so OR by Hansen tree
+    // cover in 2000. When the fail rests on the second alone, the
+    // Commission's own baseline disagrees with it.
+    let fails = per_cell.iter().filter(|c| c.verdict == 2).count();
+    let jrc_non_forest = per_cell
+        .iter()
+        .filter(|c| c.verdict == 2 && matches!(c.jrc_forest_2020, Some(v) if v < 1))
+        .count();
+    if plot_verdict == 2 && fails > 0 {
+        let share = jrc_non_forest as f64 / fails as f64;
+        check(
+            jrc_non_forest == fails,
+            share >= 0.5,
+            format!(
+                "{jrc_non_forest} of {fails} failing cells are forest only by Hansen tree cover in 2000: the JRC GFC2020 baseline calls them non-forest at the cut-off. Tree crops such as cocoa, oil palm and rubber read as tree cover in Hansen and are not forest under Article 2(4), so check the land use before relying on this fail"
             ),
         );
     }
@@ -76706,11 +76783,12 @@ fn verdict_support(per_cell: &[EudrCellVerdict], tmf: &JsonValue, area_ha: f64) 
     }
     json!({
         "level": if weak { "weak" } else if moderate { "moderate" } else { "strong" },
-        "rule": "strong when every input is complete (>= 95 % of cells with both baselines, TMF agreement >= 90 % where TMF reads, <= 10 % borderline canopy, samples no more than 71 m apart so a 0.5 ha clearance cannot fall between them); weak when any falls below 80 % / 70 % / above 30 % / beyond 141 m; moderate between. The spacing limit applies only to a plot of 0.5 ha or more: a smaller plot holds no 0.5 ha clearance, so its size is a qualifier, never a weakener. Not a calibrated probability.",
+        "rule": "strong when every input is complete (>= 95 % of cells with both baselines, TMF confirming >= 90 % of the cells where TMF or Hansen sees post-cut-off loss, <= 10 % borderline canopy, samples no more than 71 m apart so a 0.5 ha clearance cannot fall between them, and fewer than half the failing cells forest by Hansen alone where JRC says non-forest); weak when any falls below 80 % / 70 % (from 10 loss cells) / above 30 % / beyond 141 m, or when every failing cell is forest by Hansen alone; moderate between. The spacing limit applies only to a plot of 0.5 ha or more: a smaller plot holds no 0.5 ha clearance, so its size is a qualifier, never a weakener. Not a calibrated probability.",
         "plot_area_ha": (area_ha * 1e4).round() / 1e4,
         "cells_with_both_baselines": (both * 1e4).round() / 1e4,
         "borderline_canopy_fraction": (borderline * 1e4).round() / 1e4,
         "tmf_agreement": agreement,
+        "tmf_loss_agreement": loss_agreement,
         "sample_spacing_m": (spacing_m * 10.0).round() / 10.0,
         "limits": limits,
     })
@@ -76810,6 +76888,11 @@ fn tmf_cross_check(per_cell: &[EudrCellVerdict], cutoff_year: i64) -> JsonValue 
             "neither": neither,
         },
         "agreement": if read == 0 { JsonValue::Null } else { json!(((both + neither) as f64 / read as f64 * 1e4).round() / 1e4) },
+        // `agreement` counts the cells both call loss-free, so a plot where
+        // Hansen alone sees loss on 57 of 324 cells read 0.82. This one is
+        // over the cells where either product sees post-cut-off loss.
+        "loss_cells": both + hansen_only + tmf_only,
+        "loss_agreement": if both + hansen_only + tmf_only == 0 { JsonValue::Null } else { json!((both as f64 / (both + hansen_only + tmf_only) as f64 * 1e4).round() / 1e4) },
         // Loss only TMF sees is not negligible risk (Art. 10): the verdict
         // stands, but the statement is not signable until someone looks.
         "review_required": tmf_only > 0,
@@ -78262,6 +78345,7 @@ async fn post_eudr_dds_inner(
                         &per_cell,
                         &tmf,
                         polygon_area_ha(&plot.geometry_geojson).unwrap_or(area_ha),
+                        plot_verdict,
                     ),
                 );
                 obj.insert("tmf_cross_check".into(), tmf);
@@ -99006,9 +99090,49 @@ mod tests {
         assert_eq!(x["post_cutoff_loss"]["tmf_only"], 1);
         assert_eq!(x["post_cutoff_loss"]["neither"], 2);
         assert_eq!(x["agreement"], 0.6);
+        assert_eq!(x["loss_cells"], 3);
+        assert_eq!(x["loss_agreement"], 0.3333);
         assert_eq!(x["review_required"], true);
         assert_eq!(x["review_cells"].as_array().map(|v| v.len()), Some(1));
         assert!(tmf_cross_check(&cells[5..], 2020)["agreement"].is_null());
+        assert!(tmf_cross_check(&cells[3..4], 2020)["loss_agreement"].is_null());
+    }
+
+    #[test]
+    fn a_fail_on_hansen_alone_where_jrc_says_non_forest_is_weak() {
+        // A 2.9 ha cocoa plot near Soubre: 57 cells lost in 2024 by Hansen,
+        // all non-forest in JRC GFC2020, none lost in TMF. Before, support
+        // read "moderate" with TMF "agreeing" at 82 % of the cells.
+        let cell = |verdict: u8, hansen: i64| EudrCellVerdict {
+            cell: "c".into(),
+            verdict,
+            label: "x",
+            jrc_forest_2020: Some(0),
+            hansen_treecover_2000: Some(60),
+            hansen_lossyear: Some(hansen),
+            jrc_tmf_deforestation_year: Some(0),
+            wri_driver_class: None,
+            radd_alert_date: None,
+            refinement_applied: None,
+            borderline_canopy: false,
+            fact_cids: vec![],
+            lossyear_fact_cid: None,
+        };
+        let mut cells: Vec<EudrCellVerdict> = (0..57).map(|_| cell(2, 2024)).collect();
+        cells.extend((0..267).map(|_| cell(1, 0)));
+        let tmf = tmf_cross_check(&cells, 2020);
+        assert_eq!(tmf["loss_agreement"], 0.0);
+        let v = verdict_support(&cells, &tmf, 2.945, 2);
+        assert_eq!(v["level"], "weak", "{v}");
+        let limits = v["limits"].to_string();
+        assert!(
+            limits.contains("TMF confirms post-cut-off loss at 0 of the 57 cells"),
+            "{limits}"
+        );
+        assert!(
+            limits.contains("57 of 57 failing cells are forest only by Hansen"),
+            "{limits}"
+        );
     }
 
     #[test]
@@ -99167,10 +99291,10 @@ mod tests {
         let cells: Vec<_> = (0..16).map(cell).collect();
         let tmf = tmf_cross_check(&cells, 2020);
         // 16 samples over 4.9 ha are 55 m apart: no 71 m square fits between.
-        let v = verdict_support(&cells, &tmf, 4.9);
+        let v = verdict_support(&cells, &tmf, 4.9, 1);
         assert_eq!(v["level"], "strong", "{v}");
         // The same 16 over 100 ha are 250 m apart.
-        let v = verdict_support(&cells, &tmf, 100.0);
+        let v = verdict_support(&cells, &tmf, 100.0, 1);
         assert_eq!(v["level"], "weak");
         assert!(v["limits"][0]["why"]
             .as_str()
@@ -99203,7 +99327,7 @@ mod tests {
         };
         let cells = vec![cell];
         let tmf = tmf_cross_check(&cells, 2020);
-        let v = verdict_support(&cells, &tmf, 0.2);
+        let v = verdict_support(&cells, &tmf, 0.2, 1);
         assert_ne!(v["level"], "weak", "{v}");
         let limits = v["limits"].as_array().unwrap();
         assert!(limits.iter().all(|l| l["severity"] == "qualifies"), "{v}");
@@ -99214,7 +99338,7 @@ mod tests {
             .iter()
             .any(|l| l["why"].as_str().unwrap().contains("under the 0.5 ha")));
         // One sample on 3.69 ha is 192 m of spacing, and that still weakens.
-        let v = verdict_support(&cells, &tmf, 3.69);
+        let v = verdict_support(&cells, &tmf, 3.69, 1);
         assert_eq!(v["level"], "weak", "{v}");
     }
 

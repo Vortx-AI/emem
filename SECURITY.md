@@ -125,7 +125,7 @@ It does not check the load-shedding row.
 | Body cap | 16 MiB on POST endpoints (413 when larger). `EMEM_BODY_LIMIT_MB`. |
 | Request timeout | 40 s (504 when longer). `EMEM_TIMEOUT_SECS`. |
 | Load shedding | 128 requests in flight across the process. The next request gets a fast 503. `EMEM_MAX_INFLIGHT`. |
-| Per-IP rate limit | 600 req/min sustained, 120 burst, `Retry-After: 1`. `EMEM_RATE_LIMIT_RPS` and `EMEM_RATE_LIMIT_BURST`. |
+| Per-IP rate limit | 1800 req/min sustained, 300 burst, `Retry-After: 1`. `EMEM_RATE_LIMIT_RPS` and `EMEM_RATE_LIMIT_BURST`. |
 | Identity | The responder keeps its ed25519 secret in a file with mode 0600 and never writes it to a log. |
 | Receipts | Each fact read carries a signed receipt. You can verify it offline, or with `/v1/verify_receipt`. |
 | Storage | sled with content-addressed keys. No SQL. |
