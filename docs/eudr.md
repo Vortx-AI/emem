@@ -398,6 +398,45 @@ When the responder holds it, `statement_of_compliance` gives the reason in place
 The code is `verdict_support`, `tmf_cross_check` and `statement_of_compliance` in
 `crates/emem-api-rest/src/lib.rs`.
 
+## Optional sections in one call (`include`)
+
+A platform can ask for the evidence a reviewer looks at in the same call as the verdict.
+The request field `include` names the sections, any of these three:
+
+| Section | What it holds for each plot | Engine it reuses |
+|---|---|---|
+| `season` | Sentinel-2 NBR with the registered canopy-loss rule (`canopy_loss_seasonal_nbr@1`) from 2021-01-01 to today, and NDVI over the last window | the `fields` engine of `POST /v1/field_series` |
+| `imagery` | One true-colour picture for each year since 2020, from the year's clearest Sentinel-2 pass, at its native 10 m, cropped to the plot's box, as a PNG artifact URL | the scene pipeline of `GET /v1/scene.png` |
+| `burn` | The MODIS MCD64A1 burned-area months since 2021, at about one cell for each 25 ha of the plot | the materializer `POST /v1/field_burn_scar` warms |
+
+Each section starts with the request and runs beside the verdict, on its own task.
+Each has its own budget: 25 s for `season`, 20 s for `imagery`, 15 s for `burn`.
+`include_wait_s` (0 to 60) lowers how long the answer waits for them.
+The answer carries each section under `include.<section>` with `status`:
+
+- `done`: the section is in the answer.
+- `pending`: it did not finish in its budget. It keeps running, and `GET /v1/eudr_dds/include/{token}` returns it when it is done.
+  The token stays valid for six hours after the section finishes, on the responder that issued it.
+- `unavailable`: the section stopped; `why` says why.
+
+A slow section never makes the request fail, and it never holds the verdict past its budget.
+A section keeps running after its request, so the responder runs at most six sections at once.
+A section that waits for its turn comes back `pending`.
+The sections name each plot by its index (`plot`) and its `plot_commitment`, never by its plot id.
+
+`season` reads the plots in groups no wider than 0.04 degrees (about 4.4 km), the window the `fields` engine reads.
+The canopy-loss rule compares each date with the same weeks a year earlier, and one series spans at most four years.
+So the loss from 2021 to today is judged in two windows, and each window is its own signed series (`series_token`).
+`imagery` uses the scene with the lowest scene cloud cover under 40 % in each year, the newest of equals.
+A scene with little cloud overall can still have a cloud over the plot.
+A picture is at least 32 pixels a side, so a plot under 320 m sits in the middle of a larger picture.
+Each picture has its own 2 to 98 percentile stretch, so brightness is not comparable between years.
+When the request includes `imagery`, it replaces the per-cell timeline of `request_visual_evidence`.
+The pictures share that timeline's limit on reads at once (`EMEM_EUDR_VISUAL_CONCURRENCY`, default 6).
+`burn` counts a month as burned at a cell when its burn day of year is above 0 and the day is on or after 2021-01-01.
+`any_burn_since_2021` is null when no month was read.
+`complete` is false when months were still being read when the budget ended.
+
 ## Filing in the EUDR Information System
 
 The EU's EUDR Information System (TRACES) takes a statement through its V4 service,
@@ -787,9 +826,10 @@ Thus a call that cannot finish gets a clear 504 response before the connection c
 The 504 body has `code: "source_fetch_failed"` and gives the plot count and the budget in seconds.
 
 A `/v1/eudr_dds` response over HTTP has a `Server-Timing` header with the wall time of each step in ms:
-`prepare` (the plots checked), `raster` (the raster method's reads and counts for all its plots),
+`prepare` (the plots checked and the `include` sections started), `raster` (the raster method's reads and counts for all its plots),
 `plots` (the sampled method's band reads and verdicts, and each plot's answer), `assemble` (the response and
-the facts it names), `store` (the facts signed and written), `receipt` and `total`. The time spent waiting for a
+the facts it names), `store` (the facts signed and written), `receipt` and `total`.
+With `include`, an `include` step after `receipt` is the wait for the sections that are still running. The time spent waiting for a
 slot is not in `total`. The MCP tool and the A2A task give the same answer without the header.
 
 The two field routes do not have the 280 s budget.
