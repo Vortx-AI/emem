@@ -488,8 +488,16 @@ The rule:
    one proves the fact is logged.
 2. One pass over every record of every log segment finds no fact whose bytes hash to the fact's cid.
 3. The same pass found every control. A control is a sample of facts that have a proof row, so they are certainly
-   in the log. If the pass misses a control, or meets a record that it cannot read or whose hash is wrong, the scan
-   reports a failed log check and the delete refuses.
+   in the log. If the pass misses a control, or meets a record that it cannot read, the scan reports a failed log
+   check and the delete refuses. A tear, a record whose hash is wrong or whose length runs past the end of its
+   segment, also fails the check unless `accept_log_problems` names its position as `"<segment>:<offset>"`. A
+   position in that list where the log has no tear fails the check too.
+
+At a tear the pass goes on from the next record that checks, so a fact logged after a tear is found and stays. A
+fact whose bytes are whole in the part of a torn record that is on disk is exported but held, with the reason
+`in_damaged_log_record`. `report.json` lists each tear in `log_problems_at`, with its position, its kind, the leaf
+the tree took from it (if any), and whether the list accepted it. On emem.dev the list is
+`["235:183293", "235:216989", "340:21860027", "1633:509270"]` (see the section below).
 
 A fact written before the proof table existed has no proof row, but the log has it, so it stays. A fact that was
 signed less than `min_age_hours` before the scan began is kept as well. Its write can still be between the two steps.
@@ -522,8 +530,8 @@ Run it in this order. A request starts a pass and returns. Read the progress and
 refuses an export whose hash has changed since the scan, and a line whose bytes do not hash to its cid.
 
 The scan takes `prefix` (walk only cids that start with it, as a sample), `page` (facts per read transaction,
-default 2,000), `duty` (share of wall time for reads, default 0.25), `min_age_hours` (default 1) and `log_mb_s`
-(default 50). The delete takes `batch` (facts per write transaction, default 1,000, at most 2,000), `duty`, and
+default 2,000), `duty` (share of wall time for reads, default 0.25), `min_age_hours` (default 1), `log_mb_s`
+(default 50) and `accept_log_problems` (default none). The delete takes `batch` (facts per write transaction, default 1,000, at most 2,000), `duty`, and
 `signed_from` and `signed_until` to remove only one window.
 
 The delete writes only to `facts.redb`, and only rows that name an exported orphan. In the write transaction that

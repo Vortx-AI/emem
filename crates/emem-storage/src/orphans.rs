@@ -21,18 +21,25 @@
 //!    `facts` array exactly as the log stores it, which is the same bytes
 //!    `put_many` hashed into the cid. This is the decision.
 //! 3. The pass is trusted only if it also found every positive control (a
-//!    sample of facts that have a proof row, so are certainly logged), read
-//!    every record whose stored hash matched, and met no record it could not
-//!    walk. Otherwise the scan says the log check failed and the delete
-//!    refuses.
+//!    sample of facts that have a proof row, so are certainly logged), and
+//!    could walk every record whose stored hash matched. A place where a
+//!    frame does not check (a tear: a stored hash that is wrong, or a length
+//!    that runs past the end) must be one the operator accepted by position
+//!    (`accept_log_problems`, each `"<segment>:<offset>"`), and each accepted
+//!    position must be a tear the pass found. Otherwise the scan says the log
+//!    check failed and the delete refuses. At a tear the pass resyncs to the
+//!    next frame that checks and reads on, so a fact logged after a tear is
+//!    found and stays. A fact whose bytes are whole in the surviving part of
+//!    a torn record is held (`in_damaged_log_record`), never removed.
 //!
 //! Facts written before proofs existed (the log is older than the proof
 //! table) fail step 1 and pass step 2: the log has them, so they stay. So
 //! does a fact whose write was dropped after the log append, before its
 //! proof was stored.
 //!
-//! A fact is exported but held, not removed, when its body does not decode,
-//! its `signed_at` does not parse, or it was signed less than `min_age_hours`
+//! A fact is exported but held, not removed, when its bytes are whole in the
+//! surviving part of a torn record, its body does not decode, its
+//! `signed_at` does not parse, or it was signed less than `min_age_hours`
 //! before the scan began (a write still between its two steps).
 //!
 //! # What the delete changes
@@ -58,7 +65,8 @@ use emem_fact::Fact;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::fact_locator::{entry_fact_spans, EntryFacts};
+use crate::fact_locator::{entry_fact_spans, fact_spans_in_prefix, EntryFacts};
+use crate::log_walk::{segment_indices, SegmentWalk, Step};
 use crate::StorageError;
 
 const SCAN_STATE: &str = "scan.state.json";
@@ -137,6 +145,10 @@ pub struct ScanOptions {
     pub min_age_hours: u64,
     /// Read rate cap for the log pass, MB/s.
     pub log_mb_s: u64,
+    /// Tears in the log the operator knows of, each `"<segment>:<offset>"`.
+    /// Any other tear fails the log check, and so does a position here that
+    /// is not a tear.
+    pub accept_log_problems: Vec<String>,
     /// The scan's reference time; the clock when absent. For tests.
     #[serde(skip)]
     pub now_unix: Option<i64>,
@@ -150,6 +162,7 @@ impl Default for ScanOptions {
             duty: 0.25,
             min_age_hours: 1,
             log_mb_s: 50,
+            accept_log_problems: Vec::new(),
             now_unix: None,
         }
     }
@@ -308,9 +321,38 @@ struct LogPass {
     facts: u64,
     no_facts: u64,
     malformed: u64,
+    /// Tears whose declared frame fits and whose stored hash is wrong.
     hash_mismatch: u64,
+    /// Tears whose declared frame runs past the end of the segment.
     torn_tails: u64,
+    /// Records read after a tear, by resyncing to the next frame that checks.
+    after_a_tear: u64,
+    /// Facts whole in the surviving bytes of a torn record.
+    in_damaged_records: u64,
     ms: u64,
+}
+
+/// One place where a frame does not check.
+#[derive(Debug, Clone, Serialize)]
+struct LogProblem {
+    /// `"<segment>:<offset>"`, the form `accept_log_problems` takes.
+    position: String,
+    segment: u64,
+    offset: u64,
+    kind: &'static str,
+    declared_len: Option<u64>,
+    resume_offset: Option<u64>,
+    /// The leaf the tree's walk took from this frame, when it took one: that
+    /// leaf is the hash of no entry.
+    leaf_index: Option<u64>,
+    accepted: bool,
+    facts_named: u64,
+}
+
+/// `"<segment>:<offset>"`.
+fn parse_position(s: &str) -> Option<(u64, u64)> {
+    let (a, b) = s.trim().split_once(':')?;
+    Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
 }
 
 fn spool_records(path: &Path) -> Result<Vec<(Vec<u8>, u64)>, StorageError> {
@@ -448,78 +490,97 @@ pub(crate) fn now_unix() -> i64 {
 }
 
 /// Every record of every segment, in segment order. Marks `found[i]` for
-/// each fact whose digest is `want`'s key `i`.
+/// each fact whose digest is `want`'s key `i`, and `damaged[i]` for each
+/// one whole in the surviving bytes of a torn record. Resyncs past a tear
+/// and lists each one.
 fn log_pass(
     log_root: &Path,
     want: &HashMap<[u8; 32], u32>,
     found: &mut [bool],
+    damaged: &mut [bool],
     mb_s: u64,
     ctl: &JobControl,
-) -> Result<LogPass, StorageError> {
+) -> Result<(LogPass, Vec<LogProblem>), StorageError> {
     let t0 = Instant::now();
-    let mut segs: Vec<u64> = std::fs::read_dir(log_root)?
-        .filter_map(|e| e.ok())
-        .filter_map(|e| {
-            e.file_name()
-                .to_str()
-                .and_then(|n| n.strip_prefix("merkle.log."))
-                .and_then(|r| r.parse::<u64>().ok())
-        })
-        .collect();
-    segs.sort_unstable();
+    let segs = segment_indices(log_root)?;
+    let newest = segs.last().copied();
     let rate = (mb_s.clamp(5, 500) * 1_000_000) as f64;
     let mut p = LogPass::default();
-    let mut cbor = Vec::new();
+    let mut problems = Vec::new();
+    let mut base = 0u64;
     for seg in segs {
         if ctl.cancelled() {
             return Err(cancelled());
         }
-        let file = std::fs::File::open(log_root.join(format!("merkle.log.{seg}")))?;
         // The open segment grows while this reads it; what was appended after
         // this moment is a write too new for the scan to judge anyway.
-        let len = file.metadata()?.len();
-        let mut r = BufReader::with_capacity(1 << 20, file);
-        let mut pos = 0u64;
-        while pos + 4 <= len {
-            let mut lb = [0u8; 4];
-            r.read_exact(&mut lb)?;
-            let n = u64::from(u32::from_le_bytes(lb));
-            if pos + 4 + n + 32 > len {
-                // A sealed segment ends with its 32-byte hash, which reads as
-                // a length that runs past the end. Anything else is a record
-                // the writer never finished, so never acknowledged.
-                if len - pos != 32 {
-                    p.torn_tails += 1;
-                }
-                break;
-            }
-            cbor.resize(n as usize, 0);
-            r.read_exact(&mut cbor)?;
-            let mut stored = [0u8; 32];
-            r.read_exact(&mut stored)?;
-            pos += 4 + n + 32;
-            p.records += 1;
-            if blake3::hash(&cbor).as_bytes() != &stored {
-                p.hash_mismatch += 1;
-                continue;
-            }
-            match entry_fact_spans(&cbor) {
-                EntryFacts::Spans(spans) => {
-                    p.attestations += 1;
-                    for (a, b) in spans {
-                        p.facts += 1;
-                        let d = *blake3::hash(&cbor[a..b]).as_bytes();
-                        if let Some(&i) = want.get(&d) {
-                            found[i as usize] = true;
+        let mut w = SegmentWalk::open(&log_root.join(format!("merkle.log.{seg}")))?;
+        let mut paced = 0u64;
+        while let Some(step) = w.next_step()? {
+            match step {
+                Step::Entry {
+                    cbor, tree_ordinal, ..
+                } => {
+                    p.records += 1;
+                    if tree_ordinal.is_none() {
+                        p.after_a_tear += 1;
+                    }
+                    match entry_fact_spans(cbor) {
+                        EntryFacts::Spans(spans) => {
+                            p.attestations += 1;
+                            for (a, b) in spans {
+                                p.facts += 1;
+                                let d = *blake3::hash(&cbor[a..b]).as_bytes();
+                                if let Some(&i) = want.get(&d) {
+                                    found[i as usize] = true;
+                                }
+                            }
                         }
+                        EntryFacts::NoFacts => p.no_facts += 1,
+                        EntryFacts::Malformed => p.malformed += 1,
                     }
                 }
-                EntryFacts::NoFacts => p.no_facts += 1,
-                EntryFacts::Malformed => p.malformed += 1,
+                // A record the writer is still writing at the end of the
+                // newest segment is not a tear.
+                Step::Tear { tear, .. } if Some(seg) == newest && tear.resume.is_none() => {}
+                Step::Tear { tear, partial } => {
+                    match tear.kind {
+                        crate::log_walk::TearKind::BadHash => p.hash_mismatch += 1,
+                        _ => p.torn_tails += 1,
+                    }
+                    let mut named = 0u64;
+                    for (a, b) in fact_spans_in_prefix(partial) {
+                        named += 1;
+                        let d = *blake3::hash(&partial[a..b]).as_bytes();
+                        if let Some(&i) = want.get(&d) {
+                            damaged[i as usize] = true;
+                        }
+                    }
+                    p.in_damaged_records += named;
+                    problems.push(LogProblem {
+                        position: format!("{seg}:{}", tear.offset),
+                        segment: seg,
+                        offset: tear.offset,
+                        kind: tear.kind.as_str(),
+                        declared_len: tear.declared_len,
+                        resume_offset: tear.resume,
+                        leaf_index: tear.tree_ordinal.map(|k| base + k),
+                        accepted: false,
+                        facts_named: named,
+                    });
+                }
+            }
+            if w.pos() - paced > 16 << 20 {
+                paced = w.pos();
+                let due = Duration::from_secs_f64((p.bytes + paced) as f64 / rate);
+                if due > t0.elapsed() {
+                    sleep_unless_cancelled(due - t0.elapsed(), ctl);
+                }
             }
         }
+        base += w.tree_leaves();
         p.segments += 1;
-        p.bytes += len;
+        p.bytes += w.len();
         ctl.set(json!({
             "phase": "log",
             "segment": seg,
@@ -533,7 +594,7 @@ fn log_pass(
         }
     }
     p.ms = t0.elapsed().as_millis() as u64;
-    Ok(p)
+    Ok((p, problems))
 }
 
 struct Decoded {
@@ -748,9 +809,50 @@ pub fn scan(
         }
     }
     let mut found = vec![false; n + controls];
-    let lp = log_pass(store.log_root, &want, &mut found, opts.log_mb_s, ctl)?;
+    let mut damaged = vec![false; n + controls];
+    let (lp, mut problems) = log_pass(
+        store.log_root,
+        &want,
+        &mut found,
+        &mut damaged,
+        opts.log_mb_s,
+        ctl,
+    )?;
     let controls_found = found[n..].iter().filter(|f| **f).count();
     let mut log_problems = Vec::new();
+    let mut accepted: Vec<(u64, u64)> = Vec::new();
+    for a in &opts.accept_log_problems {
+        match parse_position(a) {
+            Some(pos) => accepted.push(pos),
+            None => log_problems.push(format!(
+                "accept_log_problems entry {a:?} is not <segment>:<offset>"
+            )),
+        }
+    }
+    for pr in problems.iter_mut() {
+        pr.accepted = accepted.contains(&(pr.segment, pr.offset));
+        if !pr.accepted {
+            log_problems.push(format!(
+                "log segment {} at offset {}: {}{}; not in accept_log_problems",
+                pr.segment,
+                pr.offset,
+                pr.kind,
+                pr.leaf_index
+                    .map(|l| format!(", the tree took leaf {l} from it"))
+                    .unwrap_or_default()
+            ));
+        }
+    }
+    for (seg, off) in &accepted {
+        if !problems
+            .iter()
+            .any(|pr| pr.segment == *seg && pr.offset == *off)
+        {
+            log_problems.push(format!(
+                "accept_log_problems names {seg}:{off}, where the log has no problem"
+            ));
+        }
+    }
     if controls == 0 {
         log_problems.push("no fact with a proof was seen, so the log pass has no control".into());
     }
@@ -762,12 +864,6 @@ pub fn scan(
     }
     if lp.malformed > 0 {
         log_problems.push(format!("{} log records could not be walked", lp.malformed));
-    }
-    if lp.hash_mismatch > 0 {
-        log_problems.push(format!(
-            "{} log records do not match their stored hash",
-            lp.hash_mismatch
-        ));
     }
     let log_check_ok = log_problems.is_empty();
 
@@ -844,6 +940,7 @@ pub fn scan(
             };
             sled_copies += u64::from(sled_copy);
             let hold = match d {
+                _ if damaged[i] => Some("in_damaged_log_record"),
                 None => Some("body_does_not_decode"),
                 Some(d) => match instant_of(&d.signed_at) {
                     None => Some("signed_at_does_not_parse"),
@@ -913,6 +1010,8 @@ pub fn scan(
         "controls": {"checked": controls, "found_in_log": controls_found},
         "log_check_ok": log_check_ok,
         "log_problems": log_problems,
+        "accept_log_problems": opts.accept_log_problems,
+        "log_problems_at": problems,
         "without_proof_found_in_log": n - unlogged.len(),
         "unlogged": unlogged.len(),
         "unlogged_by_band": by_band,
@@ -1713,6 +1812,103 @@ pub(crate) mod tests {
         };
         let e = delete(&w.store(), &w.run(), &o, &JobControl::new()).unwrap_err();
         assert!(e.to_string().contains("export changed"), "{e}");
+    }
+
+    fn framed(cbor: &[u8]) -> Vec<u8> {
+        let mut v = (cbor.len() as u32).to_le_bytes().to_vec();
+        v.extend_from_slice(cbor);
+        v.extend_from_slice(blake3::hash(cbor).as_bytes());
+        v
+    }
+
+    /// A segment as the production tears left them: an attestation cut at a
+    /// 4 KiB boundary, then whole records appended from that boundary.
+    /// Returns the fact in the cut record, the fact logged after the cut, and
+    /// the position of the tear.
+    async fn torn_segment(w: &World) -> (FactCid, FactCid, String) {
+        let mut many: Vec<Fact> = (40..70)
+            .map(|t| fact(t, t as f64, "2026-11-13T16:00:00Z"))
+            .collect();
+        let cut_cids = orphaned(&w.s, many.drain(..1).collect()).await;
+        let mut cut_facts = vec![fact(40, 40.0, "2026-11-13T16:00:00Z")];
+        cut_facts.extend(many);
+        let mut cut = Vec::new();
+        ciborium::ser::into_writer(&att(cut_facts), &mut cut).unwrap();
+        let after = vec![fact(80, 0.8, "2026-11-13T16:00:00Z")];
+        let after_cids = orphaned(&w.s, after.clone()).await;
+        let mut whole = Vec::new();
+        ciborium::ser::into_writer(&att(after), &mut whole).unwrap();
+        let cut_frame = framed(&cut);
+        assert!(cut_frame.len() > 4096, "{}", cut_frame.len());
+        let mut seg = cut_frame[..4096].to_vec();
+        seg.extend(framed(&whole));
+        let other = att(vec![fact(81, 0.9, "2026-11-13T16:00:00Z")]);
+        let mut o = Vec::new();
+        ciborium::ser::into_writer(&other, &mut o).unwrap();
+        seg.extend(framed(&o));
+        std::fs::write(w.s.log.root.join("merkle.log.7"), &seg).unwrap();
+        (
+            cut_cids[0].clone(),
+            after_cids[0].clone(),
+            "7:0".to_string(),
+        )
+    }
+
+    /// A tear fails the log check until the operator accepts its position.
+    /// The pass reads on past it, so a fact logged after the tear is found
+    /// and never exported, and a fact whole in the cut record is held.
+    #[tokio::test]
+    async fn a_torn_log_is_read_past_its_tear_and_checked_by_position() {
+        let w = world().await;
+        let (in_cut, after, pos) = torn_segment(&w).await;
+        let run = |name: &str, accept: Vec<String>| {
+            let o = ScanOptions {
+                accept_log_problems: accept,
+                ..opts()
+            };
+            scan(
+                &w.store(),
+                &run_dir(w.dir.path(), name).unwrap(),
+                &o,
+                &JobControl::new(),
+            )
+            .unwrap()
+        };
+
+        let rep = run("t-none", vec![]);
+        assert_eq!(rep["log_check_ok"], false, "{rep:#}");
+        assert_eq!(rep["log_problems_at"][0]["position"], pos.as_str());
+        assert_eq!(rep["log_problems_at"][0]["accepted"], false);
+        assert_eq!(rep["log"]["after_a_tear"], 2);
+        assert_eq!(rep["deletable"], 0);
+
+        let rep = run("t-accept", vec![pos.clone()]);
+        assert_eq!(rep["log_check_ok"], true, "{rep:#}");
+        assert_eq!(rep["log_problems_at"][0]["accepted"], true);
+        assert!(rep["log_problems_at"][0]["facts_named"].as_u64().unwrap() >= 1);
+        assert_eq!(rep["held"]["in_damaged_log_record"], 1);
+        let lines: Vec<ExportLine> =
+            std::fs::read_to_string(run_dir(w.dir.path(), "t-accept").unwrap().join(EXPORT))
+                .unwrap()
+                .lines()
+                .map(|l| serde_json::from_str(l).unwrap())
+                .collect();
+        assert!(
+            !lines.iter().any(|l| l.cid == after.as_str()),
+            "a fact logged after the tear is found, so never exported"
+        );
+        let cut = lines.iter().find(|l| l.cid == in_cut.as_str()).unwrap();
+        assert!(!cut.delete);
+        assert_eq!(cut.hold.as_deref(), Some("in_damaged_log_record"));
+        assert_eq!(rep["deletable"], 3, "the three orphans of the world");
+
+        let rep = run("t-extra", vec![pos, "7:99".into()]);
+        assert_eq!(rep["log_check_ok"], false);
+        assert!(rep["log_problems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p.as_str().unwrap().contains("7:99")));
     }
 
     #[test]

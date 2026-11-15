@@ -18,6 +18,10 @@
 //! pool and returns; `status` reports progress and the result. One pass at a
 //! time, shared with `/ops/log-repair`. A restart ends a pass; the same
 //! request resumes it from its saved state.
+//!
+//! The scan takes `accept_log_problems`, a list of `"<segment>:<offset>"`
+//! positions where the operator knows the log is torn. A tear the list does
+//! not name, or a position in it that is not a tear, fails the log check.
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -363,6 +367,17 @@ mod tests {
             authorize(Some(local), &bearer("short"), &short),
             Err("the token file holds fewer than 32 characters")
         );
+    }
+
+    /// The request body carries `accept_log_problems` to the scan.
+    #[test]
+    fn the_scan_reads_accepted_log_problems_from_the_request() {
+        let v = json!({"action": "scan", "run": "r1",
+                       "accept_log_problems": ["235:183293", "1633:509270"]});
+        let o: ScanOptions = serde_json::from_value(v).unwrap();
+        assert_eq!(o.accept_log_problems, vec!["235:183293", "1633:509270"]);
+        let none: ScanOptions = serde_json::from_value(json!({"action": "scan"})).unwrap();
+        assert!(none.accept_log_problems.is_empty());
     }
 
     #[tokio::test]
