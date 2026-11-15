@@ -353,6 +353,11 @@ pub struct SunPositionReq {
     /// included when the step lands on `to`.
     #[serde(default)]
     pub range: Option<SunRange>,
+    /// A Sentinel-2 L2A item id. The answer adds the sun its granule's own
+    /// angle grid gives at each place, at the granule's sensing time. With
+    /// no `times` or `range`, the rows are at that sensing time.
+    #[serde(default)]
+    pub stac_item: Option<String>,
 }
 
 /// The instants of a request, checked against the row cap before any is made.
@@ -453,9 +458,15 @@ pub(crate) fn compute(places: &[Place], times: &[i64]) -> JsonValue {
     json!({"rows": rows, "days": days})
 }
 
-/// The record a request signs, before its cid is known.
-fn record(places: &[Place], times: &[i64], req: &SunPositionReq) -> JsonValue {
-    let inputs = match &req.range {
+/// The record a request signs, before its cid is known. `granule` is the
+/// block a `stac_item` adds.
+fn record(
+    places: &[Place],
+    times: &[i64],
+    req: &SunPositionReq,
+    granule: Option<JsonValue>,
+) -> JsonValue {
+    let mut inputs = match &req.range {
         Some(r) => json!({
             "places": places.iter().map(Place::to_json).collect::<Vec<_>>(),
             "range": {"from": iso_second(times[0]), "to": r.to.trim(), "step_minutes": r.step_minutes},
@@ -465,8 +476,11 @@ fn record(places: &[Place], times: &[i64], req: &SunPositionReq) -> JsonValue {
             "times": times.iter().map(|t| iso_second(*t)).collect::<Vec<_>>(),
         }),
     };
+    if let (Some(id), Some(i)) = (req.stac_item.as_deref(), inputs.as_object_mut()) {
+        i.insert("stac_item".into(), json!(id.trim()));
+    }
     let body = compute(places, times);
-    json!({
+    let mut out = json!({
         "schema": "emem.sun_position.v1",
         "fn_key": FN_KEY,
         "inputs": inputs,
@@ -488,7 +502,11 @@ fn record(places: &[Place], times: &[i64], req: &SunPositionReq) -> JsonValue {
         "day_columns": ["place", "date", "sunrise_utc", "solar_noon_utc", "sunset_utc", "sunrise_lmst", "solar_noon_lmst", "sunset_lmst", "day_length_min", "noon_elevation_deg", "equation_of_time_min", "kind"],
         "days": body["days"],
         "counts": {"places": places.len(), "times": times.len(), "rows": places.len() * times.len()},
-    })
+    });
+    if let (Some(g), Some(o)) = (granule, out.as_object_mut()) {
+        o.insert("granule".into(), g);
+    }
+    out
 }
 
 /// The inputs of a signed `sun_position@1` record, read back.
@@ -566,7 +584,512 @@ pub(crate) fn recompute_matches(record: &JsonValue) -> Result<(), String> {
             return Err(format!("`{key}` {i}: signed {}, computed {}", s[i], n[i]));
         }
     }
+    match record.get("granule") {
+        Some(g) if !g.is_null() => granule_recompute(&places, g),
+        _ => Ok(()),
+    }
+}
+
+/// What a Sentinel-2 L2A granule's own metadata (`MTD_TL.xml`) says about
+/// the sun: when the tile was sensed, and the sun angle grid it publishes.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct GranuleSun {
+    /// `SENSING_TIME` as the metadata writes it, e.g.
+    /// `2026-03-06T05:41:22.395934Z`.
+    pub sensing_time: String,
+    /// `HORIZONTAL_CS_CODE`, e.g. `EPSG:32643`.
+    pub epsg: u32,
+    /// The tile's upper-left corner (`Geoposition resolution="10"`).
+    pub ulx: f64,
+    pub uly: f64,
+    /// `COL_STEP`, `ROW_STEP` of the sun grid, metres.
+    pub col_step: f64,
+    pub row_step: f64,
+    /// `Sun_Angles_Grid` values, row by row from the north.
+    pub zenith: Vec<Vec<f64>>,
+    pub azimuth: Vec<Vec<f64>>,
+}
+
+/// The text of the first `<tag ...>text</tag>` in `xml`.
+fn xml_text<'a>(xml: &'a str, tag: &str) -> Option<&'a str> {
+    let open = format!("<{tag}");
+    let mut from = 0;
+    loop {
+        let at = from + xml[from..].find(&open)?;
+        let rest = &xml[at + open.len()..];
+        // `<ULX>`, not `<ULX_OTHER>`.
+        if rest.starts_with('>') || rest.starts_with(' ') {
+            let body = &rest[rest.find('>')? + 1..];
+            let end = body.find(&format!("</{tag}>"))?;
+            return Some(body[..end].trim());
+        }
+        from = at + open.len();
+    }
+}
+
+/// The part of `xml` from the first `start` to the first `end` after it.
+fn xml_block<'a>(xml: &'a str, start: &str, end: &str) -> Option<&'a str> {
+    let rest = &xml[xml.find(start)?..];
+    Some(&rest[..rest.find(end)? + end.len()])
+}
+
+/// A sun grid's angle grid (`<Zenith>` or `<Azimuth>`): its steps and its
+/// values. A `NaN` value stays NaN.
+type AngleGrid = (f64, f64, Vec<Vec<f64>>);
+
+fn angle_grid(block: &str) -> Result<AngleGrid, String> {
+    let step = |tag: &str| -> Result<f64, String> {
+        xml_text(block, tag)
+            .and_then(|t| t.parse::<f64>().ok())
+            .filter(|v| *v > 0.0)
+            .ok_or_else(|| format!("the sun grid has no {tag}"))
+    };
+    let (col_step, row_step) = (step("COL_STEP")?, step("ROW_STEP")?);
+    let mut rows = Vec::new();
+    let mut rest = block;
+    while let Some(at) = rest.find("<VALUES>") {
+        let body = &rest[at + "<VALUES>".len()..];
+        let end = body
+            .find("</VALUES>")
+            .ok_or("an unclosed VALUES row in the sun grid")?;
+        let row = body[..end]
+            .split_ascii_whitespace()
+            .map(|v| {
+                v.parse::<f64>()
+                    .map_err(|e| format!("sun grid value `{v}`: {e}"))
+            })
+            .collect::<Result<Vec<f64>, String>>()?;
+        rows.push(row);
+        rest = &body[end..];
+    }
+    if rows.len() < 2 || rows[0].len() < 2 || rows.iter().any(|r| r.len() != rows[0].len()) {
+        return Err("the sun grid is not a rectangle of at least 2 by 2 values".into());
+    }
+    Ok((col_step, row_step, rows))
+}
+
+/// Read a granule's sensing time and sun grid from its `MTD_TL.xml`.
+pub(crate) fn parse_granule_sun(xml: &str) -> Result<GranuleSun, String> {
+    let sensing_time = xml_text(xml, "SENSING_TIME")
+        .ok_or("the granule metadata has no SENSING_TIME")?
+        .to_string();
+    sensing_unix(&sensing_time)?;
+    let epsg = xml_text(xml, "HORIZONTAL_CS_CODE")
+        .and_then(|c| c.strip_prefix("EPSG:"))
+        .and_then(|c| c.parse::<u32>().ok())
+        .ok_or("the granule metadata has no EPSG HORIZONTAL_CS_CODE")?;
+    let geo = xml_block(xml, "<Geoposition resolution=\"10\">", "</Geoposition>")
+        .ok_or("the granule metadata has no 10 m Geoposition")?;
+    let corner = |tag: &str| -> Result<f64, String> {
+        xml_text(geo, tag)
+            .and_then(|t| t.parse::<f64>().ok())
+            .ok_or_else(|| format!("the 10 m Geoposition has no {tag}"))
+    };
+    let (ulx, uly) = (corner("ULX")?, corner("ULY")?);
+    let grid = xml_block(xml, "<Sun_Angles_Grid>", "</Sun_Angles_Grid>")
+        .ok_or("the granule metadata has no Sun_Angles_Grid")?;
+    let zen = xml_block(grid, "<Zenith>", "</Zenith>").ok_or("the sun grid has no Zenith")?;
+    let az = xml_block(grid, "<Azimuth>", "</Azimuth>").ok_or("the sun grid has no Azimuth")?;
+    let (col_step, row_step, zenith) = angle_grid(zen)?;
+    let (az_col, az_row, azimuth) = angle_grid(az)?;
+    if (az_col, az_row) != (col_step, row_step)
+        || azimuth.len() != zenith.len()
+        || azimuth[0].len() != zenith[0].len()
+    {
+        return Err("the sun zenith and azimuth grids differ in shape".into());
+    }
+    Ok(GranuleSun {
+        sensing_time,
+        epsg,
+        ulx,
+        uly,
+        col_step,
+        row_step,
+        zenith,
+        azimuth,
+    })
+}
+
+/// Unix seconds, with the fraction, of a metadata instant such as
+/// `2026-03-06T05:41:22.395934Z`.
+pub(crate) fn sensing_unix(s: &str) -> Result<f64, String> {
+    let t = s.trim().trim_end_matches(['Z', 'z']);
+    let (whole, frac) = t.split_once('.').unwrap_or((t, ""));
+    let secs = parse_instant(&format!("{whole}Z"))?;
+    if frac.is_empty() {
+        return Ok(secs as f64);
+    }
+    if !frac.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(format!("`{s}` is not an instant"));
+    }
+    let frac: f64 = format!("0.{frac}")
+        .parse()
+        .map_err(|e| format!("`{s}`: {e}"))?;
+    Ok(secs as f64 + frac)
+}
+
+/// What a grid row needs besides the place and its four nodes.
+#[derive(Debug, Clone, PartialEq)]
+struct GridHeader {
+    epsg: u32,
+    ulx: f64,
+    uly: f64,
+    col_step: f64,
+    row_step: f64,
+    sensing_time: String,
+}
+
+impl GridHeader {
+    fn of(g: &GranuleSun) -> Self {
+        GridHeader {
+            epsg: g.epsg,
+            ulx: g.ulx,
+            uly: g.uly,
+            col_step: g.col_step,
+            row_step: g.row_step,
+            sensing_time: g.sensing_time.clone(),
+        }
+    }
+
+    /// The header a signed `granule` block holds.
+    fn from_record(r: &JsonValue) -> Result<Self, String> {
+        let num = |v: &JsonValue, what: &str| {
+            v.as_f64()
+                .ok_or_else(|| format!("the granule has no {what}"))
+        };
+        Ok(GridHeader {
+            epsg: r["crs"]
+                .as_str()
+                .and_then(|c| c.strip_prefix("EPSG:"))
+                .and_then(|c| c.parse().ok())
+                .ok_or("the granule has no crs")?,
+            ulx: num(&r["grid"]["origin"][0], "grid origin")?,
+            uly: num(&r["grid"]["origin"][1], "grid origin")?,
+            col_step: num(&r["grid"]["step_m"][0], "grid step")?,
+            row_step: num(&r["grid"]["step_m"][1], "grid step")?,
+            sensing_time: r["sensing_time"]
+                .as_str()
+                .ok_or("the granule has no sensing_time")?
+                .to_string(),
+        })
+    }
+}
+
+/// Where a place falls on a granule's sun grid: its easting and northing in
+/// the tile's CRS (to the millimetre), and its column and row on the grid
+/// (to a millionth), whose node `(r, c)` is at
+/// `(ULX + c * COL_STEP, ULY - r * ROW_STEP)`.
+fn grid_position(g: &GridHeader, lat: f64, lng: f64) -> Option<[f64; 4]> {
+    let u = emem_fetch::proj::latlng_to_utm_with_epsg(lat, lng, g.epsg)?;
+    let x = (u.easting * 1e3).round() / 1e3;
+    let y = (u.northing * 1e3).round() / 1e3;
+    let col = ((x - g.ulx) / g.col_step * 1e6).round() / 1e6;
+    let row = ((g.uly - y) / g.row_step * 1e6).round() / 1e6;
+    Some([x, y, col, row])
+}
+
+/// The grid cell that holds `(col, row)` (its upper-left node), and its four
+/// nodes in the order (r, c), (r, c+1), (r+1, c), (r+1, c+1). `None`
+/// outside the grid or when a node is NaN.
+type Nodes = ([usize; 2], [f64; 4], [f64; 4]);
+
+fn nodes_at(g: &GranuleSun, col: f64, row: f64) -> Option<Nodes> {
+    let (rows, cols) = (g.zenith.len(), g.zenith.first()?.len());
+    if !(0.0..=(cols - 1) as f64).contains(&col) || !(0.0..=(rows - 1) as f64).contains(&row) {
+        return None;
+    }
+    let c = (col.floor() as usize).min(cols - 2);
+    let r = (row.floor() as usize).min(rows - 2);
+    let four = |grid: &[Vec<f64>]| {
+        [
+            grid[r][c],
+            grid[r][c + 1],
+            grid[r + 1][c],
+            grid[r + 1][c + 1],
+        ]
+    };
+    let (z, a) = (four(&g.zenith), four(&g.azimuth));
+    z.iter()
+        .chain(a.iter())
+        .all(|v| v.is_finite())
+        .then_some(([r, c], z, a))
+}
+
+/// Bilinear interpolation at `(fc, fr)`, each 0 to 1, inside four nodes.
+fn bilinear(n: [f64; 4], fc: f64, fr: f64) -> f64 {
+    let top = n[0] + (n[1] - n[0]) * fc;
+    let bottom = n[2] + (n[3] - n[2]) * fc;
+    top + (bottom - top) * fr
+}
+
+/// An azimuth difference folded into [-180, 180).
+fn azimuth_diff(a: f64, b: f64) -> f64 {
+    (a - b + 180.0).rem_euclid(360.0) - 180.0
+}
+
+/// The columns of a `granule.rows` row.
+const GRANULE_COLUMNS: [&str; 15] = [
+    "place",
+    "x",
+    "y",
+    "grid_col",
+    "grid_row",
+    "grid_cell",
+    "zenith_nodes",
+    "azimuth_nodes",
+    "zenith_deg",
+    "azimuth_deg",
+    "elevation_deg",
+    "ephemeris_azimuth_deg",
+    "ephemeris_elevation_deg",
+    "d_azimuth_deg",
+    "d_elevation_deg",
+];
+
+/// One grid row: the sun the granule's grid gives at a place, beside the
+/// ephemeris at the sensing time, and grid minus ephemeris. The nodes are
+/// inputs, so a resolve computes the row again from the record alone.
+fn granule_row(
+    i: usize,
+    p: &Place,
+    g: &GridHeader,
+    nodes: Option<Nodes>,
+) -> Result<JsonValue, String> {
+    let eph = sun_at(p.lat, p.lng, sensing_unix(&g.sensing_time)?);
+    let (eph_az, eph_el) = (
+        round_angle(eph.azimuth_deg),
+        round_angle(eph.elevation_geometric_deg),
+    );
+    let pos = grid_position(g, p.lat, p.lng);
+    let mut row = vec![json!(i)];
+    row.extend(match pos {
+        Some(v) => v.map(|x| json!(x)).to_vec(),
+        None => vec![JsonValue::Null; 4],
+    });
+    let interpolated = match (pos, nodes) {
+        (Some([_, _, col, gr]), Some(([r, c], zn, an))) => {
+            let (fc, fr) = (col - c as f64, gr - r as f64);
+            if !(0.0..=1.0).contains(&fc) || !(0.0..=1.0).contains(&fr) {
+                return Err(format!(
+                    "place {i}: grid position ({col}, {gr}) is not in grid cell ({r}, {c})"
+                ));
+            }
+            // Azimuths are unwrapped about the first node, so a cell that
+            // crosses north does not average 359 and 1 to 180.
+            let unwrapped = an.map(|a| an[0] + azimuth_diff(a, an[0]));
+            let zenith = round_angle(bilinear(zn, fc, fr));
+            let azimuth = round_angle(bilinear(unwrapped, fc, fr)).rem_euclid(360.0);
+            let elevation = round_angle(90.0 - zenith);
+            Some((json!([r, c]), zn, an, zenith, azimuth, elevation))
+        }
+        _ => None,
+    };
+    match interpolated {
+        Some((cell, zn, an, zenith, azimuth, elevation)) => row.extend([
+            cell,
+            json!(zn),
+            json!(an),
+            json!(zenith),
+            json!(azimuth),
+            json!(elevation),
+            json!(eph_az),
+            json!(eph_el),
+            json!(round_angle(azimuth_diff(azimuth, eph_az))),
+            json!(round_angle(elevation - eph_el)),
+        ]),
+        None => row.extend([
+            JsonValue::Null,
+            JsonValue::Null,
+            JsonValue::Null,
+            JsonValue::Null,
+            JsonValue::Null,
+            JsonValue::Null,
+            json!(eph_az),
+            json!(eph_el),
+            JsonValue::Null,
+            JsonValue::Null,
+        ]),
+    }
+    Ok(JsonValue::Array(row))
+}
+
+/// The nodes a signed grid row holds, or `None` for a row off the grid.
+fn nodes_of_row(row: &JsonValue) -> Result<Option<Nodes>, String> {
+    if row[5].is_null() {
+        return Ok(None);
+    }
+    let idx = |k: usize| {
+        row[5][k]
+            .as_u64()
+            .map(|v| v as usize)
+            .ok_or("a grid row's grid_cell is not two indices")
+    };
+    let four = |col: usize| -> Result<[f64; 4], String> {
+        let a = row[col]
+            .as_array()
+            .filter(|a| a.len() == 4)
+            .ok_or("a grid row's nodes are not four numbers")?;
+        let mut out = [0.0; 4];
+        for (o, v) in out.iter_mut().zip(a) {
+            *o = v.as_f64().ok_or("a grid node is not a number")?;
+        }
+        Ok(out)
+    };
+    Ok(Some(([idx(0)?, idx(1)?], four(6)?, four(7)?)))
+}
+
+/// Where a granule's sun grid came from.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct GranuleSource {
+    pub item: String,
+    /// The STAC item URL.
+    pub catalogue: String,
+    /// The granule metadata URL, without a token.
+    pub metadata: String,
+    /// The item's `datetime`: on Planetary Computer the datatake start,
+    /// which can be minutes before the tile's own sensing time.
+    pub item_datetime: String,
+}
+
+/// The `granule` block of a record: where the grid came from, the sensing
+/// time, the grid's frame, and one row per place.
+fn granule_block(
+    places: &[Place],
+    g: &GranuleSun,
+    src: &GranuleSource,
+) -> Result<JsonValue, String> {
+    let h = GridHeader::of(g);
+    let rows = places
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let nodes = grid_position(&h, p.lat, p.lng).and_then(|[_, _, c, r]| nodes_at(g, c, r));
+            granule_row(i, p, &h, nodes)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let lag = match (
+        sensing_unix(&g.sensing_time),
+        sensing_unix(&src.item_datetime),
+    ) {
+        (Ok(a), Ok(b)) => json!(((a - b) * 1e3).round() / 1e3),
+        _ => JsonValue::Null,
+    };
+    Ok(json!({
+        "stac_item": src.item,
+        "catalogue": src.catalogue,
+        "metadata": src.metadata,
+        "item_datetime": src.item_datetime,
+        "sensing_time": g.sensing_time,
+        "sensing_minus_item_datetime_s": lag,
+        "crs": format!("EPSG:{}", g.epsg),
+        "grid": {
+            "origin": [g.ulx, g.uly],
+            "step_m": [g.col_step, g.row_step],
+            "shape": [g.zenith.len(), g.zenith[0].len()],
+            "nodes": "Sun_Angles_Grid of the granule metadata: the node in row r and column c is at (ULX + c * COL_STEP, ULY - r * ROW_STEP), the first at the tile's upper-left corner",
+        },
+        "method": "each place is projected to the tile's CRS, and the zenith and azimuth are interpolated bilinearly between the four grid nodes around it (azimuths unwrapped about the first node). elevation_deg is 90 minus that zenith, geometric, as the granule gives it. The ephemeris columns are sun_position@1 at the sensing time, geometric elevation. d_azimuth_deg and d_elevation_deg are grid minus ephemeris. A place off the grid has the ephemeris only",
+        "columns": GRANULE_COLUMNS,
+        "rows": rows,
+    }))
+}
+
+/// Compute a signed `granule` block's rows again from the nodes and the
+/// sensing time it holds.
+fn granule_recompute(places: &[Place], block: &JsonValue) -> Result<(), String> {
+    let h = GridHeader::from_record(block)?;
+    let rows = block["rows"]
+        .as_array()
+        .ok_or("the granule block has no rows")?;
+    if rows.len() != places.len() {
+        return Err(format!(
+            "`granule.rows`: the record holds {} and its inputs give {}",
+            rows.len(),
+            places.len()
+        ));
+    }
+    for (i, (signed, p)) in rows.iter().zip(places).enumerate() {
+        let again = granule_row(i, p, &h, nodes_of_row(signed)?)?;
+        if !same_json(signed, &again) {
+            return Err(format!(
+                "`granule.rows` {i}: signed {signed}, computed {again}"
+            ));
+        }
+    }
     Ok(())
+}
+
+/// Fetch a Sentinel-2 L2A item and its granule metadata, and read the
+/// granule's sensing time and sun grid.
+async fn fetch_granule_sun(id: &str) -> Result<(GranuleSun, GranuleSource), ApiError> {
+    let url = crate::shadow::s2_item_url(id, "stac_item")?;
+    let cli = crate::s2_http_client();
+    let get = |u: String| {
+        cli.get(u)
+            .header("user-agent", emem_core::outbound::user_agent())
+            .timeout(std::time::Duration::from_secs(25))
+            .send()
+    };
+    let resp = get(url.clone())
+        .await
+        .map_err(|e| upstream_error(format!("stac item {id}: {e}")))?;
+    if resp.status().as_u16() == 404 {
+        return Err(bad_request(format!(
+            "`stac_item` `{id}`: the catalogue has no such item ({url})"
+        )));
+    }
+    if !resp.status().is_success() {
+        return Err(upstream_error(format!(
+            "stac item {id}: status {}",
+            resp.status()
+        )));
+    }
+    let item: JsonValue = resp
+        .json()
+        .await
+        .map_err(|e| upstream_error(format!("stac item {id}: {e}")))?;
+    // Planetary Computer names the asset granule-metadata, Earth Search
+    // granule_metadata.
+    let href = ["granule-metadata", "granule_metadata"]
+        .iter()
+        .find_map(|k| item["assets"][*k]["href"].as_str())
+        .ok_or_else(|| upstream_error(format!("stac item {id} links no granule metadata")))?
+        .to_string();
+    let signed = if href.contains(".blob.core.windows.net/") {
+        let sas = emem_fetch::stac::mpc_sas_token(&cli, "sentinel-2-l2a")
+            .await
+            .map_err(|e| upstream_error(format!("granule metadata token: {e}")))?;
+        format!("{href}?{sas}")
+    } else {
+        href.clone()
+    };
+    let resp = get(signed)
+        .await
+        .map_err(|e| upstream_error(format!("granule metadata of {id}: {e}")))?;
+    if !resp.status().is_success() {
+        return Err(upstream_error(format!(
+            "granule metadata of {id}: status {}",
+            resp.status()
+        )));
+    }
+    let xml = resp
+        .text()
+        .await
+        .map_err(|e| upstream_error(format!("granule metadata of {id}: {e}")))?;
+    let g = parse_granule_sun(&xml)
+        .map_err(|e| upstream_error(format!("granule metadata of {id}: {e}")))?;
+    Ok((
+        g,
+        GranuleSource {
+            item: id.to_string(),
+            catalogue: url,
+            metadata: href,
+            item_datetime: item["properties"]["datetime"]
+                .as_str()
+                .unwrap_or("")
+                .to_string(),
+        },
+    ))
 }
 
 /// What a derivation is signed as: where, under which band, op and
@@ -659,9 +1182,27 @@ pub(crate) fn finish(
 pub(crate) async fn sun_position(req: SunPositionReq, s: &AppState) -> Result<JsonValue, ApiError> {
     let started = Instant::now();
     let places = parse_places(&req.places).map_err(bad_request)?;
-    let times =
-        instants(req.times.as_deref(), req.range.as_ref(), places.len()).map_err(bad_request)?;
-    let record = record(&places, &times, &req);
+    let granule = match req.stac_item.as_deref() {
+        Some(id) => Some(fetch_granule_sun(id.trim()).await?),
+        None => None,
+    };
+    // With an item and no instants, the rows are at the granule's sensing
+    // time, to the second.
+    let times = match &granule {
+        Some((g, _)) if req.times.is_none() && req.range.is_none() => {
+            vec![sensing_unix(&g.sensing_time)
+                .map_err(upstream_error)?
+                .round() as i64]
+        }
+        _ => {
+            instants(req.times.as_deref(), req.range.as_ref(), places.len()).map_err(bad_request)?
+        }
+    };
+    let block = match &granule {
+        Some((g, src)) => Some(granule_block(&places, g, src).map_err(upstream_error)?),
+        None => None,
+    };
+    let record = record(&places, &times, &req, block);
     let cell = places[0]
         .cell
         .clone()
@@ -907,10 +1448,11 @@ mod tests {
                 "2026-03-22T07:30Z".into(),
             ]),
             range: None,
+            stac_item: None,
         };
         let places = parse_places(&req.places).unwrap();
         let times = instants(req.times.as_deref(), None, places.len()).unwrap();
-        let rec = record(&places, &times, &req);
+        let rec = record(&places, &times, &req, None);
         assert_eq!(rec["rows"].as_array().unwrap().len(), 6);
         assert_eq!(rec["days"].as_array().unwrap().len(), 4);
         assert_eq!(rec["rows"][3][0], json!(1));
@@ -937,12 +1479,171 @@ mod tests {
                 to: "2026-09-23T07:00:00Z".into(),
                 step_minutes: 30,
             }),
+            stac_item: None,
         };
         let places = parse_places(&req.places).unwrap();
         let times = instants(None, req.range.as_ref(), 1).unwrap();
-        let rec = record(&places, &times, &req);
+        let rec = record(&places, &times, &req, None);
         assert_eq!(rec["rows"].as_array().unwrap().len(), 5);
         let signed: JsonValue = serde_json::to_value(json_to_cbor(&rec)).unwrap();
         assert_eq!(recompute_matches(&signed), Ok(()));
+    }
+
+    /// A hand-made `MTD_TL.xml` in the shape of a real one (T43RGM, 6
+    /// March 2026): a 3 by 3 sun grid at 5 km steps, then a viewing grid
+    /// with NaN cells that must not be read as the sun's.
+    const MTD_TL: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<n1:Level-2A_Tile_ID>
+  <n1:General_Info>
+    <TILE_ID metadataLevel="Brief">S2A_OPER_MSI_L2A_TL_2APS_20260310T110618_A055901_T43RGM_N05.12</TILE_ID>
+    <SENSING_TIME metadataLevel="Standard">2026-03-06T05:41:22.395934Z</SENSING_TIME>
+  </n1:General_Info>
+  <n1:Geometric_Info>
+    <Tile_Geocoding metadataLevel="Brief">
+      <HORIZONTAL_CS_NAME>WGS84 / UTM zone 43N</HORIZONTAL_CS_NAME>
+      <HORIZONTAL_CS_CODE>EPSG:32643</HORIZONTAL_CS_CODE>
+      <Geoposition resolution="10">
+        <ULX>699960</ULX>
+        <ULY>3200040</ULY>
+        <XDIM>10</XDIM>
+        <YDIM>-10</YDIM>
+      </Geoposition>
+      <Geoposition resolution="60">
+        <ULX>1</ULX>
+        <ULY>2</ULY>
+      </Geoposition>
+    </Tile_Geocoding>
+    <Tile_Angles metadataLevel="Standard">
+      <Sun_Angles_Grid>
+        <Zenith>
+          <COL_STEP unit="m">5000</COL_STEP>
+          <ROW_STEP unit="m">5000</ROW_STEP>
+          <Values_List>
+            <VALUES>40 41 42</VALUES>
+            <VALUES>40.5 41.5 42.5</VALUES>
+            <VALUES>41 42 43</VALUES>
+          </Values_List>
+        </Zenith>
+        <Azimuth>
+          <COL_STEP unit="m">5000</COL_STEP>
+          <ROW_STEP unit="m">5000</ROW_STEP>
+          <Values_List>
+            <VALUES>147 148 149</VALUES>
+            <VALUES>359 1 150</VALUES>
+            <VALUES>359 1 151</VALUES>
+          </Values_List>
+        </Azimuth>
+      </Sun_Angles_Grid>
+      <Mean_Sun_Angle>
+        <ZENITH_ANGLE unit="deg">39.0746963568344</ZENITH_ANGLE>
+        <AZIMUTH_ANGLE unit="deg">147.550829656832</AZIMUTH_ANGLE>
+      </Mean_Sun_Angle>
+      <Viewing_Incidence_Angles_Grids bandId="0" detectorId="1">
+        <Zenith>
+          <COL_STEP unit="m">5000</COL_STEP>
+          <ROW_STEP unit="m">5000</ROW_STEP>
+          <Values_List>
+            <VALUES>NaN NaN 3</VALUES>
+            <VALUES>NaN NaN 3</VALUES>
+          </Values_List>
+        </Zenith>
+      </Viewing_Incidence_Angles_Grids>
+    </Tile_Angles>
+  </n1:Geometric_Info>
+</n1:Level-2A_Tile_ID>
+"#;
+
+    fn granule_source() -> GranuleSource {
+        GranuleSource {
+            item: "S2A_MSIL2A_20260306T053251_R105_T43RGM_20260310T110618".into(),
+            catalogue: "https://planetarycomputer.microsoft.com/api/stac/v1/collections/sentinel-2-l2a/items/S2A_MSIL2A_20260306T053251_R105_T43RGM_20260310T110618".into(),
+            metadata: "https://sentinel2l2a01.blob.core.windows.net/x/MTD_TL.xml".into(),
+            item_datetime: "2026-03-06T05:32:51.024000Z".into(),
+        }
+    }
+
+    /// The place at a given easting and northing of the fixture's zone.
+    fn place_at(x: f64, y: f64) -> Place {
+        let (lat, lng) = emem_fetch::proj::utm_to_latlng_with_epsg(x, y, 32643).unwrap();
+        Place {
+            id: None,
+            cell: None,
+            lat,
+            lng,
+        }
+    }
+
+    #[test]
+    fn the_granule_metadata_gives_its_sensing_time_and_sun_grid() {
+        let g = parse_granule_sun(MTD_TL).unwrap();
+        assert_eq!(g.sensing_time, "2026-03-06T05:41:22.395934Z");
+        assert_eq!(g.epsg, 32643);
+        assert_eq!((g.ulx, g.uly), (699_960.0, 3_200_040.0), "the 10 m corner");
+        assert_eq!((g.col_step, g.row_step), (5000.0, 5000.0));
+        assert_eq!(g.zenith[1], vec![40.5, 41.5, 42.5]);
+        assert_eq!(g.azimuth[2], vec![359.0, 1.0, 151.0]);
+        let t = sensing_unix(&g.sensing_time).unwrap();
+        assert!((t - (unix("2026-03-06T05:41:22Z") + 0.395934)).abs() < 1e-6);
+        assert!(parse_granule_sun("<x/>").is_err());
+        assert!(sensing_unix("2026-03-06T05:41:22.3x9Z").is_err());
+    }
+
+    /// A place half a step east and one and a half down from the corner:
+    /// the zenith is the mean of its four nodes, the azimuth crosses north
+    /// without averaging to 180, and the ephemeris at the sensing time
+    /// stands beside both with the difference.
+    #[test]
+    fn the_grid_sun_is_bilinear_and_computes_again() {
+        let g = parse_granule_sun(MTD_TL).unwrap();
+        let places = vec![
+            place_at(699_960.0 + 2_500.0, 3_200_040.0 - 7_500.0),
+            place_at(699_960.0 + 7_500.0, 3_200_040.0 - 2_500.0),
+            place_at(699_960.0 + 30_000.0, 3_200_040.0 - 2_500.0),
+        ];
+        let block = granule_block(&places, &g, &granule_source()).unwrap();
+        assert_eq!(block["sensing_minus_item_datetime_s"], json!(511.372));
+        let rows = block["rows"].as_array().unwrap();
+        let r = &rows[0];
+        assert_eq!(r[5], json!([1, 0]));
+        assert_eq!(r[8], json!(41.25), "zenith {r}");
+        assert_eq!(r[9], json!(0.0), "azimuth {r}");
+        assert_eq!(r[10], json!(48.75));
+        let eph = sun_at(
+            places[0].lat,
+            places[0].lng,
+            sensing_unix(&g.sensing_time).unwrap(),
+        );
+        assert_eq!(r[11], json!(round_angle(eph.azimuth_deg)));
+        assert_eq!(r[12], json!(round_angle(eph.elevation_geometric_deg)));
+        assert_eq!(
+            r[14],
+            json!(round_angle(
+                48.75 - round_angle(eph.elevation_geometric_deg)
+            ))
+        );
+        // The second place: zenith (41 + 42 + 41.5 + 42.5) / 4 = 41.75.
+        assert_eq!(rows[1][8], json!(41.75));
+        // Off the grid: the ephemeris only.
+        assert!(rows[2][8].is_null() && rows[2][5].is_null());
+        assert!(rows[2][11].is_number());
+
+        let req = SunPositionReq {
+            places: JsonValue::Null,
+            times: None,
+            range: None,
+            stac_item: Some(granule_source().item),
+        };
+        let times = vec![sensing_unix(&g.sensing_time).unwrap().round() as i64];
+        let rec = record(&places, &times, &req, Some(block));
+        assert_eq!(rec["inputs"]["stac_item"], json!(granule_source().item));
+        assert_eq!(rec["inputs"]["times"], json!(["2026-03-06T05:41:22Z"]));
+        let signed: JsonValue = serde_json::to_value(json_to_cbor(&rec)).unwrap();
+        assert_eq!(recompute_matches(&signed), Ok(()));
+        let mut forged = signed.clone();
+        forged["granule"]["rows"][0][6][0] = json!(41.0);
+        assert!(recompute_matches(&forged).is_err(), "a node changed");
+        let mut late = signed;
+        late["granule"]["sensing_time"] = json!("2026-03-06T05:51:22.395934Z");
+        assert!(recompute_matches(&late).is_err(), "another sensing time");
     }
 }

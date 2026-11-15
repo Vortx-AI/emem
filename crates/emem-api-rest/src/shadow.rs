@@ -170,9 +170,10 @@ fn sun_of_properties(props: &JsonValue) -> (Option<f64>, Option<f64>, &'static s
     (None, None, "none: the item records no sun")
 }
 
-/// Fetch a Sentinel-2 L2A item by id from the public catalogue that names
-/// items that way.
-async fn fetch_item(id: &str) -> Result<Scene, ApiError> {
+/// The URL of a Sentinel-2 L2A item on the public catalogue that names
+/// items that way: Planetary Computer (an id with `_MSIL2A_`) or Earth
+/// Search. `field` names the request field in the refusal.
+pub(crate) fn s2_item_url(id: &str, field: &str) -> Result<String, ApiError> {
     if id.is_empty()
         || id.len() > 120
         || !id
@@ -180,7 +181,7 @@ async fn fetch_item(id: &str) -> Result<Scene, ApiError> {
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'.' || b == b'-')
     {
         return Err(bad_request(format!(
-            "`scene` `{id}` is not a Sentinel-2 L2A item id"
+            "`{field}` `{id}` is not a Sentinel-2 L2A item id"
         )));
     }
     let base = if id.contains("_MSIL2A_") {
@@ -188,7 +189,13 @@ async fn fetch_item(id: &str) -> Result<Scene, ApiError> {
     } else {
         "https://earth-search.aws.element84.com/v1/collections/sentinel-2-l2a/items"
     };
-    let url = format!("{base}/{id}");
+    Ok(format!("{base}/{id}"))
+}
+
+/// Fetch a Sentinel-2 L2A item by id from the public catalogue that names
+/// items that way.
+async fn fetch_item(id: &str) -> Result<Scene, ApiError> {
+    let url = s2_item_url(id, "scene")?;
     let resp = crate::s2_http_client()
         .get(&url)
         .header("user-agent", emem_core::outbound::user_agent())
@@ -198,7 +205,7 @@ async fn fetch_item(id: &str) -> Result<Scene, ApiError> {
         .map_err(|e| upstream_error(format!("stac item {id}: {e}")))?;
     if resp.status().as_u16() == 404 {
         return Err(bad_request(format!(
-            "`scene` `{id}`: the catalogue ({base}) has no such item"
+            "`scene` `{id}`: the catalogue has no such item ({url})"
         )));
     }
     if !resp.status().is_success() {

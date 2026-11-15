@@ -1131,7 +1131,8 @@ const SCHEMA_FIELD_SERIES: &str = r#"{"type":"object","required":["start_date","
 
 const SCHEMA_SUN_POSITION: &str = r#"{"type":"object","required":["places"],"properties":{
 "places":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"object","properties":{"lat":{"type":"number"},"lng":{"type":"number"},"cell":{"type":"string"},"id":{"type":"string"}}},"description":"1 to 50 places. Each is {lat, lng} or {cell}, with an optional id. A cell is read at its centre."},
-"times":{"type":"array","items":{"type":"string"},"description":"ISO 8601 UTC instants, YYYY-MM-DDTHH:MM[:SS] with Z or +00:00, whole seconds, years 1901 to 2099. Give this or range."},
+"times":{"type":"array","items":{"type":"string"},"description":"ISO 8601 UTC instants, YYYY-MM-DDTHH:MM[:SS] with Z or +00:00, whole seconds, years 1901 to 2099. Give this or range, or stac_item alone."},
+"stac_item":{"type":"string","description":"A Sentinel-2 L2A item id (Planetary Computer or Earth Search). Adds the sun from the granule's own angle grid at each place, at the granule's sensing time, beside the ephemeris. With no times or range, the rows are at that sensing time."},
 "range":{"type":"object","required":["from","to","step_minutes"],"properties":{"from":{"type":"string"},"to":{"type":"string"},"step_minutes":{"type":"integer","minimum":1}},"description":"Every step from `from` to `to`, in place of times. Places x steps must be 2000 or fewer."}
 }}"#;
 
@@ -2296,7 +2297,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         name: "emem_sun_position",
         title: "Sun position: azimuth, elevation, sunrise and sunset, signed",
         description: "Computes where the sun is in the sky. For each place and UTC instant, it gives the azimuth in degrees clockwise from true north. It gives the apparent elevation, with the standard refraction correction, and the geometric elevation. For each place and UTC date, it gives sunrise, solar noon and sunset in UTC and in local mean solar time. It uses the NOAA Solar Calculator spreadsheet equations, after Meeus. NOAA states sunrise and sunset to within a minute between 72 degrees south and 72 degrees north. The answer is one signed derivation with an emem:fact: token, and its value holds the inputs. A resolve of the token computes every row again. It sets `responder_recomputed` to true only when all rows match.",
-        when_to_use: "Use it to read a shadow, a glint or a dark slope against the sun at that instant. Use it to check a claimed time of day, or to plan when a place has sun. Send 1 to 50 places as {lat, lng} or {cell}. Send `times` as ISO 8601 UTC instants, or `range` with from, to and step_minutes. The cap is 2000 place-time rows in all.",
+        when_to_use: "Use it to read a shadow, a glint or a dark slope against the sun at that instant. Use it to check a claimed time of day, or to plan when a place has sun. Send 1 to 50 places as {lat, lng} or {cell}. Send `times` as ISO 8601 UTC instants, or `range` with from, to and step_minutes. The cap is 2000 place-time rows in all. Send `stac_item` to compare with the sun a Sentinel-2 granule records.",
         input_schema: SCHEMA_SUN_POSITION,
         output_schema: None,
         example_args: r#"{"places":[{"lat":28.6139,"lng":77.209}],"times":["2026-03-21T06:00:00Z"]}"#,
