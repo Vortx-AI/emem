@@ -65,7 +65,7 @@ mod field_signals;
 mod intents;
 mod ledger;
 mod log_erratum;
-mod mcd64a1_pc;
+mod modis_band;
 mod next_acquisition;
 mod next_step;
 mod ops_log_repair;
@@ -9745,13 +9745,13 @@ async fn materializers(
                 "unit":              null,
                 "value_kind":        "primary",
                 "coverage":          "global terrestrial; 250m native; latest valid 16-day composite within last 90 days",
-                "upstream_scheme":   "ornl_modis",
-                "upstream_endpoint": "https://modis.ornl.gov/rst/api/v1/MOD13Q1/subset",
-                "derivation_fn_key": "modis_ornl_subset@1",
+                "upstream_scheme":   "mpc_modis_cog",
+                "upstream_endpoint": "https://planetarycomputer.microsoft.com/api/stac/v1/search?collections=modis-13Q1-061",
+                "derivation_fn_key": "modis_pc_mod13q1_ndvi@1",
                 "confidence":        0.9,
                 "tempo":             "medium",
                 "kernel_for_router": "heat_gaussian",
-                "notes":             "MOD13Q1 16-day composite NDVI from MODIS Terra. ~10–15 s upstream latency. NDVI ∈ [-0.2, 1.0]; values <0 mean water/snow, >0.4 mean dense vegetation. Quality flag filtering uses fill_value=-3000 from the NASA QA layer."
+                "notes":             "MOD13Q1 16-day composite NDVI from MODIS Terra, read from the Planetary Computer COGs. When that read fails or the catalogue lacks a composite, the node reads ORNL DAAC's subset service (scheme ornl_modis, reader modis_ornl_subset@1, 16 to 90 s). Both reads take the same composite and the same gates. NDVI ∈ [-0.2, 1.0]; values <0 mean water/snow, >0.4 mean dense vegetation. The fill value -3000 is skipped, and pixel_reliability 2 (snow or ice) and 3 (cloud) are rejected."
             },
             {
                 "band":              "gmrt.topobathy_mean",
@@ -54420,6 +54420,10 @@ fn ornl_qc_gate(product: &str, byte: i64) -> bool {
         // = 1 (land grid cell, only valid pixels). Non-land cells
         // get QA=0 even when Burn_Date != -1.
         "MCD64A1" => (byte & 0x01) != 0,
+        // MOD13Q1 pixel_reliability (Didan 2015, user guide table 4): 0
+        // good, 1 marginal, 2 snow or ice, 3 cloudy, -1 fill. Only 0 and 1
+        // are NDVI to use.
+        "MOD13Q1" => (0..=1).contains(&byte),
         _ => true,
     }
 }
@@ -54473,6 +54477,12 @@ fn ornl_qc_confidence(product: &str, byte: i64) -> f32 {
         // categorical and the QA value is the confidence ceiling for
         // confirmed-land pixels.
         "MCD64A1" => 0.90_f32,
+        // MOD13Q1 pixel_reliability is not bit-packed: 0 good, 1 marginal.
+        "MOD13Q1" => match byte {
+            0 => 0.95,
+            1 => 0.75,
+            _ => 0.50,
+        },
         _ => 0.50,
     };
     c.clamp(0.30, 0.95)
@@ -54497,6 +54507,10 @@ fn ornl_qc_confidence(product: &str, byte: i64) -> f32 {
 /// `confidence: 0.50` (explicit "unknown scene quality") rather than
 /// pretending NDVI alone is high-confidence.
 ///
+/// `modis.ndvi_mean` reads the Planetary Computer's MOD13Q1 COGs first
+/// (`modis_band`), with the window, pick, fill value, range and reliability
+/// gate of this reader, and asks ORNL only when that read cannot answer.
+///
 /// Reference: <https://modis.ornl.gov/rst/api/v1/MOD13Q1/subset> -
 /// ORNL DAAC, no auth, free, supports up to 160 days per call.
 async fn materialize_modis_ndvi_window(
@@ -54504,6 +54518,42 @@ async fn materialize_modis_ndvi_window(
     pick: DatedPick,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
+    let spec = modis_band::spec("modis.ndvi_mean")
+        .ok_or_else(|| "modis.ndvi_mean is not in the MODIS band table".to_string())?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    modis_band::pc_then_ornl(spec, cell64, s, info.lat_deg, info.lng_deg, pick, || {
+        materialize_modis_ndvi_ornl(cell64, pick, s)
+    })
+    .await
+}
+
+/// Why a MOD13Q1 window gave no NDVI: the same words from ORNL and from the
+/// Planetary Computer.
+fn ndvi_none_valid(window: (i64, i64), dated: bool, rejected_for_qa: usize) -> String {
+    let suffix = if rejected_for_qa > 0 {
+        format!(" ({rejected_for_qa} composite(s) rejected by pixel_reliability gate ≥ 2)")
+    } else {
+        String::new()
+    };
+    if dated {
+        format!(
+            "no valid NDVI observation from {} to {}; cell may be permanently cloudy or off-coverage{suffix}",
+            unix_to_modis_date(window.0),
+            unix_to_modis_date(window.1)
+        )
+    } else {
+        format!("no valid NDVI observation in last 90 days; cell may be permanently cloudy or off-coverage{suffix}")
+    }
+}
+
+/// The ORNL DAAC read behind [`materialize_modis_ndvi_window`].
+async fn materialize_modis_ndvi_ornl(
+    cell64: &str,
+    pick: DatedPick,
+    s: &AppState,
+) -> Result<emem_fact::FactCid, String> {
+    let spec = modis_band::spec("modis.ndvi_mean")
+        .ok_or_else(|| "modis.ndvi_mean is not in the MODIS band table".to_string())?;
     let target_unix = match pick {
         DatedPick::Nearest(t) => Some(t),
         DatedPick::Slot { start, end, .. } => Some((start + end) / 2),
@@ -54513,31 +54563,22 @@ async fn materialize_modis_ndvi_window(
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
-    // Window: target ±32d (covers ≥4 16-day composites) or "last 90d".
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    // A slot's window reaches 32 days past each edge (64 back for an as-of
-    // bound), so the composite that holds its date is in it.
-    let (start_unix, end_unix) = match pick {
-        DatedPick::Slot { .. } => pick.window(32, now),
-        _ => match target_unix {
-            Some(t) => {
-                let lo = (t - 32 * 86400).max(0);
-                let hi = (t + 32 * 86400).min(now);
-                (lo, hi.max(lo + 86400))
-            }
-            None => (now - 90 * 86400, now),
-        },
-    };
+    // Target ±32 days (at least four 16-day composites), a slot with 32
+    // days past each edge (64 back for an as-of bound) so the composite
+    // that holds its date is in it, or the last 90 days.
+    let (start_unix, end_unix) = spec.window(pick, now);
     let start_str = unix_to_modis_date(start_unix);
     let end_str = unix_to_modis_date(end_unix);
+    let (product, variable, qa_variable) = (spec.product, spec.variable, spec.qa);
     let url = format!(
-        "https://modis.ornl.gov/rst/api/v1/MOD13Q1/subset?latitude={lat:.6}&longitude={lng:.6}&band=250m_16_days_NDVI&startDate={start_str}&endDate={end_str}&kmAboveBelow=0&kmLeftRight=0",
+        "https://modis.ornl.gov/rst/api/v1/{product}/subset?latitude={lat:.6}&longitude={lng:.6}&band={variable}&startDate={start_str}&endDate={end_str}&kmAboveBelow=0&kmLeftRight=0",
     );
     let qa_url = format!(
-        "https://modis.ornl.gov/rst/api/v1/MOD13Q1/subset?latitude={lat:.6}&longitude={lng:.6}&band=250m_16_days_pixel_reliability&startDate={start_str}&endDate={end_str}&kmAboveBelow=0&kmLeftRight=0",
+        "https://modis.ornl.gov/rst/api/v1/{product}/subset?latitude={lat:.6}&longitude={lng:.6}&band={qa_variable}&startDate={start_str}&endDate={end_str}&kmAboveBelow=0&kmLeftRight=0",
     );
 
     // Fire NDVI + reliability fetches concurrently. NDVI is the
@@ -54625,19 +54666,16 @@ async fn materialize_modis_ndvi_window(
             .map(|s| s.to_string())
             .unwrap_or_default();
         let Some(r) = raw else { continue };
-        if r == -3000 {
+        // The -3000 fill, or a value outside [-0.2, 1.0].
+        let Some(ndvi) = ornl_value(product, r, scale) else {
             continue;
-        } // MOD13 fill value
-        let ndvi = (r as f64) * scale;
-        if !(-0.2..=1.0).contains(&ndvi) {
-            continue;
-        }
+        };
         // Reliability gate. When QA is available, every composite must
         // pass; missing-from-QA composites are rejected. Values 2 (snow/
         // ice) and 3 (cloud) are upstream-marked unreliable for NDVI use.
         let reliability_opt = if qa_available {
             match qa_map.get(&cal).copied() {
-                Some(r) if (0..=1).contains(&r) => Some(r),
+                Some(r) if ornl_qc_gate(product, r) => Some(r),
                 Some(_) | None => {
                     rejected_for_qa += 1;
                     continue;
@@ -54662,16 +54700,11 @@ async fn materialize_modis_ndvi_window(
         }
     }
     let (_, ndvi, cal_date, reliability_opt) = best.ok_or_else(|| {
-        let suffix = if qa_available && rejected_for_qa > 0 {
-            format!(" ({rejected_for_qa} composite(s) rejected by pixel_reliability gate ≥ 2)")
-        } else {
-            String::new()
-        };
-        if target_unix.is_some() {
-            format!("no valid NDVI observation from {start_str} to {end_str}; cell may be permanently cloudy or off-coverage{suffix}")
-        } else {
-            format!("no valid NDVI observation in last 90 days; cell may be permanently cloudy or off-coverage{suffix}")
-        }
+        ndvi_none_valid(
+            (start_unix, end_unix),
+            target_unix.is_some(),
+            rejected_for_qa,
+        )
     })?;
     // Confidence is upstream-derived when reliability is known:
     //   0 (good)     → 0.95
@@ -54683,9 +54716,7 @@ async fn materialize_modis_ndvi_window(
     // -1 for "qa_unavailable") is echoed in derivation.args so a
     // downstream verifier can audit which branch was taken.
     let (confidence, reliability_arg) = match reliability_opt {
-        Some(0) => (0.95_f32, 0_i64),
-        Some(1) => (0.75_f32, 1_i64),
-        Some(other) => (0.50_f32, other), // shouldn't reach (gated above), defensive only
+        Some(r) => (ornl_qc_confidence(product, r), r),
         None => (0.50_f32, -1_i64),
     };
 
@@ -54701,13 +54732,10 @@ async fn materialize_modis_ndvi_window(
         .unwrap_or(now);
     // MOD13Q1 is a native 16-day composite; bucketing at Medium (30d)
     // collides adjacent granules into the same tslot.
-    let tslot =
-        emem_core::tslot::Tslot::from_unix(cal_unix, emem_core::tslot::Tempo::Composite16Day).0;
+    let tslot = emem_core::tslot::Tslot::from_unix(cal_unix, spec.tempo).0;
     // The composite already signed here is the same observation.
     if !force_resign() {
-        if let Some(cid) =
-            existing_same_acquisition(s, cell64, "modis.ndvi_mean", tslot, &cal_date).await
-        {
+        if let Some(cid) = existing_same_acquisition(s, cell64, spec.band, tslot, &cal_date).await {
             return Ok(cid);
         }
     }
@@ -54715,10 +54743,10 @@ async fn materialize_modis_ndvi_window(
     let signed_at = chrono_iso8601_utc();
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
-        band: "modis.ndvi_mean".into(),
+        band: spec.band.into(),
         tslot,
         value: ciborium::Value::Float(ndvi),
-        unit: None, // NDVI is dimensionless
+        unit: spec.unit.map(str::to_string),
         confidence,
         uncertainty: None,
         sources: vec![Source {
@@ -54730,7 +54758,7 @@ async fn materialize_modis_ndvi_window(
             url: None,
         }],
         derivation: Derivation {
-            fn_key: "modis_ornl_subset@1".into(),
+            fn_key: spec.ornl_fn_key.into(),
             // Trailing reliability arg: 0/1 = upstream pixel_reliability
             // band value for the chosen composite; -1 = QA fetch failed
             // and the receipt is signed without an upstream gate (lower
@@ -54739,8 +54767,8 @@ async fn materialize_modis_ndvi_window(
             args: Some(ciborium::Value::Array(vec![
                 ciborium::Value::Float(lat),
                 ciborium::Value::Float(lng),
-                ciborium::Value::Text("MOD13Q1".into()),
-                ciborium::Value::Text("250m_16_days_NDVI".into()),
+                ciborium::Value::Text(product.into()),
+                ciborium::Value::Text(variable.into()),
                 ciborium::Value::Integer(reliability_arg.into()),
             ])),
         },
@@ -57213,9 +57241,9 @@ fn parse_iso_utc_hour(s: &str) -> Option<i64> {
     Some(day * 86_400 + hh * 3600 + mm * 60)
 }
 
-/// Materialize an additional ORNL DAAC MODIS/VIIRS subset product. Same
-/// REST pipeline as `materialize_modis_ndvi_window` (`MOD13Q1`) but with
-/// per-product band names, scale factors, and quality filters.
+/// Materialize an additional MODIS product. Same pipeline as
+/// `materialize_modis_ndvi_window` (`MOD13Q1`) but with per-product band
+/// names, scale factors, and quality filters, all from `modis_band::BANDS`.
 ///
 /// Products wired (all anonymous, public-domain):
 /// - `modis.lst_day_8day`   → MOD11A2.061 LST_Day_1km    (K, scale 0.02)
@@ -57223,11 +57251,11 @@ fn parse_iso_utc_hour(s: &str) -> Option<i64> {
 /// - `modis.et_8day`        → MOD16A2.061 ET             (kg/m^2, scale 0.1)
 /// - `modis.gpp_8day`       → MOD17A2H.061 Gpp           (kg C/m^2, scale 1e-4)
 /// - `modis.lai_8day`       → MOD15A2H.061 Lai_500m      (m^2/m^2, scale 0.1)
-/// - `modis.burned_area`    → MCD64A1.061 Burn_Date      (DOY of burn, no scale)
+/// - `modis.burned_area_monthly` → MCD64A1.061 Burn_Date (DOY of burn, no scale)
 ///
-/// `modis.burned_area_monthly` reads the Planetary Computer's COGs of the
-/// same granules first and asks ORNL only when that read fails
-/// (`mcd64a1_pc`); every other band reads ORNL.
+/// Every band but `modis.et_8day` reads the Planetary Computer's COGs of
+/// the same granules first and asks ORNL only when that read cannot answer
+/// (`modis_band`). MOD16A2 is not on the Planetary Computer.
 ///
 /// Reference: https://modis.ornl.gov/data/modis_webservice.html
 async fn materialize_ornl_modis_band(
@@ -57236,45 +57264,28 @@ async fn materialize_ornl_modis_band(
     band: &str,
     target_unix: Option<i64>,
 ) -> Result<emem_fact::FactCid, String> {
-    if band == "modis.burned_area_monthly" {
-        let info =
-            emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
-        return mcd64a1_pc::burned_area_pc_then_ornl(
-            cell64,
-            s,
-            info.lat_deg,
-            info.lng_deg,
-            target_unix,
-            || materialize_ornl_subset_band(cell64, s, band, target_unix),
-        )
-        .await;
-    }
-    materialize_ornl_subset_band(cell64, s, band, target_unix).await
+    let Some(spec) = modis_band::spec(band).filter(|b| b.ornl == modis_band::OrnlReader::Subset)
+    else {
+        return Err(format!("ornl modis band not wired: {band}"));
+    };
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let pick = target_unix.map_or(DatedPick::Newest, DatedPick::Nearest);
+    modis_band::pc_then_ornl(spec, cell64, s, info.lat_deg, info.lng_deg, pick, || {
+        materialize_ornl_subset_band(cell64, s, band, target_unix)
+    })
+    .await
 }
 
-/// MCD64A1's ORNL window: ±32 days around a target, or nine ~31-day
-/// composites back from now. The Planetary Computer read takes the same
-/// window so both sources choose among the same months.
-const MCD64A1_HALF_WINDOW_DAYS: i64 = 32;
-const MCD64A1_TILE_DAYS: i64 = 31;
-
-/// The ORNL subset window for a band, as unix seconds `(start, end)`:
-/// ±`half_window_days` around `target_unix` (clipped to now, at least a
-/// day), or a lookback of nine composites ending now. ORNL refuses a
-/// subset of more than 10 composites, so nine leaves a tile of headroom.
-fn ornl_band_window(
-    half_window_days: i64,
-    tile_days: i64,
-    target_unix: Option<i64>,
-    now: i64,
-) -> (i64, i64) {
-    match target_unix {
-        Some(t) => {
-            let lo = (t - half_window_days * 86_400).max(0);
-            let hi = (t + half_window_days * 86_400).min(now);
-            (lo, hi.max(lo + 86_400))
-        }
-        None => (now - 9 * tile_days * 86_400, now),
+/// The value a raw ORNL or COG number stands for, or `None` when it is not
+/// an observation: a fill value, or a MOD13Q1 NDVI outside [-0.2, 1.0].
+fn ornl_value(product: &str, raw: i64, scale: f64) -> Option<f64> {
+    if ornl_is_nodata(product, raw) {
+        return None;
+    }
+    let v = raw as f64 * scale;
+    match product {
+        "MOD13Q1" => (-0.2..=1.0).contains(&v).then_some(v),
+        _ => Some(v),
     }
 }
 
@@ -57287,12 +57298,14 @@ fn ornl_band_window(
 ///   MCD64A1 Burn_Date: 0 = no burn that month (valid observation,
 ///     emit as 0.0); -1 unmapped, -2 water: neither is a day of
 ///     year, and signed as one a -2 read as a burn.
+///   MOD13Q1 NDVI: -3000.
 fn ornl_is_nodata(product: &str, r: i64) -> bool {
     match product {
         "MOD11A2" => r == 0,
         "MOD16A2" | "MOD17A2H" => r >= 32700,
         "MOD15A2H" => !(0..=100).contains(&r),
         "MCD64A1" => r < 0,
+        "MOD13Q1" => r == -3000,
         _ => false,
     }
 }
@@ -57304,92 +57317,27 @@ async fn materialize_ornl_subset_band(
     band: &str,
     target_unix: Option<i64>,
 ) -> Result<emem_fact::FactCid, String> {
-    // Map our band → (MODIS product, MODIS variable, default scale, unit,
-    // ±day window, fn_key, optional QC variable name). The QC variable
-    // is the per-pixel quality band ORNL publishes alongside the data
-    // band (MOD11A2 ships QC_Day / QC_Night bit-packed). When present,
-    // we fetch QC concurrently and use it to reject cloud-contaminated
-    // composites + derive a real confidence, the bit-packed semantics
-    // are product-specific so the dispatcher below only decodes the
-    // products we've explicitly wired. None = no QC fetch (preserves
-    // legacy behaviour with a confidence-unknown receipt for products
-    // where a QC variable exists upstream but isn't yet decoded here).
-    let (product, variable, default_scale, unit, half_window_days, fn_key, qc_variable) = match band
-    {
-        "modis.lst_day_8day" => (
-            "MOD11A2",
-            "LST_Day_1km",
-            0.02_f64,
-            Some("K"),
-            8_i64,
-            "modis_ornl_mod11a2_lstday@1",
-            Some("QC_Day"),
-        ),
-        "modis.lst_night_8day" => (
-            "MOD11A2",
-            "LST_Night_1km",
-            0.02_f64,
-            Some("K"),
-            8_i64,
-            "modis_ornl_mod11a2_lstnight@1",
-            Some("QC_Night"),
-        ),
-        "modis.et_8day" => (
-            "MOD16A2",
-            "ET_500m",
-            0.1_f64,
-            Some("kg/m^2"),
-            8_i64,
-            "modis_ornl_mod16a2_et@1",
-            // ET_QC_500m: bits 0-1 MODLAND_QC (Mu 2011 §2.3).
-            Some("ET_QC_500m"),
-        ),
-        "modis.gpp_8day" => (
-            "MOD17A2H",
-            "Gpp_500m",
-            1e-4_f64,
-            Some("kg C/m^2"),
-            8_i64,
-            "modis_ornl_mod17a2h_gpp@1",
-            // Psn_QC_500m: bits 0-1 MODLAND_QC, bits 5-7 CloudState.
-            Some("Psn_QC_500m"),
-        ),
-        "modis.lai_8day" => (
-            "MOD15A2H",
-            "Lai_500m",
-            0.1_f64,
-            Some("m^2/m^2"),
-            8_i64,
-            "modis_ornl_mod15a2h_lai@1",
-            // FparLai_QC: bits 0-1 MODLAND_QC, bits 5-7 CloudState.
-            Some("FparLai_QC"),
-        ),
-        "modis.burned_area_monthly" => (
-            "MCD64A1",
-            "Burn_Date",
-            1.0_f64,
-            Some("doy"),
-            MCD64A1_HALF_WINDOW_DAYS,
-            "modis_ornl_mcd64a1_burndate@1",
-            // MCD64A1 QA byte: bit 0 = land-grid-cell mask. Gates
-            // out non-land Burn_Date values that upstream marks
-            // separately from the -1 unmapped sentinel.
-            Some("QA"),
-        ),
-        _ => return Err(format!("ornl modis band not wired: {band}")),
+    // The band's product, value and QC variables, default scale, unit, ±day
+    // window, tempo and reader stamp. The QC variable is the per-pixel
+    // quality band ORNL publishes alongside the data band (MOD11A2 ships
+    // QC_Day / QC_Night bit-packed). We fetch it concurrently and use it to
+    // reject cloud-contaminated composites and derive a real confidence;
+    // the bit-packed semantics are product-specific, in `ornl_qc_gate`.
+    let Some(spec) = modis_band::spec(band).filter(|b| b.ornl == modis_band::OrnlReader::Subset)
+    else {
+        return Err(format!("ornl modis band not wired: {band}"));
     };
-    // Native cadence per ORNL product, collapses to Medium only for
-    // the monthly MCD64A1; the 8-day products tslot at Composite8Day so
-    // adjacent composites don't overwrite each other.
-    let band_tempo = match band {
-        "modis.lst_day_8day"
-        | "modis.lst_night_8day"
-        | "modis.et_8day"
-        | "modis.gpp_8day"
-        | "modis.lai_8day" => emem_core::tslot::Tempo::Composite8Day,
-        "modis.burned_area_monthly" => emem_core::tslot::Tempo::Medium,
-        _ => emem_core::tslot::Tempo::Medium,
-    };
+    let modis_band::ModisBand {
+        product,
+        variable,
+        scale: default_scale,
+        unit,
+        half_window_days,
+        ornl_fn_key: fn_key,
+        tempo: band_tempo,
+        ..
+    } = *spec;
+    let qc_variable = spec.qa;
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
@@ -57397,61 +57345,32 @@ async fn materialize_ornl_subset_band(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    // Window selection: ±half_window around an explicit target_unix, OR a
-    // 12·half_window lookback in "current" mode. The wider lookback covers
-    // the publication-latency tail of slow MODIS products (MOD16A2 ET and
-    // MOD17A2H GPP routinely lag 30+ days; MOD15A2H LAI similar).
-    // ORNL DAAC enforces a hard "maximum subset tiles support of 10"
-    // cap on every /subset call (verified live 2026-05-23, a 96-day
-    // 8-day window returns
-    // `HTTP 400: "Subset time period A2026047 to A2026143 exceeds
-    // maximum subset tiles support of 10."`). The lookback window
-    // must fit inside that cap: 10 tiles × tile cadence days. The
-    // tile cadence equals 2 × half_window_days for 8-day composites
-    // (half_window=8 → 8-day tile) and equals the half_window itself
-    // for monthly (half_window=32 → ~32-day tile). The native
-    // cadence per product is captured in `tile_days` below, kept in
-    // sync with the dispatcher's `band_tempo` arm above.
-    let tile_days: i64 = match band {
-        "modis.lst_day_8day"
-        | "modis.lst_night_8day"
-        | "modis.et_8day"
-        | "modis.gpp_8day"
-        | "modis.lai_8day" => 8,
-        "modis.burned_area_monthly" => MCD64A1_TILE_DAYS,
-        _ => half_window_days,
-    };
-    // Leave one tile of headroom so leap-day / publication-window
-    // slippage doesn't push the request over the 10-tile limit on the
-    // edge. Verified empirically: 9 × tile_days lookback is the
-    // safest setting that still lands the latest valid composite for
-    // both 8-day and monthly products.
-    let (start_unix, end_unix) = ornl_band_window(half_window_days, tile_days, target_unix, now);
+    // Window: ±half_window around an explicit target, or nine composites
+    // back from now. ORNL DAAC refuses more than ten composites in one
+    // /subset call (verified live 2026-05-23, a 96-day 8-day window
+    // returns `HTTP 400: "Subset time period A2026047 to A2026143 exceeds
+    // maximum subset tiles support of 10."`), so nine leaves one of
+    // headroom for leap-day and publication slippage.
+    let pick = target_unix.map_or(DatedPick::Newest, DatedPick::Nearest);
+    let (start_unix, end_unix) = spec.window(pick, now);
     let start_str = unix_to_modis_date(start_unix);
     let end_str = unix_to_modis_date(end_unix);
     let url = format!(
         "https://modis.ornl.gov/rst/api/v1/{product}/subset?latitude={lat:.6}&longitude={lng:.6}&band={variable}&startDate={start_str}&endDate={end_str}&kmAboveBelow=0&kmLeftRight=0",
     );
-    // Concurrent QC fetch when the product has a wired QC variable. QC
-    // failure is non-fatal, the data fact still ships but with a
-    // "scene quality unknown" confidence rather than a fabricated 0.85.
-    let qc_url_opt = qc_variable.map(|qv| {
-        format!(
-            "https://modis.ornl.gov/rst/api/v1/{product}/subset?latitude={lat:.6}&longitude={lng:.6}&band={qv}&startDate={start_str}&endDate={end_str}&kmAboveBelow=0&kmLeftRight=0",
-        )
-    });
+    // Concurrent QC fetch. QC failure is non-fatal, the data fact still
+    // ships but with a "scene quality unknown" confidence rather than a
+    // fabricated 0.85.
+    let qc_url = format!(
+        "https://modis.ornl.gov/rst/api/v1/{product}/subset?latitude={lat:.6}&longitude={lng:.6}&band={qc_variable}&startDate={start_str}&endDate={end_str}&kmAboveBelow=0&kmLeftRight=0",
+    );
     let data_label = format!("{product} {variable}");
     let qc_label = format!("{product} QC");
-    let (body, qc_body): (JsonValue, Option<JsonValue>) = match qc_url_opt.as_deref() {
-        Some(qc_url) => {
-            let (data_res, qc_res) = tokio::join!(
-                ornl_modis_subset_json(&url, &data_label),
-                ornl_modis_subset_json(qc_url, &qc_label),
-            );
-            (data_res?, qc_res.ok())
-        }
-        None => (ornl_modis_subset_json(&url, &data_label).await?, None),
-    };
+    let (data_res, qc_res) = tokio::join!(
+        ornl_modis_subset_json(&url, &data_label),
+        ornl_modis_subset_json(&qc_url, &qc_label),
+    );
+    let (body, qc_body): (JsonValue, Option<JsonValue>) = (data_res?, qc_res.ok());
     // Scale factor: prefer upstream-reported, fall back to product default.
     let scale: f64 = body
         .get("scale")
@@ -57488,14 +57407,14 @@ async fn materialize_ornl_subset_band(
             }
         }
     }
-    let qc_expected = qc_variable.is_some();
     let qc_available = !qc_map.is_empty();
     let mut rejected_for_qa = 0_usize;
 
     // (priority, scaled_value, cal_date, qc_opt). qc_opt = Some(byte)
-    // when we have the QC for this composite; None otherwise (legacy
-    // band path or QC fetch failed).
-    let mut best: Option<(i64, f64, String, Option<i64>)> = None;
+    // when we have the QC for this composite; None when the QC fetch
+    // failed.
+    type Best = ((u8, i64), f64, String, Option<i64>);
+    let mut best: Option<Best> = None;
     for entry in subset.iter() {
         let raw = entry
             .get("data")
@@ -57508,17 +57427,15 @@ async fn materialize_ornl_subset_band(
             .map(|s| s.to_string())
             .unwrap_or_default();
         let Some(r) = raw else { continue };
-        if ornl_is_nodata(product, r) {
+        let Some(scaled) = ornl_value(product, r, scale) else {
             continue;
-        }
-        // QC gate. Only applied when QC is both expected for this band
-        // AND we received a populated QC subset. The product-specific
-        // bit semantics live in `ornl_qc_gate` (cloud / not-produced /
-        // non-land rejection per the relevant MODIS user guide).
-        // Composites missing from the QC subset when QC was expected
-        // are rejected too, we never silently waive the gate
-        // per-composite.
-        let qc_opt = if qc_expected && qc_available {
+        };
+        // QC gate. Only applied when we received a populated QC subset.
+        // The product-specific bit semantics live in `ornl_qc_gate`
+        // (cloud / not-produced / non-land rejection per the relevant
+        // MODIS user guide). Composites missing from the QC subset are
+        // rejected too, we never silently waive the gate per-composite.
+        let qc_opt = if qc_available {
             match qc_map.get(&cal).copied() {
                 Some(byte) => {
                     if !ornl_qc_gate(product, byte) {
@@ -57535,11 +57452,9 @@ async fn materialize_ornl_subset_band(
         } else {
             None
         };
-        let scaled = (r as f64) * scale;
         let entry_unix = modis_calendar_to_unix(&cal).unwrap_or(0);
-        let priority = match target_unix {
-            Some(t) => (entry_unix - t).abs(),
-            None => i64::MAX - entry_unix,
+        let Some(priority) = pick.rank(entry_unix) else {
+            continue;
         };
         if best
             .as_ref()
@@ -57562,14 +57477,14 @@ async fn materialize_ornl_subset_band(
             let reason_text = match target_unix {
                 Some(t) => format!(
                     "no valid {product} {variable} observation in ±{half_window_days}d around unix={t}{}",
-                    if qc_expected && rejected_for_qa > 0 {
+                    if rejected_for_qa > 0 {
                         format!(" ({rejected_for_qa} composite(s) rejected by {product} QC gate)")
                     } else { String::new() }
                 ),
                 None => format!(
                     "no valid {product} {variable} observation in last {} days{}",
                     4 * half_window_days,
-                    if qc_expected && rejected_for_qa > 0 {
+                    if rejected_for_qa > 0 {
                         format!(" ({rejected_for_qa} composite(s) rejected by {product} QC gate)")
                     } else { String::new() }
                 ),
@@ -64813,7 +64728,7 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             kind: BandKind::TimeSeries,
             history_from_unix: Some(modis_start),
             history_to_unix: None,
-            wire_path: "ORNL DAAC MOD13Q1 16-day 250 m NDVI subset",
+            wire_path: "Planetary Computer MOD13Q1 16-day 250 m NDVI COG (modis-13Q1-061), ORNL DAAC subset when that read fails",
         },
         // Every Sentinel-2 reflectance band and every derived spectral
         // index, `s2_band_plan` is the single source of truth for which
@@ -65000,16 +64915,16 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             wire_path:
                 "thredds.northwestknowledge.net NCSS (TerraClimate v1.1 monthly aggregations, 1991-2020 normal)",
         },
-        // ORNL DAAC additional MODIS subset products. Per-product start of
-        // record below; all 8-day or 16-day or 30-day composites depending
-        // on the upstream product's natural cadence.
+        // The other MODIS products (`modis_band::BANDS`). Per-product start
+        // of record below; all 8-day or 16-day or 30-day composites
+        // depending on the upstream product's natural cadence.
         "modis.lst_day_8day" | "modis.lst_night_8day" => MaterializerMeta {
             tempo: Tempo::Composite8Day,
             kind: BandKind::TimeSeries,
             // MOD11A2 first granule: 2000-03-05.
             history_from_unix: Some(days_from_civil(2000, 3, 5) * 86_400),
             history_to_unix: None,
-            wire_path: "ORNL DAAC MOD11A2 8-day 1 km LST subset",
+            wire_path: "Planetary Computer MOD11A2 8-day 1 km LST COG (modis-11A2-061), ORNL DAAC subset when that read fails",
         },
         "modis.et_8day" => MaterializerMeta {
             tempo: Tempo::Composite8Day,
@@ -65025,7 +64940,7 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             // MOD17A2H first granule: 2000-02-18.
             history_from_unix: Some(days_from_civil(2000, 2, 18) * 86_400),
             history_to_unix: None,
-            wire_path: "ORNL DAAC MOD17A2H 8-day 500 m GPP subset",
+            wire_path: "Planetary Computer MOD17A2H 8-day 500 m GPP COG (modis-17A2H-061), ORNL DAAC subset when that read fails",
         },
         "modis.lai_8day" => MaterializerMeta {
             tempo: Tempo::Composite8Day,
@@ -65033,7 +64948,7 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             // MOD15A2H first granule: 2002-07-04.
             history_from_unix: Some(days_from_civil(2002, 7, 4) * 86_400),
             history_to_unix: None,
-            wire_path: "ORNL DAAC MOD15A2H 8-day 500 m LAI subset",
+            wire_path: "Planetary Computer MOD15A2H 8-day 500 m LAI COG (modis-15A2H-061), ORNL DAAC subset when that read fails",
         },
         "modis.burned_area_monthly" => MaterializerMeta {
             tempo: Tempo::Medium,
@@ -65729,7 +65644,7 @@ async fn materialize_band_at(
         return materialize_geotessera_for_year(cell64, s, y, band).await;
     }
 
-    // ORNL DAAC additional MODIS subset products.
+    // The other MODIS products: Planetary Computer COGs, ORNL DAAC second.
     if matches!(
         band,
         "modis.lst_day_8day"
@@ -67302,9 +67217,10 @@ async fn materialize_bands_once(
                     }
                 }
             }
-            // ORNL DAAC additional MODIS subset products (LST/ET/GPP/LAI/burn).
-            // Recall path: target_unix=None → "latest valid composite within
-            // last 4·half_window", same heuristic as MOD13Q1 NDVI.
+            // The other MODIS products (LST/ET/GPP/LAI/burn): Planetary Computer
+            // COGs, ORNL DAAC second. Recall path: target_unix=None → the
+            // newest valid composite in the band's lookback
+            // (`ModisBand::newest_days`).
             "modis.lst_day_8day"
             | "modis.lst_night_8day"
             | "modis.et_8day"
@@ -74610,7 +74526,7 @@ fn materializer_status_for(input_bands: &[&'static str]) -> JsonValue {
             // brittle. Hunter mode caps n_cells for these.
             "modis.lst_day_8day" | "modis.lst_night_8day" => (
                 true,
-                "MODIS land-surface temperature 8-day via NASA/ORNL REST API. SLOW: rate-limited and ~30 s per cell, hunter mode caps fan-out to 8 cells for this band.",
+                "MODIS land-surface temperature 8-day from the Planetary Computer COGs, ORNL DAAC when that read fails. The ORNL read is SLOW (~30 s per cell), so hunter mode caps fan-out to 8 cells for this band.",
             ),
             b if RETIRED_ENCODER_BANDS.contains(&b) => (
                 false,

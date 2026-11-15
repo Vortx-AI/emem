@@ -186,13 +186,38 @@ pub struct PixelRead {
     pub row: i64,
 }
 
-/// Read the pixel holding sinusoidal `(x, y)` from the COG at `href`
-/// (unsigned). The pixel comes from the COG's own geotransform, floored to
-/// the pixel that contains the point, as GDAL picks it. ORNL's subset
-/// service picks the same pixel except for a point within about a
-/// millimetre of a pixel edge: the h13v04 COG stores its origin 0.5 mm
-/// south of the exact grid, so a point on that edge falls on the other side.
-pub async fn read_point(client: &Client, href: &str, x: f64, y: f64) -> Result<PixelRead, String> {
+/// The pixel of a `width`-pixel MODIS tile `(h, v)` that holds sinusoidal
+/// `(x, y)`, from the grid's own definition. A point on a pixel edge belongs
+/// to the pixel east or south of it, the floor rule [`tile_of`] uses. A
+/// point within a billionth of a pixel of an edge counts as on it, so float
+/// error in the projection does not move an edge point across: 42 degrees
+/// north is the top edge of a row, and computes as 959.9999999999992 rows
+/// down h11v04.
+pub fn pixel_of(h: u32, v: u32, width: u32, x: f64, y: f64) -> (i64, i64) {
+    const ON_EDGE: f64 = 1e-9;
+    let size = TILE_SIZE_M / f64::from(width.max(1));
+    let col = (x - (X_WEST + f64::from(h) * TILE_SIZE_M)) / size;
+    let row = (Y_NORTH - f64::from(v) * TILE_SIZE_M - y) / size;
+    (
+        (col + ON_EDGE).floor() as i64,
+        (row + ON_EDGE).floor() as i64,
+    )
+}
+
+/// Read the pixel of tile `(h, v)` holding sinusoidal `(x, y)` from the COG
+/// at `href` (unsigned). The pixel comes from the MODIS grid itself
+/// ([`pixel_of`]), not from the COG's geotransform: the h12v09 and h13v04
+/// COGs store their origin under a millimetre off the exact grid, so a
+/// point on a pixel edge (any latitude that is a whole number of pixels
+/// from the tile's top, such as 3 degrees south) fell in the pixel on the
+/// other side. ORNL's subset service picks the grid's pixel there.
+pub async fn read_point(
+    client: &Client,
+    href: &str,
+    tile: (u32, u32),
+    x: f64,
+    y: f64,
+) -> Result<PixelRead, String> {
     let container = blob_container(href).ok_or_else(|| format!("not an Azure blob url: {href}"))?;
     let token = crate::stac::mpc_sas_token(client, &container).await?;
     let sep = if href.contains('?') { '&' } else { '?' };
@@ -201,8 +226,15 @@ pub async fn read_point(client: &Client, href: &str, x: f64, y: f64) -> Result<P
     let profile = crate::cog::open_profile(client, &url)
         .await
         .map_err(|e| format!("open {name}: {e}"))?;
-    let (col, row) = profile.world_to_pixel(x, y);
-    let raw = crate::cog::sample_pixel(client, &url, &profile, x, y)
+    let (col, row) = pixel_of(tile.0, tile.1, profile.width, x, y);
+    // The centre of that pixel in the COG's own frame, so the read cannot
+    // land in a neighbour.
+    let (ulx, uly) = profile.pixel_to_world(col, row);
+    let (cx, cy) = (
+        ulx + profile.pixel_scale.0 / 2.0,
+        uly - profile.pixel_scale.1 / 2.0,
+    );
+    let raw = crate::cog::sample_pixel(client, &url, &profile, cx, cy)
         .await
         .map_err(|e| format!("read {name}: {e}"))?;
     Ok(PixelRead { raw, col, row })
@@ -304,6 +336,31 @@ mod tests {
         // ORNL prints the corner to the centimetre from its own grid origin.
         assert!(close(ulx, 14_384_006.54, 0.1), "xll {ulx}");
         assert!(close(lly, -1_390_401.50, 0.1), "yll {lly}");
+    }
+
+    /// Points on a pixel's top edge, whose row computes a hair under a whole
+    /// number: ORNL took the row south of the edge at each (2026-11-15,
+    /// MOD11A2 1 km). The h12v09 COG's own geotransform put the Amazon
+    /// point in row 359.
+    #[test]
+    fn a_point_on_a_pixel_edge_takes_the_pixel_south_of_it() {
+        let (x, y) = sinusoidal_xy(-3.0, -60.0);
+        assert_eq!(tile_of(x, y), Some((12, 9)));
+        assert_eq!(pixel_of(12, 9, 1200, x, y), (9, 360));
+        let (x, y) = sinusoidal_xy(14.0, -1.5);
+        assert_eq!(pixel_of(17, 7, 1200, x, y), (1025, 720));
+        let (x, y) = sinusoidal_xy(42.0, -93.6);
+        assert_eq!(pixel_of(11, 4, 1200, x, y).1, 960);
+        assert_eq!(pixel_of(11, 4, 2400, x, y).1, 1920);
+        assert_eq!(pixel_of(11, 4, 4800, x, y).1, 3840);
+        // A point a metre inside a pixel stays in it.
+        let size = TILE_SIZE_M / 1200.0;
+        let top = Y_NORTH - 4.0 * TILE_SIZE_M - 960.0 * size;
+        assert_eq!(pixel_of(11, 4, 1200, x, top + 1.0).1, 959);
+        assert_eq!(pixel_of(11, 4, 1200, x, top - 1.0).1, 960);
+        // The ORNL-checked h30v10 point of `pixel_choice_matches_ornl_on_an_edge`.
+        let (x, y) = sinusoidal_xy(-12.5, 132.5);
+        assert_eq!(pixel_of(30, 10, 2400, x, y), (2246, 600));
     }
 
     /// The pixel holding a point, not the nearest pixel centre: a point in

@@ -95,7 +95,7 @@ The others hold shared tools and embedded gazetteers.
 | `jrc_gsw.rs` | JRC Global Surface Water v1.4 | URL helpers for the COG sampler | `surface_water.*` |
 | `jrc_tmf.rs` | JRC Tropical Moist Forest v2025 | Tile download and cache | `jrc_tmf.*` |
 | `koppen.rs` | Beck et al. 2018 on Figshare | ZIP central directory, then a cached TIFF | `koppen` |
-| `modis_pc.rs` | MODIS Collection 6.1 COGs on the Planetary Computer | STAC search by MODIS tile, then one pixel read in sinusoidal coordinates | `modis.burned_area_monthly` (MCD64A1) |
+| `modis_pc.rs` | MODIS Collection 6.1 COGs on the Planetary Computer | STAC search by MODIS tile, then one pixel read in sinusoidal coordinates | `modis.lst_day_8day`, `modis.lst_night_8day` (MOD11A2), `modis.gpp_8day` (MOD17A2H), `modis.lai_8day` (MOD15A2H), `modis.ndvi_mean` (MOD13Q1), `modis.burned_area_monthly` (MCD64A1) |
 | `overture.rs` | Overture Maps on S3, `us-west-2` | Parquet row-group pruning, WKB decode | `overture.*`, place polygons for `/v1/locate` |
 | `terraclimate.rs` | TerraClimate on THREDDS NCSS | CSV REST, two mirrors | `terraclimate.*_normal*` |
 | `wdpa.rs` | OSM Overpass, `boundary=protected_area` | Overpass QL `is_in` | `protected`, `protected.is_protected_area` |
@@ -147,8 +147,7 @@ materializers.
 | `materialize_cams_band` | Open-Meteo air quality (CAMS) | `cams.*` |
 | `materialize_era5_band` | Open-Meteo archive (ERA5) | `era5.*` |
 | `materialize_marine_band` | Open-Meteo marine | `marine.*` |
-| `materialize_modis_ndvi`, `materialize_ornl_modis_band` | ORNL DAAC MODIS subsets | `modis.*` |
-| `mcd64a1_pc::burned_area_pc_then_ornl` | Planetary Computer MCD64A1 COGs, then ORNL DAAC | `modis.burned_area_monthly` |
+| `materialize_modis_ndvi_window`, `materialize_ornl_modis_band` | Planetary Computer MODIS COGs (`modis_band::pc_then_ornl`), then ORNL DAAC MODIS subsets | `modis.*` |
 | `materialize_soilgrids_band` | ISRIC SoilGrids 2.0 REST | `soilgrids.*_0_30cm` |
 | `materialize_sentinel2_band` | Planetary Computer, then Element84 STAC, then `cog.rs` | `s2.*`, `indices.*` |
 | `materialize_sentinel1_vv` | Planetary Computer Sentinel-1 RTC | `sentinel1_raw` |
@@ -159,13 +158,40 @@ materializers.
 `algorithms-v0.json`. On 12 November 2026, 74 of the then-173 algorithms had one. When an input is
 missing, the node signs an Absence that names the missing bands.
 
-`modis.burned_area_monthly` reads the MCD64A1 COGs on the Planetary Computer first. It uses the
-window, the month, the fill values and the QA land bit of the ORNL read, so the value does not
-change. The fact names its asset with the scheme `mpc_modis_cog` and the reader
-`modis_pc_mcd64a1_burndate@1`. The read goes to ORNL when the search or a pixel read fails, when
-it takes more than 12 s, or when the catalogue lacks a month that ORNL can hold. On 14 November
-2026 every tile checked lacked 2023-09, 2024-07, 2025-05 and 2025-08 to 2025-10. A fact from ORNL
-keeps the scheme `ornl_modis` and the reader `modis_ornl_mcd64a1_burndate@1`.
+Every `modis.*` band except `modis.et_8day` reads the MODIS COGs on the Planetary Computer first.
+One table, `modis_band::BANDS`, gives both readers the product, the value and QA layers, the scale,
+the unit, the composite length and the window. Both readers use the same functions for the fill
+values, the QA gate and the confidence. So the composite they choose and its value are the same.
+An 8-day composite starts on day 1, 9, 17 and so on of each year, and a 16-day composite on day 1,
+17, 33 and so on. The last composite of a year is short.
+
+| Band | Collection | Value and QA assets | Reader on the Planetary Computer | Reader on ORNL |
+|---|---|---|---|---|
+| `modis.lst_day_8day` | `modis-11A2-061` | `LST_Day_1km`, `QC_Day` | `modis_pc_mod11a2_lstday@1` | `modis_ornl_mod11a2_lstday@1` |
+| `modis.lst_night_8day` | `modis-11A2-061` | `LST_Night_1km`, `QC_Night` | `modis_pc_mod11a2_lstnight@1` | `modis_ornl_mod11a2_lstnight@1` |
+| `modis.gpp_8day` | `modis-17A2H-061` | `Gpp_500m`, `Psn_QC_500m` | `modis_pc_mod17a2h_gpp@1` | `modis_ornl_mod17a2h_gpp@1` |
+| `modis.lai_8day` | `modis-15A2H-061` | `Lai_500m`, `FparLai_QC` | `modis_pc_mod15a2h_lai@1` | `modis_ornl_mod15a2h_lai@1` |
+| `modis.ndvi_mean` | `modis-13Q1-061` | `250m_16_days_NDVI`, `250m_16_days_pixel_reliability` | `modis_pc_mod13q1_ndvi@1` | `modis_ornl_subset@1` |
+| `modis.burned_area_monthly` | `modis-64A1-061` | `Burn_Date`, `QA` | `modis_pc_mcd64a1_burndate@1` | `modis_ornl_mcd64a1_burndate@1` |
+
+A fact read on the Planetary Computer has the scheme `mpc_modis_cog`, and its source id is the two
+asset URLs without a token. Its first seven derivation arguments are those of the ORNL subset read
+(latitude, longitude, product, variable, composite date, scale, QA value). The item id, the tile,
+the column and the row come after them. A collection can also hold the Aqua and combined products
+(`MYD11A2` beside `MOD11A2`), so only items of the band's own product count. The pixel is the one
+that holds the point on the MODIS grid itself, not on the COG's geotransform, which is up to a
+millimetre off the grid on some tiles. A point on a pixel edge is in the pixel south or east of it.
+A latitude that is a whole number of pixels from the tile's top, such as 3 degrees south, is on
+an edge.
+
+The read goes to ORNL when the search or a pixel read fails, when it takes more than 12 s, or when
+the catalogue lacks a composite that ORNL can hold. On 15 November 2026 every tile checked lacked
+every 8-day and 16-day composite from 2025-07-04 to 2025-11-17, and MCD64A1 lacked 2023-09,
+2024-07, 2025-05 and 2025-08 to 2025-10. The catalogue also lags behind ORNL for some recent
+composites. A composite that is missing and too recent to exist yet is skipped: under 10 days after
+its end for an 8-day product, 16 for MOD13Q1 and 45 for MCD64A1. A fact from ORNL keeps the scheme
+`ornl_modis` and its ORNL reader. `modis.et_8day` (MOD16A2) is not on the Planetary Computer and
+reads ORNL only.
 
 The other materializers in that file call the `emem-fetch` modules in the first table.
 

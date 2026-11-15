@@ -403,7 +403,7 @@ async fn mcd64a1_on_the_planetary_computer_reads_what_ornl_serves() {
             .unwrap_or_else(|| panic!("no item for h{h:02}v{v:02} {month}"));
         let mut got = Vec::new();
         for asset in ["Burn_Date", "QA"] {
-            match modis_pc::read_point(&client, &item.assets[asset], x, y).await {
+            match modis_pc::read_point(&client, &item.assets[asset], (h, v), x, y).await {
                 Ok(p) => got.push(p),
                 Err(e) => {
                     eprintln!("[mcd64a1 pc] read unavailable, skipping: {e}");
