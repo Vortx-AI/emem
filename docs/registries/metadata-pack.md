@@ -44,7 +44,7 @@ The live values are from 7 November 2026.
 | Tools on `/mcp/full` | All 119 tools (18 core, 101 extended) over 9 pages | `tools/list` on `/mcp/full`, follow `nextCursor` |
 | Tool calls | `tools/call` runs any of the 119 tools by name, on either endpoint | `tools/call` on `/mcp` |
 | Resources | 21 static resources and 9 URI templates | `resources/list`, `resources/templates/list` |
-| REST paths | 187 paths under `/v1/`, 195 paths in total | `GET /openapi.json` |
+| REST paths | 188 paths under `/v1/`, 199 paths in total | `GET /openapi.json` |
 | Wired measurements | 115 band names that a materializer can fetch on a miss | `GET /v1/agent_card`, `band_taxonomy.materializer_wired` |
 | Reads | Open. No key, no account. | Any read route |
 | Writes | Signed with the writer's Ed25519 key. Some write surfaces also need a trust tier. | `GET /v1/enlist` |

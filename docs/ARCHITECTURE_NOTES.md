@@ -380,8 +380,8 @@ and no L2 tool.
 ## Counts, and what guards them
 
 `scripts/sync_counts.py --check` compares the canonical counts with the
-registries and the live responder. The counts are 119 tools, 187 /v1
-paths, 46 sources, 43 slots, 129 wired bands, 176 algorithms, 27 topics
+registries and the live responder. The counts are 119 tools, 188 /v1
+paths, 46 sources, 43 slots, 129 wired bands, 177 algorithms, 27 topics
 and 19 crates. CI runs it (`.github/workflows/ci.yml`, step "prose counts
 match the responder"). If the origin does not answer, it warns and does
 not fail. A green run therefore does not prove a live check.

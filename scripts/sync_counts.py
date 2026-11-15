@@ -76,7 +76,8 @@ CANON = {
     # silently disagree with the file it describes.
     "chatgpt_declared": 18,
     # 176 with sun_position@1, shadow_height@1 and sun_from_shadow@1, 2026-11-14.
-    "algorithms": 176,
+    # 177 with eudr_compliance@2 (jrc_only + review), 2026-11-15.
+    "algorithms": 177,
     # 166/177 since 4bdcbe4 added `/v1/state/{cid}`, the route that makes an
     # `emem:state:` address dereference. CANON was last pinned at 285a12e and
     # the route shipped after it, so this was a real addition the pin missed.
@@ -92,8 +93,9 @@ CANON = {
     # +1 each for /v1/cells/{cell64}/next_acquisition.
     # +1 each for /v1/persist.
     # +3 each for /v1/sun_position, /v1/shadow_height and /v1/sun_from_shadow.
-    "rest_paths_v1": 187,           # documented /v1/* paths in OpenAPI
-    "rest_paths_openapi_total": 198,  # all paths in OpenAPI
+    # +1 for GET /v1/eudr_dds/include/{token}, 2026-11-15.
+    "rest_paths_v1": 188,           # documented /v1/* paths in OpenAPI
+    "rest_paths_openapi_total": 199,  # all paths in OpenAPI
     "cube_slots": 43,
     # 129 -> 125 on 2026-09-15: the four foundation encoders were retired for
     # this deployment (EMEM_RETIRED_BANDS) when the GPU behind them was

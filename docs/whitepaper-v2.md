@@ -1109,7 +1109,7 @@ Open data from ESA, NASA, USGS, and the EU JRC fills the memory on
 demand: **46 declared source schemes** and **117 materializer-wired
 measurements**, live at `/v1/sources` and `/v1/bands`, spanning elevation
 and NDVI through weather, forest change, surface water, and the Tessera
-foundation embedding. **176 algorithms** and **27 topics** are
+foundation embedding. **177 algorithms** and **27 topics** are
 enumerated at `/v1/algorithms` and `/v1/topics`.
 
 ### 10.1 Bands: the 1792-dimension voxel
@@ -1246,7 +1246,7 @@ needs are open work. The roadmap carries it.
 ## 11. The agent-discoverable surface
 
 `emem-server` serves HTTP/REST and MCP JSON-RPC on one port (default
-`0.0.0.0:5051`): **187 documented REST paths under `/v1/*`** (198 total
+`0.0.0.0:5051`): **188 documented REST paths under `/v1/*`** (199 total
 in OpenAPI) and **119 MCP tools (18 core, 101 extended)**.
 
 Discovery on first contact:
