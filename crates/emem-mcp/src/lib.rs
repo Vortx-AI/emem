@@ -1133,6 +1133,22 @@ const SCHEMA_SUN_POSITION: &str = r#"{"type":"object","required":["places"],"pro
 "range":{"type":"object","required":["from","to","step_minutes"],"properties":{"from":{"type":"string"},"to":{"type":"string"},"step_minutes":{"type":"integer","minimum":1}},"description":"Every step from `from` to `to`, in place of times. Places x steps must be 2000 or fewer."}
 }}"#;
 
+const SCHEMA_SHADOW_HEIGHT: &str = r#"{"type":"object","required":["line"],"properties":{
+"scene":{"type":"string","description":"A Sentinel-2 L2A STAC item id, from Earth Search or Planetary Computer. Give this or raster."},
+"raster":{"type":"string","description":"An emem:raster: token of one Sentinel-2 band, from emem_band_raster on this responder."},
+"line":{"type":"object","required":["from","to"],"properties":{"from":{"anyOf":[{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},{"type":"object"}]},"to":{"anyOf":[{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},{"type":"object"}]}},"description":"from is the object's base, to is the tip of its shadow. Each is [col, row] on the raster (integers are pixel centres) or {lat, lng}."},
+"slope_correction":{"type":"boolean","description":"Add the rise of the ground from base to tip, from the Copernicus DEM. The DEM holds buildings, so use it only on open ground."},
+"bearing_tolerance_deg":{"type":"number","minimum":1,"maximum":45,"description":"How far the line may turn from the anti-solar azimuth before the answer warns. Default 10."}
+}}"#;
+
+const SCHEMA_SUN_FROM_SHADOW: &str = r#"{"type":"object","required":["height_m","shadow","place","datetime"],"properties":{
+"height_m":{"type":"number","exclusiveMinimum":0,"description":"The known height of the object, metres."},
+"height_uncertainty_m":{"type":"number","minimum":0,"description":"Default 0."},
+"shadow":{"type":"object","required":["length_m","bearing_deg"],"properties":{"length_m":{"type":"number","exclusiveMinimum":0},"bearing_deg":{"type":"number","description":"From the base to the tip, degrees clockwise from true north."},"length_uncertainty_m":{"type":"number","minimum":0,"description":"Default 10, one Sentinel-2 pixel."},"bearing_uncertainty_deg":{"type":"number","minimum":0,"maximum":90,"description":"Default the angle the length uncertainty spans at the tip."}},"description":"The measured shadow."},
+"place":{"type":"object","properties":{"lat":{"type":"number"},"lng":{"type":"number"},"cell":{"type":"string"}},"description":"{lat, lng} or {cell}."},
+"datetime":{"type":"string","description":"The claimed instant, ISO 8601 UTC with Z, whole seconds."}
+}}"#;
+
 const SCHEMA_TERRAIN: &str = r#"{"type":"object","required":["cell"],"properties":{
 "cell":{"type":"string","description":"cell64 or place name. The 8 neighbours are the Copernicus DEM pixels around the pixel that holds it."},
 "step_cells":{"type":"integer","minimum":1,"description":"A coarser stencil, in cell64 pitches (about 9.55 m each). It is rounded to whole DEM pixels, never under one. Omit it for one pixel (30.9 m north-south); raise it to measure slope at a coarser scale."},
@@ -2287,6 +2303,30 @@ pub const TOOLS: &[ToolDescriptor] = &[
     tier: "extended",
     },
     ToolDescriptor {
+        name: "emem_shadow_height",
+        title: "Shadow height: an object's height from its shadow in a Sentinel-2 scene",
+        description: "Reads the height of an object from its shadow in one Sentinel-2 scene. The height is the shadow length times the tangent of the sun elevation. The elevation comes from the scene's own metadata, and sun_position@1 at the base and the scene time stands beside it. The range is the length minus and plus one pixel. The tool checks the line's bearing against the anti-solar azimuth and warns when it is outside the tolerance. With `slope_correction`, it adds the rise of the ground from base to tip, from the DEM. It signs one derivation and returns an emem:fact: token.",
+        when_to_use: "Use it to measure a tower, a tree line or a cliff in a scene, or to check a height. Send `raster` (an emem:raster: token) with the line in pixels, or `scene` (an item id) with two {lat, lng} points. Put `from` at the object's base and `to` at the tip of the shadow. At 10 m pixels a small object gives a wide range.",
+        input_schema: SCHEMA_SHADOW_HEIGHT,
+        output_schema: None,
+        example_args: r#"{"scene":"S2B_40RCN_20250115_0_L2A","line":{"from":{"lat":25.19714,"lng":55.27437},"to":{"lat":25.2023,"lng":55.2668}}}"#,
+        level: "L0", category: ToolCategory::Read,
+    read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
+    tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_sun_from_shadow",
+        title: "Sun from a shadow: the sun a shadow implies, and whether a claimed time fits",
+        description: "Works out the sun that cast a shadow. Give an object of known height, its measured shadow length and bearing, a place and a claimed UTC instant. The elevation is the arctangent of height over length, with a range from the uncertainties. The azimuth is the shadow bearing plus 180 degrees. The tool compares them with sun_position@1 at the claimed instant and says whether the instant is consistent. It also gives the windows of that UTC date, to the second, when the sun fits the shadow. It signs one derivation, and a resolve of its token computes the answer again.",
+        when_to_use: "Use it to check the claimed time of a photo or a scene from a shadow. It also finds when a shadow of a known length falls. Send the bearing from the base to the tip, in degrees clockwise from true north. The default length uncertainty is one 10 m pixel; send your own for a measured shadow.",
+        input_schema: SCHEMA_SUN_FROM_SHADOW,
+        output_schema: None,
+        example_args: r#"{"height_m":10,"shadow":{"length_m":7.1,"bearing_deg":319.5,"length_uncertainty_m":0.2},"place":{"lat":28.6139,"lng":77.209},"datetime":"2026-03-21T05:30:00Z"}"#,
+        level: "L0", category: ToolCategory::Read,
+    read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: false,
+    tier: "extended",
+    },
+    ToolDescriptor {
         name: "emem_heat_solve",
         title: "2-D heat-equation forecast (urban LST evolution)",
         description: "Forward-step 2-D explicit finite-difference solver for the heat equation ∂u/∂t = α∇²u over a 3×3 cell stencil centred on `cell`. It reads `modis.lst_day_8day` (Land Surface Temperature) at the centre and 8 cell64 neighbours. It integrates N hours ahead under a CFL-stable timestep and returns a signed forecast. This is a real PDE rollout, not a decay-scoring heuristic.",
@@ -3249,8 +3289,8 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
     ),
     (
         "sun_and_shadow",
-        "Where the sun was at a place and instant, as deterministic geometry. Each answer is one signed derivation that a resolve of its token computes again.",
-        &["emem_sun_position"],
+        "Where the sun was at a place and instant, a height read from a shadow in a scene, and the sun a shadow implies. Deterministic geometry, each answer one signed derivation.",
+        &["emem_sun_position", "emem_shadow_height", "emem_sun_from_shadow"],
     ),
     (
         "transparency_log",
@@ -3385,7 +3425,7 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
             "emem_compare_bands", "emem_query_region", "emem_hunt", "emem_state_diff",
             "emem_change_attribution",
             "emem_eudr_dds", "emem_heat_solve", "emem_wave_solve", "emem_backfill",
-            "emem_fetch",
+            "emem_fetch", "emem_shadow_height", "emem_sun_from_shadow",
         ],
     ),
     (

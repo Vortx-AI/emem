@@ -1886,6 +1886,8 @@ or a cell nearer the coast. On 7 November 2026, `{"cell": "Santa Monica",
 | Method | Path | Body |
 |---|---|---|
 | POST | `/v1/sun_position` | `{places, times?, range?}` |
+| POST | `/v1/shadow_height` | `{raster or scene, line: {from, to}, slope_correction?, bearing_tolerance_deg?}` |
+| POST | `/v1/sun_from_shadow` | `{height_m, height_uncertainty_m?, shadow: {length_m, bearing_deg, length_uncertainty_m?, bearing_uncertainty_deg?}, place, datetime}` |
 
 `sun_position` gives the sun's place in the sky. `places` holds 1 to 50
 places, each `{lat, lng}` or `{cell}`, with an optional `id`. Send `times`
@@ -1909,6 +1911,48 @@ minute.
 The whole answer is one signed derivation. Its value holds the inputs, so
 a resolve of its `emem:fact:` token computes every row again.
 `provenance.responder_recomputed` is then true only when all rows match.
+
+`shadow_height` reads the height of an object from its shadow in one
+Sentinel-2 scene. `line.from` is the base of the object and `line.to` is
+the tip of its shadow. With `raster`, an `emem:raster:` token of one band
+from `/v1/band_raster`, each end is `[col, row]` on that raster, and whole
+numbers are pixel centres. With `scene`, a STAC item id, each end is
+`{lat, lng}`. The height is the shadow length times the tangent of the sun
+elevation in the scene's metadata. The answer also gives `sun_position@1`
+at the base and the scene time, and the height under that sun. The range
+is the length less one pixel to the length plus one pixel. The answer
+warns when the line points more than `bearing_tolerance_deg` (default 10)
+away from the anti-solar azimuth. `slope_correction` adds the rise of the
+ground from base to tip, from the Copernicus DEM. That DEM holds buildings
+and trees, so use it only on open ground.
+
+On 14 November 2026 a node built from this code read two shadows. Each tip
+is where B08 along the anti-solar line rises halfway from the shadow to the
+lit ground.
+
+- Khufu (139 m), scene `S2A_36RUU_20250102_0_L2A`, 2 January 2025 at
+  08:41:52 UTC. The line runs 207 m from the ground point under the apex.
+  The scene's sun stood 33.83 degrees high, and the answer was 139.0 m,
+  with a range of 132.3 to 145.7 m. Under `sun_position@1` (33.97 degrees)
+  it was 139.7 m.
+- Burj Khalifa (828 m), scene `S2B_40RCN_20241228_0_L2A`, 28 December 2024
+  at 07:02:42 UTC. The dark channel ends 781 m from the base. The answer
+  was 620 m, with a range of 612 to 628 m, so it misses. Above about 600 m
+  the tower is a spire narrower than a pixel, and its shadow does not show
+  at 10 m.
+
+A Planetary Computer item's datetime is the start of its datatake. For the
+Khufu pass it was 8 minutes before Earth Search's time for the same tile,
+and `sun_position@1` at that time reads 0.7 degrees lower. The answer says
+so when the scene is such an item.
+
+`sun_from_shadow` works the other way. Give an object of known height, its
+shadow length and bearing from base to tip, a place and a claimed UTC
+instant. The answer gives the sun's elevation and azimuth that the shadow
+implies, with their ranges. It says whether the claimed instant fits
+`sun_position@1` at the place, and it gives the windows of that UTC date
+when the sun fits. The default length uncertainty is one 10 m pixel. A
+resolve of its token computes the answer again.
 
 #### Routes for algorithms that the formula engine cannot run
 
@@ -2019,7 +2063,7 @@ gave on 7 November 2026, and the tools added since then.
 
 | Shape | Answer | Tools |
 |---|---|---|
-| `scalar` (34) | One number or a few numbers at one address | `emem_ask`, `emem_hunt`, `emem_eudr_dds`, `emem_spi`, `emem_burn_severity`, `emem_rice_ch4`, `emem_deforestation_alert`, `emem_sar_forest_disturbance`, `emem_change_attribution`, `emem_terrain`, `emem_state`, `emem_state_multi`, `emem_state_diff`, `emem_recall`, `emem_recall_polygon`, `emem_query_region`, `emem_compare`, `emem_compare_bands`, `emem_diff`, `emem_fetch`, `emem_backfill`, `emem_heat_solve`, `emem_wave_solve`, `emem_recall_many`, `emem_grid`, `emem_elevation`, `emem_at`, `emem_ndvi`, `emem_air`, `emem_lst`, `emem_soil`, `emem_water`, `emem_forest`, `emem_weather` |
+| `scalar` (36) | One number or a few numbers at one address | `emem_ask`, `emem_hunt`, `emem_eudr_dds`, `emem_spi`, `emem_burn_severity`, `emem_rice_ch4`, `emem_deforestation_alert`, `emem_sar_forest_disturbance`, `emem_change_attribution`, `emem_terrain`, `emem_state`, `emem_state_multi`, `emem_state_diff`, `emem_recall`, `emem_recall_polygon`, `emem_query_region`, `emem_compare`, `emem_compare_bands`, `emem_diff`, `emem_fetch`, `emem_backfill`, `emem_heat_solve`, `emem_wave_solve`, `emem_recall_many`, `emem_grid`, `emem_elevation`, `emem_at`, `emem_ndvi`, `emem_air`, `emem_lst`, `emem_soil`, `emem_water`, `emem_forest`, `emem_weather`, `emem_shadow_height`, `emem_sun_from_shadow` |
 | `timeseries` (5) | Values over time | `emem_field_series`, `emem_trajectory`, `emem_compare_same_doy`, `emem_temporal_route`, `emem_sun_position` |
 | `raster` (6) | A grid of values over an area | `emem_band_raster`, `emem_band_cube`, `emem_band_composite`, `emem_raster_bundle`, `emem_coverage_map`, `emem_cell_scene_rgb` |
 | `geometry` (3) | Boundaries, polygons and the cells in an area | `emem_field_boundaries`, `emem_cells_in_bbox`, `emem_cell_geojson` |

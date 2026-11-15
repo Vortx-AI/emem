@@ -694,6 +694,8 @@ responder itself signs derivatives with these `op` and `fn_key` values
 | `histogram` | `lossyear_histogram@1` | `lib.rs` (forest loss by year) |
 | `eudr_plot_raster` | `eudr_plot_raster@1` | `eudr_raster.rs` (one EUDR plot, every 10 m pixel) |
 | `sun_position` | `sun_position@1` | `sun.rs` (the sun's position, recomputed when its token is resolved) |
+| `shadow_height` | `shadow_height@1` | `shadow.rs` (a height from a shadow in one scene) |
+| `sun_from_shadow` | `sun_from_shadow@1` | `shadow.rs` (the sun a shadow implies, recomputed when its token is resolved) |
 
 `/v1/diff` also builds a derivative with `op` `delta` and `fn_key`
 `nd.delta@1` (`emem-primitives/src/diff.rs`). It returns that

@@ -16682,6 +16682,82 @@
    "documentation_only": true,
    "runtime_path": "/v1/sun_position",
    "_deterministic_note": "Fully deterministic given the request body. The signed record holds the inputs, so a resolve of its emem:fact: token computes every row again and reports provenance.responder_recomputed."
+  },
+  {
+   "key": "shadow_height@1",
+   "kind": "solo",
+   "domain": "optical",
+   "inputs": [
+    {
+     "band": "<sentinel2_scene>",
+     "role": "scene",
+     "explanation": "One Sentinel-2 L2A scene: an emem:raster: token of one band (the line in its pixels) or a STAC item id (the line as two lat/lng points). Its metadata gives the time and the sun."
+    },
+    {
+     "band": "<shadow_line>",
+     "role": "line",
+     "explanation": "From the object's base to the tip of its shadow."
+    },
+    {
+     "band": "copdem30m.elevation_mean",
+     "role": "ground_rise",
+     "explanation": "Optional: the DEM at base and tip, for the rise of the ground along the shadow. A surface model, so it holds buildings and trees."
+    }
+   ],
+   "formula": "L = ground length of the line (WGS-84 local radii); e = the scene's sun elevation (view:sun_elevation, else 90 - s2:mean_solar_zenith); height = L tan(e) + (DEM(tip) - DEM(base) when slope_correction); range = [(L - p) tan(e), (L + p) tan(e)] (+ rise) with p the pixel size; bearing check: |bearing(base -> tip) - (sun azimuth + 180)| <= tolerance (default 10 degrees); the same height under sun_position@1 at the base and the item datetime is reported beside it",
+   "output": {
+    "kind": "scalar",
+    "unit": "m",
+    "explanation": "height_m with height_range_m, height_by_sun_position_m, the bearing check, both suns and their difference, and cautions (a thin top casts a shadow under a pixel; off-nadir lean; DEM holds buildings)."
+   },
+   "when_to_use": "Measure a tower, a tree line or a cliff from one clear scene, or check a claimed height. At 10 m pixels a small object gives a wide range: Khufu's 139 m reads within about 7 m either way.",
+   "primitive": "POST /v1/shadow_height {raster | scene, line: {from, to}, slope_correction?, bearing_tolerance_deg?}",
+   "deterministic": true,
+   "citation": "Shadow-length height estimation: Cheng, F. and Thiel, K.-H. 1995. Delimiting the building heights in a city from the shadow in a panchromatic SPOT-image. International Journal of Remote Sensing 16(3):409-415. Sun position: sun_position@1 (NOAA Solar Calculator equations, after Meeus).",
+   "accuracy_band": "One pixel of length either way: +-10 m x tan(e) at 10 m pixels, about +-8 m at a 40 degree sun. A spire or mast thinner than a pixel leaves its tip unseen, so the height reads short.",
+   "documentation_only": true,
+   "runtime_path": "/v1/shadow_height"
+  },
+  {
+   "key": "sun_from_shadow@1",
+   "kind": "solo",
+   "domain": "optical",
+   "inputs": [
+    {
+     "band": "<object_height>",
+     "role": "height_m",
+     "explanation": "The known height of the object, with an optional uncertainty."
+    },
+    {
+     "band": "<shadow_measure>",
+     "role": "shadow",
+     "explanation": "Shadow length and bearing from base to tip, with uncertainties (defaults: one 10 m pixel, and the angle it spans at the tip)."
+    },
+    {
+     "band": "<lat_lng_or_cell64>",
+     "role": "place"
+    },
+    {
+     "band": "<utc_instant>",
+     "role": "claimed_datetime"
+    }
+   ],
+   "formula": "e = atan(h / L) within [atan((h - dh)/(L + dl)), atan((h + dh)/(L - dl))]; azimuth = bearing + 180 within the bearing uncertainty; consistent when sun_position@1 at the place and claimed instant (apparent elevation) lies in both ranges; windows: the stretches of that UTC date, sampled each minute with edges to the second, when it does",
+   "output": {
+    "kind": "classification",
+    "values": [
+     "consistent",
+     "inconsistent"
+    ],
+    "explanation": "The answer's `consistent` (true or false), with the implied sun, the sun at the claimed instant and the offsets, and windows_utc."
+   },
+   "when_to_use": "Check the claimed time of a photo or a scene from a shadow, or find when a shadow of a known length falls.",
+   "primitive": "POST /v1/sun_from_shadow {height_m, shadow: {length_m, bearing_deg}, place, datetime}",
+   "deterministic": true,
+   "citation": "sun_position@1 (NOAA Solar Calculator equations, after Meeus, Astronomical Algorithms).",
+   "documentation_only": true,
+   "runtime_path": "/v1/sun_from_shadow",
+   "_deterministic_note": "Fully deterministic given the request body. The signed record holds the inputs, so a resolve of its emem:fact: token computes the answer again and reports provenance.responder_recomputed."
   }
  ]
 }
