@@ -64,6 +64,7 @@ mod field_series;
 mod field_signals;
 mod intents;
 mod ledger;
+mod log_erratum;
 mod mcd64a1_pc;
 mod next_acquisition;
 mod next_step;
@@ -23009,6 +23010,17 @@ async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
                 ],
             },
             {
+                "name": "transparency_log_erratum",
+                "domain": log_erratum::DOMAIN,
+                "construction": "preimage_v1",
+                "served_at": "GET /v1/log/sth (errata)",
+                "segments": [
+                    seg(log_erratum::tag::BODY_BLAKE3, "body_blake3", "scalar", false, "32 raw bytes: blake3 of the RFC 8785 canonical JSON of body"),
+                    seg(log_erratum::tag::SIGNED_AT, "signed_at", "scalar", false, ""),
+                    seg(log_erratum::tag::RESPONDER_PUBKEY, "responder_pubkey", "scalar", false, "32 raw bytes"),
+                ],
+            },
+            {
                 "name": "decide",
                 "domain": decide::DECIDE_DOMAIN,
                 "construction": "preimage_v1",
@@ -24133,11 +24145,18 @@ async fn translog_prefix_root(k: usize) -> Option<[u8; 32]> {
 async fn get_log_sth(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiError> {
     let (tree_size, root) = translog_head_cached(&s).await?;
     let sth = sign_sth_over(&s, tree_size, root);
-    Ok(Json(json!({
+    let mut out = json!({
         "sth": sth,
         "note": "Pin this STH. Later call /v1/log/consistency?first=<this tree_size>&second=<later tree_size> to prove the log only grew (append-only). Verify the signature offline against responder_pubkey_b32.",
         "spec": "https://emem.dev/spec.md#transparency-log"
-    })))
+    });
+    // Signed statements about leaves the tree committed that are the hash of
+    // no entry, and where the entries the tree missed now are.
+    let errata = log_erratum::all();
+    if !errata.is_empty() {
+        out["errata"] = json!(errata);
+    }
+    Ok(Json(out))
 }
 
 /// Hard cap on entries returned per `/v1/log/entries` call.
@@ -24232,23 +24251,11 @@ async fn get_log_entries(
     let entries: Vec<JsonValue> = rows
         .iter()
         .map(|(i, cbor)| {
-            if summary {
-                return log_entry_summary(*i, cbor);
+            let mut row = log_entry_row(*i, cbor, summary);
+            if let Some(e) = log_erratum::for_leaf(*i) {
+                row["erratum"] = e;
             }
-            let bytes = b32_lower(cbor);
-            json!({
-                "leaf_index": i,
-                "entry_kind": log_entry_kind(cbor),
-                // The bytes themselves, so a caller re-derives the leaf rather than
-                // taking our word for it. Same base32 alphabet as every other id here.
-                "entry_cbor_b32": bytes,
-                // The same bytes under the name every entry had when all of them
-                // were attestations. Kept, and filled for every kind, because
-                // witnesses re-hash this field to check the leaf; renaming it
-                // would have broken them the day the second kind appeared.
-                "attestation_cbor_b32": bytes,
-                "entry_hash_b32": b32_lower(blake3::hash(cbor).as_bytes()),
-            })
+            row
         })
         .collect();
     let returned = entries.len() as u64;
@@ -24262,10 +24269,33 @@ async fn get_log_entries(
         "returned": returned,
         "truncated": asked_end > end || start + returned < end,
         "max_per_call": LOG_ENTRIES_MAX,
-        "note": "RFC 6962 get-entries. leaf_index is global and append-only, and entry i is the preimage of leaf i in /v1/log/sth: re-hash entry_cbor_b32 with blake3 and it equals entry_hash_b32, which /v1/log/inclusion proves is committed under the STH. Enumerate to audit the log rather than only proving inclusion of a cid you already hold. Four kinds of entry: `attestation` (CBOR of a signed emem_fact::Attestation), `emem.memory_write.v1` (a CBOR map naming a memory note by path, file_cid and content_blake3, with the author's key and signature), `emem.memory_supersede.v1` and `emem.memory_delete.v1` (a supersede or a delete, with the author's key and signature). attestation_cbor_b32 is the legacy name of entry_cbor_b32 and holds the same bytes for both kinds.",
+        "note": LOG_ENTRIES_NOTE,
         "spec": "https://emem.dev/spec.md#transparency-log"
     })))
 }
+
+/// One row of `/v1/log/entries`.
+fn log_entry_row(i: u64, cbor: &[u8], summary: bool) -> JsonValue {
+    if summary {
+        return log_entry_summary(i, cbor);
+    }
+    let bytes = b32_lower(cbor);
+    json!({
+        "leaf_index": i,
+        "entry_kind": log_entry_kind(cbor),
+        // The bytes themselves, so a caller re-derives the leaf rather than
+        // taking our word for it. Same base32 alphabet as every other id here.
+        "entry_cbor_b32": bytes,
+        // The same bytes under the name every entry had when all of them
+        // were attestations. Kept, and filled for every kind, because
+        // witnesses re-hash this field to check the leaf; renaming it
+        // would have broken them the day the second kind appeared.
+        "attestation_cbor_b32": bytes,
+        "entry_hash_b32": b32_lower(blake3::hash(cbor).as_bytes()),
+    })
+}
+
+const LOG_ENTRIES_NOTE: &str = "RFC 6962 get-entries. leaf_index is global and append-only, and entry i is the preimage of leaf i in /v1/log/sth: re-hash entry_cbor_b32 with blake3 and it equals entry_hash_b32, which /v1/log/inclusion proves is committed under the STH. Enumerate to audit the log rather than only proving inclusion of a cid you already hold. Four kinds of entry: `attestation` (CBOR of a signed emem_fact::Attestation), `emem.memory_write.v1` (a CBOR map naming a memory note by path, file_cid and content_blake3, with the author's key and signature), `emem.memory_supersede.v1` and `emem.memory_delete.v1` (a supersede or a delete, with the author's key and signature). attestation_cbor_b32 is the legacy name of entry_cbor_b32 and holds the same bytes for both kinds. A row with `erratum` is a leaf a signed erratum (in /v1/log/sth) names as misframed: its bytes do not hash to the leaf, and the erratum says why.";
 
 /// One light row of `/v1/log/entries?summary=1`. The hash is still the leaf's
 /// preimage hash, so a reader can fetch the full entry later and check it; the
@@ -24645,7 +24675,7 @@ async fn get_log_inclusion(
             None => emem_attest::translog::merkle_tree_hash(&leaves[..size]),
         }
     };
-    Ok(Json(json!({
+    let mut out = json!({
         "leaf_index": m,
         "tree_size": size,
         "root_b32": b32_lower(&root),
@@ -24664,7 +24694,11 @@ async fn get_log_inclusion(
         // fact; the receipt's merkle_proof joins the fact to that batch's root.
         "fact_cid": fact_match,
         "verify": "emem_attest::translog::verify_inclusion(leaf_hash, leaf_index, tree_size, audit_path, root). For matched=memory_note_content, also fetch entry leaf_index from /v1/log/entries and check its content_blake3 equals the hash you asked with."
-    })))
+    });
+    if let Some(e) = log_erratum::for_leaf(m as u64) {
+        out["erratum"] = e;
+    }
+    Ok(Json(out))
 }
 
 /// Where a memory note's whole body is served as markdown: `GET /memories/...`.
@@ -36825,7 +36859,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/functions":         {"get":{"summary":"function registry","operationId":"emem_functions","responses":{"200":json_ok}}},
             "/v1/sources":           {"get":{"summary":"source registry","operationId":"emem_sources","responses":{"200":json_ok}}},
             "/v1/errors":            {"get":{"summary":"error code catalog","operationId":"emem_errors","responses":{"200":json_ok}}},
-            "/v1/log/sth":           {"get":{"summary":"transparency log: signed tree head (RFC 6962) over the append-only attestation log. {tree_size, root_b32, signed_at, responder_pubkey_b32, signature_b32}; ed25519 over PreimageV1(\"emem.translog.sth.v1\"). Pin it, then re-check /v1/log/consistency to prove the log only grew.","operationId":"emem_log_sth","responses":{"200":json_ok}}},
+            "/v1/log/sth":           {"get":{"summary":"transparency log: signed tree head (RFC 6962) over the append-only attestation log. {tree_size, root_b32, signed_at, responder_pubkey_b32, signature_b32}; ed25519 over PreimageV1(\"emem.translog.sth.v1\"). Pin it, then re-check /v1/log/consistency to prove the log only grew. When the responder has published a log erratum, `errata` lists each one, signed: leaves the tree committed that are the hash of no entry, and where the entries the tree missed were appended again.","operationId":"emem_log_sth","responses":{"200":json_ok}}},
             "/v1/log/entries":       {"get":{"summary":"transparency log: RFC 6962 §4.6 get-entries. Returns the raw attestations at global indices [start, end), as {leaf_index, attestation_cbor_b32, entry_hash_b32}. This is what makes the log AUDITABLE rather than only provable: /v1/log/inclusion proves a cid you already hold is committed, while enumeration lets a third party read what else is in the tree. Entry i is the preimage of leaf i in /v1/log/sth, so blake3(attestation_cbor_b32) == entry_hash_b32 and /v1/log/inclusion proves that hash sits under the STH, with no trust in this responder. Capped at 256 per call (RFC 6962 permits returning fewer than asked); the response carries end_exclusive and truncated so you paginate on what you received, not what you requested.","operationId":"emem_log_entries","parameters":[{"name":"start","in":"query","schema":{"type":"integer","minimum":0},"description":"first global leaf index, inclusive"},{"name":"end","in":"query","schema":{"type":"integer"},"description":"exclusive end; defaults to start+256 and is clamped to it"},{"name":"summary","in":"query","schema":{"type":"boolean"},"description":"1 or true: one light row per entry (leaf_index, entry_kind, entry_hash_b32, entry_bytes; for an attestation also facts, band, cell, a centre rounded to 3 decimals and attested_at; for a memory write path, verb and signed_at) without the entry bytes. Only entry_hash_b32 is checkable; fetch the full entry to re-hash it."}],"responses":{"200":json_ok,"400":json_bad_request,"501":json_ok}}},
             "/.well-known/did.json": {"get":{"summary":"node identity: the did:web document naming this node's responder key (the key under every STH and receipt) and, when the operator declares one, its witness key, both as Multikey. 404 with the fix when the node has no public host.","operationId":"emem_well_known_did","tags":["identity"],"responses":{"200":json_ok,"404":json_not_found}}},
             "/.well-known/emem-agents.json": {"get":{"summary":"organisation vouching: the keys this operator vouches for, from config/emem-agents.json. The enlistment ladder on OTHER nodes fetches this document to move a key to T4_affiliated; a node that asks peers to publish one publishes its own. Public keys only, no redirects, CORS open.","operationId":"emem_well_known_agents","tags":["identity"],"responses":{"200":json_ok}}},

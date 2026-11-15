@@ -793,6 +793,104 @@ fn link_proofs(
     Ok(())
 }
 
+// ── erratum ──────────────────────────────────────────────────────────────
+
+/// The body of the erratum a responder publishes after a complete relog,
+/// and the bytes of the relocation list it names by hash. Built only from
+/// the run's own reports, so the same run always gives the same body.
+pub fn erratum_body(
+    dir: &Path,
+    id: &str,
+    log_id_b32: &str,
+) -> Result<(Value, Vec<u8>), StorageError> {
+    let scan: Value = read_json(&dir.join(REPORT))?
+        .ok_or_else(|| err("no report.json in this run; scan first"))?;
+    let relog: Value = read_json(&dir.join(RELOG_REPORT))?
+        .ok_or_else(|| err("no relog.report.json in this run; relog first"))?;
+    if relog.get("complete").and_then(Value::as_bool) != Some(true) {
+        return Err(err(
+            "the relog is not complete (see not_leaves_after in relog.report.json); no erratum",
+        ));
+    }
+    let list = std::fs::read(dir.join(RELOCATIONS))?;
+    let relocations: Vec<Relocation> =
+        serde_json::from_slice(&list).map_err(|e| err(format!("relocations.json: {e}")))?;
+    let list_b32 = b32(blake3::hash(&list).as_bytes());
+    if relog
+        .pointer("/relocations/blake3_b32")
+        .and_then(Value::as_str)
+        != Some(list_b32.as_str())
+    {
+        return Err(err("relocations.json changed since the relog wrote it"));
+    }
+    let tears: Vec<Value> = scan
+        .get("tears")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|t| {
+            json!({
+                "segment": t["segment"],
+                "offset": t["offset"],
+                "kind": t["kind"],
+                "declared_len": t["declared_len"],
+                "resume_offset": t["resume_offset"],
+                "leaf_index": t["leaf_index"],
+                "tree": t["tree"],
+            })
+        })
+        .collect();
+    let misframed: Vec<Value> = scan
+        .get("misframed_leaves")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| {
+            json!({
+                "leaf_index": m["leaf_index"],
+                "segment": m["segment"],
+                "offset": m["offset"],
+                "tree_leaf_b32": m["tree_leaf_b32"],
+            })
+        })
+        .collect();
+    if tears.is_empty() && misframed.is_empty() && relocations.is_empty() {
+        return Err(err("the scan found nothing to correct; no erratum"));
+    }
+    let facts: u64 = relocations.iter().map(|r| r.facts).sum();
+    let memory = relocations
+        .iter()
+        .filter(|r| r.kind.starts_with("emem.memory_"))
+        .count();
+    let body = json!({
+        "schema": "emem.translog.erratum.v1",
+        "id": id,
+        "log_id": log_id_b32,
+        "what": "Some appends were cut part way by a full disk, and the next appends started after the partial frame. The tree's length-driven walk took 32 bytes of a later record as the leaf at each misframed_leaves index: that leaf is the hash of no entry, and /v1/log/entries serves bytes there that do not hash to it. The walk then stopped reading the segment, so the intact entries after each tear were under no signed head. Each of those entries was appended again, byte for byte, at the head of the log. The relocation list maps each one's place on disk to the leaf that now holds it.",
+        "misframed_leaves": misframed,
+        "tears": tears,
+        "relocated": {
+            "entries": relocations.len(),
+            "relogged": relocations.iter().filter(|r| r.relogged).count(),
+            "distinct_entries": relocations
+                .iter()
+                .map(|r| r.entry_hash.as_str())
+                .collect::<HashSet<_>>()
+                .len(),
+            "facts": facts,
+            "memory_entries": memory,
+            "first_leaf_index": relocations.iter().map(|r| r.leaf_index).min(),
+            "last_leaf_index": relocations.iter().map(|r| r.leaf_index).max(),
+            "list_blake3_b32": list_b32,
+            "list_bytes": list.len(),
+        },
+        "witness_rule": "At each leaf_index in misframed_leaves, accept the leaf as committed and skip the check that blake3 of the entry bytes equals it. Every other leaf must pass that check. Each relocated entry's entry_hash is a leaf at its leaf_index in the relocation list, and its bytes hash to it.",
+    });
+    Ok((body, list))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -902,6 +1000,13 @@ mod tests {
             assert_eq!(b32(&new[r.leaf_index as usize]), r.entry_hash);
             assert!(r.relogged);
         }
+        let (body, bytes) = erratum_body(run.path(), "t", "logid").unwrap();
+        assert_eq!(
+            body["relocated"]["list_blake3_b32"],
+            b32(blake3::hash(&bytes).as_bytes())
+        );
+        assert_eq!(body["tears"].as_array().unwrap().len(), 2);
+        assert_eq!(body["misframed_leaves"].as_array().unwrap().len(), 1);
     }
 
     /// A write retried with the same bytes left two copies after the tear.

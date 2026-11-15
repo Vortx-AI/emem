@@ -15,7 +15,10 @@
 //!   Reads only.
 //! - `relog`: append each listed entry that is not yet a leaf, byte for
 //!   byte, in batches; link its facts' proofs to it; write
-//!   `relocations.json`.
+//!   `relocations.json`. When every listed entry is a leaf, the responder
+//!   signs and publishes the erratum (`log_erratum.rs`).
+//! - `erratum`: publish the erratum of a completed relog. The same body keeps
+//!   its first signature.
 //! - `status`, `stop`.
 
 use axum::extract::State;
@@ -41,10 +44,10 @@ pub(crate) async fn post_log_repair(
     match action {
         "status" => status(run.as_deref()),
         "stop" => stop(),
-        "scan" | "relog" => start(&s, action, run, &v),
+        "scan" | "relog" | "erratum" => start(&s, action, run, &v),
         other => reply(
             StatusCode::BAD_REQUEST,
-            json!({"error": format!("unknown action {other:?}; use scan, relog, status or stop")}),
+            json!({"error": format!("unknown action {other:?}; use scan, relog, erratum, status or stop")}),
         ),
     }
 }
@@ -65,7 +68,15 @@ fn status(run: Option<&str>) -> Response {
                 "relog": read("relog.report.json"),
             })
         });
-    reply(StatusCode::OK, json!({"job": job(), "run": files}))
+    reply(
+        StatusCode::OK,
+        json!({"job": job(), "run": files, "errata": crate::log_erratum::all()}),
+    )
+}
+
+/// The erratum id of a run.
+fn erratum_id(run: &str) -> String {
+    format!("log-repair-{run}")
 }
 
 fn start(s: &AppState, action: &str, run: Option<String>, v: &Value) -> Response {
@@ -92,6 +103,7 @@ fn start(s: &AppState, action: &str, run: Option<String>, v: &Value) -> Response
     let rt = tokio::runtime::Handle::current();
     let s = s.clone();
     let action_owned = action.to_string();
+    let id = erratum_id(&run);
     tracing::info!(target: "emem::ops", action, run = %run, dir = %dir.display(), "log repair requested");
     launch(action, &run, move |ctl| {
         let log = s
@@ -106,7 +118,18 @@ fn start(s: &AppState, action: &str, run: Option<String>, v: &Value) -> Response
         };
         match action_owned.as_str() {
             "scan" => log_repair::scan(&store, &dir, &opts, ctl).map_err(|e| e.to_string()),
-            _ => log_repair::relog(&store, &dir, &opts, ctl, &rt).map_err(|e| e.to_string()),
+            "relog" => {
+                let out =
+                    log_repair::relog(&store, &dir, &opts, ctl, &rt).map_err(|e| e.to_string())?;
+                let erratum = if out["complete"] == true {
+                    crate::log_erratum::publish(&s, &dir, &id)
+                        .unwrap_or_else(|e| json!({"not_published": e}))
+                } else {
+                    Value::Null
+                };
+                Ok(json!({"relog": out, "erratum": erratum}))
+            }
+            _ => crate::log_erratum::publish(&s, &dir, &id).map(|e| json!({"erratum": e})),
         }
     })
 }
@@ -143,5 +166,6 @@ mod tests {
         for bad in ["", "../x", "a/b", "a b", &"x".repeat(65)] {
             assert!(log_repair::run_dir(root, bad).is_err(), "{bad:?}");
         }
+        assert_eq!(erratum_id("r1"), "log-repair-r1");
     }
 }

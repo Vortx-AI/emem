@@ -27,7 +27,7 @@ All calls are reads. They need no key.
 
 | Call | MCP tool | What it returns |
 |---|---|---|
-| `GET /v1/log/sth` | `emem_log_sth` | The signed tree head: `tree_size`, `root_b32`, `signed_at` and the signature. |
+| `GET /v1/log/sth` | `emem_log_sth` | The signed tree head: `tree_size`, `root_b32`, `signed_at` and the signature. Also `errata`, when the responder has published a log erratum. |
 | `GET /v1/log/inclusion?leaf_index=<i>` | `emem_log_inclusion` | The audit path from one leaf to a root. |
 | `GET /v1/log/consistency?first=<n>&second=<m>` | `emem_log_consistency` | The proof that the tree of size n is a prefix of the tree of size m. |
 | `GET /v1/log/witnesses?limit=<k>` | `emem_log_witnesses` | Co-signatures over `(tree_size, root)` from other keys. |
@@ -300,7 +300,21 @@ is a different tree from the batch tree of a receipt's `merkle_proof`.
    `tree_size`, `0x02` `root`, `0x03` `witness_pubkey`. There is no
    time segment. Verify `signature_b32` with `witness_pubkey_b32`.
 6. **Entry bytes.** Optional. Decode `entry_cbor_b32` from
-   `/v1/log/entries`. Its BLAKE3 must equal `entry_hash_b32`.
+   `/v1/log/entries`. Its BLAKE3 must equal the leaf's `entry_hash_b32`
+   from `/v1/log/inclusion`. There is one exception. A signed erratum
+   in `errata` on `/v1/log/sth` can name a leaf in `misframed_leaves`:
+   the tree committed 32 bytes there that are the hash of no entry,
+   because a torn record made the tree's walk read across the next
+   record. The entry row at that leaf carries an `erratum` object. At
+   those leaves, accept the leaf as committed and skip this check; the
+   inclusion and consistency proofs still verify. The entries the walk
+   missed were appended again, byte for byte, and the erratum's
+   relocation list (`relocations_url`) gives each one's new
+   `leaf_index`. On emem.dev the misframed leaves are 77910 and 160196.
+   Check the erratum's signature first: ed25519 over
+   `PreimageV1("emem.translog.erratum.v1")` with `0x01` blake3 of the
+   RFC 8785 canonical JSON of `body`, `0x02` `signed_at` and `0x03`
+   `responder_pubkey`.
 
 Test your code before you trust it. Get the known answers:
 

@@ -2497,6 +2497,9 @@ To read the records of one segment without the responder, do these steps:
 
 The responder walks a segment in the same way (`leaf_hashes_from`). It
 takes the stored entry hash as the leaf. It does not hash the CBOR again.
+A partial record with records after it makes this walk go wrong. On
+14 November 2026 the log of emem.dev had four such records. §9.6.4 says
+what they did to the tree, and how the repair works.
 
 The same directory also holds three cache files. They are not part of
 the format. A reader can ignore them, and the responder builds them again
@@ -3035,6 +3038,79 @@ carries its bytes twice in base32, once under each name. Thus a client
 that follows the log, for example on a phone, should read summaries. In
 a summary row you can check only `entry_hash_b32`. To check it, fetch
 the full entry and hash its bytes again.
+
+#### 9.6.4 Log errata: torn records and relocated entries
+
+Before the writer cut back a failed write (§9.2), a full disk could
+leave a partial record with records after it. A scan of emem.dev on
+14 November 2026 found four, written from May to September 2026. The
+walk of §9.1 goes wrong at each one:
+
+- Where the length of the partial record still fits in the segment,
+  the walk takes the 32 bytes at the end of that length as a leaf. Those
+  bytes are part of a later record. They are the hash of no entry.
+  `/v1/log/entries` serves the bytes at that leaf, and they do not hash
+  to it. On emem.dev this is true at leaves 77,910 and 160,196.
+- The walk then stops reading the segment. The whole records after the
+  partial record are on disk, but they are not leaves. On emem.dev
+  these were 5,301 entries, with 66,925 facts and 16 memory entries.
+  Some writes were retried with the same bytes, so only 5,117 of the
+  entries are distinct.
+
+The responder does not read the old segments in a new way. A walk that
+skipped the partial records would put leaves into the middle of the
+tree. Then no head signed since the first tear would be a prefix of the
+new tree, and every consistency proof from such a head would fail.
+Instead, the repair appends each missed record again at the head of the
+log, byte for byte, through the normal append path. Records with the same
+bytes have the same entry hash, so each distinct record is appended once. The leaf of each
+one is `blake3` of the same bytes, so its entry hash does not change.
+A receipt's `log_entry_hash` and a note's `log_entry_hash_b32` then find
+it. The repair also writes the entry hash into the stored proof of each
+fact in a relocated attestation, so `/v1/log/inclusion?fact_cid=` finds
+it too. The new tree is the old tree with leaves added at the right
+edge, so every head signed before the repair is still a prefix. The
+repair never writes, moves or removes anything in an old segment.
+
+A relocated entry proves only that its bytes existed by the first head
+that holds its new leaf. That is later than when the entry was written.
+The time that the author or the responder signed inside the entry is
+unchanged.
+
+When every missed entry is a leaf, the responder signs and publishes
+an erratum. `GET /v1/log/sth` lists each published erratum in `errata`.
+A responder that has none leaves `errata` out. Each erratum has these
+fields:
+
+| Field | Meaning |
+|---|---|
+| `body.misframed_leaves` | Each leaf that is the hash of no entry: `leaf_index`, the `segment` and `offset` of the partial record, and `tree_leaf_b32`, the 32 bytes that the tree holds there |
+| `body.tears` | Each partial record: `segment`, `offset`, `kind`, `declared_len`, `resume_offset` (where the next whole record starts), `leaf_index` and `tree` (`misframed_leaf`, `tree_walk_ends` or `after_tree_walk_end`) |
+| `body.relocated` | Counts of the relocated entries, the distinct ones among them, their facts and memory entries, the first and last new leaf index, and `list_blake3_b32` |
+| `relocations_url` | `/v1/artifacts/<list_blake3_b32>`: a JSON list with one object for each relocated entry: `segment`, `offset`, `entry_hash`, `kind`, `facts`, `leaf_index` and `relogged` |
+| `signed_at`, `responder_pubkey_b32`, `signature_b32` | The signature |
+
+To check the signature, compute `blake3` of the RFC 8785 canonical JSON
+of `body`. Then verify `signature_b32` over
+`PreimageV1("emem.translog.erratum.v1")` with the segments
+`1:body_blake3, 2:signed_at, 3:responder_pubkey`. `/v1/verifier_spec`
+lists the same segments. To check the list, hash the bytes from
+`relocations_url` and compare with `list_blake3_b32`.
+
+`/v1/log/entries` and `/v1/log/inclusion` add an `erratum` object at
+each misframed leaf. A witness that hashes entry bytes again does this:
+
+1. At each `leaf_index` in `body.misframed_leaves`, accept the leaf as
+   committed, and skip the hash check of the entry bytes. The inclusion
+   and consistency proofs at that leaf still verify, because the tree
+   holds `tree_leaf_b32` there.
+2. At every other leaf, the bytes must hash to the leaf, as before.
+3. For each line of the relocation list, the leaf at `leaf_index` must
+   equal `entry_hash`.
+
+The repair route is `POST /ops/log-repair`. Only the operator can call
+it (see `docs/operators/operating.md`). The code is in
+`crates/emem-storage/src/log_repair.rs`.
 
 ### 9.7 Signed readings of things emem did not measure
 

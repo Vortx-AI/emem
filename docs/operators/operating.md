@@ -564,7 +564,8 @@ repair() { curl -sS -H "authorization: Bearer $(cat "$EMEM_DATA/maint/ops.token"
 |---|---|---|
 | Scan | `repair '{"action":"scan","run":"r1"}'` | Nothing in the log. It writes `maint/log-repair/r1/report.json` and `entries.jsonl`. |
 | Watch | `repair '{"action":"status","run":"r1"}'` | Nothing. |
-| Relog | `repair '{"action":"relog","run":"r1"}'` | It appends each listed entry that is not yet a leaf, and links the proofs of its facts. It writes `relocations.json` and `relog.report.json`. |
+| Relog | `repair '{"action":"relog","run":"r1"}'` | It appends each listed entry that is not yet a leaf, and links the proofs of its facts. It writes `relocations.json` and `relog.report.json`. When every entry is a leaf, it signs and publishes the erratum. |
+| Erratum | `repair '{"action":"erratum","run":"r1"}'` | It publishes the erratum of a complete relog again, if the first publish failed. The same body keeps its first signature. |
 | Stop | `repair '{"action":"stop"}'` | Nothing. The pass stops after its current batch. |
 
 The scan walks every segment and checks every record. At a record that does not check, it looks for the next one
@@ -585,6 +586,15 @@ a leaf.
 
 The relog never writes, moves or removes anything in an old segment. It only appends, so every head signed before
 it is a prefix of every head after it.
+
+The erratum goes to `$EMEM_DATA/log-errata/log-repair-<run>.json`, with the relocation list beside it. The responder
+signs it once and serves it in `errata` on `GET /v1/log/sth`, the list at `/v1/artifacts/<list_blake3_b32>`, and an
+`erratum` object at each misframed leaf in `/v1/log/entries` and `/v1/log/inclusion`. Check that it is served:
+
+```bash
+curl -sS http://127.0.0.1:5051/v1/log/sth | jq '.errata[] | {id: .body.id, misframed: .body.misframed_leaves, relocated: .body.relocated}'
+curl -sS 'http://127.0.0.1:5051/v1/log/entries?start=77910&end=77911' | jq '.entries[0].erratum'
+```
 
 To check the result, take a few lines of `relocations.json`:
 

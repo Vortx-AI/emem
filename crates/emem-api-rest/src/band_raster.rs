@@ -2441,6 +2441,21 @@ pub async fn get_artifact(AxumPath(cid): AxumPath<String>) -> impl IntoResponse 
             bytes,
         )
             .into_response(),
+        // A log erratum's relocation list outlives the evictable store.
+        Ok(None) if crate::log_erratum::list_bytes(&cid).is_some() => (
+            StatusCode::OK,
+            [
+                (axum::http::header::CONTENT_TYPE, "application/json"),
+                (
+                    axum::http::header::CACHE_CONTROL,
+                    "public, max-age=31536000, immutable",
+                ),
+            ],
+            crate::log_erratum::list_bytes(&cid)
+                .map(|b| b.to_vec())
+                .unwrap_or_default(),
+        )
+            .into_response(),
         Ok(None) => (
             StatusCode::NOT_FOUND,
             Json(json!({
