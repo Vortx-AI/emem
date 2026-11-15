@@ -17,9 +17,15 @@ use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::os::unix::fs::FileExt;
 use std::path::Path;
 
-/// No entry this responder writes comes near this, so a longer declared
-/// length is a torn one.
-pub(crate) const MAX_ENTRY: u64 = 64 << 20;
+/// The longest frame the resync looks for after a tear. It bounds the search
+/// only: the walk itself takes any declared length that fits in the segment
+/// and checks its hash, because this responder has written entries of 72 to
+/// 123 MB (EUDR batches of about 150,000 facts, October and November 2026).
+/// An earlier 64 MiB "no entry comes near this" cap called seven of those
+/// healthy records torn.
+const RESYNC_MAX_ENTRY: u64 = 1 << 30;
+/// How many bytes of a torn record are kept to recover the facts it holds.
+const PARTIAL_MAX: u64 = 64 << 20;
 /// How far past a tear the walk looks for the next frame that checks.
 const RESYNC_WINDOW: u64 = 64 << 20;
 const SCAN_CHUNK: u64 = 1 << 20;
@@ -59,8 +65,6 @@ pub(crate) enum TearKind {
     BadHash,
     /// The declared frame runs past the end of the file.
     PastEnd,
-    /// The declared length is longer than any entry.
-    TooLong,
     /// Fewer than 4 bytes are left, so there is no length.
     Short,
 }
@@ -70,7 +74,6 @@ impl TearKind {
         match self {
             TearKind::BadHash => "bad_hash",
             TearKind::PastEnd => "runs_past_end",
-            TearKind::TooLong => "too_long",
             TearKind::Short => "short",
         }
     }
@@ -176,9 +179,6 @@ impl SegmentWalk {
         let mut lb = [0u8; 4];
         self.rd.read_exact(&mut lb)?;
         let n = u64::from(u32::from_le_bytes(lb));
-        if n > MAX_ENTRY {
-            return self.tear(at, Some(n), TearKind::TooLong);
-        }
         if 4 + n + 32 > rest {
             return self.tear(at, Some(n), TearKind::PastEnd);
         }
@@ -230,7 +230,7 @@ impl SegmentWalk {
         let from = (at + 4).min(end);
         let to = declared_len
             .map_or(end, |n| (at + 4).saturating_add(n).min(end))
-            .min(from + MAX_ENTRY);
+            .min(from + PARTIAL_MAX);
         self.partial.resize((to.max(from) - from) as usize, 0);
         self.file.read_exact_at(&mut self.partial, from)?;
         let tree_ordinal = self.tail_ordinal_any(at);
@@ -296,7 +296,10 @@ impl SegmentWalk {
         let mut head = [0u8; 5];
         self.file.read_exact_at(&mut head, p)?;
         let n = u64::from(u32::from_le_bytes([head[0], head[1], head[2], head[3]]));
-        if n == 0 || n > MAX_ENTRY || p + 4 + n + 32 > self.len || !(0xa0..=0xbb).contains(&head[4])
+        if n == 0
+            || n > RESYNC_MAX_ENTRY
+            || p + 4 + n + 32 > self.len
+            || !(0xa0..=0xbb).contains(&head[4])
         {
             return Ok(false);
         }
@@ -331,7 +334,7 @@ impl SegmentWalk {
                     win[k + 2],
                     win[k + 3],
                 ]));
-                if n == 0 || n > MAX_ENTRY || p + 4 + n + 32 > self.len {
+                if n == 0 || n > RESYNC_MAX_ENTRY || p + 4 + n + 32 > self.len {
                     continue;
                 }
                 if self.frame_at(p, &mut scratch)? {
@@ -489,6 +492,30 @@ pub(crate) mod tests {
                 assert!(wrong.is_empty());
                 assert_eq!(tree.len(), before);
             }
+        }
+    }
+
+    /// An entry longer than 64 MiB is an entry, not a tear. EUDR batches of
+    /// about 150,000 facts wrote 72 to 123 MB entries, and a cap at 64 MiB
+    /// called seven healthy records torn.
+    #[test]
+    fn an_entry_over_64_mib_walks_as_an_entry() {
+        let tmp = tempfile::tempdir().unwrap();
+        let entries = [
+            map_entry(1, 200),
+            map_entry(2, (70 << 20) as usize),
+            map_entry(3, 200),
+        ];
+        let seg: Vec<u8> = entries.iter().flat_map(|e| frame(e)).collect();
+        let path = tmp.path().join("merkle.log.0");
+        std::fs::write(&path, &seg).unwrap();
+        let (got, tears, w) = walk_all(&path);
+        assert!(tears.is_empty(), "{tears:?}");
+        assert_eq!(got.len(), 3);
+        assert_eq!(w.tree_leaves(), 3);
+        for (k, (_, h, ord)) in got.iter().enumerate() {
+            assert_eq!(*ord, Some(k as u64));
+            assert_eq!(h, blake3::hash(&entries[k]).as_bytes());
         }
     }
 
