@@ -428,6 +428,8 @@ The sections name each plot by its index (`plot`) and its `plot_commitment`, nev
 The canopy-loss rule compares each date with the same weeks a year earlier, and one series spans at most four years.
 So the loss from 2021 to today is judged in two windows, and each window is its own signed series (`series_token`).
 `imagery` uses the scene with the lowest scene cloud cover under 40 % in each year, the newest of equals.
+The responder keeps the scene it chose for each plot box and year, so a repeat request reads no catalogue.
+The choice for a past year does not change. The choice for the current year expires after 24 hours, because a clearer pass can come.
 A scene with little cloud overall can still have a cloud over the plot.
 A picture is at least 32 pixels a side, so a plot under 320 m sits in the middle of a larger picture.
 Each picture has its own 2 to 98 percentile stretch, so brightness is not comparable between years.

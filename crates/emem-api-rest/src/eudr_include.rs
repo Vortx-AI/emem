@@ -379,12 +379,9 @@ async fn season(s: AppState, plots: Vec<IncludePlot>) -> JsonValue {
 }
 
 /// The clearest Sentinel-2 scene over the point in the window: the lowest
-/// scene cloud cover, the newest of equals, its asset urls ready to read.
-async fn clearest_scene(
-    lat: f64,
-    lng: f64,
-    window: &str,
-) -> Result<Option<emem_fetch::stac::StacItem>, String> {
+/// scene cloud cover, the newest of equals, with the catalogue that holds it.
+/// Its asset urls are as the catalogue gave them, unsigned.
+async fn clearest_scene(lat: f64, lng: f64, window: &str) -> Result<Option<Scene>, String> {
     let cli = crate::s2_http_client();
     let mut failures = Vec::new();
     for host in crate::s2_catalogues() {
@@ -407,19 +404,82 @@ async fn clearest_scene(
                         .total_cmp(&b.cloud_cover.unwrap_or(100.0))
                         .then_with(|| b.datetime.cmp(&a.datetime))
                 });
-                return match best {
-                    Some(it) if host == emem_fetch::stac::STAC_MPC_V1 => {
-                        crate::s2_sign_mpc_items(&cli, vec![it])
-                            .await
-                            .map(|mut v| v.pop())
-                    }
-                    other => Ok(other),
-                };
+                return Ok(best.map(|item| Scene { host, item }));
             }
             Err(e) => failures.push(format!("{host}: {e}")),
         }
     }
     Err(failures.join("; "))
+}
+
+/// A chosen scene and the catalogue it came from.
+#[derive(Debug, Clone)]
+struct Scene {
+    host: &'static str,
+    item: emem_fetch::stac::StacItem,
+}
+
+/// The box and year a picture is chosen for: the box's corners as bits, so
+/// two plots with one box share a choice and no rounding merges two boxes.
+type SceneKey = ([u64; 4], i32);
+
+fn scene_key(b: &BBox, year: i32) -> SceneKey {
+    (
+        [
+            b.min_lat.to_bits(),
+            b.max_lat.to_bits(),
+            b.min_lng.to_bits(),
+            b.max_lng.to_bits(),
+        ],
+        year,
+    )
+}
+
+/// How long the current year's choice holds: a clearer pass can arrive any
+/// day. A past year's choice holds for good, as no pass is added to it.
+const CURRENT_YEAR_KEEP: Duration = Duration::from_secs(24 * 3600);
+/// Choices kept at once; the oldest goes first past it.
+const MAX_SCENES: usize = 16_384;
+
+/// Whether a choice made `age` ago for `year` still holds in `now_year`.
+fn scene_holds(age: Duration, year: i32, now_year: i32) -> bool {
+    year < now_year || age < CURRENT_YEAR_KEEP
+}
+
+/// The scene chosen for each plot box and year, or that there is none, so a
+/// warm `imagery` call reads no catalogue. A catalogue error is not kept.
+type ChosenScenes = HashMap<SceneKey, (Instant, Option<Scene>)>;
+
+static SCENES: LazyLock<Mutex<ChosenScenes>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// The scene for `key`, from [`SCENES`] while it holds, else from `search`,
+/// which is kept.
+async fn chosen_scene<F, Fut>(
+    key: SceneKey,
+    now_year: i32,
+    search: F,
+) -> Result<Option<Scene>, String>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<Option<Scene>, String>>,
+{
+    {
+        let kept = SCENES.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((at, scene)) = kept.get(&key) {
+            if scene_holds(at.elapsed(), key.1, now_year) {
+                return Ok(scene.clone());
+            }
+        }
+    }
+    let found = search().await?;
+    let mut kept = SCENES.lock().unwrap_or_else(|e| e.into_inner());
+    if kept.len() >= MAX_SCENES && !kept.contains_key(&key) {
+        if let Some(oldest) = kept.iter().min_by_key(|(_, v)| v.0).map(|(k, _)| *k) {
+            kept.remove(&oldest);
+        }
+    }
+    kept.insert(key, (Instant::now(), found.clone()));
+    Ok(found)
 }
 
 /// One picture: the clearest scene of `year` over the plot, cropped to the
@@ -435,8 +495,23 @@ async fn picture(p: &IncludePlot, year: i32, now_year: i32) -> JsonValue {
         format!("{year}-12-31T23:59:59Z")
     };
     let window = format!("{year}-01-01T00:00:00Z/{end}");
-    let item = match clearest_scene(lat, lng, &window).await {
-        Ok(Some(it)) => it,
+    let chosen = chosen_scene(scene_key(&p.bbox, year), now_year, || {
+        clearest_scene(lat, lng, &window)
+    })
+    .await;
+    let item = match chosen {
+        Ok(Some(Scene { host, item })) if host == emem_fetch::stac::STAC_MPC_V1 => {
+            match crate::s2_sign_mpc_items(&crate::s2_http_client(), vec![item]).await {
+                Ok(mut v) => match v.pop() {
+                    Some(it) => it,
+                    None => {
+                        return json!({"year": year, "error": "catalogue: signing returned no item"})
+                    }
+                },
+                Err(e) => return json!({"year": year, "error": format!("catalogue: {e}")}),
+            }
+        }
+        Ok(Some(Scene { item, .. })) => item,
         Ok(None) => {
             return json!({"year": year, "error": format!("no Sentinel-2 scene under {IMAGERY_MAX_CLOUD} % cloud in {year}")})
         }
@@ -530,7 +605,7 @@ async fn imagery(_s: AppState, plots: Vec<IncludePlot>) -> JsonValue {
         .collect();
     json!({
         "section": "imagery",
-        "method": "for each year since 2020, the Sentinel-2 L2A scene over the plot centre with the lowest scene cloud cover (under 40 %, the newest of equals), read at its native 10 m, cropped to the plot's box, with a per-scene 2 to 98 percentile stretch, as PNG. Brightness is not comparable between years. Each picture is stored as an artifact at its url",
+        "method": "for each year since 2020, the Sentinel-2 L2A scene over the plot centre with the lowest scene cloud cover (under 40 %, the newest of equals), read at its native 10 m, cropped to the plot's box, with a per-scene 2 to 98 percentile stretch, as PNG. Brightness is not comparable between years. The scene chosen for a plot box and a past year is kept, and this year's for 24 hours, so a repeat call reads no catalogue. Each picture is stored as an artifact at its url",
         "plots": per_plot,
         "seconds": (started.elapsed().as_secs_f64() * 100.0).round() / 100.0,
     })
@@ -642,6 +717,98 @@ mod tests {
         // A December 2020 month burned on day 350 is before the first day.
         let dec_2020 = day_number("2020-12-01") * 86_400;
         assert!(burn_day(dec_2020, 350) < day_number(CANOPY_FROM));
+    }
+
+    fn scene(id: &str) -> Scene {
+        Scene {
+            host: emem_fetch::stac::STAC_ELEMENT84_V1,
+            item: serde_json::from_value(json!({
+                "id": id,
+                "cloud_cover": 1.0,
+                "datetime": "2023-06-01T10:00:00Z",
+                "epsg": 32630,
+                "assets": {},
+                "collection": "sentinel-2-l2a",
+            }))
+            .unwrap(),
+        }
+    }
+
+    #[test]
+    fn a_past_years_scene_holds_and_this_years_for_a_day() {
+        let day = Duration::from_secs(24 * 3600);
+        assert!(scene_holds(day * 400, 2023, 2026));
+        assert!(scene_holds(day - Duration::from_secs(1), 2026, 2026));
+        assert!(!scene_holds(day, 2026, 2026));
+        assert!(!scene_holds(day * 2, 2026, 2026));
+    }
+
+    /// A warm call takes the kept choice and asks no catalogue; another
+    /// year or another box asks again; an error is not kept.
+    #[tokio::test]
+    async fn a_warm_call_reads_no_catalogue() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let asked = AtomicUsize::new(0);
+        let b = BBox {
+            min_lat: -6.123_456,
+            max_lat: -6.12,
+            min_lng: 106.8,
+            max_lng: 106.81,
+        };
+        let search = |id: &'static str| {
+            let asked = &asked;
+            move || async move {
+                asked.fetch_add(1, Ordering::SeqCst);
+                Ok(Some(scene(id)))
+            }
+        };
+        let got = chosen_scene(scene_key(&b, 2023), 2026, search("a"))
+            .await
+            .unwrap();
+        assert_eq!(got.unwrap().item.id, "a");
+        let got = chosen_scene(scene_key(&b, 2023), 2026, search("b"))
+            .await
+            .unwrap();
+        assert_eq!(got.unwrap().item.id, "a", "the kept choice");
+        assert_eq!(asked.load(Ordering::SeqCst), 1);
+        chosen_scene(scene_key(&b, 2024), 2026, search("c"))
+            .await
+            .unwrap();
+        let other = BBox {
+            max_lng: 106.810_001,
+            ..b.clone()
+        };
+        chosen_scene(scene_key(&other, 2023), 2026, search("d"))
+            .await
+            .unwrap();
+        assert_eq!(asked.load(Ordering::SeqCst), 3);
+
+        // No scene at all is a choice too; a failed search is not.
+        let none_box = BBox {
+            min_lat: 50.0,
+            max_lat: 50.01,
+            min_lng: 3.0,
+            max_lng: 3.01,
+        };
+        let empty = || async { Ok(None) };
+        assert!(chosen_scene(scene_key(&none_box, 2021), 2026, empty)
+            .await
+            .unwrap()
+            .is_none());
+        let fail_box = BBox {
+            min_lat: 51.0,
+            max_lat: 51.01,
+            min_lng: 3.0,
+            max_lng: 3.01,
+        };
+        let failing = || async { Err("stac status 503".to_string()) };
+        assert!(chosen_scene(scene_key(&fail_box, 2021), 2026, failing)
+            .await
+            .is_err());
+        let got = chosen_scene(scene_key(&fail_box, 2021), 2026, search("e"))
+            .await
+            .unwrap();
+        assert_eq!(got.unwrap().item.id, "e", "the error was not kept");
     }
 
     #[test]
