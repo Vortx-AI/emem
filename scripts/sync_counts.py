@@ -63,9 +63,11 @@ CANON = {
     # counts inside MCP tool text are now filled from the registry at render
     # time (emem_mcp::with_counts), so only the static twins below still need
     # a human to move them.
-    "mcp_tools": 116,
+    # 119 (extended 101) with emem_sun_position, emem_shadow_height and
+    # emem_sun_from_shadow, 2026-11-14.
+    "mcp_tools": 119,
     "mcp_core": 18,
-    "mcp_extended": 98,
+    "mcp_extended": 101,
     # The subset the ChatGPT app submission declares. A real quantity, not a
     # stale copy of `mcp_core`: the near-miss sweep flagged the bundle's "16
     # tools" as a drifted 18 because 16 is within its tolerance of 18, and the
@@ -73,7 +75,8 @@ CANON = {
     # canonical. Verified against the submission JSON below, so it cannot
     # silently disagree with the file it describes.
     "chatgpt_declared": 18,
-    "algorithms": 173,
+    # 176 with sun_position@1, shadow_height@1 and sun_from_shadow@1, 2026-11-14.
+    "algorithms": 176,
     # 166/177 since 4bdcbe4 added `/v1/state/{cid}`, the route that makes an
     # `emem:state:` address dereference. CANON was last pinned at 285a12e and
     # the route shipped after it, so this was a real addition the pin missed.
@@ -88,8 +91,9 @@ CANON = {
     # +1 each for /v1/rain_series.
     # +1 each for /v1/cells/{cell64}/next_acquisition.
     # +1 each for /v1/persist.
-    "rest_paths_v1": 184,           # documented /v1/* paths in OpenAPI
-    "rest_paths_openapi_total": 195,  # all paths in OpenAPI
+    # +3 each for /v1/sun_position, /v1/shadow_height and /v1/sun_from_shadow.
+    "rest_paths_v1": 187,           # documented /v1/* paths in OpenAPI
+    "rest_paths_openapi_total": 198,  # all paths in OpenAPI
     "cube_slots": 43,
     # 129 -> 125 on 2026-09-15: the four foundation encoders were retired for
     # this deployment (EMEM_RETIRED_BANDS) when the GPU behind them was
@@ -1670,7 +1674,7 @@ MCP_BYTES_CLAIMS = [
     ("docs/agents.md",
      r"advertises all " + str(CANON["mcp_tools"]) + r" \(about (\d+) KB over \d+", "full"),
     ("docs/intro.md", r"core tools, about (\d+) KB of descriptors", "core"),
-    ("docs/intro.md", r"98 extended\), about (\d+) KB, in pages", "full"),
+    ("docs/intro.md", str(CANON["mcp_extended"]) + r" extended\), about (\d+) KB, in pages", "full"),
     ("docs/mcp-directory.md", r"in a single page \(about (\d+) KB\)", "core"),
     ("docs/mcp-directory.md", r"the full " + str(CANON["mcp_tools"]) + r" cost about (\d+) KB", "full"),
     ("docs/integrations.md", r"registers about (\d+) KB of descriptors", "core"),

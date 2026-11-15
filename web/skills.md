@@ -761,7 +761,7 @@ the guard is an agent-runnable skill at `crates/emem-guard/SKILL.md`.
   `emem:fact:<cell64>:<fact_cid>`. You hand that line to another agent.
   That agent resolves it to the same signed bytes and checks the receipt,
   with no need to trust you. On 7 November 2026 the server had 116 tools:
-  18 core and 98 extended. `https://emem.dev/mcp/full` lists all 116, 12
+  18 core and 98 extended. `https://emem.dev/mcp/full` lists them all, 12
   per page. `tools/call` runs any tool by name at either endpoint, so the
   shorter list removes no tool. Call `emem_tools` to map the surface.
   You can filter it by the shape of the answer (`{"shape":"raster"}`) or

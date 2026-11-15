@@ -309,7 +309,7 @@ curl -s https://emem.dev/.well-known/agent-card.json
 
 | Field | What it tells you |
 |---|---|
-| `skills` | On 7 November 2026: the 18 core skills, with tags. `GET /extendedAgentCard` lists all 119: the 116 MCP tools and 3 perception skills. The perception skills have the tag `rest`. They run on REST only, not through `tools/call`. |
+| `skills` | On 7 November 2026: the 18 core skills, with tags. `GET /extendedAgentCard` lists all 119: the then-116 MCP tools and 3 perception skills. The perception skills have the tag `rest`. They run on REST only, not through `tools/call`. |
 | `additionalInterfaces` | The URLs for A2A JSON-RPC, async tasks, skill query, MCP, the full OpenAPI, the short action schema, `/.well-known/emem.json` and `/v1/agent_card` |
 | `capabilities` | `streaming: true`: `message/stream` returns SSE. `extendedAgentCard: true`. Two extensions give the async task routes and the signed agent channel. |
 | `emem.authentication` | Reads need no authentication. The card states this. |

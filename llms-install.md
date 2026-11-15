@@ -31,7 +31,7 @@ The server has two endpoints:
 | Endpoint | Tools listed | Size of the tool list (7 November 2026) |
 |---|---|---|
 | `https://emem.dev/mcp` | 18, the core loop | about 76,800 bytes, one page |
-| `https://emem.dev/mcp/full` | all 116 | about 354,000 bytes, 8 or 9 pages of 2 to 22 tools |
+| `https://emem.dev/mcp/full` | all 119 | about 354,000 bytes, 8 or 9 pages of 2 to 22 tools |
 
 On `/mcp/full`, send the `nextCursor` value from each page to get the next page.
 The server cuts the pages by size, at about 45,000 bytes each.
@@ -41,7 +41,7 @@ On 7 November 2026 the LangChain and Agno adapters read every page.
 The LlamaIndex, AutoGen, Semantic Kernel and CrewAI adapters read only page 1 (12 or 13 tools). See the examples in [`examples/`](examples/).
 `@mastra/mcp` 0.10.12 also reads only page 1. On 7 November 2026 it loaded 12 tools from `/mcp/full`.
 
-The two endpoints differ only in the list. You can call any of the 116 by name at either endpoint.
+The two endpoints differ only in the list. You can call any of the 119 by name at either endpoint.
 If a tool is not in your list, it is still on the server. Call `emem_tools` to search the other tools or to get the schema of one tool.
 
 To check that the endpoint works, list the core tools:
@@ -67,7 +67,7 @@ These steps come from the Cline documentation (docs.cline.bot, 7 November 2026).
 ## Manual configuration
 
 There are two configuration shapes. You cannot use one in place of the other.
-In all other ways the server is the same: the same endpoint, the same 116 tools, and no key for reads.
+In all other ways the server is the same: the same endpoint, the same 119 tools, and no key for reads.
 
 Cline, Claude Code, Claude Desktop, Cursor and most Streamable HTTP hosts use `mcpServers`:
 

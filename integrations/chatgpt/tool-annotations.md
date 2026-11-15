@@ -15,7 +15,7 @@ Many read tools accept a place name where they expect a cell64. Then the MCP pre
 
 ## Counts
 
-On 7 November 2026, emem.dev served 116 tools. The `/mcp` endpoint lists the 18 core tools by default, and `/mcp/full` lists all 116. The live `tools/list` from `/mcp/full` gave these counts, and every row on this page agrees with it:
+On 7 November 2026, emem.dev served then-116 tools. The `/mcp` endpoint lists the 18 core tools by default, and `/mcp/full` lists them all. The live `tools/list` from `/mcp/full` gave these counts, and every row on this page agrees with it:
 
 | readOnly | destructive | idempotent | openWorld | tools |
 |---|---|---|---|---|

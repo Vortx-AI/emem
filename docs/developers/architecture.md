@@ -23,10 +23,10 @@ One Rust binary, `emem-server`, listens on one port (default
 - HTTP REST. `/openapi.json` lists 194 paths, 183 of them under `/v1/`
   (7 November 2026).
 - MCP JSON-RPC at `POST /mcp`. On 7 November 2026 the registry has
-  116 tools: 18 core and 98 extended. `tools/list` on `/mcp` gives the
+  119 tools: 18 core and 101 extended. `tools/list` on `/mcp` gives the
   18 core tools. `tools/list` on `/mcp/full` fills each page to about
   45 KB, so the tool count on a page changes (2 to 20). Follow
-  `nextCursor` through 9 pages to get all 116.
+  `nextCursor` through 9 pages to get all 119.
 
 No GPU or model sidecar runs. Earlier versions ran Clay, Prithvi,
 Galileo and JEPA-v2 on a sidecar. Facts that those models signed still
@@ -61,7 +61,7 @@ same binary in one column. It follows one call through seven steps: call,
 look up, fetch on a miss, hash, sign, log and answer. Its numbers come from
 live reads of emem.dev on 7 November 2026 at 12:22 UTC.
 
-<img src="../media/diagrams/architecture.svg" alt="What answers when an agent calls emem.dev, from live reads on 7 November 2026 at 12:22 UTC. REST (183 routes under /v1 that day) and MCP (116 tools) reach the same handlers in one Rust binary, emem-server 2.4.4. It looks up a redb fact store, fetches from 46 registered open-data sources on a miss, hashes canonical CBOR with BLAKE3 into a fact id, signs with one Ed25519 key, and appends to an RFC 6962 log of 3,250,469 entries. Anyone checks the receipt offline with the public key at /.well-known/emem.json." width="480">
+<img src="../media/diagrams/architecture.svg" alt="What answers when an agent calls emem.dev, from live reads on 7 November 2026 at 12:22 UTC. REST (183 routes under /v1 that day) and MCP (then-116 tools) reach the same handlers in one Rust binary, emem-server 2.4.4. It looks up a redb fact store, fetches from 46 registered open-data sources on a miss, hashes canonical CBOR with BLAKE3 into a fact id, signs with one Ed25519 key, and appends to an RFC 6962 log of 3,250,469 entries. Anyone checks the receipt offline with the public key at /.well-known/emem.json." width="480">
 
 ## Process topology
 
@@ -107,7 +107,7 @@ is a patch target, not a member.
 | emem-core | Registries and core types: bands, algorithms, functions, sources, topics, schema, taxonomy, manifest, tslot, cell |
 | emem-cli | 10 binaries: `emem`, `emem-server`, `emem-sled-slim`, `emem-demo`, `emem-livedemo`, `emem-realdemo`, `emem-connect-demo`, `emem-purge-fnkey`, `emem-demo-device`, `emem-ask-eval` |
 | emem-storage | `MaterializingStorage` (cache, fetch and log together), `Server`, `AttesterRegistry`, `AttestationLog` |
-| emem-mcp | MCP tool registry (116 tools on 7 November 2026) |
+| emem-mcp | MCP tool registry (then-116 tools on 7 November 2026) |
 | emem-codec | cell64, cid64, tslot text, vec64, Hilbert curve, geo, alphabet |
 | emem-cache | Hot store: redb for facts, sled for memory trees and side indexes |
 | emem-intent | `Intent` enum (8 variants) and a rule-based planner |
@@ -575,11 +575,11 @@ the process:
 ## The agent surface
 
 REST and MCP serve the same primitives. `POST /mcp` is JSON-RPC 2.0,
-from `crates/emem-mcp/src/lib.rs` (116 tools on 7 November 2026).
+from `crates/emem-mcp/src/lib.rs` (then-116 tools on 7 November 2026).
 `tools/list` on `/mcp` gives the 18 core tools. `tools/list` on
 `/mcp/full` fills each page to about 45 KB (`PAGE_BYTES`), so the
 tool count on a page changes. A client follows `nextCursor` through 9
-pages to get all 116.
+pages to get all 119.
 Both endpoints run any tool by name through `tools/call`.
 
 MCP is not read-only. The caller signs `emem_memory_create`,

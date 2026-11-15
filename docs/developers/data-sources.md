@@ -156,7 +156,7 @@ materializers.
 | `materialize_algorithm_band` | The input bands of an algorithm, read with a recall | `<algorithm>@<version>`, such as `flood_risk@2` |
 
 `materialize_algorithm_band` runs the `evaluation` expression of the algorithm in
-`algorithms-v0.json`. On 12 November 2026, 74 of the 173 algorithms had one. When an input is
+`algorithms-v0.json`. On 12 November 2026, 74 of the then-173 algorithms had one. When an input is
 missing, the node signs an Absence that names the missing bands.
 
 `modis.burned_area_monthly` reads the MCD64A1 COGs on the Planetary Computer first. It uses the

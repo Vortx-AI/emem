@@ -453,7 +453,7 @@ parameter has no `basis`, the registry does not load. The three values are:
 | `operational_default` | A person chose the number. | Nothing more. |
 
 The registry on 7 November 2026 (`crates/emem-core/data/algorithms-v0.json`)
-has 173 algorithms. Eight of them have parameters, 19 parameters in total:
+has 176 algorithms. Eight of them have parameters, 19 parameters in total:
 
 | `basis` | Parameters |
 |---|---|
@@ -1149,7 +1149,7 @@ Values measured on emem.dev on 7 November 2026:
 | request | tools | size |
 |---|---|---|
 | `tools/list` on `POST /mcp` | the 18 core tools, one page | about 75 KB |
-| `tools/list` on `POST /mcp/full` | all 116 tools, 9 pages | about 346 KB |
+| `tools/list` on `POST /mcp/full` | all 119 tools, 9 pages | about 346 KB |
 | `emem_tools` with no arguments | the loop and a menu | about 13 KB |
 | `emem_tools` with `{"name":"emem_ndvi"}` | one schema and an example | about 8 KB |
 

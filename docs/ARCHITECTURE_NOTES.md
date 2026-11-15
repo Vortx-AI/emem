@@ -36,7 +36,7 @@ the bottom layer to the top:
 | `emem-storage` | `MaterializingStorage`, `AttestationLog`, `AttesterRegistry` and receipt signing (`Server`, `ResponderIdentity`) |
 | `emem-primitives` | recall, diff, verify and `memory_*` handlers, the memory ACL, contradictions |
 | `emem-intent` | the typed `Intent` grammar and a heuristic planner |
-| `emem-mcp` | the static MCP tool catalog (116 descriptors). No transport. |
+| `emem-mcp` | the static MCP tool catalog (119 descriptors). No transport. |
 | `emem-api-rest` | the axum router: REST routes, `/mcp` JSON-RPC dispatch, well-known files, the write gate |
 | `emem-cli` | the `emem-server` binary (key load and persist) and a receipt-verify CLI |
 | `emem-guard` | a separate verdict server for AI inference hooks. It shares no code path with the responder. |
@@ -352,7 +352,7 @@ and no L2 tool.
   `crates/emem-mcp/src/lib.rs`. `ToolDescriptor` has `name`, `title`,
   `description`, `when_to_use`, `input_schema`, `output_schema`,
   `example_args`, `level`, `category`, four MCP hint flags and `tier`.
-  116 tools: 18 core, 98 extended. The helpers are `lookup`,
+  119 tools: 18 core, 101 extended. The helpers are `lookup`,
   `tools_at_level` and `tools_at_tier`.
 - JSON-RPC dispatch and the REST mirror are in `emem-api-rest`
   (`mcp_jsonrpc`, `mcp_tool_call`).
@@ -380,8 +380,8 @@ and no L2 tool.
 ## Counts, and what guards them
 
 `scripts/sync_counts.py --check` compares the canonical counts with the
-registries and the live responder. The counts are 116 tools, 184 /v1
-paths, 46 sources, 43 slots, 129 wired bands, 173 algorithms, 27 topics
+registries and the live responder. The counts are 119 tools, 187 /v1
+paths, 46 sources, 43 slots, 129 wired bands, 176 algorithms, 27 topics
 and 19 crates. CI runs it (`.github/workflows/ci.yml`, step "prose counts
 match the responder"). If the origin does not answer, it warns and does
 not fail. A green run therefore does not prove a live check.

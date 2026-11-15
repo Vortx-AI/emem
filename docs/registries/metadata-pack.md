@@ -17,7 +17,7 @@ We checked the five listings below on 7 November 2026.
 | Directory | Entry | How it stays current |
 |---|---|---|
 | Official MCP Registry | `io.github.Vortx-AI/emem`, latest version 2.4.4 | `.github/workflows/mcp-publish.yml` publishes `server.json` on every `v*` tag. It logs in with GitHub OIDC. |
-| Server card | `https://emem.dev/.well-known/mcp.json`, 116 tools | The responder builds the card from the same tool list as `tools/list` (`emem_mcp::TOOLS`). |
+| Server card | `https://emem.dev/.well-known/mcp.json`, 119 tools | The responder builds the card from the same tool list as `tools/list` (`emem_mcp::TOOLS`). |
 | Smithery | `vortxai/emem`. Smithery serves its own hosted copy at `https://emem--vortxai.run.tools`, not `https://emem.dev/mcp`. | `.github/workflows/publish-smithery.yml` republishes on each GitHub release. It skips the step when the repository has no `SMITHERY_API_KEY` secret. |
 | Glama | `https://glama.ai/mcp/servers/Vortx-AI/emem` | Glama indexes GitHub and the official registry. |
 | punkpeye/awesome-mcp-servers | One line, `Vortx-AI/emem`, with the Glama score badge | Manual. Edit the line with a pull request to that repository. |
@@ -41,10 +41,10 @@ The live values are from 7 November 2026.
 | Version | 2.4.5 | `Cargo.toml`, MCP `initialize` `serverInfo.version` |
 | Endpoint | `https://emem.dev/mcp`, MCP Streamable HTTP, protocol `2025-11-25` | MCP `initialize` |
 | Tools on `/mcp` | 18 core tools on one page, with no `nextCursor` | `tools/list` on `/mcp` |
-| Tools on `/mcp/full` | All 116 tools (18 core, 98 extended) over 9 pages | `tools/list` on `/mcp/full`, follow `nextCursor` |
-| Tool calls | `tools/call` runs any of the 116 tools by name, on either endpoint | `tools/call` on `/mcp` |
+| Tools on `/mcp/full` | All 119 tools (18 core, 101 extended) over 9 pages | `tools/list` on `/mcp/full`, follow `nextCursor` |
+| Tool calls | `tools/call` runs any of the 119 tools by name, on either endpoint | `tools/call` on `/mcp` |
 | Resources | 21 static resources and 9 URI templates | `resources/list`, `resources/templates/list` |
-| REST paths | 184 paths under `/v1/`, 195 paths in total | `GET /openapi.json` |
+| REST paths | 187 paths under `/v1/`, 195 paths in total | `GET /openapi.json` |
 | Wired measurements | 115 band names that a materializer can fetch on a miss | `GET /v1/agent_card`, `band_taxonomy.materializer_wired` |
 | Reads | Open. No key, no account. | Any read route |
 | Writes | Signed with the writer's Ed25519 key. Some write surfaces also need a trust tier. | `GET /v1/enlist` |
@@ -64,7 +64,7 @@ Change only the format that a directory needs, such as the link syntax.
 > [emem](https://emem.dev) ([repo](https://github.com/Vortx-AI/emem)):
 > shared, verifiable memory of the physical world for AI agents. Every
 > place resolves to one signed, content-addressed record. Every read
-> returns an Ed25519 receipt that verifies offline. 116 MCP tools, 115
+> returns an Ed25519 receipt that verifies offline. 119 MCP tools, 115
 > wired measurements (Sentinel-1/2, MODIS, ERA5, JRC GSW, Hansen GFC,
 > SoilGrids, Open-Meteo), no API key to read.
 > Streamable HTTP at `https://emem.dev/mcp`.

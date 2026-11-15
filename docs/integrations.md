@@ -29,10 +29,11 @@ For a host with native Streamable HTTP, the config has one entry:
 `"type": "http"` is the MCP name of the Streamable HTTP transport. The URL itself is HTTPS.
 
 `/mcp` advertises the 18 core tools in `tools/list`, so the host registers about 75 KB of descriptors
-rather than about 346 KB for all 116. Both sizes are from 7 November 2026 (1 KB = 1024 bytes). The other 98
+rather than about 345 KB for all 119. The first size is from 7 November 2026 and the second from 14 November
+2026 (1 KB = 1024 bytes). The other 101
 tools stay on the server, and it runs each by name through `tools/call`. `emem_tools` searches them and returns
 the schema of one tool. But many hosts let the model call only the tools that they listed, and refuse the rest
-with "No such tool available". To register all 116 tools at the start, use `https://emem.dev/mcp/full`. It
+with "No such tool available". To register all 119 tools at the start, use `https://emem.dev/mcp/full`. It
 returns them in more than one page, so the host must follow `nextCursor`.
 
 ### VS Code and GitHub Copilot
@@ -114,7 +115,7 @@ this page:
 
 The instructions text tells the model which tool to call and to cite emem tokens. It has 3,108 characters.
 
-A host that has no row here reaches the same 116 tools at the same URL. The rows are the runtimes with a checked-in
+A host that has no row here reaches the same 119 tools at the same URL. The rows are the runtimes with a checked-in
 example or a known config.
 
 ### Run a framework example
@@ -158,7 +159,7 @@ The `mastra/` example did not run, because this check had no Node.js.
 Set `EMEM_MCP_URL` to point a script at your own node (see
 [Connect a client to your node](self-host.md#connect-a-client-to-your-node)). On 7 November 2026, `tools/list` on
 `/mcp` returned 18 tools in one page. On `/mcp/full` the first page had 12 tools and a `nextCursor`. All pages of
-`/mcp/full` together gave 116 tools.
+`/mcp/full` together gave then-116 tools.
 
 To use REST instead of MCP, `examples/langchain.py` wraps nine routes as LangChain tools and `examples/llamaindex.py`
 wraps six as LlamaIndex tools. Copy `langchain.py` to a new name, such as `langchain_emem.py`, before you import it.

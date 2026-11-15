@@ -29,7 +29,7 @@ Each measurement at a cell is a fact. A fact has a cell, a band (the kind of mea
 The responder encodes the fact in canonical CBOR, hashes the bytes with BLAKE3 and signs the hash with Ed25519. If
 one byte changes, the hash changes.
 
-On 12 November 2026 the registries held 115 wired bands in 43 cube slots, 46 sources and 173 algorithms that combine
+On 12 November 2026 the registries held 115 wired bands in 43 cube slots, 46 sources and then-173 algorithms that combine
 bands. The counts come from [`/v1/manifests`](https://emem.dev/v1/manifests) and
 [`/v1/algorithms`](https://emem.dev/v1/algorithms). On 7 November 2026, emem had no reader for five of those
 sources: `dynamic_world.v1`, `openet.30m.daily`, `tropomi.s5p.ch4`, `tropomi.s5p.no2` and `viirs.dnb.monthly`.
@@ -157,10 +157,10 @@ serves these pages. There is no separate docs host.
 ## How agents find the surface
 
 - `GET /openapi.json`: the full REST surface. [/docs/api/](/docs/api/) shows it in ReDoc.
-- `POST /mcp` with `tools/list`: the 18 core tools, about 77 KB of descriptors. `POST /mcp/full` lists all 116 tools
-  (18 core and 98 extended), about 350 KB, in pages of different sizes (9 pages on 7 November 2026). Follow
+- `POST /mcp` with `tools/list`: the 18 core tools, about 77 KB of descriptors. `POST /mcp/full` lists all 119 tools
+  (18 core and 101 extended), about 350 KB, in pages of different sizes (9 pages on 7 November 2026). Follow
   `nextCursor` to get the next page. `{"tier":"core"|"extended"|"all"}`
-  changes the list. `tools/call` runs each of the 116 tools by name on both endpoints.
+  changes the list. `tools/call` runs each of the 119 tools by name on both endpoints.
 - `emem_tools` gives a map of the tools. In its MCP `_meta`, each tool declares one `dev.emem/shape`: the form of the
   answer, for example `scalar`, `raster` or `proof`. It also declares any number of `dev.emem/bundles`: the jobs, for
   example `verification` or `robotics`. You can filter on both.

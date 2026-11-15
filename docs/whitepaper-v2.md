@@ -1109,7 +1109,7 @@ Open data from ESA, NASA, USGS, and the EU JRC fills the memory on
 demand: **46 declared source schemes** and **117 materializer-wired
 measurements**, live at `/v1/sources` and `/v1/bands`, spanning elevation
 and NDVI through weather, forest change, surface water, and the Tessera
-foundation embedding. **173 algorithms** and **27 topics** are
+foundation embedding. **176 algorithms** and **27 topics** are
 enumerated at `/v1/algorithms` and `/v1/topics`.
 
 ### 10.1 Bands: the 1792-dimension voxel
@@ -1246,8 +1246,8 @@ needs are open work. The roadmap carries it.
 ## 11. The agent-discoverable surface
 
 `emem-server` serves HTTP/REST and MCP JSON-RPC on one port (default
-`0.0.0.0:5051`): **184 documented REST paths under `/v1/*`** (195 total
-in OpenAPI) and **116 MCP tools (18 core, 98 extended)**.
+`0.0.0.0:5051`): **187 documented REST paths under `/v1/*`** (198 total
+in OpenAPI) and **119 MCP tools (18 core, 101 extended)**.
 
 Discovery on first contact:
 
@@ -1268,10 +1268,10 @@ Discovery on first contact:
 
 v1 of this document stated that MCP tools are a strict read-only subset
 of REST and that writes go through REST only. That is false, and the
-responder refutes it from its own annotations: **24 of 116 tools carry
+responder refutes it from its own annotations: **54 of 119 tools carry
 `readOnlyHint: false`**. Five are destructive: `memory_create`,
 `memory_str_replace`, `memory_insert`, `memory_delete`, `memory_rename`;
-and eighteen are non-destructive writes, which is the number a reader is
+and 49 are non-destructive writes, which is the number a reader is
 most likely to find surprising: alongside the obvious `emem_entity`,
 `emem_entity_link`, `emem_derive`, `emem_memory_bundle` and
 `emem_memory_supersede`, it includes `emem_ask`, `emem_recall`,
@@ -1292,10 +1292,10 @@ An MCP host loads every advertised descriptor into the model's context at
 connect. All 102 cost about 243 KB of every conversation whether or not it
 ever touches Earth observation, and a third party measured exactly that
 and called it overhead. So `POST /mcp` advertises the 18 tools of the core
-loop, about 40 KB, and `POST /mcp/full` advertises all 116.
+loop, about 40 KB, and `POST /mcp/full` advertises all 119.
 
 Narrowing discovery removes no capability: **`tools/call` dispatches all
-116 by name at either endpoint**, and an explicit
+119 by name at either endpoint**, and an explicit
 `{"tier":"core"|"extended"|"all"}` overrides the endpoint default. A tool
 absent from a list is still callable. This matters because a tool an
 agent cannot see is a tool it concludes does not exist, and the failure
@@ -1704,7 +1704,7 @@ than discovering it through a failed signature.
 | §5.2: the receipt preimage is a `\|`-joined concatenation of `request_id`, `served_at`, `primitive`, `cells`, `fact_cids` | That is the **v0** rule. Every new receipt is signed under **preimage v1**: domain-separated, every segment tagged and length-prefixed (§6.1). v0 is retained for verification only, so pre-cutover receipts still verify. |
 | §5.2: "the `as_of` block sits outside the preimage ... does not change the signature math" | `as_of` **is** a tagged segment (`0x04`) and **is** signed (§6.2). |
 | §5.2.1: `body_hash = blake3(canonical request body bytes)` | The responder never hashes the request body. `body_hash` is **per-verb** (§6.4). A client implementing v1's rule cannot produce an acceptable signature. |
-| §15: "MCP tools are a strict read-only subset of REST; writes go through REST only" | **24 of 116 MCP tools write** (§11.1), including the five memory verbs, `emem_entity`, `emem_entity_link`, and `emem_derive`. |
+| §15: "MCP tools are a strict read-only subset of REST; writes go through REST only" | **54 of 119 MCP tools write** (§11.1), including the five memory verbs, `emem_entity`, `emem_entity_link`, and `emem_derive`. |
 | §15: 93 documented REST paths under `/v1/*` (96 total), 92 MCP tools (10 core, 71 extended) | **108** under `/v1/*` (**112** total), **91** tools (**14** core, **77** extended). |
 
 ### 16.2 Claims in v1's supporting material this document withdraws

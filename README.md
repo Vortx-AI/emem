@@ -157,7 +157,7 @@ There is no rule for turning a tool name into a REST path, so do not guess one: 
 
 </details>
 
-**For agents.** Connect to `https://emem.dev/mcp`. It advertises the 18 tools of the core loop in one page, about 75 KB of context, not the whole catalog: loading all 116 descriptors costs about 329 KB. For the lightest first contact, `emem_tools` returns the loop and a menu in about 13 KB, and `tools/call` dispatches every tool by name, with or without its `emem_` prefix. To hand records on, prefer a bundle: `emem_memory_bundle` names up to 256 facts in 38 characters.
+**For agents.** Connect to `https://emem.dev/mcp`. It advertises the 18 tools of the core loop in one page, about 75 KB of context, not the whole catalog: loading all 119 descriptors costs about 329 KB. For the lightest first contact, `emem_tools` returns the loop and a menu in about 13 KB, and `tools/call` dispatches every tool by name, with or without its `emem_` prefix. To hand records on, prefer a bundle: `emem_memory_bundle` names up to 256 facts in 38 characters.
 
 ## Memory that changes without losing its history
 
@@ -330,7 +330,7 @@ The protocol does not care what a record is about. Earth goes first because its 
 
 A file tree can commit any content, but committing bytes does not make them a measured fact: only emem's own readers, enrolled devices and keys the operator lists write the fact plane. Devices join by proving how they ran, never by their own word: the [device-platform registry](https://emem.dev/v1/device_platforms) names the 17 platforms that may enrol a key and the evidence each must present, `emem_trace_verify` checks an execution trace today, and the public gate admits no real hardware yet ([the staged path](docs/plans/encoder-substrates.md)).
 
-**By the numbers:** [116 MCP tools](https://emem.dev/mcp/full) (an [18-tool core loop](https://emem.dev/mcp) by default), 184 paths under /v1/* ([`/openapi.json`](https://emem.dev/openapi.json)), and a transparency log of 2,811,200 signed entries on 2026-10-10. Measured on the production node ([methods](docs/benchmarks.md)): warm recall p50 2.5 ms, offline receipt verification p50 0.13 ms, 632 requests/s on one node.
+**By the numbers:** [119 MCP tools](https://emem.dev/mcp/full) (an [18-tool core loop](https://emem.dev/mcp) by default), 187 paths under /v1/* ([`/openapi.json`](https://emem.dev/openapi.json)), and a transparency log of 2,811,200 signed entries on 2026-10-10. Measured on the production node ([methods](docs/benchmarks.md)): warm recall p50 2.5 ms, offline receipt verification p50 0.13 ms, 632 requests/s on one node.
 
 ## Use it where you already work
 
@@ -422,12 +422,12 @@ Issues and pull requests welcome: [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.
 
 ## Content address
 
-Every section above this one is a unit of one signed tree: `emem:tree:jywo6sychueirl7b4suqfxbkiy`, root `odawd52hsw4ybxk6sb4aarhyqxbh5a62guqvwy6h47as2gf4oq3a`, published under the key `k572x7go`. A single section is `emem:tree:jywo6sychueirl7b4suqfxbkiy#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
+Every section above this one is a unit of one signed tree: `emem:tree:ygx523lypc5ykmmqdktl52hjri`, root `qmh63qpihobcmdlkwpr6adtz3xdgzrqaymuke24jnnssh3cdy6wq`, published under the key `k572x7go`. A single section is `emem:tree:ygx523lypc5ykmmqdktl52hjri#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
 
 ```bash
-curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261114.md" > index.md
-curl -s "https://emem.dev/v1/tree/jywo6sychueirl7b4suqfxbkiy?row=3" > row.json
+curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261115.md" > index.md
+curl -s "https://emem.dev/v1/tree/ygx523lypc5ykmmqdktl52hjri?row=3" > row.json
 python3 tools/verifiers/emem-tokenise-files/tree_proof.py check row.json index.md README.md
 ```
 
-`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261114.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261114.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
+`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261115.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261115.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.

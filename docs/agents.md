@@ -185,7 +185,7 @@ curl -s https://emem.dev/v1/tools
 
 The MCP search returned `emem_trajectory` and `emem_temporal_route`, under
 `groups`. The REST route has no search. It ignores `q` and `name` and returns
-all 116 tools, each with `input_schema` and `example_args`. It reads one
+all 119 tools, each with `input_schema` and `example_args`. It reads one
 parameter, `tier`. On 7 November 2026, `?tier=core` gave the 18 core tools
 and `?tier=extended` gave the other 98. Any other `tier` value gives the core
 tools.
@@ -1523,7 +1523,7 @@ routes in the last column are the source of truth.
 | Item | Count | Source |
 |---|---|---|
 | REST paths | 194, of which 183 are under `/v1/` | `/openapi.json` |
-| MCP tools | 116: 18 core, 98 extended | `tools/list` on `/mcp` and `/mcp/full` |
+| MCP tools | 119: 18 core, 101 extended | `tools/list` on `/mcp` and `/mcp/full` |
 | MCP resources | 21 static and 9 URI templates | `resources/list`, `resources/templates/list` |
 | Algorithms | 172: 128 run here, 36 stored only, 8 cannot run | `/v1/algorithms` |
 | Bands in the manifest | 43, with 1792 dimensions in total | `/v1/bands` |
@@ -1956,7 +1956,7 @@ resolve of its token computes the answer again.
 
 #### Routes for algorithms that the formula engine cannot run
 
-On 12 November 2026, the registry marked 89 of its 173 algorithms
+On 12 November 2026, the registry marked 89 of its then-173 algorithms
 `documentation_only`. The scalar formula engine cannot run them. The four
 below need a multi-year series or two scenes, so each has its own route.
 Its registry entry names that route in `runtime_path`. The route signs its
@@ -2047,7 +2047,7 @@ Look at `/v1/data_availability` before you select a window.
 
 On 7 November 2026, `tools/list` on `/mcp` gives the 18 `core` tools
 in one page (about 77 KB of descriptors).
-`/mcp/full` advertises all 116 (about 342 KB over 8 pages). A tool
+`/mcp/full` advertises all 119 (about 345 KB over 9 pages). A tool
 that a node has run since it started also carries its measured latency
 in `_meta` as `dev.emem/observed_latency`, about 70 bytes. So a busy
 node sends more pages: on 13 November 2026, emem.dev sent 9. Send
