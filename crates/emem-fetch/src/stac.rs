@@ -364,26 +364,55 @@ async fn search_one_uncached(
 ) -> Result<Option<StacItem>, String> {
     let _stage =
         crate::latency::StageTimer::new("stac.search", format!("{collection} @ {lng:.3},{lat:.3}"));
-    let mut body = json!({
+    let body = json!({
         "intersects": {"type": "Point", "coordinates": [lng, lat]},
-        "limit": 1,
         "collections": [collection],
         "datetime": datetime,
         "sortby": [{"field": "properties.datetime", "direction": "desc"}],
     });
-    if let Some(c) = max_cloud {
-        body["query"] = json!({"eo:cloud_cover": {"lt": c}});
+    Ok(
+        search_paged(client, search_url, collection, body, 1, max_cloud)
+            .await?
+            .0
+            .into_iter()
+            .next(),
+    )
+}
+
+/// The `eo:cloud_cover` query a search sends for `max_cloud`, or `None` for
+/// no threshold (none given, or not a finite number).
+///
+/// Planetary Computer drops the fraction of a threshold: on 2026-11-15
+/// `lt 2.9` kept only scenes under 2 %, and `lte 2.9` let a 2.92 % scene
+/// through. A whole number compares exactly there and on Element84, so the
+/// search asks for the whole percent at or above `max_cloud`, and
+/// [`under_cloud`] drops the items at or over `max_cloud` itself.
+fn cloud_query(max_cloud: Option<f64>) -> Option<Value> {
+    let c = max_cloud.filter(|c| c.is_finite())?;
+    Some(json!({"eo:cloud_cover": {"lt": c.ceil()}}))
+}
+
+/// Whether `item` passes `max_cloud`: its scene cloud cover is under it.
+/// With no threshold every item passes; with one, an item that states no
+/// cloud cover does not, as the catalogue's own query treats it.
+fn under_cloud(item: &StacItem, max_cloud: Option<f64>) -> bool {
+    match max_cloud.filter(|c| c.is_finite()) {
+        None => true,
+        Some(c) => item.cloud_cover.is_some_and(|cc| cc < c),
     }
-    let v = post_search(client, search_url, &body).await?;
-    let feats = match v.get("features").and_then(|f| f.as_array()) {
-        Some(a) => a,
-        None => return Ok(None),
-    };
-    let f = match feats.first() {
-        Some(f) => f,
-        None => return Ok(None),
-    };
-    Ok(Some(parse_stac_feature(f, collection)))
+}
+
+/// The items of one search page that pass `max_cloud`.
+fn page_items(page: &Value, collection: &str, max_cloud: Option<f64>) -> Vec<StacItem> {
+    page.get("features")
+        .and_then(|f| f.as_array())
+        .map(|a| {
+            a.iter()
+                .map(|f| parse_stac_feature(f, collection))
+                .filter(|it| under_cloud(it, max_cloud))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Hosts that answered "rate limited", and until when this process leaves
@@ -566,47 +595,59 @@ pub async fn search_many_at(
     max_cloud: Option<f64>,
     limit: usize,
 ) -> Result<Vec<StacItem>, String> {
-    let mut body = json!({
+    let body = json!({
         "intersects": {"type": "Point", "coordinates": [lng, lat]},
         "collections": [collection],
         "datetime": datetime,
         "sortby": [{"field": "properties.datetime", "direction": "desc"}],
     });
-    if let Some(c) = max_cloud {
-        body["query"] = json!({"eo:cloud_cover": {"lt": c}});
-    }
-    Ok(search_paged(client, search_url, collection, body, limit)
-        .await?
-        .0)
+    Ok(
+        search_paged(client, search_url, collection, body, limit, max_cloud)
+            .await?
+            .0,
+    )
 }
 
-/// Items a STAC search returns, following its `next` links (STAC API item
-/// search paging: a link's `method`, `body` and `merge`) until the answer
-/// is whole or `max_items` is reached. `true` means the catalogue said there
-/// was nothing more, not that a page happened to come back short.
+/// Items a STAC search returns under `max_cloud`, following its `next`
+/// links (STAC API item search paging: a link's `method`, `body` and
+/// `merge`) until the answer is whole or `max_items` items pass. `true`
+/// means the catalogue said there was nothing more, not that a page
+/// happened to come back short.
 async fn search_paged(
     client: &Client,
     search_url: &str,
     collection: &str,
     mut body: Value,
     max_items: usize,
+    max_cloud: Option<f64>,
 ) -> Result<(Vec<StacItem>, bool), String> {
-    // A server may cap the page below this; the next link carries on.
-    body["limit"] = json!(max_items.clamp(1, 250));
+    if let Some(q) = cloud_query(max_cloud) {
+        body["query"] = q;
+    }
+    // A fractional threshold is searched with the whole percent above it,
+    // so some items of a page can fail it: ask for a fuller page. A server
+    // may cap the page below this; the next link carries on.
+    let fractional = max_cloud.is_some_and(|c| c.is_finite() && c.fract() != 0.0);
+    let page = if fractional {
+        max_items.max(20)
+    } else {
+        max_items
+    };
+    body["limit"] = json!(page.clamp(1, 250));
     let mut url = search_url.to_string();
     let mut req_body = Some(body);
     let mut items: Vec<StacItem> = Vec::new();
     loop {
         let v = stac_request(client, &url, req_body.as_ref()).await?;
-        if let Some(a) = v.get("features").and_then(|f| f.as_array()) {
-            items.extend(a.iter().map(|f| parse_stac_feature(f, collection)));
-        }
+        items.extend(page_items(&v, collection, max_cloud));
         let next = v.get("links").and_then(|l| l.as_array()).and_then(|l| {
             l.iter()
                 .find(|x| x.get("rel").and_then(|r| r.as_str()) == Some("next"))
         });
         let Some(next) = next else {
-            return Ok((items, true));
+            let whole = items.len() <= max_items;
+            items.truncate(max_items);
+            return Ok((items, whole));
         };
         if items.len() >= max_items {
             items.truncate(max_items);
@@ -663,16 +704,13 @@ pub async fn search_bbox_at(
             bbox[0], bbox[1], bbox[2], bbox[3]
         ),
     );
-    let mut body = json!({
+    let body = json!({
         "bbox": bbox,
         "collections": [collection],
         "datetime": datetime,
         "sortby": [{"field": "properties.datetime", "direction": "desc"}],
     });
-    if let Some(c) = max_cloud {
-        body["query"] = json!({"eo:cloud_cover": {"lt": c}});
-    }
-    search_paged(client, search_url, collection, body, limit).await
+    search_paged(client, search_url, collection, body, limit, max_cloud).await
 }
 
 /// Process-wide cache of MPC SAS tokens, keyed by collection. Microsoft
@@ -951,12 +989,97 @@ mod tests {
             }
         });
         let cli = Client::new();
-        let (items, whole) = search_paged(&cli, &base, "c", json!({"collections": ["c"]}), 100)
-            .await
-            .unwrap();
+        let (items, whole) =
+            search_paged(&cli, &base, "c", json!({"collections": ["c"]}), 100, None)
+                .await
+                .unwrap();
         let ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(ids, ["a", "b", "c"]);
         assert!(whole);
+    }
+
+    fn with_cloud(cc: Option<f64>) -> StacItem {
+        let mut props = json!({"datetime": "2026-09-01T00:00:00Z"});
+        if let Some(c) = cc {
+            props["eo:cloud_cover"] = json!(c);
+        }
+        parse_stac_feature(&json!({"id": "x", "properties": props}), "sentinel-2-l2a")
+    }
+
+    /// A threshold is sent as the whole percent at or above it, because
+    /// Planetary Computer drops a fraction (`lt 2.9` kept only scenes under
+    /// 2 %), and each item is held to the threshold itself.
+    #[test]
+    fn a_cloud_threshold_behaves_as_asked() {
+        let q = |c: f64| cloud_query(Some(c)).unwrap()["eo:cloud_cover"]["lt"].clone();
+        assert_eq!(q(3.0), json!(3.0));
+        assert_eq!(q(2.9), json!(3.0));
+        assert_eq!(q(20.0), json!(20.0));
+        assert_eq!(cloud_query(None), None);
+        assert_eq!(cloud_query(Some(f64::NAN)), None);
+        // A 2.9 % scene passes max_cloud=3; a 3.4 % scene does not.
+        assert!(under_cloud(&with_cloud(Some(2.9)), Some(3.0)));
+        assert!(!under_cloud(&with_cloud(Some(3.4)), Some(3.0)));
+        assert!(
+            !under_cloud(&with_cloud(Some(3.0)), Some(3.0)),
+            "under, not at"
+        );
+        // max_cloud=2.9 is searched as `lt 3`; a 2.92 % scene comes back
+        // and is dropped here.
+        assert!(!under_cloud(&with_cloud(Some(2.92)), Some(2.9)));
+        assert!(under_cloud(&with_cloud(Some(2.2)), Some(2.9)));
+        assert!(!under_cloud(&with_cloud(None), Some(3.0)));
+        assert!(under_cloud(&with_cloud(None), None));
+    }
+
+    /// End to end against a stand-in catalogue that answers the whole
+    /// percent: max_cloud=3 keeps the 2.9 % scene and not the 3.4 % one;
+    /// max_cloud=2.9 asks `lt 3` with a fuller page and returns the newest
+    /// scene under 2.9 %, past a newer 2.95 % one.
+    #[tokio::test]
+    async fn a_search_holds_items_to_the_threshold_it_was_given() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/search", listener.local_addr().unwrap());
+        let (seen_tx, mut seen_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        tokio::spawn(async move {
+            for page in 0..2 {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let mut buf = vec![0u8; 8192];
+                let n = sock.read(&mut buf).await.unwrap();
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                let _ = seen_tx.send(req);
+                let feat = |id: &str, cc: f64| json!({"id": id, "properties": {"datetime": "2026-09-01T00:00:00Z", "eo:cloud_cover": cc}});
+                let body = if page == 0 {
+                    json!({"features": [feat("s29", 2.9), feat("s34", 3.4)], "links": []})
+                } else {
+                    json!({"features": [feat("s295", 2.95), feat("s29", 2.9), feat("s22", 2.2)], "links": []})
+                };
+                let text = body.to_string();
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{text}",
+                    text.len()
+                );
+                sock.write_all(resp.as_bytes()).await.unwrap();
+            }
+        });
+        let cli = Client::new();
+        let w = "2026-09-01T00:00:00Z/2026-09-30T00:00:00Z";
+        let items = search_many_at(&cli, &base, "c", 1.0, 2.0, w, Some(3.0), 10)
+            .await
+            .unwrap();
+        let ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, ["s29"]);
+        let req = seen_rx.recv().await.unwrap();
+        assert!(req.contains(r#""eo:cloud_cover":{"lt":3.0}"#), "{req}");
+        let one = search_one_at(&cli, &base, "c", 1.0, 2.0, w, Some(2.9))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(one.id, "s22");
+        let req = seen_rx.recv().await.unwrap();
+        assert!(req.contains(r#""eo:cloud_cover":{"lt":3.0}"#), "{req}");
+        assert!(req.contains(r#""limit":20"#), "{req}");
     }
 
     /// Eight identical searches at once reach the catalogue once and all get

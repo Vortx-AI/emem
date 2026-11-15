@@ -37007,7 +37007,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/cells/{cell64}/geojson":  {"get":{"summary":"cell polygon as GeoJSON","operationId":"emem_cell_geojson","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/scene.png":{"get":{"summary":"Sentinel-2 true-colour thumbnail (256×256 PNG)","operationId":"emem_cell_scene_png","parameters":[
                 {"name":"cell64","in":"path","required":true,"schema":{"type":"string"}},
-                {"name":"max_cloud","in":"query","required":false,"description":"max eo:cloud_cover percent","schema":{"type":"number","default":20.0}},
+                {"name":"max_cloud","in":"query","required":false,"description":"max eo:cloud_cover percent: a scene passes when its cover is under it, and a fraction works as sent","schema":{"type":"number","default":20.0}},
                 {"name":"at","in":"query","required":false,"description":"ISO-8601 date or datetime; returns the most recent S2 scene at or before this instant (window resolved server-side via EMEM_SCENE_AT_LOOKBACK_DAYS, default 7d). Ignored when `datetime` is also supplied.","schema":{"type":"string","format":"date-time","example":"2024-06-15"}},
                 {"name":"datetime","in":"query","required":false,"description":"Explicit STAC datetime window `A/B`; takes precedence over `at`.","schema":{"type":"string","example":"2024-06-01T00:00:00Z/2024-06-30T00:00:00Z"}}
             ],"responses":{"200":png_ok}}},

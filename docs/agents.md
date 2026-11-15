@@ -2569,7 +2569,11 @@ The responder searches STAC, reads the COG with HTTP range requests,
 stretches each channel from the 2nd to the 98th percentile and encodes a
 PNG. It does not use GDAL. The image is 256 by 256 pixels, about 2.56 km
 by 2.56 km at the 10 m pitch of Sentinel-2. For tropical or cloudy places,
-set `max_cloud` to 60 to 80.
+set `max_cloud` to 60 to 80. A scene passes when its scene cloud cover is
+under `max_cloud`, and a fraction such as 2.5 works as sent: the responder
+searches with the whole percent at or above it and drops the scenes at or
+over it, because the Planetary Computer catalogue drops the fraction of a
+cloud filter.
 
 The call must finish in the 40 s transport budget (`EMEM_TIMEOUT_SECS`,
 default 40). If the STAC search or the COG read is slow, the call gives

@@ -924,6 +924,9 @@ If you send no `max_cloud`, `datetime` or `at`, the handler tries up to three se
 If you send `max_cloud` or a window, the handler tries one search only.
 A `max_cloud` that is not a number does not count. The handler ignores it and runs the three steps.
 That search uses a 20 % cap if you send no `max_cloud`.
+A scene passes the cap when its scene cloud cover is under it, and a fraction such as `max_cloud=2.5` works as sent.
+The Planetary Computer catalogue drops the fraction of a cloud filter (`lt 2.9` keeps only scenes under 2 %).
+So every search sends the whole percent at or above the cap, and the responder drops the scenes at or over the cap itself.
 It uses the last 90 days if you send no window.
 The `datetime=<start>/<end>` parameter sets the window directly.
 The `at=<date>` parameter sets a window of 7 days that ends at that date.
