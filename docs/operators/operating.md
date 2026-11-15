@@ -544,6 +544,59 @@ a 404 after the delete. `facts.redb` does not get smaller, because redb uses the
 The scan reads each fact row and proof row once, and each log segment once. These reads push other pages out of the
 page cache. Each delete batch holds the redb writer while it runs. Use the default `duty` while the node is busy.
 
+### Log entries that the tree never reached
+
+Before the writer cut back a failed write, a full disk could leave a partial record in a log segment with whole
+records after it. The walk that builds the transparency tree stops at such a record, and sometimes takes 32 bytes of
+the next record as a leaf. The whole records after it are on disk, but no signed head covers them, and their
+inclusion proofs answer 404. `POST /ops/log-repair` finds them and appends them again at the head of the log. The
+code is `crates/emem-storage/src/log_repair.rs`, and `docs/protocol.md` §9.6.4 describes the effect on the tree.
+
+The route has the same gate as `/ops/orphan-facts`, and the two routes share one pass at a time. A helper for this
+route:
+
+```bash
+repair() { curl -sS -H "authorization: Bearer $(cat "$EMEM_DATA/maint/ops.token")" \
+  -d "$1" http://127.0.0.1:5051/ops/log-repair; }
+```
+
+| Step | Request | What it changes |
+|---|---|---|
+| Scan | `repair '{"action":"scan","run":"r1"}'` | Nothing in the log. It writes `maint/log-repair/r1/report.json` and `entries.jsonl`. |
+| Watch | `repair '{"action":"status","run":"r1"}'` | Nothing. |
+| Relog | `repair '{"action":"relog","run":"r1"}'` | It appends each listed entry that is not yet a leaf, and links the proofs of its facts. It writes `relocations.json` and `relog.report.json`. |
+| Stop | `repair '{"action":"stop"}'` | Nothing. The pass stops after its current batch. |
+
+The scan walks every segment and checks every record. At a record that does not check, it looks for the next one
+that does, and goes on from there. `report.json` lists each tear (segment, offset, kind, the leaf the tree took
+from it, if any, and `surviving_fact_cids`, the facts whole in the part of the torn record that is on disk), each
+leaf that is the hash of no entry (`misframed_leaves`), and the count of entries to append.
+`entries.jsonl` has one line for each entry that is not a leaf where it lies: its place, its entry hash, its kind,
+its fact cids and, for a memory entry, its path. An entry whose hash is a leaf anywhere in the tree is marked with
+that `leaf_index` and is not appended. The scan takes `log_mb_s` (default 50).
+
+The relog checks that `entries.jsonl` has the hash that `report.json` states. It reads each entry again from its
+segment and checks its hash. Then it appends the same bytes through the normal append path, in batches of `batch`
+entries (default 64, at most 512), with `duty` (default 0.25). An entry whose hash is already a leaf is never
+appended again, so a second relog appends nothing, and entries with the same bytes are appended once. After the
+appends, each fact of a relocated attestation gets a proof row that names the entry (`log_entry_hash`). A proof row
+of another batch is left alone. `relog.report.json` gives the counts, and `complete: true` when every listed entry is
+a leaf.
+
+The relog never writes, moves or removes anything in an old segment. It only appends, so every head signed before
+it is a prefix of every head after it.
+
+To check the result, take a few lines of `relocations.json`:
+
+```bash
+jq -c '.[0:3][]' "$EMEM_DATA/maint/log-repair/r1/relocations.json"
+curl -sS "http://127.0.0.1:5051/v1/log/inclusion?entry_hash=<entry_hash>" | jq '{leaf_index, matched}'
+```
+
+The `leaf_index` must equal the one in the list. For a fact of a relocated attestation, take a cid from
+`fact_cids` in `entries.jsonl` and ask with `fact_cid=<cid>`: the answer must be the leaf of its entry. For a memory
+entry, `memory_view` on its `path` gives `log.entry_hash_b32`, and that hash must now prove.
+
 ### Known risks
 
 | Risk | What reduces it now |

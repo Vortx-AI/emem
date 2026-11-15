@@ -115,7 +115,7 @@ impl JobControl {
             .map(|p| p.clone())
             .unwrap_or(Value::Null)
     }
-    fn set(&self, v: Value) {
+    pub(crate) fn set(&self, v: Value) {
         if let Ok(mut p) = self.progress.lock() {
             *p = v;
         }
@@ -186,7 +186,7 @@ impl Default for DeleteOptions {
     }
 }
 
-fn err(msg: impl Into<String>) -> StorageError {
+pub(crate) fn err(msg: impl Into<String>) -> StorageError {
     StorageError::Io(std::io::Error::other(msg.into()))
 }
 
@@ -194,17 +194,17 @@ fn cache_err(e: emem_cache::CacheError) -> StorageError {
     StorageError::Cache(e)
 }
 
-fn cancelled() -> StorageError {
+pub(crate) fn cancelled() -> StorageError {
     err("stopped on request; run the same action again to resume")
 }
 
 /// The pause that holds a step that took `took` to `duty` of wall time.
-fn pause(took: Duration, duty: f64) -> Duration {
+pub(crate) fn pause(took: Duration, duty: f64) -> Duration {
     let duty = duty.clamp(0.05, 1.0);
     took.mul_f64((1.0 - duty) / duty)
 }
 
-fn sleep_unless_cancelled(d: Duration, ctl: &JobControl) {
+pub(crate) fn sleep_unless_cancelled(d: Duration, ctl: &JobControl) {
     let until = Instant::now() + d;
     while Instant::now() < until && !ctl.cancelled() {
         std::thread::sleep((until - Instant::now()).min(Duration::from_millis(200)));
@@ -227,7 +227,7 @@ fn digest_of_cid(cid: &[u8]) -> Option<[u8; 32]> {
         .ok()
 }
 
-fn write_json_atomic(path: &Path, v: &impl Serialize) -> Result<(), StorageError> {
+pub(crate) fn write_json_atomic(path: &Path, v: &impl Serialize) -> Result<(), StorageError> {
     let tmp = path.with_extension("tmp");
     let bytes = serde_json::to_vec_pretty(v).map_err(|e| err(e.to_string()))?;
     {
@@ -239,7 +239,9 @@ fn write_json_atomic(path: &Path, v: &impl Serialize) -> Result<(), StorageError
     Ok(())
 }
 
-fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<Option<T>, StorageError> {
+pub(crate) fn read_json<T: for<'de> Deserialize<'de>>(
+    path: &Path,
+) -> Result<Option<T>, StorageError> {
     match std::fs::read(path) {
         Ok(b) => serde_json::from_slice(&b)
             .map(Some)
@@ -249,7 +251,7 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<Option<T>, Sto
     }
 }
 
-fn file_blake3(path: &Path) -> Result<(String, u64), StorageError> {
+pub(crate) fn file_blake3(path: &Path) -> Result<(String, u64), StorageError> {
     let mut f = std::fs::File::open(path)?;
     let mut h = blake3::Hasher::new();
     let mut buf = vec![0u8; 1 << 20];
@@ -438,7 +440,7 @@ fn walk(
     Ok(st)
 }
 
-fn now_unix() -> i64 {
+pub(crate) fn now_unix() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -1224,7 +1226,7 @@ pub fn run_dir(maint_root: &Path, run: &str) -> Result<PathBuf, StorageError> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::{FactPlanePolicy, MaterializingStorage, Storage};
     use ed25519_dalek::SigningKey;
@@ -1259,7 +1261,7 @@ mod tests {
         s
     }
 
-    fn fact(tslot: u64, value: f64, signed_at: &str) -> Fact {
+    pub(crate) fn fact(tslot: u64, value: f64, signed_at: &str) -> Fact {
         Fact::Primary(PrimaryFact {
             cell: CELL.into(),
             band: BAND.into(),
@@ -1288,7 +1290,7 @@ mod tests {
         })
     }
 
-    fn att(facts: Vec<Fact>) -> Attestation {
+    pub(crate) fn att(facts: Vec<Fact>) -> Attestation {
         Attestation::build_and_sign_v1(
             facts,
             vec![],

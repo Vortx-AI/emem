@@ -275,20 +275,7 @@ impl AttestationLog {
     /// how an entry that is not an attestation, such as a memory write, gets
     /// into the same tree under the same signed head.
     pub async fn append_cbor(&self, buf: Vec<u8>) -> Result<AppendOutcome, std::io::Error> {
-        let len = u32::try_from(buf.len()).map_err(|_| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, "attestation > 4 GiB")
-        })?;
-        let mut record = Vec::with_capacity(4 + buf.len() + 32);
-        record.extend_from_slice(&len.to_le_bytes());
-        record.extend_from_slice(&buf);
-        let mut record_hasher = Hasher::new();
-        record_hasher.update(&buf);
-        let record_hash = record_hasher.finalize();
-        record.extend_from_slice(record_hash.as_bytes());
-
-        let mut record_hash_arr = [0u8; 32];
-        record_hash_arr.copy_from_slice(record_hash.as_bytes());
-
+        let (pending, rx) = framed(buf)?;
         // Group commit. Each append used to hold the lock for its own open,
         // write and fsync, so N writers paid N fsyncs in a row; under disk
         // load one fsync took up to a second and a cold write waited 11 s
@@ -296,15 +283,44 @@ impl AttestationLog {
         // queue, and whoever holds the lock next writes everything queued in
         // one write and one fsync per segment. Order, framing, the segment
         // hash chain and "durable before return" are unchanged.
-        let (tx, rx) = tokio::sync::oneshot::channel();
         self.queue
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .push(Pending {
-                record,
-                record_hash: record_hash_arr,
-                done: tx,
+            .push(pending);
+        self.write_queued().await;
+        landed(rx).await
+    }
+
+    /// Append several records in this order, in one group where they fit:
+    /// the framing, the group write and the fsync of [`Self::append_cbor`].
+    /// One result for each record, in the same order.
+    pub(crate) async fn append_cbor_many(
+        &self,
+        bufs: Vec<Vec<u8>>,
+    ) -> Vec<Result<AppendOutcome, std::io::Error>> {
+        let mut waits = Vec::with_capacity(bufs.len());
+        {
+            let mut q = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+            for buf in bufs {
+                waits.push(framed(buf).map(|(pending, rx)| {
+                    q.push(pending);
+                    rx
+                }));
+            }
+        }
+        self.write_queued().await;
+        let mut out = Vec::with_capacity(waits.len());
+        for w in waits {
+            out.push(match w {
+                Ok(rx) => landed(rx).await,
+                Err(e) => Err(e),
             });
+        }
+        out
+    }
+
+    /// Write everything queued, unless the holder of the lock already took it.
+    async fn write_queued(&self) {
         // The batch is written by a detached task holding the lock, so a
         // caller dropped by a timeout cannot stop a write halfway: the bytes
         // and the in-memory hash chain always advance together.
@@ -316,9 +332,35 @@ impl AttestationLog {
         } else {
             drop(s);
         }
-        rx.await
-            .map_err(|_| std::io::Error::other("merkle log append: the group write was dropped"))?
     }
+}
+
+type Landed = tokio::sync::oneshot::Receiver<std::io::Result<AppendOutcome>>;
+
+/// One record framed as `[u32 LE len][cbor][blake3(cbor)]`, and where to hear
+/// where it landed.
+fn framed(buf: Vec<u8>) -> std::io::Result<(Pending, Landed)> {
+    let len = u32::try_from(buf.len())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "attestation > 4 GiB"))?;
+    let record_hash = *blake3::hash(&buf).as_bytes();
+    let mut record = Vec::with_capacity(4 + buf.len() + 32);
+    record.extend_from_slice(&len.to_le_bytes());
+    record.extend_from_slice(&buf);
+    record.extend_from_slice(&record_hash);
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    Ok((
+        Pending {
+            record,
+            record_hash,
+            done: tx,
+        },
+        rx,
+    ))
+}
+
+async fn landed(rx: Landed) -> std::io::Result<AppendOutcome> {
+    rx.await
+        .map_err(|_| std::io::Error::other("merkle log append: the group write was dropped"))?
 }
 
 /// Write `batch` in order, one write and one fsync per segment it touches,
@@ -497,6 +539,13 @@ impl AttestationLog {
             // A sealed segment has a trailing 32-byte segment hash after
             // the last record; the length-driven walk below stops before
             // it (the leftover < a full record is ignored).
+            //
+            // The walk neither re-hashes nor resyncs. At a torn frame it
+            // takes the 32 bytes the torn length points at, and it stops at
+            // the first length that runs past the end. Every signed head
+            // commits to exactly this walk, so it must not change; the
+            // entries it missed are appended again at the head instead
+            // (`log_repair`).
             let mut leaves: Vec<[u8; 32]> = Vec::new();
             let mut i = 0usize;
             while i + 4 <= bytes.len() {
@@ -1841,7 +1890,10 @@ mod tests {
         assert!(log.append_cbor(padded(1, 100)).await.is_err());
         let b = log.append_cbor(padded(2, 100)).await.unwrap();
         assert_eq!(b.segment_index, 1);
-        assert_eq!(log.leaf_hashes().unwrap(), vec![a.record_hash, b.record_hash]);
+        assert_eq!(
+            log.leaf_hashes().unwrap(),
+            vec![a.record_hash, b.record_hash]
+        );
     }
 
     #[tokio::test]

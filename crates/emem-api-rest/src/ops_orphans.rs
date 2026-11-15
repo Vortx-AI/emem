@@ -16,8 +16,8 @@
 //!
 //! A pass runs for minutes to hours, so a request starts it on the blocking
 //! pool and returns; `status` reports progress and the result. One pass at a
-//! time. A restart ends a pass; the same request resumes it from its saved
-//! state.
+//! time, shared with `/ops/log-repair`. A restart ends a pass; the same
+//! request resumes it from its saved state.
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -66,7 +66,7 @@ impl Job {
 
 static JOB: LazyLock<Mutex<Option<Job>>> = LazyLock::new(|| Mutex::new(None));
 
-fn maint_root() -> PathBuf {
+pub(crate) fn maint_root() -> PathBuf {
     emem_core::data_dir::data_dir().join("maint")
 }
 
@@ -106,46 +106,115 @@ fn authorize(
     Ok(())
 }
 
-fn reply(status: StatusCode, v: Value) -> Response {
+pub(crate) fn reply(status: StatusCode, v: Value) -> Response {
     (status, Json(v)).into_response()
 }
 
-pub(crate) async fn post_orphan_facts(
-    State(s): State<AppState>,
+/// The request's JSON body when the gate admits it; otherwise the response
+/// an unrouted path gives.
+// The error is the response the handler returns as it is.
+#[allow(clippy::result_large_err)]
+pub(crate) async fn admit(
+    route: &'static str,
     req: axum::http::Request<axum::body::Body>,
-) -> Response {
+) -> Result<Value, Response> {
     let peer = req
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
         .map(|c| c.0);
     if let Err(why) = authorize(peer, req.headers(), &maint_root().join("ops.token")) {
         if peer.is_some_and(|p| p.ip().to_canonical().is_loopback()) {
-            tracing::warn!(target: "emem::ops", why, "orphan-facts request refused");
+            tracing::warn!(target: "emem::ops", route, why, "ops request refused");
         }
-        return crate::serve_404(req).await;
+        return Err(crate::serve_404(req).await);
     }
-    let body = match axum::body::to_bytes(req.into_body(), 1 << 16).await {
-        Ok(b) => b,
-        Err(e) => return reply(StatusCode::BAD_REQUEST, json!({"error": e.to_string()})),
+    let body = axum::body::to_bytes(req.into_body(), 1 << 16)
+        .await
+        .map_err(|e| reply(StatusCode::BAD_REQUEST, json!({"error": e.to_string()})))?;
+    serde_json::from_slice(&body)
+        .map_err(|e| reply(StatusCode::BAD_REQUEST, json!({"error": e.to_string()})))
+}
+
+/// The pass running or last run, if any.
+pub(crate) fn job() -> Option<Value> {
+    JOB.lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .map(Job::describe)
+}
+
+/// Ask the running pass to stop at its next batch boundary.
+pub(crate) fn stop() -> Response {
+    let g = JOB.lock().unwrap_or_else(|e| e.into_inner());
+    match g.as_ref().filter(|j| j.running()) {
+        Some(j) => {
+            j.ctl.cancel();
+            reply(StatusCode::OK, json!({"stopping": j.describe()}))
+        }
+        None => reply(StatusCode::OK, json!({"stopping": null})),
+    }
+}
+
+/// Start `work` on the blocking pool as the one maintenance pass, unless a
+/// pass is running.
+pub(crate) fn launch(
+    action: &str,
+    run: &str,
+    work: impl FnOnce(&JobControl) -> Result<Value, String> + Send + 'static,
+) -> Response {
+    let mut g = JOB.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(j) = g.as_ref().filter(|j| j.running()) {
+        return reply(
+            StatusCode::CONFLICT,
+            json!({"error": "a pass is running; stop it or wait", "job": j.describe()}),
+        );
+    }
+    let ctl = Arc::new(JobControl::new());
+    let result: Arc<Mutex<Option<Result<Value, String>>>> = Arc::new(Mutex::new(None));
+    let job = Job {
+        action: action.to_string(),
+        run: run.to_string(),
+        started: std::time::Instant::now(),
+        ctl: ctl.clone(),
+        result: result.clone(),
     };
-    let v: Value = match serde_json::from_slice(&body) {
+    let (action_owned, run_owned) = (action.to_string(), run.to_string());
+    tracing::info!(target: "emem::ops", action, run, "maintenance pass started");
+    tokio::task::spawn_blocking(move || {
+        // A panic must end the job, or `status` reports it running forever
+        // and no other pass can start until a restart.
+        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&ctl)))
+            .unwrap_or_else(|_| Err("the pass panicked; see the server log".to_string()));
+        match &out {
+            Ok(_) => {
+                tracing::info!(target: "emem::ops", action = %action_owned, run = %run_owned, "maintenance pass finished")
+            }
+            Err(e) => {
+                tracing::warn!(target: "emem::ops", action = %action_owned, run = %run_owned, error = %e, "maintenance pass ended")
+            }
+        }
+        if let Ok(mut r) = result.lock() {
+            *r = Some(out);
+        }
+    });
+    let started = job.describe();
+    *g = Some(job);
+    reply(StatusCode::ACCEPTED, json!({"started": started}))
+}
+
+pub(crate) async fn post_orphan_facts(
+    State(s): State<AppState>,
+    req: axum::http::Request<axum::body::Body>,
+) -> Response {
+    let v = match admit("/ops/orphan-facts", req).await {
         Ok(v) => v,
-        Err(e) => return reply(StatusCode::BAD_REQUEST, json!({"error": e.to_string()})),
+        Err(r) => return r,
     };
     let action = v.get("action").and_then(Value::as_str).unwrap_or("status");
     let run = v.get("run").and_then(Value::as_str).map(str::to_string);
     match action {
         "status" => status(run.as_deref()),
-        "stop" => {
-            let g = JOB.lock().unwrap_or_else(|e| e.into_inner());
-            match g.as_ref().filter(|j| j.running()) {
-                Some(j) => {
-                    j.ctl.cancel();
-                    reply(StatusCode::OK, json!({"stopping": j.describe()}))
-                }
-                None => reply(StatusCode::OK, json!({"stopping": null})),
-            }
-        }
+        "stop" => stop(),
         "scan" | "delete" | "verify" => start(&s, action, run, &v),
         other => reply(
             StatusCode::BAD_REQUEST,
@@ -155,11 +224,6 @@ pub(crate) async fn post_orphan_facts(
 }
 
 fn status(run: Option<&str>) -> Response {
-    let job = JOB
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
-        .map(Job::describe);
     let files = run
         .and_then(|r| orphans::run_dir(&maint_root(), r).ok())
         .map(|dir| {
@@ -176,7 +240,7 @@ fn status(run: Option<&str>) -> Response {
                 "verify": read("verify.report.json"),
             })
         });
-    reply(StatusCode::OK, json!({"job": job, "run": files}))
+    reply(StatusCode::OK, json!({"job": job(), "run": files}))
 }
 
 fn start(s: &AppState, action: &str, run: Option<String>, v: &Value) -> Response {
@@ -209,57 +273,21 @@ fn start(s: &AppState, action: &str, run: Option<String>, v: &Value) -> Response
         Err(e) => return reply(StatusCode::BAD_REQUEST, json!({"error": e.to_string()})),
     };
     let duty = v.get("duty").and_then(Value::as_f64).unwrap_or(0.25);
-
-    let mut g = JOB.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(j) = g.as_ref().filter(|j| j.running()) {
-        return reply(
-            StatusCode::CONFLICT,
-            json!({"error": "a pass is running; stop it or wait", "job": j.describe()}),
-        );
-    }
-    let ctl = Arc::new(JobControl::new());
-    let result: Arc<Mutex<Option<Result<Value, String>>>> = Arc::new(Mutex::new(None));
-    let job = Job {
-        action: action.to_string(),
-        run: run.clone(),
-        started: std::time::Instant::now(),
-        ctl: ctl.clone(),
-        result: result.clone(),
-    };
     let action_owned = action.to_string();
-    tracing::info!(target: "emem::ops", action, run = %run, dir = %dir.display(), "orphan pass started");
-    tokio::task::spawn_blocking(move || {
+    tracing::info!(target: "emem::ops", action, run = %run, dir = %dir.display(), "orphan pass requested");
+    launch(action, &run, move |ctl| {
         let store = OrphanStore {
             redb: &redb,
             sled: sled.as_ref(),
             log_root: &log_root,
         };
-        // A panic must end the job, or `status` reports it running forever
-        // and no other pass can start until a restart.
-        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            match action_owned.as_str() {
-                "scan" => orphans::scan(&store, &dir, &scan_opts, &ctl),
-                "delete" => orphans::delete(&store, &dir, &delete_opts, &ctl),
-                _ => orphans::verify(&store, &dir, duty, &ctl),
-            }
-            .map_err(|e| e.to_string())
-        }))
-        .unwrap_or_else(|_| Err("the pass panicked; see the server log".to_string()));
-        match &out {
-            Ok(_) => {
-                tracing::info!(target: "emem::ops", action = %action_owned, run = %run, "orphan pass finished")
-            }
-            Err(e) => {
-                tracing::warn!(target: "emem::ops", action = %action_owned, run = %run, error = %e, "orphan pass ended")
-            }
+        match action_owned.as_str() {
+            "scan" => orphans::scan(&store, &dir, &scan_opts, ctl),
+            "delete" => orphans::delete(&store, &dir, &delete_opts, ctl),
+            _ => orphans::verify(&store, &dir, duty, ctl),
         }
-        if let Ok(mut r) = result.lock() {
-            *r = Some(out);
-        }
-    });
-    let started = job.describe();
-    *g = Some(job);
-    reply(StatusCode::ACCEPTED, json!({"started": started}))
+        .map_err(|e| e.to_string())
+    })
 }
 
 #[cfg(test)]

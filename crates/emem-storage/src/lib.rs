@@ -180,6 +180,8 @@ pub struct FactContestedRecord {
 pub mod artifacts;
 pub mod attesters;
 mod fact_locator;
+pub mod log_repair;
+mod log_walk;
 pub mod merkle_log;
 pub mod orphans;
 pub mod server;
@@ -2297,6 +2299,54 @@ fn stored_proof_for_cid(hot: &SledHotCache, cid: &FactCid) -> Option<MerkleProof
     ciborium::de::from_reader::<MerkleProof, _>(&*bytes).ok()
 }
 
+/// The batch tree over `leaves` (fact digests in attestation order): its
+/// root, and the proof of each leaf as `(index in leaves, proof)`, in sorted
+/// leaf order. A fact present twice gets the later leaf index, as its
+/// stored proof row always did.
+fn batch_proofs(
+    leaves: &[[u8; 32]],
+    preimage_version: u8,
+    log_entry: Option<[u8; 32]>,
+) -> ([u8; 32], Vec<(usize, MerkleProof)>) {
+    let mut leaves_with_orig: Vec<([u8; 32], usize)> =
+        leaves.iter().enumerate().map(|(i, l)| (*l, i)).collect();
+    leaves_with_orig.sort_by_key(|a| a.0);
+    let sorted: Vec<[u8; 32]> = leaves_with_orig.iter().map(|(l, _)| *l).collect();
+    // Build proofs under the same merkle rule the attestation's root was
+    // computed with, so a verifier re-deriving the root from the proof
+    // path lands on `att.batch_root`.
+    let (root, paths) = if preimage_version >= emem_attest::PREIMAGE_V1 {
+        emem_attest::merkle_root_and_paths_v1(&sorted)
+    } else {
+        emem_attest::merkle_root_and_paths(&sorted)
+    };
+    let proof_version = if preimage_version >= emem_attest::PREIMAGE_V1 {
+        emem_attest::PREIMAGE_V1
+    } else {
+        0
+    };
+    let proofs = leaves_with_orig
+        .iter()
+        .enumerate()
+        .map(|(sorted_idx, (_, orig_idx))| {
+            (
+                *orig_idx,
+                MerkleProof {
+                    leaf_index: sorted_idx as u32,
+                    path: paths[sorted_idx].clone(),
+                    root,
+                    version: proof_version,
+                    fact_cid: None,
+                    leaf_count: Some(sorted.len() as u32),
+                    log_entry_hash: log_entry
+                        .map(|h| data_encoding::BASE32_NOPAD.encode(&h).to_lowercase()),
+                },
+            )
+        })
+        .collect();
+    (root, proofs)
+}
+
 fn persist_fact_proofs(
     db: &sled::Db,
     redb: Option<&emem_cache::RedbFacts>,
@@ -2308,51 +2358,24 @@ fn persist_fact_proofs(
     if facts.is_empty() || cids.len() != facts.len() {
         return Ok(());
     }
-    let mut leaves_with_orig: Vec<([u8; 32], usize)> = Vec::with_capacity(facts.len());
-    for (i, f) in facts.iter().enumerate() {
+    let mut leaves: Vec<[u8; 32]> = Vec::with_capacity(facts.len());
+    for f in facts {
         let mut buf = Vec::new();
         ciborium::ser::into_writer(f, &mut buf)
             .map_err(|e| StorageError::Cbor(format!("fact_proofs cbor: {e}")))?;
-        let h = blake3::hash(&buf);
-        let mut a = [0u8; 32];
-        a.copy_from_slice(h.as_bytes());
-        leaves_with_orig.push((a, i));
+        leaves.push(*blake3::hash(&buf).as_bytes());
     }
-    leaves_with_orig.sort_by_key(|a| a.0);
-    let leaves: Vec<[u8; 32]> = leaves_with_orig.iter().map(|(l, _)| *l).collect();
-    // Build proofs under the same merkle rule the attestation's root was
-    // computed with, so a verifier re-deriving the root from the proof
-    // path lands on `att.batch_root`.
-    let (root, paths) = if preimage_version >= emem_attest::PREIMAGE_V1 {
-        emem_attest::merkle_root_and_paths_v1(&leaves)
-    } else {
-        emem_attest::merkle_root_and_paths(&leaves)
-    };
-    let proof_version = if preimage_version >= emem_attest::PREIMAGE_V1 {
-        emem_attest::PREIMAGE_V1
-    } else {
-        0
-    };
+    let (_, proofs) = batch_proofs(&leaves, preimage_version, log_entry);
     let tree = db
         .open_tree(TREE_FACT_PROOFS)
         .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
     // One redb write for the whole attestation: a write per proof was 4,845
     // commits for one cold 11 ha plot, most of the 8.5 s its index rows took.
     let mut redb_rows: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
-    for (sorted_idx, (_, orig_idx)) in leaves_with_orig.iter().enumerate() {
+    for (orig_idx, proof) in &proofs {
         let cid = &cids[*orig_idx];
-        let proof = MerkleProof {
-            leaf_index: sorted_idx as u32,
-            path: paths[sorted_idx].clone(),
-            root,
-            version: proof_version,
-            fact_cid: None,
-            leaf_count: Some(leaves.len() as u32),
-            log_entry_hash: log_entry
-                .map(|h| data_encoding::BASE32_NOPAD.encode(&h).to_lowercase()),
-        };
         let mut buf = Vec::new();
-        ciborium::ser::into_writer(&proof, &mut buf)
+        ciborium::ser::into_writer(proof, &mut buf)
             .map_err(|e| StorageError::Cbor(format!("fact_proofs cbor: {e}")))?;
         match redb {
             // New proofs go to redb only: looked up there first, and the sled

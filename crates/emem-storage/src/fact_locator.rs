@@ -237,6 +237,42 @@ pub(crate) fn entry_fact_spans(buf: &[u8]) -> EntryFacts {
     walk().unwrap_or(EntryFacts::Malformed)
 }
 
+/// The spans of the `facts` elements that are whole in `buf`, which may be
+/// only the first part of a record. The surviving bytes of a torn record
+/// still name the facts that were written before the cut; a fact the cut
+/// went through is not named.
+pub(crate) fn fact_spans_in_prefix(buf: &[u8]) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let Some((5, entries, h)) = head(buf, 0) else {
+        return out;
+    };
+    let mut i = h;
+    for _ in 0..entries {
+        let (Some((kmajor, _, kh)), Some(key_end)) = (head(buf, i), skip(buf, i, 0)) else {
+            return out;
+        };
+        if kmajor == 3 && buf.get(i + kh..key_end) == Some(b"facts".as_slice()) {
+            let Some((4, count, ah)) = head(buf, key_end) else {
+                return out;
+            };
+            let mut j = key_end + ah;
+            for _ in 0..count {
+                let Some(end) = skip(buf, j, 0) else {
+                    return out;
+                };
+                out.push((j, end));
+                j = end;
+            }
+            return out;
+        }
+        let Some(next) = skip(buf, key_end, 0) else {
+            return out;
+        };
+        i = next;
+    }
+    out
+}
+
 /// Each fact's span in `buf` (an attestation's CBOR, exactly as the log
 /// stores it), checked against the cids `put_many` returned for the same
 /// facts in the same order. `None` when any span does not hash to its cid:
