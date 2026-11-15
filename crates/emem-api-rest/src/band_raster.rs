@@ -2421,11 +2421,14 @@ pub async fn get_artifact(AxumPath(cid): AxumPath<String>) -> impl IntoResponse 
             StatusCode::OK,
             [
                 // A grid starts with its magic; the persistence chain stores
-                // the upstream JSON series it read, byte for byte.
+                // the upstream JSON series it read, byte for byte; the EUDR
+                // imagery section stores the PNG it rendered.
                 (
                     axum::http::header::CONTENT_TYPE,
                     if bytes.first() == Some(&b'{') {
                         "application/json"
+                    } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+                        "image/png"
                     } else {
                         GRID_MEDIA_TYPE
                     },

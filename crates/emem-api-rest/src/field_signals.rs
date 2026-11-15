@@ -139,6 +139,32 @@ async fn warm(s: &AppState, cells: &[String], band: &str, win: (i64, i64), budge
     }
 }
 
+/// [`warm`] for another module of this crate: the EUDR `burn` section warms
+/// the same band the same way.
+pub(crate) async fn warm_band(
+    s: &AppState,
+    cells: &[String],
+    band: &str,
+    win: (i64, i64),
+    budget_ms: u64,
+) -> bool {
+    warm(s, cells, band, win, budget_ms).await
+}
+
+/// [`series`] as `(unix, value, fact_cid)`, for another module of this crate.
+pub(crate) async fn band_series(
+    s: &AppState,
+    cell: &str,
+    band: &str,
+    win: (i64, i64),
+) -> Vec<(i64, f64, String)> {
+    series(s, cell, band, win)
+        .await
+        .into_iter()
+        .map(|o| (o.unix, o.value, o.cid))
+        .collect()
+}
+
 /// One signed observation: its day, value, the acquisition it names, and cid.
 #[derive(Debug, Clone)]
 struct Obs {

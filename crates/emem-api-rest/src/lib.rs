@@ -58,6 +58,7 @@ pub mod enlistment;
 mod eo_runtime;
 mod estimand;
 mod eu_mrl;
+mod eudr_include;
 mod eudr_raster;
 mod field_series;
 mod field_signals;
@@ -1894,6 +1895,10 @@ fn eudr_router(state: AppState) -> Router {
     let timeout_s = eudr_route_timeout_secs();
     Router::new()
         .route("/v1/eudr_dds", post(post_eudr_dds_http))
+        .route(
+            "/v1/eudr_dds/include/:token",
+            get(eudr_include::get_include),
+        )
         // The field signals warm a season of scenes before they answer, the
         // same kind of work as a DDS: its ceiling and its concurrency cap.
         .route(
@@ -36870,7 +36875,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/cube/resolve": {"post":{"summary":"dereference an emem:cube:<aoi_cid>:<band>:<tslot_lo>..<tslot_hi>:<derivation_cid> token. Same fail-closed rule as raster/resolve: the cid must be a band_cube@1 derivation, the token's aoi_cid/band/tslot-range must each match the signed record, and cube_cid is recomputed from the record's members so an altered membership is refused (typed 409). Returns the record plus the member emem:raster: tokens to resolve independently or batch via resolve_many. The receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment.","operationId":"emem_cube_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
             "/v1/raster_bundle": {"post":{"summary":"bind 2..64 already-minted emem:raster: field tokens (band_raster / s2_median_composite / dem_raster / embedding_raster) into ONE signed manifest, named by an emem:rasterset: token (raster_bundle@1). The composition primitive a world or a DDS cites when it needs one token pointing at every signed layer (ground + geometry + embedding). Mints no new pixels: each member resolves and re-derives on its own. bundle_cid=blake3(ordered member derivation_cids + purpose); a member that is not a live raster-shaped derivation fails the mint by name. Signs and persists the manifest.","operationId":"emem_raster_bundle","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tokens"],"properties":{"tokens":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":64},"purpose":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
             "/v1/raster_bundle/resolve": {"post":{"summary":"dereference an emem:rasterset:<bundle_cid>:<derivation_cid> token. Fail-closed: the cid must be a raster_bundle@1 derivation, bundle_cid is recomputed from the record's ordered members and matched against both the token and the record (mismatch = 409, refusing an altered set), and every member emem:raster: token is re-verified as a live raster derivation. Returns the members with a per-member resolves flag.","operationId":"emem_raster_bundle_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
-            "/v1/artifacts/{cid}": {"get":{"summary":"raw canonical grid bytes by artifact cid, Cache-Control immutable (content-addressed bytes never change). A 404 is typed and says how to rebuild: eviction is a design property (the derivation record persists and pins the scene, recipe, and geometry), never data loss.","operationId":"emem_artifact_bytes","responses":{"200":{"description":"application/x.emem-grid-f32.v1 bytes, or application/json for the upstream series a persistence chain read"},"404":{"description":"evicted or unknown; the derivation record pins the rebuild"}}}},
+            "/v1/artifacts/{cid}": {"get":{"summary":"raw canonical grid bytes by artifact cid, Cache-Control immutable (content-addressed bytes never change). A 404 is typed and says how to rebuild: eviction is a design property (the derivation record persists and pins the scene, recipe, and geometry), never data loss.","operationId":"emem_artifact_bytes","responses":{"200":{"description":"application/x.emem-grid-f32.v1 bytes, application/json for the upstream series a persistence chain read, or image/png for an EUDR include.imagery picture"},"404":{"description":"evicted or unknown; the derivation record pins the rebuild"}}}},
             "/v1/deforestation_alert":{"post":{"summary":"carbon.deforestation_alert_proxy: alert_score = 0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20). Each half degrades independently, a missing band drops its half and renames the output so a half-score can't be mistaken for the full composite; if neither half is computable the response is a signed `inconclusive`.","operationId":"emem_deforestation_alert","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
             "/v1/sar_forest_disturbance":{"post":{"summary":"Sentinel-1 VV backscatter-drop forest-disturbance scout (cloud- and night-independent). Reads the radar field series over the plot (the geometry polygon, or a 100 m square on the cell) on one relative orbit, in the latest 90 days and in the same 90 days of baseline_year. Each scene is the mean power over the plot's pixels; each window's level is the median of its scenes, with a standard error. vv_drop_db = baseline − recent; disturbed when the drop is ≥ 3 dB (Reiche et al. 2018) and ≥ 3 standard errors. States support and uncertainty and cites both signed series; honest `inconclusive` when a window has fewer than 3 scenes or cannot be read. ADDITIVE scout signal, NOT a standalone legal verdict, confirm with the optical JRC GFC2020/Hansen consensus (/v1/eudr_dds, /v1/deforestation_alert). Source: MPC sentinel-1-rtc (anonymous SAS, no requester-pays).","operationId":"emem_sar_forest_disturbance","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"baseline_year":{"type":"integer","description":"Baseline calendar year the VV drop is measured against (default 2020). Its window is the same 90 days of the year as the recent one."},"geometry":{"type":"object","description":"The plot, as a GeoJSON Polygon. Default: a 100 m square centred on the cell."}}}}}},"responses":{"200":json_ok}}},
             "/v1/spi":               {"post":{"summary":"McKee-1993 Standardized Precipitation Index drought metric: fits a gamma to the same-window precipitation-accumulation history and standardizes the current accumulation to a z-score + drought class. Honest `inconclusive` (no z-score) when fewer than the minimum samples exist. Supply `precip_history_mm` + `current_accumulation_mm` directly, or omit to read the stored `weather.precipitation_mm` trajectory.","operationId":"emem_spi","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"window_days":{"type":"integer","description":"Accumulation window (SPI-3 = 90 d default; SPI-1 = 30 d; SPI-12 = 360 d)."},"precip_history_mm":{"type":"array","items":{"type":"number"},"description":"Optional explicit same-window precipitation accumulations (mm)."},"current_accumulation_mm":{"type":"number","description":"Current-window accumulation (mm); required when precip_history_mm is supplied."}}}}}},"responses":{"200":json_ok}}},
@@ -37128,6 +37133,8 @@ fn openapi_spec() -> JsonValue {
                     "operator":{"type":"object","description":"Operator identification per Annex II §1.","properties":{"name":{"type":"string"},"eori":{"type":"string"},"address":{"type":"string"}}},
                     "max_cells_per_plot":{"type":"integer","minimum":1,"maximum":51200,"description":"Sample budget per POLYGON plot on the sampled method. Omit and it is auto-derived from the polygon area (~110 cells/ha, clamped to 51,200); there is no fixed default to declare, which is why this carries none. POINT plots evaluate at 1 cell regardless of this value. The raster method reads every pixel and ignores it."},
                     "method":{"type":"string","enum":["raster","sampled"],"default":"raster","description":"raster reads every 10 m JRC GFC2020 pixel inside a polygon or bbox plot, adds up true pixel areas and signs one fact per plot (plot_fact_cid), whose source windows are served at /v1/artifacts/<cid>. sampled is the per-cell sample with one fact per cell per band, kept for one release. A Point plot reads its one pixel either way; a plot the raster method cannot read says why in method_note and is sampled."},
+                    "include":{"type":"array","items":{"type":"string","enum":["season","imagery","burn"]},"description":"Optional sections answered beside the verdict in the same call. season: each plot's Sentinel-2 NBR with the registered canopy-loss rule from 2021-01-01, and NDVI (the fields engine of /v1/field_series). imagery: one native 10 m true-colour picture of each plot for each year since 2020, from the year's clearest pass, as artifact URLs; it replaces request_visual_evidence. burn: MODIS burned-area months since 2021. Each runs beside the verdict with its own budget; one not done comes back status pending with a token for GET /v1/eudr_dds/include/{token}."},
+                    "include_wait_s":{"type":"integer","minimum":0,"maximum":60,"description":"The longest the answer waits for the include sections, in seconds. Each section's own budget (season 25, imagery 20, burn 15) caps it. 0 answers at once, with every section pending."},
                     "forest_rule":{"type":"string","enum":["jrc_only","jrc_or_hansen"],"default":"jrc_only","description":"Which baseline says a cell was forest at the cut-off. jrc_only (default): the JRC GFC2020 map; Hansen tree cover only where JRC has no reading. Loss after the cut-off on JRC non-forest is the verdict review, not fail. jrc_or_hansen: JRC forest or Hansen tree cover of 10 % or more, the rule before 14 November 2026, kept for one release. The answer echoes the rule in forest_rule."}
                 }},
                 "BackfillReq":     {"type":"object","required":["cell","band"],"properties":{"cell":{"type":"string","description":"cell64 string (or place name; resolved through the same geocoder as /v1/locate)"},"band":{"type":"string","description":"band key to backfill, e.g. 'open_meteo.t2m'"},"start_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window start. Default: 30 days ago for fast bands, 365 days ago for slow."},"end_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window end. Default: now."},"max_facts":{"type":"integer","minimum":1,"maximum":1024,"default":16,"description":"Cap on facts materialized in one call. Default 16, fits inside a 60s tool-call window for any LLM host. Raise for explicit wide backfills (cap 1024)."},"refresh":{"type":"boolean","default":false,"description":"Force re-materialization even where a fact already exists, superseding it (the old fact stays resolvable by cid and as_of_signed_at). Use to pick up a materializer change on already-warmed cells, e.g. re-running foundation-model embedding enrichment after the per-pixel-SCL chip selection landed."}}},
@@ -69060,7 +69067,19 @@ async fn build_scene_rgb(
     let item = searched.map_err(|e| format!("stac: {e}"))?.ok_or_else(|| {
         format!("{SCENE_MISS_PREFIX} < {max_cloud_pct}% in {datetime} at this cell")
     })?;
+    render_scene_rgb(&cli, item, lat, lng, size).await
+}
 
+/// The true-colour picture of one Sentinel-2 item, `size` pixels at its
+/// native 10 m centred on `lat`/`lng`. The item's asset urls must be
+/// readable as they are (a Planetary Computer item signed first).
+async fn render_scene_rgb(
+    cli: &reqwest::Client,
+    item: emem_fetch::stac::StacItem,
+    lat: f64,
+    lng: f64,
+    size: (u32, u32),
+) -> Result<SceneRgb, String> {
     let red_url = item
         .assets
         .get("red")
@@ -69087,17 +69106,17 @@ async fn build_scene_rgb(
 
     let (w_px, h_px) = size;
 
-    let red_prof = emem_fetch::cog::open_profile(&cli, &red_url)
+    let red_prof = emem_fetch::cog::open_profile(cli, &red_url)
         .await
         .map_err(|e| format!("open red COG: {e}"))?;
-    let green_prof = emem_fetch::cog::open_profile(&cli, &green_url)
+    let green_prof = emem_fetch::cog::open_profile(cli, &green_url)
         .await
         .map_err(|e| format!("open green COG: {e}"))?;
-    let blue_prof = emem_fetch::cog::open_profile(&cli, &blue_url)
+    let blue_prof = emem_fetch::cog::open_profile(cli, &blue_url)
         .await
         .map_err(|e| format!("open blue COG: {e}"))?;
     let red_pix = emem_fetch::cog::sample_window(
-        &cli,
+        cli,
         &red_url,
         &red_prof,
         utm.easting,
@@ -69108,7 +69127,7 @@ async fn build_scene_rgb(
     .await
     .map_err(|e| format!("sample red: {e}"))?;
     let green_pix = emem_fetch::cog::sample_window(
-        &cli,
+        cli,
         &green_url,
         &green_prof,
         utm.easting,
@@ -69119,7 +69138,7 @@ async fn build_scene_rgb(
     .await
     .map_err(|e| format!("sample green: {e}"))?;
     let blue_pix = emem_fetch::cog::sample_window(
-        &cli,
+        cli,
         &blue_url,
         &blue_prof,
         utm.easting,
@@ -74635,6 +74654,15 @@ struct EudrDdsReq {
     /// was forest at the cut-off. See [`ForestRule`].
     #[serde(default)]
     forest_rule: Option<String>,
+    /// Optional sections answered beside the verdict: `season`, `imagery`,
+    /// `burn` (see `eudr_include`).
+    #[serde(default)]
+    include: Option<Vec<String>>,
+    /// The longest the answer waits for the `include` sections, 0 to 60 s;
+    /// each section's own budget caps it. What is not done comes back
+    /// `pending`.
+    #[serde(default)]
+    include_wait_s: Option<u64>,
     /// Annex II §1 activity type: DOMESTIC | IMPORT | EXPORT | TRADE.
     #[serde(default)]
     activity_type: Option<String>,
@@ -78489,6 +78517,32 @@ fn raster_plot_input(
     })
 }
 
+/// A plot as the `include` sections read it: its commitment, box, polygon
+/// and area. A Point is read as its small box.
+fn include_plot(plot: &EudrPlot, idx: usize, salt: &[u8; 16]) -> Option<eudr_include::IncludePlot> {
+    let (bbox, polygon, area_ha) = extract_plot_geometry(&plot.geometry_geojson).ok()?;
+    let ring: Vec<[f64; 2]> = eudr_raster::bbox_ring(bbox)
+        .into_iter()
+        .map(|(x, y)| [x, y])
+        .collect();
+    let geometry = match polygon {
+        Some(_) => plot.geometry_geojson.clone(),
+        None => json!({"type": "Polygon", "coordinates": [ring]}),
+    };
+    Some(eudr_include::IncludePlot {
+        idx,
+        commitment: eudr_raster::plot_commitment(salt, &plot.plot_id),
+        bbox: band_raster::BBox {
+            min_lat: bbox.0,
+            max_lat: bbox.1,
+            min_lng: bbox.2,
+            max_lng: bbox.3,
+        },
+        geometry,
+        area_ha: polygon_area_ha(&plot.geometry_geojson).unwrap_or(area_ha),
+    })
+}
+
 /// What one method made of one plot, before the fields both share.
 struct EudrMethodOut {
     method: &'static str,
@@ -79011,6 +79065,21 @@ async fn post_eudr_dds_inner(
             )))
         }
     };
+    let mut include: Vec<&'static str> = Vec::new();
+    for asked in req.include.iter().flatten() {
+        let Some(section) = eudr_include::SECTIONS.iter().find(|k| **k == asked.trim()) else {
+            return Err(bad(format!(
+                "eudr_dds: `include` takes {}, not `{asked}`",
+                eudr_include::SECTIONS.join(", ")
+            )));
+        };
+        if !include.contains(section) {
+            include.push(section);
+        }
+    }
+    let include_wait = req
+        .include_wait_s
+        .map(|w| std::time::Duration::from_secs(w.min(60)));
     for (i, p) in req.plots.iter().enumerate() {
         if let Some(salt) = p.plot_salt.as_deref() {
             // The salt is the caller's secret: the refusal does not repeat it.
@@ -79214,8 +79283,6 @@ async fn post_eudr_dds_inner(
         valid_plot_indices.push(idx);
     }
 
-    let mut since = started;
-    eudr_step("prepare", &mut since);
     // The salt behind each plot's commitment: the caller's, or drawn here.
     let salts: Vec<[u8; 16]> = req
         .plots
@@ -79225,6 +79292,19 @@ async fn post_eudr_dds_inner(
             None => eudr_raster::derived_salt(&s.identity.signing.to_bytes(), &p.plot_id),
         })
         .collect();
+    // The `include` sections start now and run beside the verdict, each on
+    // its own task, so a slow upstream there never holds the verdict.
+    let include_plots: Vec<eudr_include::IncludePlot> = valid_plot_indices
+        .iter()
+        .filter_map(|&idx| include_plot(&req.plots[idx], idx, &salts[idx]))
+        .collect();
+    let running: Vec<eudr_include::Running> = include
+        .iter()
+        .map(|&section| eudr_include::start(&s, section, include_plots.clone(), include_wait))
+        .collect();
+    let include_imagery = include.contains(&"imagery");
+    let mut since = started;
+    eudr_step("prepare", &mut since);
     // The raster method reads by consignment, not plot by plot: plots near
     // each other share one read of each source (see `evaluate_consignment`).
     // Its own task: the per-plot futures then hold no read, and stay
@@ -79415,7 +79495,17 @@ async fn post_eudr_dds_inner(
             let (visual_evidence_json, forest_context_json): (
                 Option<JsonValue>,
                 Option<JsonValue>,
-            ) = if plot.request_visual_evidence == Some(true) {
+            ) = if plot.request_visual_evidence == Some(true) && include_imagery {
+                // One picture a year of the whole plot replaces the per-cell
+                // timeline when the request includes imagery.
+                (
+                    Some(json!({
+                        "replaced_by": "include.imagery",
+                        "note": "The request includes imagery: one true-colour picture of the plot for each year since 2020, from the year's clearest pass, replaces this per-cell timeline.",
+                    })),
+                    None,
+                )
+            } else if plot.request_visual_evidence == Some(true) {
                 let now_unix = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs() as i64)
@@ -80044,6 +80134,24 @@ async fn post_eudr_dds_inner(
         }
     }
     eudr_step("receipt", &mut since);
+
+    // The sections that finished in their budget, the rest as `pending`.
+    // Collected last, so storing and signing the verdict run inside the
+    // budgets. The receipt binds the verdict's cells and facts, not these.
+    if !running.is_empty() {
+        let collected =
+            futures_util::future::join_all(running.into_iter().map(eudr_include::collect)).await;
+        let mut m = serde_json::Map::new();
+        for v in collected {
+            if let Some(name) = v["section"].as_str() {
+                m.insert(name.to_string(), v);
+            }
+        }
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("include".into(), JsonValue::Object(m));
+        }
+        eudr_step("include", &mut since);
+    }
 
     Ok(Json(body))
 }
@@ -94493,6 +94601,25 @@ mod tests {
         }
     }
 
+    /// An include token reaches its own handler. On axum 0.7 a `{token}`
+    /// segment is a literal, and the route fell through to the router's 404.
+    #[tokio::test]
+    async fn an_unknown_include_token_reaches_its_handler() {
+        use tower::ServiceExt;
+        let req = axum::http::Request::get("/v1/eudr_dds/include/notatoken")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let r = router(test_app_state()).oneshot(req).await.unwrap();
+        assert_eq!(r.status(), StatusCode::NOT_FOUND);
+        let v: JsonValue = serde_json::from_slice(
+            &axum::body::to_bytes(r.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(v["code"], "include_unknown_or_expired", "{v}");
+    }
+
     /// The A2A HTTP+JSON binding reaches the same handler as JSON-RPC and
     /// answers without the JSON-RPC envelope; the relative card paths a
     /// client derives from /mcp or /a2a/tasks answer with the card.
@@ -107196,6 +107323,8 @@ mod tests {
             max_cells_per_plot: Some(1),
             method: None,
             forest_rule: None,
+            include: None,
+            include_wait_s: None,
             activity_type: None,
             operator_role: None,
             internal_reference_number: None,
@@ -107502,6 +107631,8 @@ mod tests {
             max_cells_per_plot: Some(1024), // > cap of 256
             method: Some("sampled".into()),
             forest_rule: None,
+            include: None,
+            include_wait_s: None,
             activity_type: None,
             operator_role: None,
             internal_reference_number: None,
