@@ -387,6 +387,90 @@ pub fn prewarm_client() -> Client {
         .unwrap_or_else(|_| Client::new())
 }
 
+/// Bytes one merged range request reads at most.
+const MERGED_RANGE_MAX: u64 = 16 << 20;
+/// Merged range requests in flight for one window.
+const MERGED_RANGES_AT_ONCE: usize = 4;
+
+/// Tiles read as one range: `(tile_idx, offset, length)` in file order.
+type TileRun = Vec<(usize, u64, u64)>;
+
+/// Runs of tiles whose bytes sit end to end in the file, as
+/// `(tile_idx, offset, length)` in file order: each run of two or more,
+/// up to `max_bytes`, can be read with one range request.
+fn adjacent_runs(spans: &[(usize, u64, u64)], max_bytes: u64) -> Vec<TileRun> {
+    let mut sorted: Vec<(usize, u64, u64)> = spans.to_vec();
+    sorted.sort_by_key(|s| s.1);
+    let mut runs: Vec<TileRun> = Vec::new();
+    let mut cur: TileRun = Vec::new();
+    for s in sorted {
+        let joins = cur.last().is_some_and(|l| l.1 + l.2 == s.1)
+            && cur.last().map_or(0, |l| l.1 + l.2) - cur[0].1 + s.2 <= max_bytes;
+        if !joins {
+            if cur.len() > 1 {
+                runs.push(std::mem::take(&mut cur));
+            }
+            cur.clear();
+        }
+        cur.push(s);
+    }
+    if cur.len() > 1 {
+        runs.push(cur);
+    }
+    runs
+}
+
+/// Reads tiles that sit end to end in the file with one range request a
+/// run, and puts each tile's bytes in the tile cache, where the per-tile
+/// read then finds them. A window over a row of tiles cost one request a
+/// tile. Tiles already cached are left out; a failed merged read only
+/// means the per-tile reads fetch them as before.
+async fn prefetch_adjacent(client: &Client, url: &str, spans: &[(usize, u64, u64)]) {
+    use futures_util::StreamExt;
+    let key = cache_key(url).to_string();
+    let missing: Vec<(usize, u64, u64)> = {
+        let guard = TILE_CACHE.lock().await;
+        spans
+            .iter()
+            .filter(|(i, _, len)| {
+                *len > 0
+                    && !guard
+                        .get(&(key.clone(), *i))
+                        .is_some_and(|c| c.initialized())
+            })
+            .copied()
+            .collect()
+    };
+    let runs = adjacent_runs(&missing, MERGED_RANGE_MAX);
+    let fetched: Vec<(TileRun, Result<Bytes, CogError>)> =
+        futures_util::stream::iter(runs.into_iter().map(|run| async move {
+            let (first, last) = (run[0], run[run.len() - 1]);
+            let got = http_range(client, url, first.1, last.1 + last.2 - 1).await;
+            (run, got)
+        }))
+        .buffer_unordered(MERGED_RANGES_AT_ONCE)
+        .collect()
+        .await;
+    let mut guard = TILE_CACHE.lock().await;
+    for (run, got) in fetched {
+        let Ok(bytes) = got else { continue };
+        let base = run[0].1;
+        for (i, off, len) in run {
+            let (a, b) = ((off - base) as usize, (off - base + len) as usize);
+            if b > bytes.len() {
+                break;
+            }
+            if guard.len() >= tile_cache_cap() && !guard.contains_key(&(key.clone(), i)) {
+                guard.clear();
+            }
+            let slot = guard
+                .entry((key.clone(), i))
+                .or_insert_with(|| Arc::new(OnceCell::new()));
+            let _ = slot.set(bytes.slice(a..b));
+        }
+    }
+}
+
 /// Range-read the head of a COG and parse IFD0. Returns the metadata needed
 /// for `sample_pixel`.
 ///
@@ -1733,6 +1817,14 @@ pub async fn sample_window(
     // window over many tiles skips the decoded cache, which holds 64 and
     // would be emptied by it.
     use futures_util::StreamExt;
+    if coalesced_buf.is_none() && wanted.len() > 1 {
+        prefetch_adjacent(
+            client,
+            url,
+            &wanted.iter().map(|w| (w.2, w.3, w.4)).collect::<Vec<_>>(),
+        )
+        .await;
+    }
     let codec = TileCodec::from_profile(profile);
     let few = wanted.len() <= WINDOW_CACHED_TILES;
     let coalesced = coalesced_buf.as_ref();
@@ -2297,6 +2389,31 @@ fn whole_body_range(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn tiles_end_to_end_merge_into_runs() {
+        // Tiles 0..=2 sit end to end, 3 starts after a gap, 4 and 5 touch.
+        let spans = [
+            (2, 300, 100),
+            (0, 100, 100),
+            (1, 200, 100),
+            (3, 1000, 50),
+            (5, 2050, 10),
+            (4, 2000, 50),
+        ];
+        let runs = adjacent_runs(&spans, 1 << 20);
+        let ids: Vec<Vec<usize>> = runs
+            .iter()
+            .map(|r| r.iter().map(|t| t.0).collect())
+            .collect();
+        assert_eq!(ids, vec![vec![0, 1, 2], vec![4, 5]]);
+        // The byte cap splits a run; a run of one is no merge.
+        let capped: Vec<Vec<usize>> = adjacent_runs(&spans, 250)
+            .iter()
+            .map(|r| r.iter().map(|t| t.0).collect())
+            .collect();
+        assert_eq!(capped, vec![vec![0, 1], vec![4, 5]]);
+    }
+
     /// An LZW stream of 9-bit literal codes after a Clear, MSB first, with or
     /// without the end-of-information code, padded with zero bits.
     fn literal_lzw(data: &[u8], end_code: bool) -> Vec<u8> {
