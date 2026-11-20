@@ -124,12 +124,26 @@ pub(crate) static ARTIFACTS: LazyLock<ArtifactStore> = LazyLock::new(|| {
 /// Media type of the canonical grid encoding (emem-codec `grid.rs`).
 const GRID_MEDIA_TYPE: &str = "application/x.emem-grid-f32.v1";
 
-#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct BBox {
     pub min_lat: f64,
     pub min_lng: f64,
     pub max_lat: f64,
     pub max_lng: f64,
+}
+
+// Named corners only. The derived form also took a 4-number array in field order (lat first), so a
+// GeoJSON-order [west, south, east, north] box for Punjab served an Arctic scene with a 200.
+impl<'de> Deserialize<'de> for BBox {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let b = crate::deserialize_named_bbox(d)?;
+        Ok(BBox {
+            min_lat: b.min_lat,
+            min_lng: b.min_lng,
+            max_lat: b.max_lat,
+            max_lng: b.max_lng,
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -3885,6 +3899,19 @@ pub async fn post_band_composite(
 
 #[cfg(test)]
 mod tests {
+    /// An array bbox is refused: its order is ambiguous, and the old lat-first reading of a GeoJSON
+    /// [west, south, east, north] box landed in the Arctic.
+    #[test]
+    fn an_array_bbox_is_refused_and_the_named_form_reads() {
+        let arr: Result<BBox, _> = serde_json::from_str("[75.60, 30.74, 75.61, 30.75]");
+        assert!(arr.is_err());
+        let named: BBox = serde_json::from_str(
+            r#"{"min_lat": 30.74, "min_lng": 75.60, "max_lat": 30.75, "max_lng": 75.61}"#,
+        )
+        .unwrap();
+        assert_eq!((named.min_lat, named.max_lng), (30.74, 75.61));
+    }
+
     use super::*;
 
     /// A 40x40 one-strip-per-row deflate TIFF placed like Hansen's 00N_070W

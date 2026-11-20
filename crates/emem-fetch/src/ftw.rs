@@ -486,7 +486,13 @@ fn project_polygon_with_area(
     };
     let mut rings: Vec<Vec<[f64; 2]>> = Vec::with_capacity(1 + p.interiors().len());
     let exterior = project_ring(p.exterior());
-    let area_m2 = planar_area_m2(&exterior);
+    // Net of holes: a field ring with 624 holes was reported at 324.6 ha against 184.2 ha of ground.
+    let area_m2 = (planar_area_m2(&exterior)
+        - p.interiors()
+            .iter()
+            .map(|h| planar_area_m2(&project_ring(h)))
+            .sum::<f64>())
+    .max(0.0);
     let (clat, clng) = ring_centroid_lat_lng(&exterior);
     let centroid_cell64 = emem_codec::geo::cell64_from_latlng(clat, clng);
     // GeoJSON requires the ring to be closed (first == last); the MVT
@@ -568,6 +574,30 @@ fn planar_area_m2(ring: &[[f64; 2]]) -> f64 {
         acc += xi * yj - xj * yi;
     }
     (acc / 2.0).abs()
+}
+
+/// Net area, in square metres, of GeoJSON Polygon coordinates (`[lng, lat]` rings): the exterior
+/// minus every hole, each by [`planar_area_m2`]. `None` for anything that is not a list of rings.
+pub fn net_area_m2(coords: &serde_json::Value) -> Option<f64> {
+    let rings: Vec<Vec<[f64; 2]>> = coords
+        .as_array()?
+        .iter()
+        .map(|r| {
+            r.as_array()
+                .map(|pts| {
+                    pts.iter()
+                        .filter_map(|q| {
+                            let a = q.as_array()?;
+                            Some([a.first()?.as_f64()?, a.get(1)?.as_f64()?])
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        })
+        .collect();
+    let (ext, holes) = rings.split_first()?;
+    let net = planar_area_m2(ext) - holes.iter().map(|h| planar_area_m2(h)).sum::<f64>();
+    Some(net.max(0.0))
 }
 
 /// Cheap "does any vertex of this polygon land inside `bbox`" check —
@@ -683,6 +713,27 @@ pub fn to_geojson_feature_collection(c: &FieldCollection) -> serde_json::Value {
 
 #[cfg(test)]
 mod tests {
+    /// A 100 m square with a 50 m square hole has 7,500 m² of ground, not 10,000.
+    #[test]
+    fn net_area_subtracts_holes() {
+        let m = 1.0 / 111_320.0;
+        let k = 1.0 / (111_320.0 * 0.0f64.to_radians().cos());
+        let sq = |x0: f64, y0: f64, s: f64| {
+            serde_json::json!([
+                [x0 * k, y0 * m],
+                [(x0 + s) * k, y0 * m],
+                [(x0 + s) * k, (y0 + s) * m],
+                [x0 * k, (y0 + s) * m],
+                [x0 * k, y0 * m]
+            ])
+        };
+        let with_hole = serde_json::json!([sq(0.0, 0.0, 100.0), sq(25.0, 25.0, 50.0)]);
+        let a = net_area_m2(&with_hole).unwrap();
+        assert!((a - 7_500.0).abs() / 7_500.0 < 0.01, "{a}");
+        let solid = serde_json::json!([sq(0.0, 0.0, 100.0)]);
+        assert!((net_area_m2(&solid).unwrap() - 10_000.0).abs() / 10_000.0 < 0.01);
+    }
+
     use super::*;
 
     /// Web-Mercator tile-math against the canonical OSM slippy-map

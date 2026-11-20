@@ -3187,6 +3187,13 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             "{n_suspect} scene(s) passed the cloud mask but fall far from both neighbours in time, the same way (`quality: suspect`, with `scene_check`). They stay in the rows and are left out of the trend. In January on the Indo-Gangetic plain this is usually fog."
         ));
     }
+    if zones.len() > 1 && candidates.len() > max_scenes {
+        cautions.push(format!(
+            "{} candidate dates, {max_scenes} read: the evenly spaced dates are chosen over this call's whole area, so the same field sent in another batch can get other dates. For dates that do not depend on the batch, send max_scenes of at least {} (and fewer fields if `scenes_capped_by_fields` says the call's budget cut it).",
+            candidates.len(),
+            candidates.len()
+        ));
+    }
     let months: std::collections::BTreeSet<u32> = kept_days
         .iter()
         .map(|d| crate::civil_from_days(*d).1)
