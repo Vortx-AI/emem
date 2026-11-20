@@ -7,6 +7,10 @@ to verify.
 
 ## [Unreleased]
 
+- `POST /v1/field_boundaries` with `regularize: true`: no two redrawn outlines overlap. 2.4.6 cut each redraw against its neighbours' original outlines only, so two redraws could each take the same gap between their fields; on a public 1 km box in Punjab a rectangle and a simplified outline overlapped by 21.2 m2, and the 2.4.6 entry below said a field never takes a neighbour's ground. Each redraw is now also cut against the outlines already redrawn, and a final pass puts back any redraw that still overlaps another (`overlaps_reverted`, 0 expected). The operator moves to `selective_regularisation@2`. A rectangle or hull can still take ground from a gap (a bund, a track), so a redrawn field's area can grow; hulls added 7 to 10 % on that box.
+- `POST /v1/field_boundaries` with `support: true`: each `s2_support` names the count its `label` uses (`label_rule: "px_inner_5m"`) and adds `label_centres`, the same thresholds on `px_centres`, the `n_px` that `field_series` reports. On two public 1 km boxes the two counts give a different label to 18 of 117 and 144 of 388 fields.
+- `area_m2` and `total_area_m2` of `field_boundaries` are within 0.001 % of the ellipsoidal area at field scale. The latitude scale left out its cos 2 lat term, so every area read 0.24 % high at 31 N and 0.31 % high at 26 N (and low above 45 degrees). Found by checking the 2.4.6 areas against UTM.
+
 ## [2.4.6] - 2026-11-20
 
 A patch release: no wire change to the signed receipt or the fact preimage. Receipts and facts signed before it verify unchanged. It carries field-boundary work for farm products, the storage and log fixes that matter once a node logs its own reports, the whole-plot EUDR check, MODIS from Planetary Computer, and the dated-recall, guard and Sentinel-2 fixes below.

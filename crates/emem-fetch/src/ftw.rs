@@ -552,25 +552,35 @@ fn ring_centroid_lat_lng(ring: &[[f64; 2]]) -> (f64, f64) {
     (cy / six_a, cx / six_a)
 }
 
-/// Shoelace area on a ring whose vertices are `[lon, lat]` in degrees,
-/// converted to metres via equirectangular scaling at the ring's mean
-/// latitude. Accurate to <1 % for fields up to a few km across, which
-/// is the entire working scale for FTW field polygons.
+/// Shoelace area of a ring of `[lon, lat]` degrees, in square metres. Each degree is scaled by the
+/// WGS84 length of a degree of latitude and of longitude at the ring's mean latitude (the meridian and
+/// parallel series), so the area scale there is the ellipsoid's own. Against the exact ellipsoidal area
+/// of a 0.01 degree cell this is within 0.0001 % at 26 to 60 degrees, and 0.0012 % for a whole 1 x 1
+/// degree cell at the equator. Before 2026-11-20 the latitude scale was the series' constant term
+/// alone, which put field areas 0.24 % high at 31 N and 0.31 % high at 26 N.
 fn planar_area_m2(ring: &[[f64; 2]]) -> f64 {
     if ring.len() < 3 {
         return 0.0;
     }
     let mean_lat: f64 = ring.iter().map(|p| p[1]).sum::<f64>() / (ring.len() as f64);
-    let lat_rad = mean_lat.to_radians();
-    // metres per degree on the WGS84 ellipsoid at lat_rad (small-angle
-    // approximation — Bowring 1985 § 2.4, error <0.5 % to 60° lat)
-    const M_PER_DEG_LAT: f64 = 111_132.92;
-    let m_per_deg_lon = 111_412.84 * lat_rad.cos() - 93.5 * (lat_rad * 3.0).cos();
+    let phi = mean_lat.to_radians();
+    let m_per_deg_lat = 111_132.92 - 559.82 * (2.0 * phi).cos() + 1.175 * (4.0 * phi).cos()
+        - 0.0023 * (6.0 * phi).cos();
+    let m_per_deg_lon =
+        111_412.84 * phi.cos() - 93.5 * (3.0 * phi).cos() + 0.118 * (5.0 * phi).cos();
+    // relative to the first vertex: products of absolute degree-metres lose digits to cancellation
+    let (x0, y0) = (ring[0][0], ring[0][1]);
     let mut acc = 0.0;
     for i in 0..ring.len() {
         let j = (i + 1) % ring.len();
-        let (xi, yi) = (ring[i][0] * m_per_deg_lon, ring[i][1] * M_PER_DEG_LAT);
-        let (xj, yj) = (ring[j][0] * m_per_deg_lon, ring[j][1] * M_PER_DEG_LAT);
+        let (xi, yi) = (
+            (ring[i][0] - x0) * m_per_deg_lon,
+            (ring[i][1] - y0) * m_per_deg_lat,
+        );
+        let (xj, yj) = (
+            (ring[j][0] - x0) * m_per_deg_lon,
+            (ring[j][1] - y0) * m_per_deg_lat,
+        );
         acc += xi * yj - xj * yi;
     }
     (acc / 2.0).abs()
@@ -813,20 +823,25 @@ mod tests {
         ));
     }
 
-    /// Shoelace area of a known 1° × 1° equator square is ≈12_321 km².
-    /// (Ellipsoid value at the equator is 12_363 km² — the planar
-    /// approximation lands within 0.4 %, which is the documented bound.)
+    /// Against the exact ellipsoidal area of a cell between two parallels,
+    /// (a^2 / 2) * dlon * (q(lat2) - q(lat1)) with q the authalic function on WGS84:
+    /// 12,308.5 km2 for the 1 x 1 degree cell at the equator, and 1,061,561.86 m2 for
+    /// the 0.01 degree cell at 30.745 N, 75.6 E. The old constant latitude scale read
+    /// the second 0.242 % high.
     #[test]
-    fn planar_area_equator_unit_square() {
+    fn planar_area_matches_the_ellipsoid() {
         let ring = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
         let a = planar_area_m2(&ring);
-        let expected = 12_321e6; // ≈12_321 km²
-        let rel_err = (a - expected).abs() / expected;
-        assert!(
-            rel_err < 0.02,
-            "planar area off by {:.2} % (got {a}, expected {expected})",
-            rel_err * 100.0
-        );
+        assert!((a - 12_308.5e6).abs() / 12_308.5e6 < 1e-4, "{a}");
+        let (lng, lat, d) = (75.6, 30.745, 0.01);
+        let cell = vec![
+            [lng, lat],
+            [lng + d, lat],
+            [lng + d, lat + d],
+            [lng, lat + d],
+        ];
+        let a = planar_area_m2(&cell);
+        assert!((a - 1_061_561.86).abs() / 1_061_561.86 < 1e-5, "{a}");
     }
 
     /// Bbox intersection check rejects clearly-outside polygons.

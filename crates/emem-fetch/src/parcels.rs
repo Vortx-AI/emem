@@ -227,8 +227,14 @@ pub fn to_geojson(p: &Polygon<f64>, lat0: f64) -> serde_json::Value {
     serde_json::Value::Array(out)
 }
 
-/// The operator identifier for [`regularize`], written into its record.
-pub const REGULARIZE_OPERATOR: &str = "selective_regularisation@1";
+/// The operator identifier for [`regularize`], written into its record. @2 trims each redrawn outline
+/// against the outlines already redrawn as well as the original ones: under @1 two redraws could each
+/// take the same gap between their fields and overlap (21.2 m2 on a public 1 km box, 2026-11-20).
+pub const REGULARIZE_OPERATOR: &str = "selective_regularisation@2";
+
+/// Below this, in square metres, two redrawn outlines are taken not to overlap: the boolean operations
+/// leave slivers of float round-off along a shared cut.
+const OVERLAP_TOL_M2: f64 = 0.01;
 
 /// Thresholds for [`regularize`]. The defaults are the rule the sub-metre boundary pipeline uses.
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -284,6 +290,9 @@ pub struct RegularizeReport {
     pub hull: usize,
     pub simplified: usize,
     pub kept: usize,
+    /// Redraws put back to the original because they still overlapped another redraw after trimming
+    /// (a guard on float round-off; 0 is expected).
+    pub overlaps_reverted: usize,
     pub vertices_before: usize,
     pub vertices_after: usize,
     pub area_before_m2: f64,
@@ -306,13 +315,26 @@ fn iou(a: &Polygon<f64>, b: &Polygon<f64>) -> f64 {
     a.intersection(b).unsigned_area() / u
 }
 
+fn indices_near(tree: &RTree<Item>, bb: &AABB<[f64; 2]>, not: usize) -> Vec<usize> {
+    let mut hits: Vec<usize> = tree
+        .locate_in_envelope_intersecting(bb)
+        .map(|it| it.idx)
+        .filter(|&j| j != not)
+        .collect();
+    hits.sort_unstable();
+    hits
+}
+
 /// Replace each field's outline by a simpler one when the simpler one fits it closely.
 ///
 /// Per field, in order: its minimum rotated rectangle if their IoU is at least `rect_iou`; else its
 /// convex hull if their IoU is at least `hull_iou`; else Douglas-Peucker at `simplify_m`. The result
-/// never takes ground that a neighbour's ORIGINAL outline holds, never changes the field's area by more
-/// than `max_area_change`, and must be one valid polygon; otherwise the original is kept. A blanket
-/// convex hull is not used: it fills L-shapes and notches and fuses adjacent plots.
+/// never takes ground that a neighbour's original outline holds or that a neighbour's redrawn outline
+/// already took, never changes the field's area by more than `max_area_change`, and must be one valid
+/// polygon; otherwise the original is kept. So no two returned outlines overlap. A rectangle or hull can
+/// take ground from a gap between fields (a bund, a track), so a redrawn field's area can grow; the
+/// record gives the total before and after. A blanket convex hull is not used: it fills L-shapes and
+/// notches and fuses adjacent plots.
 ///
 /// Measured on 10 m outlines (two public 1 km boxes, 2026-11-20) this cuts vertices by about a fifth
 /// and leaves the median area unchanged, and it does NOT move an outline onto a truer edge: the mean
@@ -335,21 +357,16 @@ pub fn regularize(
             })
             .collect(),
     );
-    let mut rep = RegularizeReport {
-        operator: REGULARIZE_OPERATOR,
-        deterministic: true,
-        ..Default::default()
-    };
+    // Fields already redrawn, by the box of their NEW outline: a rotated rectangle can leave the box
+    // of the original.
+    let mut redrawn: RTree<Item> = RTree::new();
     let mut kinds = vec![None; polys.len()];
-    for (i, slot) in polys.iter_mut().enumerate() {
+    for i in 0..polys.len() {
         let Some(orig) = originals[i].as_ref() else {
             continue;
         };
         let a0 = orig.unsigned_area();
-        rep.fields += 1;
-        rep.vertices_before += vertex_count(orig);
-        rep.area_before_m2 += a0;
-        let candidate = match orig.minimum_rotated_rect() {
+        let (cand, kind) = match orig.minimum_rotated_rect() {
             Some(r) if iou(orig, &r) >= prm.rect_iou => (r, RegularKind::Rectangle),
             _ => {
                 let h = orig.convex_hull();
@@ -360,42 +377,86 @@ pub fn regularize(
                 }
             }
         };
-        let (cand, kind) = candidate;
-        let neighbours: Vec<Polygon<f64>> = aabb_of(&cand)
+        let blockers: Vec<Polygon<f64>> = aabb_of(&cand)
             .map(|bb| {
-                let mut hits: Vec<usize> = tree
-                    .locate_in_envelope_intersecting(&bb)
-                    .map(|it| it.idx)
-                    .filter(|&j| j != i)
-                    .collect();
-                hits.sort_unstable();
-                hits.into_iter()
+                let mut b: Vec<Polygon<f64>> = indices_near(&tree, &bb, i)
+                    .into_iter()
                     .filter_map(|j| originals[j].clone())
-                    .collect()
+                    .collect();
+                b.extend(
+                    indices_near(&redrawn, &bb, i)
+                        .into_iter()
+                        .filter_map(|j| polys[j].clone()),
+                );
+                b
             })
             .unwrap_or_default();
-        let trimmed = if neighbours.is_empty() {
-            Some(cand)
-        } else {
-            largest(cand.difference(&MultiPolygon(neighbours)))
-        };
-        let accepted = trimmed.filter(|t| {
+        // One blocker at a time: a neighbour's original and its redraw overlap each other, and a
+        // MultiPolygon whose members overlap is not valid input to the boolean operations.
+        let mut left = MultiPolygon(vec![cand]);
+        for b in &blockers {
+            left = left.difference(b);
+        }
+        let accepted = largest(left).filter(|t| {
             a0 > 0.0 && (t.unsigned_area() - a0).abs() / a0 <= prm.max_area_change && t.is_valid()
         });
         let (out, kind) = match accepted {
             Some(t) => (t, kind),
             None => (orig.clone(), RegularKind::Kept),
         };
+        if kind != RegularKind::Kept {
+            if let Some(aabb) = aabb_of(&out) {
+                redrawn.insert(Item { idx: i, aabb });
+            }
+        }
+        kinds[i] = Some(kind);
+        polys[i] = Some(out);
+    }
+    // Every redraw was cut against every original, so putting a field back to its original can clash
+    // with nothing; only two redraws can still touch, through round-off. Check, and revert the later one.
+    let mut overlaps_reverted = 0;
+    for i in 0..polys.len() {
+        if !matches!(kinds[i], Some(k) if k != RegularKind::Kept) {
+            continue;
+        }
+        let Some(bb) = polys[i].as_ref().and_then(aabb_of) else {
+            continue;
+        };
+        let clash = indices_near(&redrawn, &bb, i).into_iter().any(|j| {
+            j < i
+                && matches!(kinds[j], Some(k) if k != RegularKind::Kept)
+                && match (&polys[i], &polys[j]) {
+                    (Some(a), Some(b)) => a.intersection(b).unsigned_area() > OVERLAP_TOL_M2,
+                    _ => false,
+                }
+        });
+        if clash {
+            polys[i] = originals[i].clone();
+            kinds[i] = Some(RegularKind::Kept);
+            overlaps_reverted += 1;
+        }
+    }
+    let mut rep = RegularizeReport {
+        operator: REGULARIZE_OPERATOR,
+        deterministic: true,
+        overlaps_reverted,
+        ..Default::default()
+    };
+    for (i, kind) in kinds.iter().enumerate() {
+        let (Some(kind), Some(orig), Some(out)) = (kind, &originals[i], &polys[i]) else {
+            continue;
+        };
+        rep.fields += 1;
+        rep.vertices_before += vertex_count(orig);
+        rep.area_before_m2 += orig.unsigned_area();
         match kind {
             RegularKind::Rectangle => rep.rectangle += 1,
             RegularKind::Hull => rep.hull += 1,
             RegularKind::Simplified => rep.simplified += 1,
             RegularKind::Kept => rep.kept += 1,
         }
-        rep.vertices_after += vertex_count(&out);
+        rep.vertices_after += vertex_count(out);
         rep.area_after_m2 += out.unsigned_area();
-        kinds[i] = Some(kind);
-        *slot = Some(out);
     }
     (rep, kinds)
 }
@@ -417,7 +478,22 @@ pub struct S2Support {
     pub px_inner_5m: u32,
     /// `field_value` (30 or more inner pixels), `small_field_value` (4 to 29) or `no_field_value`.
     pub label: &'static str,
+    /// The count `label` is set from: always `px_inner_5m`.
+    pub label_rule: &'static str,
+    /// The same thresholds on `px_centres`, the count `field_series` reports as `n_px`. A field can be
+    /// `field_value` here and `small_field_value` in `label` when most of its pixels touch its edge.
+    pub label_centres: &'static str,
     pub utm_epsg: u32,
+}
+
+fn support_label(px: u32) -> &'static str {
+    if px >= SUPPORT_FIELD_MIN_PX {
+        "field_value"
+    } else if px >= SUPPORT_SMALL_MIN_PX {
+        "small_field_value"
+    } else {
+        "no_field_value"
+    }
 }
 
 struct Seg {
@@ -541,17 +617,12 @@ pub fn s2_support(coords: &serde_json::Value) -> Option<S2Support> {
         }
         y += 10.0;
     }
-    let label = if inner >= SUPPORT_FIELD_MIN_PX {
-        "field_value"
-    } else if inner >= SUPPORT_SMALL_MIN_PX {
-        "small_field_value"
-    } else {
-        "no_field_value"
-    };
     Some(S2Support {
         px_centres: centres,
         px_inner_5m: inner,
-        label,
+        label: support_label(inner),
+        label_rule: "px_inner_5m",
+        label_centres: support_label(centres),
         utm_epsg: zone.epsg,
     })
 }
@@ -690,12 +761,66 @@ mod tests {
         assert!(a.intersection(&nb).unsigned_area() < 1e-6);
     }
 
+    /// Two redraws never overlap, whichever is drawn first. A is a box with a notch on its right
+    /// (its rectangle is the whole box); B sits in the notch with a small bite out of its corner (its
+    /// rectangle fills the bite). Cut only against B's original, A's rectangle takes the bite, and B's
+    /// rectangle takes it back: 15 m2 counted twice, the @1 defect.
+    #[test]
+    fn two_redraws_never_overlap() {
+        use geo::MinimumRotatedRect;
+        let a: Polygon<f64> = polygon![(x: 0.0, y: 0.0), (x: 100.0, y: 0.0), (x: 100.0, y: 40.0), (x: 65.0, y: 40.0),
+            (x: 65.0, y: 65.0), (x: 100.0, y: 65.0), (x: 100.0, y: 100.0), (x: 0.0, y: 100.0), (x: 0.0, y: 0.0)];
+        let b: Polygon<f64> = polygon![(x: 80.0, y: 45.0), (x: 95.0, y: 45.0), (x: 95.0, y: 60.0), (x: 75.0, y: 60.0),
+            (x: 75.0, y: 48.0), (x: 80.0, y: 48.0), (x: 80.0, y: 45.0)];
+        let bite = b.minimum_rotated_rect().unwrap().unsigned_area() - b.unsigned_area();
+        assert!(
+            (bite - 15.0).abs() < 1e-6,
+            "the scenario needs B's rectangle to fill a 15 m2 bite"
+        );
+        for order in [[0usize, 1], [1, 0]] {
+            let src = [a.clone(), b.clone()];
+            let mut v: Vec<Option<Polygon<f64>>> =
+                order.iter().map(|&k| Some(src[k].clone())).collect();
+            let (rep, kinds) = regularize(&mut v, &RegularizeParams::default());
+            let (p, q) = (v[0].as_ref().unwrap(), v[1].as_ref().unwrap());
+            assert!(
+                p.intersection(q).unsigned_area() < 1e-6,
+                "order {order:?}: redraws overlap"
+            );
+            assert!(
+                kinds.contains(&Some(RegularKind::Rectangle)),
+                "order {order:?}: nothing redrawn"
+            );
+            assert_eq!(rep.overlaps_reverted, 0);
+            assert_eq!(rep.operator, "selective_regularisation@2");
+            // neither redraw takes the other's original ground
+            assert!(p.intersection(&src[order[1]]).unsigned_area() < 1e-6);
+            assert!(q.intersection(&src[order[0]]).unsigned_area() < 1e-6);
+        }
+    }
+
+    /// A 60 m square 2 m off the grid: 36 pixel centres, but the first column sits 3 m from the edge,
+    /// so 25 are 5 m inside. `label` follows the inner count and says so; `label_centres` follows n_px.
+    #[test]
+    fn support_names_its_label_rule() {
+        let s = s2_support(&square_ll_off(75.605, 30.745, 60.0, 2.0)).unwrap();
+        assert_eq!((s.px_centres, s.px_inner_5m), (36, 25));
+        assert_eq!(s.label, "small_field_value");
+        assert_eq!(s.label_rule, "px_inner_5m");
+        assert_eq!(s.label_centres, "field_value");
+    }
+
     fn square_ll(lng0: f64, lat0: f64, side_m: f64) -> serde_json::Value {
-        // a square of side_m metres whose south-west corner sits ON a 10 m UTM grid line
+        square_ll_off(lng0, lat0, side_m, 0.0)
+    }
+
+    fn square_ll_off(lng0: f64, lat0: f64, side_m: f64, off_m: f64) -> serde_json::Value {
+        // a square of side_m metres whose south-west corner sits off_m metres east and north of a 10 m
+        // UTM grid crossing
         let z = crate::proj::latlng_to_utm(lat0, lng0, None);
         let (e0, n0) = (
-            (z.easting / 10.0).floor() * 10.0,
-            (z.northing / 10.0).floor() * 10.0,
+            (z.easting / 10.0).floor() * 10.0 + off_m,
+            (z.northing / 10.0).floor() * 10.0 + off_m,
         );
         let corner = |e: f64, n: f64| {
             let (lat, lng) = crate::proj::utm_to_latlng_with_epsg(e, n, z.epsg).unwrap();
