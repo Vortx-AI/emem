@@ -22,7 +22,7 @@
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
 <link rel=stylesheet href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
-<link rel=stylesheet href="/tokens.css?v=7bbfef6e672b">
+<link rel=stylesheet href="/tokens.css?v=64653cefe95f">
 <link rel=stylesheet href="/nav.css?v=1001118daea4">
 <style>
 /* Palette and scale come from /tokens.css. Nothing is redefined here: this
@@ -95,48 +95,51 @@ footer{border-top:1px solid var(--rule);margin-top:var(--s-5);padding:var(--s-4)
 <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
 <button type="button" class="navtoggle" aria-expanded="false" aria-controls="sitenav-panel"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>Menu</button>
 <div class="navpanel" id="sitenav-panel">
-<a class="navlink" href="/demos">Demos</a>
-<a class="navlink" href="/how-it-works">How it works</a>
-<a class="navlink" href="/reference">Reference</a>
-<a class="navlink" href="/tools">MCP tools</a>
-<a class="navlink" href="/verify">Verify</a>
-<a class="navlink" href="/docs/">Docs</a>
-<details class="navgrp on" name="sitenav">
-<summary>More</summary>
-<div class="navmenu navmenu-cols">
-<div class="navsec"><h6>learn</h6>
+<details class="navgrp" name="sitenav">
+<summary>Product</summary>
+<div class="navmenu">
+<a href="/how-it-works"><b>The memory model</b><span>address, fact, receipt, token, log</span></a>
+<a href="/verify"><b>Verify</b><span>check any token in this tab</span></a>
+<a href="/guard"><b>Guard</b><span>gate an answer on its citations</span></a>
+<a href="/a2a"><b>Agent handoff</b><span>hand memory between agents</span></a>
+</div></details>
+<details class="navgrp" name="sitenav">
+<summary>Examples</summary>
+<div class="navmenu">
 <a href="/eudr"><b>EUDR evidence</b><span>check supplier plots, plot by plot</span></a>
 <a href="/agriculture"><b>Crop intelligence</b><span>fields, areas and districts</span></a>
-<a href="/contact"><b>Talk to us</b><span>email the team, or open an issue</span></a>
-<a href="/solutions"><b>Solutions</b><span>see four agents using it</span></a>
-<a href="/whitepaper"><b>Whitepaper</b><span>read the math and the proofs</span></a>
-<a href="/the-long-version"><b>The long read</b><span>the album, the loop, the proof</span></a>
-<a href="/spec"><b>Spec</b><span>implement the wire format</span></a>
-</div>
-<div class="navsec"><h6>connect</h6>
-<a href="/a2a"><b>A2A</b><span>hand memory between agents</span></a>
-<a href="/reference#client-setup"><b>Connect a client</b><span>Claude, ChatGPT, Cursor, VS Code</span></a>
+<a href="/solutions"><b>All examples</b><span>what teams use it for</span></a>
+</div></details>
+<details class="navgrp" name="sitenav">
+<summary>Developers</summary>
+<div class="navmenu">
+<a href="/demos"><b>Live demos</b><span>run live calls in the browser</span></a>
+<a href="/reference#client-setup"><b>Quick start</b><span>connect Claude, ChatGPT, Cursor, VS Code</span></a>
+<a href="/reference"><b>API reference</b><span>call every endpoint</span></a>
+<a href="/tools"><b>MCP tools</b><span>browse all tools, copy a call</span></a>
 <a href="/openapi.json"><b>OpenAPI</b><span>load the machine contract</span></a>
 <a href="/skills.md"><b>Skills</b><span>run a procedure as an agent</span></a>
-</div>
-<div class="navsec"><h6>verify</h6>
-<a href="/guard"><b>Guard</b><span>gate an answer on its citations</span></a>
-<a href="/agents" aria-current="page"><b>Attesters</b><span>see every key that writes</span></a>
-<a href="/v1/log/sth"><b>Log head</b><span>pin a signed head</span></a>
-</div>
-<div class="navsec"><h6>lab</h6>
-<a href="/worlds"><b>Worlds<i class="labtag">lab</i></b><span>fly places built on signed facts</span></a>
-<a href="/channel"><b>Channel<i class="labtag">lab</i></b><span>read agents talking</span></a>
-<a href="/scoreboard"><b>Scoreboard<i class="labtag">lab</i></b><span>watch a benchmark race</span></a>
-<a href="/gallery"><b>Gallery<i class="labtag">lab</i></b><span>see the record rendered</span></a>
-<a href="/arcade"><b>Arcade<i class="labtag">lab</i></b><span>watch agents run the loop</span></a>
-</div>
+<a href="https://huggingface.co/spaces/vortx-ai/emem" target="_blank" rel="noopener noreferrer"><b>Hugging Face Space<i class="ext" aria-hidden="true">&#8599;</i></b><span>the same image, running on a Space</span></a>
 </div></details>
+<details class="navgrp on" name="sitenav">
+<summary>Research</summary>
+<div class="navmenu">
+<a href="/whitepaper"><b>Whitepaper</b><span>the math and the proofs</span></a>
+<a href="/spec"><b>Spec</b><span>implement the wire format</span></a>
+<a href="/the-long-version"><b>The long read</b><span>the album, the loop, the proof</span></a>
+<a href="/agents" aria-current="page"><b>Attesters</b><span>every key that writes</span></a>
+<a href="/v1/log/sth"><b>Log head</b><span>pin a signed head</span></a>
+<a href="https://vortx-ai.github.io/esa_poster/" target="_blank" rel="noopener noreferrer"><b>ESA poster<i class="ext" aria-hidden="true">&#8599;</i></b><span>Agentic AI for Earth Observation, BIFOLD and ESA Phi-lab, Berlin, Oct 2026</span></a>
+<a href="https://doi.org/10.5281/zenodo.20706893" target="_blank" rel="noopener noreferrer"><b>Whitepaper DOI<i class="ext" aria-hidden="true">&#8599;</i></b><span>the protocol paper on Zenodo</span></a>
+<a href="https://vortx-ai.github.io/ememdemo/" target="_blank" rel="noopener noreferrer"><b>ememdemo<i class="ext" aria-hidden="true">&#8599;</i></b><span>a site built on emem, with its own probes</span></a>
+</div></details>
+<a class="navlink" href="/docs/">Docs</a>
 <span class="sitebar-gap"></span>
-<a class="navcta" href="/reference#client-setup">Connect</a>
 <a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">GitHub</a>
+<a class="navplain navtalk" href="/contact">Talk to us</a>
+<a class="navcta" href="/reference#client-setup">Connect</a>
 </div></nav></header>
-<div class="audience aud-agents"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Verify</li><li><span aria-current="page">Attesters</span></li></ol><span class="aud-for">For agents</span></div>
+<div class="audience aud-agents"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Research</li><li><span aria-current="page">Attesters</span></li></ol></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
@@ -217,43 +220,45 @@ footer{border-top:1px solid var(--rule);margin-top:var(--s-5);padding:var(--s-4)
 <footer class="page foot sitefoot">
 <div class="sf-top"><a class="sf-brand" href="/"><img src="/vortxgola.gif" alt="">emem</a><p class="sf-proof" data-proof>log head: checking in this tab&hellip;</p></div>
 <div class="sf-grid">
-<div class="foot-col"><h4>Try</h4><ul>
+<div class="foot-col"><h4>Product</h4><ul>
 <li><a href="/">Home</a></li>
-<li><a href="/demos">Demos</a></li>
-</ul></div>
-<div class="foot-col"><h4>Learn</h4><ul>
-<li><a href="/how-it-works">How it works</a></li>
-<li><a href="/eudr">EUDR evidence</a></li>
-<li><a href="/agriculture">Crop intelligence</a></li>
-<li><a href="/contact">Talk to us</a></li>
-<li><a href="/solutions">Solutions</a></li>
-<li><a href="/whitepaper">Whitepaper</a></li>
-<li><a href="/the-long-version">The long read</a></li>
-<li><a href="/spec">Spec</a></li>
-</ul></div>
-<div class="foot-col"><h4>Connect</h4><ul>
-<li><a href="/reference">Reference</a></li>
-<li><a href="/tools">MCP tools</a></li>
-<li><a href="/a2a">A2A</a></li>
-<li><a href="/docs/">Docs</a></li>
-<li><a href="/reference#client-setup">Connect a client</a></li>
-<li><a href="/openapi.json">OpenAPI</a></li>
-<li><a href="/skills.md">Skills</a></li>
-</ul></div>
-<div class="foot-col"><h4>Verify</h4><ul>
+<li><a href="/how-it-works">The memory model</a></li>
 <li><a href="/verify">Verify</a></li>
 <li><a href="/guard">Guard</a></li>
+<li><a href="/a2a">Agent handoff</a></li>
+</ul></div>
+<div class="foot-col"><h4>Examples</h4><ul>
+<li><a href="/eudr">EUDR evidence</a></li>
+<li><a href="/agriculture">Crop intelligence</a></li>
+<li><a href="/solutions">All examples</a></li>
+</ul></div>
+<div class="foot-col"><h4>Developers</h4><ul>
+<li><a href="/demos">Live demos</a></li>
+<li><a href="/reference#client-setup">Quick start</a></li>
+<li><a href="/reference">API reference</a></li>
+<li><a href="/tools">MCP tools</a></li>
+<li><a href="/docs/">Docs</a></li>
+<li><a href="/openapi.json">OpenAPI</a></li>
+<li><a href="/skills.md">Skills</a></li>
+<li><a href="https://huggingface.co/spaces/vortx-ai/emem" target="_blank" rel="noopener noreferrer">Hugging Face Space</a></li>
+</ul></div>
+<div class="foot-col"><h4>Research</h4><ul>
+<li><a href="/whitepaper">Whitepaper</a></li>
+<li><a href="/spec">Spec</a></li>
+<li><a href="/the-long-version">The long read</a></li>
 <li><a href="/agents">Attesters</a></li>
 <li><a href="/v1/log/sth">Log head</a></li>
+<li><a href="https://vortx-ai.github.io/esa_poster/" target="_blank" rel="noopener noreferrer">ESA poster</a></li>
+<li><a href="https://doi.org/10.5281/zenodo.20706893" target="_blank" rel="noopener noreferrer">Whitepaper DOI</a></li>
+<li><a href="https://vortx-ai.github.io/ememdemo/" target="_blank" rel="noopener noreferrer">ememdemo</a></li>
 </ul></div>
-<div class="foot-col"><h4>Lab</h4><ul>
-<li><a href="/worlds">Worlds</a></li>
-<li><a href="/channel">Channel</a></li>
-<li><a href="/scoreboard">Scoreboard</a></li>
-<li><a href="/gallery">Gallery</a></li>
-<li><a href="/arcade">Arcade</a></li>
+<div class="foot-col"><h4>Company</h4><ul>
+<li><a href="/contact">Talk to us</a></li>
+<li><a href="https://vortx.ai" target="_blank" rel="noopener noreferrer">vortx.ai</a></li>
+<li><a href="/security">Security</a></li>
+<li><a href="/privacy">Privacy</a></li>
 </ul></div>
-<div class="foot-col"><h4>Machine</h4><ul>
+<div class="foot-col"><h4>For agents</h4><ul>
 <li><a href="/llms.txt">llms.txt</a></li>
 <li><a href="/.well-known/agent-card.json">agent card</a></li>
 <li><a href="/.well-known/emem.json">emem.json</a></li>

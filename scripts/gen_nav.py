@@ -63,50 +63,62 @@ END = "<!--nav:end-->"
 #   kind "ref"   reference: reached from the bar or the footer, not the path
 #   kind "lab"   unfinished or experimental; kept reachable, marked, off the path
 SITE = [
-    ("/",                     "Home",          "tokenise a file, read a place, ask", "Try",     "path"),
-    ("/demos",                "Demos",         "run live calls in the browser",      "Try",     "path"),
+    # v3 (2026-11-20, owner): the bar follows the one hierarchy every public surface uses. The category and its
+    # memory model first (Product), then what it is used for (Examples), then building with it (Developers), then
+    # the evidence a careful reader wants (Research). Lab pages keep their URLs and leave the chrome: the owner
+    # asked that nothing unfinished or internal face a buyer.
+    ("/",                     "Home",          "the memory of the physical world",   "Product",    "path"),
+    ("/how-it-works",         "The memory model", "address, fact, receipt, token, log", "Product",  "path"),
+    ("/verify",               "Verify",        "check any token in this tab",        "Product",    "path"),
+    ("/guard",                "Guard",         "gate an answer on its citations",    "Product",    "path"),
+    ("/a2a",                  "Agent handoff", "hand memory between agents",         "Product",    "path"),
+    ("/eudr",                 "EUDR evidence", "check supplier plots, plot by plot",  "Examples",   "ref"),
+    ("/agriculture",          "Crop intelligence", "fields, areas and districts",     "Examples",   "ref"),
+    ("/solutions",            "All examples",  "what teams use it for",              "Examples",   "ref"),
+    ("/demos",                "Live demos",    "run live calls in the browser",      "Developers", "path"),
     # The demo walk, one page per plugin skill it shows (plugins/emem/skills/).
-    # The five older demo pages still answer at their URLs; each says where
-    # its demo went, and is off the walk (see AUDIENCE below).
-    ("/demos/signed-answer",  "Signed answer", "read a place, check the receipt",    "Try",     "demo"),
-    ("/demos/verify-before-publish", "Check a draft", "catch a wrong number",        "Try",     "demo"),
-    ("/demos/handoff",        "Handoff",       "check who wrote a note",             "Try",     "demo"),
-    ("/demos/transparency-log", "Log only grows", "prove history was not rewritten", "Try",     "demo"),
-    ("/demos/tokenise-files", "Tokenise a file", "cite one section by its hash",     "Try",     "demo"),
-    ("/demos/document-evidence", "Document evidence", "parse a report, check the chain", "Try", "demo"),
-    ("/demos/field",          "One field",     "edges, pixels, NDVI you compute",    "Try",     "demo"),
-    ("/demos/eudr",           "EUDR plot",     "check a plot against the cut-off",   "Try",     "demo"),
-    ("/how-it-works",         "How it works",  "follow one request end to end",      "Learn",   "path"),
-    ("/reference",            "Reference",     "call every endpoint",                "Connect", "path"),
-    ("/tools",                "MCP tools",     "browse all tools, copy a call",      "Connect", "path"),
-    ("/verify",               "Verify",        "paste any token, check it here",     "Verify",  "path"),
-    ("/guard",                "Guard",         "gate an answer on its citations",    "Verify",  "path"),
-    ("/a2a",                  "A2A",           "hand memory between agents",         "Connect", "path"),
-    ("/docs/",                "Docs",          "read the book",                      "Connect", "ref"),
-    ("/reference#client-setup", "Connect a client", "Claude, ChatGPT, Cursor, VS Code", "Connect", "ref"),
-    ("/openapi.json",         "OpenAPI",       "load the machine contract",          "Connect", "ref"),
-    ("/skills.md",            "Skills",        "run a procedure as an agent",        "Connect", "ref"),
-    ("/agents",               "Attesters",     "see every key that writes",          "Verify",  "ref"),
-    ("/v1/log/sth",           "Log head",      "pin a signed head",                  "Verify",  "ref"),
-    ("/eudr",                 "EUDR evidence", "check supplier plots, plot by plot",  "Learn",   "ref"),
-    ("/agriculture",          "Crop intelligence", "fields, areas and districts",     "Learn",   "ref"),
-    ("/contact",              "Talk to us",    "email the team, or open an issue",   "Learn",   "ref"),
-    ("/solutions",            "Solutions",     "see four agents using it",           "Learn",   "ref"),
-    ("/whitepaper",           "Whitepaper",    "read the math and the proofs",       "Learn",   "ref"),
-    ("/the-long-version",     "The long read", "the album, the loop, the proof",     "Learn",   "ref"),
-    ("/spec",                 "Spec",          "implement the wire format",          "Learn",   "ref"),
-    ("/worlds",               "Worlds",        "fly places built on signed facts",   "Lab",     "lab"),
-    ("/channel",              "Channel",       "read agents talking",                "Lab",     "lab"),
-    ("/scoreboard",           "Scoreboard",    "watch a benchmark race",             "Lab",     "lab"),
-    ("/gallery",              "Gallery",       "see the record rendered",            "Lab",     "lab"),
-    ("/arcade",               "Arcade",        "watch agents run the loop",          "Lab",     "lab"),
+    ("/demos/signed-answer",  "Signed answer", "read a place, check the receipt",    "Developers", "demo"),
+    ("/demos/verify-before-publish", "Check a draft", "catch a wrong number",        "Developers", "demo"),
+    ("/demos/handoff",        "Handoff",       "check who wrote a note",             "Developers", "demo"),
+    ("/demos/transparency-log", "Log only grows", "prove history was not rewritten", "Developers", "demo"),
+    ("/demos/tokenise-files", "Tokenise a file", "cite one section by its hash",     "Developers", "demo"),
+    ("/demos/document-evidence", "Document evidence", "parse a report, check the chain", "Developers", "demo"),
+    ("/demos/field",          "One field",     "edges, pixels, NDVI you compute",    "Developers", "demo"),
+    ("/demos/eudr",           "EUDR plot",     "check a plot against the cut-off",   "Developers", "demo"),
+    ("/reference#client-setup", "Quick start",  "connect Claude, ChatGPT, Cursor, VS Code", "Developers", "ref"),
+    ("/reference",            "API reference", "call every endpoint",                "Developers", "path"),
+    ("/tools",                "MCP tools",     "browse all tools, copy a call",      "Developers", "path"),
+    ("/docs/",                "Docs",          "read the book",                      "Developers", "ref"),
+    ("/openapi.json",         "OpenAPI",       "load the machine contract",          "Developers", "ref"),
+    ("/skills.md",            "Skills",        "run a procedure as an agent",        "Developers", "ref"),
+    ("/whitepaper",           "Whitepaper",    "the math and the proofs",            "Research",   "ref"),
+    ("/spec",                 "Spec",          "implement the wire format",          "Research",   "ref"),
+    ("/the-long-version",     "The long read", "the album, the loop, the proof",     "Research",   "ref"),
+    ("/agents",               "Attesters",     "every key that writes",              "Research",   "ref"),
+    ("/v1/log/sth",           "Log head",      "pin a signed head",                  "Research",   "ref"),
+    ("/contact",              "Talk to us",    "email the team, or open an issue",   "Company",    "ref"),
+    ("/worlds",               "Worlds",        "fly places built on signed facts",   "Lab",        "lab"),
+    ("/channel",              "Channel",       "read agents talking",                "Lab",        "lab"),
+    ("/scoreboard",           "Scoreboard",    "watch a benchmark race",             "Lab",        "lab"),
+    ("/gallery",              "Gallery",       "see the record rendered",            "Lab",        "lab"),
+    ("/arcade",               "Arcade",        "watch agents run the loop",          "Lab",        "lab"),
 ]
 
-# The bar shows the developer path flat, so nothing on it hides behind a click;
-# everything else sits in one "More" menu, grouped by section.
-BAR = ["/demos", "/how-it-works", "/reference", "/tools", "/verify", "/docs/"]
-SECTIONS = ["Try", "Learn", "Connect", "Verify", "Lab"]
-DEV_PATH = [row[0] for row in SITE if row[4] == "path"]
+# Off-site, by section: published work and the places emem runs outside this site. Each opens in a new tab.
+EXTERNAL = [
+    ("ESA poster", "https://vortx-ai.github.io/esa_poster/",
+     "Agentic AI for Earth Observation, BIFOLD and ESA Phi-lab, Berlin, Oct 2026", "Research"),
+    ("Whitepaper DOI", "https://doi.org/10.5281/zenodo.20706893", "the protocol paper on Zenodo", "Research"),
+    ("ememdemo", "https://vortx-ai.github.io/ememdemo/", "a site built on emem, with its own probes", "Research"),
+    ("Hugging Face Space", "https://huggingface.co/spaces/vortx-ai/emem", "the same image, running on a Space",
+     "Developers"),
+]
+
+# The bar: one menu per section, in hierarchy order, then Docs as a direct link. Lab and Company stay off it.
+BAR_SECTIONS = ["Product", "Examples", "Developers", "Research"]
+BAR = ["/docs/"]
+SECTIONS = ["Product", "Examples", "Developers", "Research", "Company", "Lab"]
+DEV_PATH = [row[0] for row in SITE if row[4] == "path" and row[3] == "Developers"]
 DEMOS = [row[0] for row in SITE if row[4] == "demo"]
 ROW = {row[0]: row for row in SITE}
 
@@ -243,29 +255,26 @@ def render(current: str) -> str:
            '<button type="button" class="navtoggle" aria-expanded="false" aria-controls="sitenav-panel">'
            '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>Menu</button>',
            '<div class="navpanel" id="sitenav-panel">']
-    # The developer path, flat: every step visible, none behind a click.
-    for href in BAR:
-        label = ROW[href][1]
-        on = href == current or (href == "/demos" and current in DEMOS)
-        mark = ' aria-current="page"' if on else ''
-        out.append(f'<a class="navlink{" on" if on else ""}" href="{href}"{mark}>{label}</a>')
-    # Everything else, grouped by section, in one menu. Lab pages say so.
-    more = [r for r in SITE if r[0] not in BAR and r[4] not in ("demo",) and r[0] != "/"]
-    hit = any(r[0] == current for r in more)
-    out.append(f'<details class="navgrp{" on" if hit else ""}" name="sitenav">')
-    out.append('<summary>More</summary>')
-    out.append('<div class="navmenu navmenu-cols">')
-    for sec in SECTIONS:
-        rows = [r for r in more if r[3] == sec]
-        if not rows:
-            continue
-        out.append(f'<div class="navsec"><h6>{sec.lower()}</h6>')
+    # One menu per section, in hierarchy order (v3). Each menu lists the section's pages, then its off-site entries.
+    for sec in BAR_SECTIONS:
+        rows = [r for r in SITE if r[3] == sec and r[4] != "demo" and r[0] != "/" and r[0] not in BAR]
+        ext = [e for e in EXTERNAL if e[3] == sec]
+        hit = any(r[0] == current for r in rows) or (sec == "Developers" and current in DEMOS)
+        out.append(f'<details class="navgrp{" on" if hit else ""}" name="sitenav">')
+        out.append(f'<summary>{sec}</summary>')
+        out.append('<div class="navmenu">')
         for href, label, note, _, kind in rows:
             mark = ' aria-current="page"' if href == current else ''
-            tag = '<i class="labtag">lab</i>' if kind == "lab" else ''
-            out.append(f'<a href="{href}"{mark}><b>{label}{tag}</b><span>{note}</span></a>')
-        out.append('</div>')
-    out.append('</div></details>')
+            out.append(f'<a href="{href}"{mark}><b>{label}</b><span>{note}</span></a>')
+        for label, url, note, _ in ext:
+            out.append(f'<a href="{url}" target="_blank" rel="noopener noreferrer"><b>{label}'
+                       f'<i class="ext" aria-hidden="true">&#8599;</i></b><span>{note}</span></a>')
+        out.append('</div></details>')
+    for href in BAR:
+        label = ROW[href][1]
+        on = href == current
+        mark = ' aria-current="page"' if on else ''
+        out.append(f'<a class="navlink{" on" if on else ""}" href="{href}"{mark}>{label}</a>')
     out.append('<span class="sitebar-gap"></span>')
     # Two doors on the right, not six. The bar used to carry MCP plus a pill
     # per directory listing (ChatGPT, Dify, MCP registry, GitHub), which read
@@ -275,8 +284,9 @@ def render(current: str) -> str:
     # the source.
     # /reference#client-setup, not /clients: /clients serves the agent guide as
     # raw markdown, which is right for an agent and wrong for a button.
-    out.append('<a class="navcta" href="/reference#client-setup">Connect</a>')
     out.append('<a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">GitHub</a>')
+    out.append('<a class="navplain navtalk" href="/contact">Talk to us</a>')
+    out.append('<a class="navcta" href="/reference#client-setup">Connect</a>')
     out.append('</div></nav></header>')
     # The audience strip. One line, directly under the bar, so a reader knows
     # whose page this is before they start reading it.
@@ -292,8 +302,9 @@ def render(current: str) -> str:
                    f'<span class="aud-what">unfinished, off the developer path</span>'
                    f'<a class="aud-note" href="/demos">start at the demos</a></div>')
     elif current != "/":
-        out.append(f'<div class="audience aud-{who}">{crumbs}'
-                   f'<span class="aud-for">For {who}</span></div>')
+        # v3: breadcrumbs only. The "For leaders / For developers" pill sorted readers before they had read
+        # anything; the hierarchy in the bar now does that job.
+        out.append(f'<div class="audience aud-{who}">{crumbs}</div>')
     # Progressive enhancement only. Escape and outside-click are the two
     # dismissals <details> has no answer for; everything else is HTML. The
     # phone menu button is the one piece HTML cannot do for us: it closes on
@@ -381,13 +392,20 @@ def render_foot(current: str) -> str:
     out.append('<div class="sf-top"><a class="sf-brand" href="/"><img src="/vortxgola.gif" alt="">emem</a>'
                '<p class="sf-proof" data-proof>log head: checking in this tab&hellip;</p></div>')
     out.append('<div class="sf-grid">')
-    for sec in SECTIONS:
-        rows = [r for r in SITE if r[3] == sec and r[4] != "demo"]
+    for sec in BAR_SECTIONS + ["Company"]:
+        rows = [r for r in SITE if r[3] == sec and r[4] not in ("demo", "lab")]
+        ext = [e for e in EXTERNAL if e[3] == sec]
         out.append(f'<div class="foot-col"><h4>{sec}</h4><ul>')
         for href, label, _, _, kind in rows:
             out.append(f'<li><a href="{href}">{label}</a></li>')
+        for label, url, _, _ in ext:
+            out.append(f'<li><a href="{url}" target="_blank" rel="noopener noreferrer">{label}</a></li>')
+        if sec == "Company":
+            out.append('<li><a href="https://vortx.ai" target="_blank" rel="noopener noreferrer">vortx.ai</a></li>')
+            out.append('<li><a href="/security">Security</a></li>')
+            out.append('<li><a href="/privacy">Privacy</a></li>')
         out.append('</ul></div>')
-    out.append('<div class="foot-col"><h4>Machine</h4><ul>')
+    out.append('<div class="foot-col"><h4>For agents</h4><ul>')
     for label, href in MACHINE:
         out.append(f'<li><a href="{href}">{label}</a></li>')
     out.append('</ul></div>')

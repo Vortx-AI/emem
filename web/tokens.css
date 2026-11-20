@@ -26,18 +26,16 @@
  * look like output and the whole site read as a terminal.
  */
 :root{
---paper:oklch(0.975 0.005 85);--paper-2:oklch(0.955 0.005 85);--paper-3:oklch(0.93 0.006 85);
-  --ink:oklch(0.20 0.005 85);--ink-2:oklch(0.32 0.005 85);
-  /* Both muted levels clear WCAG AA (4.5:1) against all three papers.
-     --mute-2 used to be 0.68, which measured 2.68:1 on paper and 2.35:1 on
-     paper-3 -- it was carrying real text at 10-13px (audience chips, table
-     labels, the channel's attester prefixes) at roughly half the contrast a
-     reader needs. Lowering it alone would have collapsed it into --mute, so
-     both moved and the gap was kept: 6.9:1 and 4.55:1 on the worst paper. */
-  --mute:oklch(0.42 0.005 85);--mute-2:oklch(0.516 0.005 85);
-  --rule:oklch(0.86 0.008 85);--rule-strong:oklch(0.72 0.010 85);
-  --accent:oklch(0.45 0.09 145);--accent-bg:oklch(0.93 0.04 145);--vermilion:oklch(0.50 0.16 30);
-  --absent:oklch(0.50 0.11 35);--absent-bg:oklch(0.94 0.04 35);
+  /* v3 (2026-11-20, owner: light and imagery-led). The warm paper of v2 read as a printed paper; the site now sits
+     on a cool neutral white so satellite imagery carries the colour. Ink and the muted greys take a slight blue
+     (hue 255-260) so text sits with the imagery rather than against it. --mute-2 doubles as the second tone of
+     two-tone headlines; it clears AA (4.5:1) on all three papers, so it is safe as text at any size. */
+  --paper:oklch(0.995 0.001 250);--paper-2:oklch(0.976 0.004 250);--paper-3:oklch(0.953 0.006 250);
+  --ink:oklch(0.19 0.012 260);--ink-2:oklch(0.33 0.012 260);
+  --mute:oklch(0.44 0.014 260);--mute-2:oklch(0.515 0.02 258);
+  --rule:oklch(0.915 0.006 255);--rule-strong:oklch(0.80 0.010 255);
+  --accent:oklch(0.47 0.11 155);--accent-bg:oklch(0.95 0.035 155);--vermilion:oklch(0.50 0.16 30);
+  --absent:oklch(0.50 0.11 35);--absent-bg:oklch(0.95 0.035 35);
   --warn:oklch(0.50 0.12 75);--highlight:oklch(0.95 0.07 95);--machine:oklch(0.50 0.13 270);
   --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
   /* Two families, and the split carries meaning rather than decoration.
@@ -52,7 +50,9 @@
      section head are drawn as different letterforms rather than one
      shape scaled, which is what makes large type look drawn rather
      than stretched. */
-  --display:'Newsreader',Georgia,'Times New Roman',serif;
+  /* v3: the display face is the interface face, set tighter and heavier (owner: clean sans-serif). Newsreader
+     stays loaded only where a page asks for it by name. */
+  --display:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
   /* The interface face. Inter's optical-size axis keeps 12-15px labels open
      and the system stack behind it means a blocked font still reads as UI. */
   --ui:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
@@ -108,7 +108,7 @@
      how many characters are on a line and not on how many pixels. Prose caps
      itself with this; the container is free to be wider so panels and grids
      can use the room. */
-  --w-page:min(94vw, 1400px);
+  --w-page:min(92vw, 1240px);
   --w-text:68ch;
   --w-narrow:min(94vw, 820px);
 
@@ -116,8 +116,9 @@
      1.667vw clamped to 16-32px: 24px at 1440, 32px at 1920. Prose inside is
      capped at --measure so line length stays readable while tables, code and
      figures take the full width. The landing page keeps --w-page. */
-  --w-doc:1800px;
-  --gutter-doc:clamp(1rem, 1.667vw, 2rem);
+  /* v3: one page width for every page (owner: two widths read as two sites). */
+  --w-doc:1240px;
+  --gutter-doc:clamp(1rem, 4vw, 2rem);
   --measure:74ch;
 }
 
@@ -139,28 +140,24 @@
    so the guard buys nothing and costs that. */
 @media (prefers-color-scheme: dark){
   :root{
-    --paper:oklch(0.16 0.005 85);--paper-2:oklch(0.19 0.005 85);--paper-3:oklch(0.23 0.006 85);
-    --ink:oklch(0.93 0.005 85);--ink-2:oklch(0.80 0.005 85);
-    /* Same correction, mirrored: 6.78:1 and 4.63:1 on paper-3. --mute was
-       4.27:1 there, which fails AA on its own. */
-    --mute:oklch(0.72 0.005 85);--mute-2:oklch(0.619 0.005 85);
-    --rule:oklch(0.28 0.008 85);--rule-strong:oklch(0.40 0.010 85);
-    --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
-    --absent:oklch(0.72 0.13 35);--absent-bg:oklch(0.26 0.05 35);
-    --warn:oklch(0.78 0.13 75);--highlight:oklch(0.30 0.07 95);--machine:oklch(0.78 0.14 270);
+    --paper:oklch(0.17 0.008 260);--paper-2:oklch(0.205 0.009 260);--paper-3:oklch(0.245 0.010 260);
+    --ink:oklch(0.95 0.004 255);--ink-2:oklch(0.83 0.006 255);
+    --mute:oklch(0.74 0.010 255);--mute-2:oklch(0.66 0.014 255);
+    --rule:oklch(0.30 0.010 260);--rule-strong:oklch(0.42 0.012 260);
+    --accent:oklch(0.78 0.13 155);--accent-bg:oklch(0.27 0.05 155);
+    --absent:oklch(0.72 0.13 35);--absent-bg:oklch(0.27 0.05 35);
+    --warn:oklch(0.78 0.13 75);--highlight:oklch(0.31 0.07 95);--machine:oklch(0.78 0.14 270);
     --shadow-1:0 1px 2px oklch(0 0 0 / .4);--shadow-2:0 12px 32px oklch(0 0 0 / .5),0 2px 8px oklch(0 0 0 / .35);
   }
 }
 :root[data-theme="dark"]{
-  --paper:oklch(0.16 0.005 85);--paper-2:oklch(0.19 0.005 85);--paper-3:oklch(0.23 0.006 85);
-  --ink:oklch(0.93 0.005 85);--ink-2:oklch(0.80 0.005 85);
-  /* Same correction, mirrored: 6.78:1 and 4.63:1 on paper-3. --mute was
-     4.27:1 there, which fails AA on its own. */
-  --mute:oklch(0.72 0.005 85);--mute-2:oklch(0.619 0.005 85);
-  --rule:oklch(0.28 0.008 85);--rule-strong:oklch(0.40 0.010 85);
-  --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
-  --absent:oklch(0.72 0.13 35);--absent-bg:oklch(0.26 0.05 35);
-  --warn:oklch(0.78 0.13 75);--highlight:oklch(0.30 0.07 95);--machine:oklch(0.78 0.14 270);
+  --paper:oklch(0.17 0.008 260);--paper-2:oklch(0.205 0.009 260);--paper-3:oklch(0.245 0.010 260);
+    --ink:oklch(0.95 0.004 255);--ink-2:oklch(0.83 0.006 255);
+    --mute:oklch(0.74 0.010 255);--mute-2:oklch(0.66 0.014 255);
+    --rule:oklch(0.30 0.010 260);--rule-strong:oklch(0.42 0.012 260);
+    --accent:oklch(0.78 0.13 155);--accent-bg:oklch(0.27 0.05 155);
+    --absent:oklch(0.72 0.13 35);--absent-bg:oklch(0.27 0.05 35);
+    --warn:oklch(0.78 0.13 75);--highlight:oklch(0.31 0.07 95);--machine:oklch(0.78 0.14 270);
   --shadow-1:0 1px 2px oklch(0 0 0 / .4);--shadow-2:0 12px 32px oklch(0 0 0 / .5),0 2px 8px oklch(0 0 0 / .35);
 }
 
