@@ -424,6 +424,11 @@ const WHITEPAPER_V1_HTML: &str = include_str!("../../../web/whitepaper-v1.html")
 /// precedence, axum's matchit picks the most specific route first.
 static DOCS_BOOK: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/../../docs/book");
 
+/// The site's imagery, baked in: Sentinel-2 scenes emem read itself (with their provenance in
+/// `showcase.json`) and the poster preview, written by `scripts/gen_showcase.py`. Every image name carries
+/// its content hash, so a response is cacheable for a year.
+static WEB_IMG: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/../../web/img");
+
 const DOCS_DIAGRAMS_INDEX_HTML: &str = include_str!("../../../docs/diagrams/index.html");
 const DOCS_DIAGRAMS: &[(&str, &str)] = &[
     (
@@ -1015,6 +1020,7 @@ pub fn router(state: AppState) -> Router {
         .route("/docs", get(serve_docs_book_redirect))
         .route("/docs/", get(serve_docs_book_index))
         .route("/docs/*path", get(serve_docs_book_path))
+        .route("/img/*path", get(serve_web_img))
         .route("/multimodal", get(serve_multimodal_md))
         .route("/multimodal.md", get(serve_multimodal_md))
         .route("/tokens.css", get(serve_tokens_css))
@@ -4290,6 +4296,30 @@ async fn serve_api_redoc() -> Response {
 /// internal relative links resolve from the right base. mdbook ships
 /// internal links like `./protocol.html`, which a browser resolves
 /// against the *directory* of the current URL.
+/// `/img/*path`: one baked site image, or the showcase manifest. Anything else is a 404.
+async fn serve_web_img(axum::extract::Path(path): axum::extract::Path<String>) -> Response {
+    if path
+        .split('/')
+        .any(|seg| seg.is_empty() || seg == ".." || seg == ".")
+    {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let Some(file) = WEB_IMG.get_file(&path) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let (ct, cache) = match path.rsplit('.').next() {
+        Some("jpg") | Some("jpeg") => ("image/jpeg", "public, max-age=31536000, immutable"),
+        Some("webp") => ("image/webp", "public, max-age=31536000, immutable"),
+        Some("json") => ("application/json", "public, max-age=300"),
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+    Response::builder()
+        .header(CONTENT_TYPE, ct)
+        .header(axum::http::header::CACHE_CONTROL, cache)
+        .body(axum::body::Body::from(file.contents()))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
 async fn serve_docs_book_redirect() -> Response {
     Response::builder()
         .status(StatusCode::PERMANENT_REDIRECT)
@@ -94700,6 +94730,47 @@ mod tests {
                     "batch {i}"
                 );
             }
+        }
+    }
+
+    /// Every image the showcase manifest names is served as a JPEG that can be cached for a year, the manifest
+    /// itself as JSON, and nothing outside the baked directory or of another type.
+    #[tokio::test]
+    async fn site_images_serve_from_the_baked_directory() {
+        use tower::ServiceExt;
+        let app = router(test_app_state());
+        let manifest: JsonValue = serde_json::from_slice(
+            WEB_IMG
+                .get_file("showcase.json")
+                .expect("web/img/showcase.json")
+                .contents(),
+        )
+        .unwrap();
+        let scenes = manifest["scenes"].as_object().expect("scenes");
+        assert!(!scenes.is_empty());
+        for (name, s) in scenes {
+            let file = s["file"].as_str().unwrap();
+            let req = axum::http::Request::get(format!("/img/{file}"))
+                .body(axum::body::Body::empty())
+                .unwrap();
+            let r = app.clone().oneshot(req).await.unwrap();
+            assert_eq!(r.status(), StatusCode::OK, "{name}");
+            assert_eq!(r.headers()[CONTENT_TYPE], "image/jpeg", "{name}");
+            assert!(r.headers()[axum::http::header::CACHE_CONTROL]
+                .to_str()
+                .unwrap()
+                .contains("immutable"));
+        }
+        for bad in [
+            "/img/../index.html",
+            "/img/missing.jpg",
+            "/img/showcase.txt",
+        ] {
+            let req = axum::http::Request::get(bad)
+                .body(axum::body::Body::empty())
+                .unwrap();
+            let r = app.clone().oneshot(req).await.unwrap();
+            assert_eq!(r.status(), StatusCode::NOT_FOUND, "{bad}");
         }
     }
 

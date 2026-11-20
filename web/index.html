@@ -2,8 +2,8 @@
 <head>
 <script type="importmap">{"imports":{},"integrity":{"https://esm.sh/pdfjs-dist@4.10.38/build/pdf.min.mjs?raw":"sha384-+0ti2moQlmLN7WZHE2RHIf5lV8hHxhxEalN0il3YZceG26fUPyOkR0hp9daxk1i7"}}</script>
 <meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<title>emem: search the physical world, every answer signed</title>
-<meta name=description content="Search the physical world. Ask about any place, field, river, forest or building; emem returns the answer with its source, method and a signature anyone can check offline.">
+<title>emem: the memory of the physical world</title>
+<meta name=description content="The memory of the physical world. Ask about any place; emem reads it from orbit and open sensors, signs the answer, and lets any AI read it back and check it.">
 <link rel=canonical href="https://emem.dev/">
 <link rel=alternate type=text/markdown href=/llms.txt>
 <link rel=alternate type=text/markdown href=/agents.md>
@@ -17,1203 +17,571 @@
 <link rel="apple-touch-icon" href="/vortxgola.gif">
 <meta property=og:type content=website>
 <meta property=og:url content="https://emem.dev/">
-<meta property=og:title content="emem: search the physical world, every answer signed">
-<meta property=og:description content="Search the physical world. Ask about any place, field, river, forest or building; emem returns the answer with its source, method and a signature anyone can check offline.">
+<meta property=og:title content="emem: the memory of the physical world">
+<meta property=og:description content="The memory of the physical world. Ask about any place; emem reads it from orbit and open sensors, signs the answer, and lets any AI read it back and check it.">
 <meta property=og:image content="https://emem.dev/og-image.png">
 <meta property=og:image:width content="1200">
 <meta property=og:image:height content="630">
 <meta property=og:image:type content="image/png">
-<meta property=og:image:alt content="emem.dev. Shared, verifiable memory for AI agents, and every fact in it can be checked.">
+<meta property=og:image:alt content="emem.dev, the memory of the physical world. Every answer is signed.">
 <meta property=og:site_name content=emem>
 <meta name=twitter:card content=summary_large_image>
-<meta name=twitter:title content="emem: search the physical world, every answer signed">
-<meta name=twitter:description content="Search the physical world. Ask about any place, field, river, forest or building; emem returns the answer with its source, method and a signature anyone can check offline.">
+<meta name=twitter:title content="emem: the memory of the physical world">
+<meta name=twitter:description content="The memory of the physical world. Ask about any place; emem reads it from orbit and open sensors, signs the answer, and lets any AI read it back and check it.">
 <meta name=twitter:image content="https://emem.dev/og-image.png">
-<meta name=twitter:image:alt content="emem.dev. A verified memory of Earth for AI agents.">
+<meta name=twitter:image:alt content="emem.dev, the memory of the physical world. Every answer is signed.">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
 <link rel=stylesheet href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
-<link rel=stylesheet href="/tokens.css?v=7bbfef6e672b">
+<link rel=stylesheet href="/tokens.css?v=64653cefe95f">
 <link rel=stylesheet href="/nav.css?v=1001118daea4">
-<script type=application/ld+json>{"@context":"https://schema.org","@graph":[{"@type":"WebAPI","@id":"https://emem.dev/#api","name":"emem","url":"https://emem.dev","description":"Shared, verifiable memory for AI agents, robots, and world models. Every place, fact, and object gets one signed, citeable identity, grounded in Earth observation. Every read is an ed25519-signed receipt with a content-addressed CID, checkable offline.","documentation":"https://emem.dev/openapi.json","provider":{"@id":"https://vortx.ai/#org"},"license":"https://www.apache.org/licenses/LICENSE-2.0","termsOfService":"https://emem.dev/terms"},{"@type":"SoftwareApplication","@id":"https://emem.dev/#app","name":"emem","applicationCategory":"DeveloperApplication","operatingSystem":"Linux, macOS, Windows","url":"https://emem.dev","downloadUrl":"https://github.com/Vortx-AI/emem","license":"https://www.apache.org/licenses/LICENSE-2.0","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"creator":{"@id":"https://vortx.ai/#org"}},{"@type":"WebSite","@id":"https://emem.dev/#site","name":"emem","url":"https://emem.dev","publisher":{"@id":"https://vortx.ai/#org"},"potentialAction":{"@type":"SearchAction","target":{"@type":"EntryPoint","urlTemplate":"https://emem.dev/v1/locate?place={query}"},"query-input":"required name=query"}},{"@type":"Organization","@id":"https://vortx.ai/#org","name":"Vortx AI Private Limited","url":"https://vortx.ai","email":"avijeet@vortx.ai","logo":"https://emem.dev/logo.png","sameAs":["https://github.com/Vortx-AI"]},{"@type":"Service","@id":"https://emem.dev/#service","name":"emem use cases","provider":{"@id":"https://vortx.ai/#org"},"serviceType":"Shared, verifiable memory for AI agents","areaServed":{"@type":"Place","name":"Earth"},"hasOfferCatalog":{"@type":"OfferCatalog","name":"emem agent use cases","itemListElement":[{"@type":"Offer","itemOffered":{"@type":"Service","name":"Consumer health","description":"Air quality (CAMS PM2.5, NO₂, O₃), urban heat exposure, wildfire smoke risk, pollen seasonality."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Real estate and insurance","description":"Flood risk composite, walkability, elevation, surface-water recurrence, storm-surge exposure."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Climate finance and carbon MRV","description":"Above-ground biomass proxies, mangrove cover, deforestation rate, NDVI / EVI trajectories with signed receipts for VM0042 / VCS / Gold Standard MRV."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"ESG and SDG reporting","description":"Biodiversity proxies (Tessera embedding novelty), supply-chain forest-loss adjacency, land-cover transitions for SDG 15."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Agriculture","description":"Crop stress (NDVI / NDRE), evapotranspiration (MODIS ET), soil moisture proxy, growing-season anomaly."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Urban planning","description":"Surface temperature, urban heat island, building density (Overture), road network length, green-space share."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Disaster response","description":"S1 backscatter for flood extent under cloud, MODIS burned area, JRC GSW for permanent vs flood water."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Conservation and biodiversity","description":"Hansen forest loss, ESA WorldCover transitions, ecoregion lookup, mangrove change."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Energy siting","description":"Solar irradiance (NASA POWER), wind speed (ERA5), DEM slope, land cover constraints."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Mining impact","description":"Pre / post NDVI delta, surface-water encroachment, land-cover change attestable per cell."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Tourism and recreation","description":"Marine wave height (ECMWF WAM), SST, snow cover seasonality, weather nowcast (MET Norway)."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Fisheries","description":"Sea-surface temperature, ocean chlorophyll-a proxy, marine wave conditions, bathymetry (GMRT)."}}]}},{"@type":"FAQPage","@id":"https://emem.dev/#faq","mainEntity":[{"@type":"Question","name":"What is emem?","acceptedAnswer":{"@type":"Answer","text":"emem is a shared, verifiable memory for AI agents. Every place on Earth gets a stable address called a cell64 (about 10 m on a side). Facts at that address (elevation, weather, land cover, foundation embeddings) are recall-able as Cell × Band × Tslot → Fact, signed with ed25519, content-addressed with blake3. There are no API keys for read endpoints."}},{"@type":"Question","name":"How do I connect Claude, Cursor, Cline, Gemini, or ChatGPT?","acceptedAnswer":{"@type":"Answer","text":"Point any MCP client at https://emem.dev/mcp. tools/list advertises the 18 core tools, which keeps the descriptors out of your context; call emem_tools to search the rest or fetch one tool's schema, and note that every tool stays callable by name whether or not it was advertised. Point at https://emem.dev/mcp/full instead to have all 119 registered up front. Claude Code, Claude Desktop, Cursor, Cline, Gemini CLI, and ChatGPT Custom GPTs all support Streamable HTTP MCP. For ChatGPT Actions, import https://emem.dev/openapi.action.json with auth: none."}},{"@type":"Question","name":"Does it cost anything?","acceptedAnswer":{"@type":"Answer","text":"L0 and L1 read endpoints are free and anonymous. No accounts, no API keys, no payment. Apache-2.0 source. Operators self-hosting their own responder pay only for their own compute."}},{"@type":"Question","name":"Can I verify the answers offline?","acceptedAnswer":{"@type":"Answer","text":"Yes. Every read returns a receipt with the responder's ed25519 public key, the signed payload, and the content-addressed CID for each fact. Recompute blake3 over the canonical CBOR fact, verify ed25519 against the signer pubkey, and the answer is reproducible. POST /v1/verify_receipt does this for you, or do it offline in any ed25519 + blake3 implementation."}},{"@type":"Question","name":"Where does the data come from?","acceptedAnswer":{"@type":"Answer","text":"Sentinel-2 L2A and Sentinel-1 GRD via the Element84 STAC, MODIS Terra/Aqua via NASA LP DAAC, Copernicus DEM, GMRT topo and bathy, JRC Global Surface Water, Hansen Global Forest Change, ESA WorldCover, SoilGrids 2.0, MET Norway nowcast weather, ECMWF ERA5 and CAMS via Open-Meteo, NASA POWER, Overture Maps. Foundation embedding: Tessera v1 (Cambridge). Earlier versions also ran Clay, Prithvi and Galileo; facts they signed still verify."}},{"@type":"Question","name":"How does emem handle GDPR, CCPA, and DPDP? Does the site track visitors?","acceptedAnswer":{"@type":"Answer","text":"The canonical channel carries no PII. The hosted responder logs only a blake3-hashed truncated IP (non-reversible), the request path, and GET query strings, retained for 30 days then vacuumed by systemd-journald. THE SITE RUNS NO THIRD-PARTY ANALYTICS: Google Analytics was removed, along with the consent banner and the emem_consent cookie it set, because a page whose argument is that you do not have to trust the responder should not ask you to trust a second party to count you. No cookies are set. Nothing is loaded from a third-party origin for measurement."}}]}]}</script>
+<script type=application/ld+json>{"@context":"https://schema.org","@graph":[{"@type":"WebAPI","@id":"https://emem.dev/#api","name":"emem","url":"https://emem.dev","description":"The memory of the physical world: verifiable memory for AI. Ask about any place; emem reads it from orbit and open sensors, keeps each reading at one address, signs it, and any AI can read it back and check it.","documentation":"https://emem.dev/openapi.json","provider":{"@id":"https://vortx.ai/#org"},"license":"https://www.apache.org/licenses/LICENSE-2.0","termsOfService":"https://emem.dev/terms"},{"@type":"SoftwareApplication","@id":"https://emem.dev/#app","name":"emem","applicationCategory":"DeveloperApplication","operatingSystem":"Linux, macOS, Windows","url":"https://emem.dev","downloadUrl":"https://github.com/Vortx-AI/emem","license":"https://www.apache.org/licenses/LICENSE-2.0","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"creator":{"@id":"https://vortx.ai/#org"}},{"@type":"WebSite","@id":"https://emem.dev/#site","name":"emem","url":"https://emem.dev","publisher":{"@id":"https://vortx.ai/#org"},"potentialAction":{"@type":"SearchAction","target":{"@type":"EntryPoint","urlTemplate":"https://emem.dev/v1/locate?place={query}"},"query-input":"required name=query"}},{"@type":"Organization","@id":"https://vortx.ai/#org","name":"Vortx AI Private Limited","url":"https://vortx.ai","email":"avijeet@vortx.ai","logo":"https://emem.dev/logo.png","sameAs":["https://github.com/Vortx-AI"]},{"@type":"Service","@id":"https://emem.dev/#service","name":"emem use cases","provider":{"@id":"https://vortx.ai/#org"},"serviceType":"Shared, verifiable memory for AI agents","areaServed":{"@type":"Place","name":"Earth"},"hasOfferCatalog":{"@type":"OfferCatalog","name":"emem agent use cases","itemListElement":[{"@type":"Offer","itemOffered":{"@type":"Service","name":"Consumer health","description":"Air quality (CAMS PM2.5, NO₂, O₃), urban heat exposure, wildfire smoke risk, pollen seasonality."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Real estate and insurance","description":"Flood risk composite, walkability, elevation, surface-water recurrence, storm-surge exposure."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Climate finance and carbon MRV","description":"Above-ground biomass proxies, mangrove cover, deforestation rate, NDVI / EVI trajectories with signed receipts for VM0042 / VCS / Gold Standard MRV."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"ESG and SDG reporting","description":"Biodiversity proxies (Tessera embedding novelty), supply-chain forest-loss adjacency, land-cover transitions for SDG 15."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Agriculture","description":"Crop stress (NDVI / NDRE), evapotranspiration (MODIS ET), soil moisture proxy, growing-season anomaly."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Urban planning","description":"Surface temperature, urban heat island, building density (Overture), road network length, green-space share."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Disaster response","description":"S1 backscatter for flood extent under cloud, MODIS burned area, JRC GSW for permanent vs flood water."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Conservation and biodiversity","description":"Hansen forest loss, ESA WorldCover transitions, ecoregion lookup, mangrove change."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Energy siting","description":"Solar irradiance (NASA POWER), wind speed (ERA5), DEM slope, land cover constraints."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Mining impact","description":"Pre / post NDVI delta, surface-water encroachment, land-cover change attestable per cell."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Tourism and recreation","description":"Marine wave height (ECMWF WAM), SST, snow cover seasonality, weather nowcast (MET Norway)."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Fisheries","description":"Sea-surface temperature, ocean chlorophyll-a proxy, marine wave conditions, bathymetry (GMRT)."}}]}},{"@type":"FAQPage","@id":"https://emem.dev/#faq","mainEntity":[{"@type":"Question","name":"What is emem?","acceptedAnswer":{"@type":"Answer","text":"emem is a shared, verifiable memory for AI agents. Every place on Earth gets a stable address called a cell64 (about 10 m on a side). Facts at that address (elevation, weather, land cover, foundation embeddings) are recall-able as Cell × Band × Tslot → Fact, signed with ed25519, content-addressed with blake3. There are no API keys for read endpoints."}},{"@type":"Question","name":"How do I connect Claude, Cursor, Cline, Gemini, or ChatGPT?","acceptedAnswer":{"@type":"Answer","text":"Point any MCP client at https://emem.dev/mcp. tools/list advertises the 18 core tools, which keeps the descriptors out of your context; call emem_tools to search the rest or fetch one tool's schema, and note that every tool stays callable by name whether or not it was advertised. Point at https://emem.dev/mcp/full instead to have all 119 registered up front. Claude Code, Claude Desktop, Cursor, Cline, Gemini CLI, and ChatGPT Custom GPTs all support Streamable HTTP MCP. For ChatGPT Actions, import https://emem.dev/openapi.action.json with auth: none."}},{"@type":"Question","name":"Does it cost anything?","acceptedAnswer":{"@type":"Answer","text":"L0 and L1 read endpoints are free and anonymous. No accounts, no API keys, no payment. Apache-2.0 source. Operators self-hosting their own responder pay only for their own compute."}},{"@type":"Question","name":"Can I verify the answers offline?","acceptedAnswer":{"@type":"Answer","text":"Yes. Every read returns a receipt with the responder's ed25519 public key, the signed payload, and the content-addressed CID for each fact. Recompute blake3 over the canonical CBOR fact, verify ed25519 against the signer pubkey, and the answer is reproducible. POST /v1/verify_receipt does this for you, or do it offline in any ed25519 + blake3 implementation."}},{"@type":"Question","name":"Where does the data come from?","acceptedAnswer":{"@type":"Answer","text":"Sentinel-2 L2A and Sentinel-1 GRD via the Element84 STAC, MODIS Terra/Aqua via NASA LP DAAC, Copernicus DEM, GMRT topo and bathy, JRC Global Surface Water, Hansen Global Forest Change, ESA WorldCover, SoilGrids 2.0, MET Norway nowcast weather, ECMWF ERA5 and CAMS via Open-Meteo, NASA POWER, Overture Maps. Foundation embedding: Tessera v1 (Cambridge). Earlier versions also ran Clay, Prithvi and Galileo; facts they signed still verify."}},{"@type":"Question","name":"How does emem handle GDPR, CCPA, and DPDP? Does the site track visitors?","acceptedAnswer":{"@type":"Answer","text":"The canonical channel carries no PII. The hosted responder logs only a blake3-hashed truncated IP (non-reversible), the request path, and GET query strings, retained for 30 days then vacuumed by systemd-journald. THE SITE RUNS NO THIRD-PARTY ANALYTICS: Google Analytics was removed, along with the consent banner and the emem_consent cookie it set, because a page whose argument is that you do not have to trust the responder should not ask you to trust a second party to count you. No cookies are set. Nothing is loaded from a third-party origin for measurement."}}]}]}</script>
 <style>
-/* One style block, in document order. Media-query overrides follow the rules they override. */
+/* Homepage v3 (2026-11-20). Light and imagery-led: the scenes carry the colour, the type carries the hierarchy.
+   One container (--w-page), one rhythm (--s-*), two-tone headlines (--ink then --mute-2). Order of sections is the
+   site hierarchy: category, memory model, what it remembers, encode/decode, shared memory, examples, try, build,
+   research. Media-query overrides follow the rules they override. */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; overflow-x: clip; }
+body { background: var(--paper); color: var(--ink); font-family: var(--ui); font-size: var(--t-base); line-height: 1.6; -webkit-font-smoothing: antialiased; }
+.home { --gut: clamp(1rem, 4vw, 2rem); }
+.wrap { max-width: var(--w-page); margin: 0 auto; padding-inline: var(--gut); box-sizing: border-box; }
+.home section { padding-block: clamp(3rem, 7vw, 6rem); }
+.home section + section { border-top: 1px solid var(--rule); }
+.home h1, .home h2, .home h3 { font-family: var(--display); color: var(--ink); margin: 0; text-wrap: balance; }
+.home h1 { font-size: clamp(2.6rem, 4.9vw, 4.25rem); line-height: 1.0; letter-spacing: -.038em; font-weight: 650; }
+.home h1 .tone { display: block; margin-top: .22em; font-size: .56em; line-height: 1.1; letter-spacing: -.028em; font-weight: 600; }
+.home h2 { font-size: clamp(1.8rem, 3.4vw, 3rem); line-height: 1.06; letter-spacing: -.03em; font-weight: 620; }
+.home h3 { font-size: var(--t-lg); line-height: 1.25; letter-spacing: -.012em; font-weight: 620; }
+.tone { color: var(--mute-2); }
+.h1-break { display: block; }
+.eyebrow { margin: 0 0 var(--s-3); font: 600 var(--t-2xs)/1.3 var(--ui); letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+.home p { margin: 0; }
+.lede { margin-top: var(--s-4) !important; font-size: clamp(1.05rem, 1.35vw, 1.22rem); line-height: 1.55; color: var(--ink-2); max-width: 36rem; }
+.sub { margin-top: var(--s-3) !important; font-size: var(--t-md); line-height: 1.55; color: var(--ink-2); max-width: 46rem; }
+.h-head { margin-bottom: var(--s-5); }
+.home a:not(.btn) { color: inherit; }
+code { font-family: var(--mono); font-size: .92em; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-:root{ /* tokens come from /tokens.css, which was generated from this block */ }
+/* Buttons: the site's own .btn (ink) and .btn.ghost (outline) from site.css. */
+.h-cta { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-4); }
 
-*{box-sizing:border-box}
-/* Body copy reads at a full 16px baseline. The type scale above is in
-   rem, so this single knob retunes the whole page. */
-html{font-size:100%}
-html, body{margin:0;padding:0}
-body{background:var(--paper);color:var(--ink);font-family:var(--display);
-  font-size:var(--t-md);line-height:1.6;font-feature-settings:"ss01";-webkit-font-smoothing:antialiased}
-/* Identifiers, values, keys, commands: where a transposed character has
-   to be visible and the advance must not move. */
-code, kbd, pre, samp, .mono, .tok, .cid, .key, time{font-family:var(--mono)}
-input, textarea, button{font-family:var(--ui)}
-::selection{background:var(--accent);color:var(--paper)}
-a{color:var(--accent)}
-html, body{overflow-x:clip}
-.page{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x)}
-@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* 1. Hero */
+.h-hero { display: grid; grid-template-columns: minmax(0, 1.02fr) minmax(0, 1fr); gap: clamp(2rem, 5vw, 4.5rem); align-items: center; padding-top: clamp(2.5rem, 6vw, 5rem) !important; }
+.h-mcp { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin-top: var(--s-4) !important; font-size: var(--t-xs); color: var(--mute); }
+.h-mcp code { padding: .35rem .6rem; border: 1px solid var(--rule); border-radius: var(--r-1); background: var(--paper-2); color: var(--ink); }
+.copy { padding: .3rem .65rem; border: 1px solid var(--rule-strong); border-radius: var(--r-pill); background: var(--paper); color: var(--ink-2); font: 500 var(--t-2xs)/1 var(--ui); cursor: pointer; }
+.copy.done { border-color: var(--accent); color: var(--accent); }
+.h-scene { margin: 0; position: relative; }
+.h-img { position: relative; aspect-ratio: 864 / 885; border-radius: var(--r-3); overflow: hidden; background: var(--paper-3); box-shadow: var(--shadow-2); }
+.h-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .5s ease; }
+.h-img img.on { opacity: 1; }
+.h-dates { position: absolute; top: .9rem; left: .9rem; display: flex; gap: 2px; padding: 3px; border-radius: var(--r-pill); background: oklch(0.15 0.01 260 / .55); backdrop-filter: blur(6px); }
+.h-dates button { padding: .38rem .8rem; border: 0; border-radius: var(--r-pill); background: transparent; color: oklch(0.96 0 0); font: 600 var(--t-2xs)/1 var(--ui); cursor: pointer; }
+.h-dates button.on { background: oklch(0.99 0 0); color: oklch(0.18 0.01 260); }
+.h-card { position: absolute; right: -1.25rem; bottom: 3.6rem; width: min(22rem, 78%); padding: 1rem 1.1rem 1.05rem; border-radius: var(--r-3);
+  background: var(--paper); border: 1px solid var(--rule); box-shadow: var(--shadow-2); }
+.h-card .k { font-size: var(--t-2xs); color: var(--mute); }
+.spark { display: block; width: 100%; height: auto; margin: .55rem 0 .45rem; }
+.spark .area { fill: var(--accent-bg); }
+.spark .line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.spark circle { fill: var(--paper); stroke: var(--accent); stroke-width: 2; }
+.h-card .v { font-size: var(--t-xs); line-height: 1.45; color: var(--ink-2); }
+.h-card .v b { color: var(--ink); font-family: var(--mono); font-weight: 600; }
+.tok { display: flex; align-items: center; gap: .4rem; margin-top: .7rem; padding: .45rem .6rem; border-radius: var(--r-1); background: var(--paper-2);
+  font: 500 var(--t-2xs)/1.2 var(--mono); color: var(--ink-2); text-decoration: none; white-space: nowrap; overflow: hidden; }
+.tok i { font-style: normal; color: var(--accent); font-weight: 700; flex: none; }
+.tok code, .tok .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tok span:last-child { flex: none; margin-left: auto; padding-left: .5rem; font-family: var(--ui); font-weight: 600; color: var(--accent); }
+.ask .btn { min-height: 54px; padding: 0 1.6rem; border-radius: var(--r-pill); }
+.h-scene figcaption { margin-top: .8rem; font-size: var(--t-2xs); line-height: 1.45; color: var(--mute); max-width: 34rem; }
 
-/* footer */
-.foot.inverted{margin:var(--s-6) auto 0;padding-bottom:calc(3.4rem + 7rem)}
-body:has(.foot.inverted){padding-bottom:0}
-.foot{position:relative;background:var(--paper);padding:2.618rem 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:2.618rem;color:var(--mute);font-size:var(--t-xs)}
-.foot-col h4{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:0 0 .618rem;font-weight:700}
-.foot-col ul{margin:0;padding:0;list-style:none}
-.foot-col ul li{margin-bottom:.382rem}
-.foot-col a{color:var(--ink-2);text-decoration:none}
-.foot-col a:hover{color:var(--accent);text-decoration:underline}
-.inverted{--paper:oklch(0.19 0.006 85);--paper-2:oklch(0.23 0.006 85);
-  --paper-3:oklch(0.27 0.006 85);--ink:oklch(0.96 0.004 85);
-  --ink-2:oklch(0.86 0.004 85);--mute:oklch(0.68 0.006 85);
-  --rule:oklch(0.34 0.006 85);--rule-strong:oklch(0.44 0.006 85);
-  --accent:oklch(0.74 0.13 145);
-  background:var(--paper);color:var(--ink);
-  padding-top:var(--s-5);padding-bottom:var(--s-5);margin:var(--s-5) 0;
-  box-shadow:0 0 0 100vw var(--paper);clip-path:inset(0 -100vw);
-    /* A scoped palette inherits every token it does not redefine, and these two
-       were not: --mute-2 stayed at the LIGHT 0.516 and --vermilion at 0.50, both
-       chosen against paper, both landing on this panel's near-black. 4.12:1 and
-       2.32:1 measured. The tokens this block overrode were the ones whoever wrote
-       it was thinking about; these are the ones they were not. */
-    --mute-2:oklch(0.651 0.005 85);--vermilion:oklch(0.67 0.16 30);}
-.inverted a{color:var(--accent)}
-@media (prefers-color-scheme:dark){
-  :root:not([data-theme="light"]) .inverted{
-    --paper:oklch(0.965 0.005 85);--paper-2:oklch(0.945 0.005 85);
-    --paper-3:oklch(0.92 0.006 85);--ink:oklch(0.20 0.005 85);
-    --ink-2:oklch(0.32 0.005 85);--mute:oklch(0.48 0.006 85);
-    --rule:oklch(0.86 0.006 85);--rule-strong:oklch(0.72 0.010 85);
-    --accent:oklch(0.45 0.09 145);
-    /* Mirror of the light-mode case: here .inverted is the LIGHT panel and
-       inherits tokens.css's DARK --mute-2, which measured 2.89:1 on it. */
-    --mute-2:oklch(0.504 0.005 85);}
+/* 2. Strip */
+.h-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; padding-block: 0 !important; border-top: 0 !important; }
+.h-strip div { padding: var(--s-4) var(--s-4) var(--s-4) 0; border-top: 1px solid var(--rule); }
+.h-strip div + div { padding-left: var(--s-4); border-left: 1px solid var(--rule); }
+.h-strip b { display: block; font: 620 var(--t-md)/1.3 var(--display); letter-spacing: -.01em; }
+.h-strip span { display: block; margin-top: .35rem; font-size: var(--t-sm); line-height: 1.5; color: var(--mute); }
+
+/* 3. Why space */
+.h-why { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(2rem, 5vw, 5rem); align-items: start; }
+.h-why-body > p { font-size: var(--t-md); line-height: 1.6; color: var(--ink-2); }
+.h-rows { margin: var(--s-4) 0 0; }
+.h-rows div { display: grid; grid-template-columns: 13rem minmax(0, 1fr); gap: var(--s-3); padding: .95rem 0; border-top: 1px solid var(--rule); }
+.h-rows dt { font-weight: 600; color: var(--ink); }
+.h-rows dd { margin: 0; color: var(--ink-2); }
+
+/* 4. Memory model */
+.formula { border: 1px solid var(--rule); border-radius: var(--r-3); background: var(--paper-2); overflow: hidden; }
+.formula > div { display: grid; grid-template-columns: 6.5rem 15rem minmax(0, 1fr) 12rem; gap: var(--s-3); align-items: baseline; padding: .95rem 1.25rem; border-top: 1px solid var(--rule); }
+.formula > div:first-child { border-top: 0; }
+.f-l { font: 650 var(--t-sm)/1.3 var(--mono); color: var(--ink); }
+.f-d { font: 500 var(--t-xs)/1.4 var(--mono); color: var(--accent); }
+.f-v { font-size: var(--t-sm); line-height: 1.45; color: var(--ink-2); min-width: 0; overflow-wrap: anywhere; }
+.f-v code { color: var(--ink); }
+.f-m { font-size: var(--t-xs); color: var(--mute); text-align: right; }
+.f-tok { background: var(--paper); }
+.f-tok a { text-decoration: none; color: var(--accent); font-weight: 600; }
+.f-tok a code { color: var(--ink-2); font-weight: 500; }
+.h-note { margin-top: var(--s-4) !important; color: var(--ink-2); line-height: 1.6; max-width: 52rem; }
+.h-note a { color: var(--accent); font-weight: 600; text-decoration: none; }
+
+/* 5. What it remembers */
+.h-three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-4); }
+.panel { display: flex; flex-direction: column; border: 1px solid var(--rule); border-radius: var(--r-3); overflow: hidden; background: var(--paper); }
+.panel > img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block; }
+.panel-b { padding: 1.2rem 1.25rem 1.35rem; display: flex; flex-direction: column; gap: .6rem; flex: 1; }
+.panel-b p { color: var(--ink-2); line-height: 1.55; font-size: var(--t-sm); }
+.panel-b a, .ex-more a, .b-links a { color: var(--accent); font-weight: 600; text-decoration: none; font-size: var(--t-sm); }
+.panel-b a { margin-top: auto; }
+.mock { aspect-ratio: 16 / 10; box-sizing: border-box; padding: 1.25rem 1.35rem; background: var(--paper-2); border-bottom: 1px solid var(--rule);
+  display: flex; flex-direction: column; justify-content: center; gap: .45rem; font: 500 var(--t-xs)/1.35 var(--mono); color: var(--ink-2); }
+.m-k { font: 600 var(--t-3xs)/1 var(--ui) !important; letter-spacing: .1em; text-transform: uppercase; color: var(--mute) !important; }
+.m-path { color: var(--ink); overflow-wrap: anywhere; }
+.m-l i { font-style: normal; display: inline-block; min-width: 4.2rem; color: var(--mute); }
+.m-ok { color: var(--accent) !important; font-weight: 600; }
+.m-big { font: 650 clamp(1.4rem, 2.4vw, 1.9rem)/1.1 var(--display) !important; color: var(--ink) !important; letter-spacing: -.02em; }
+.m-big span { color: var(--mute-2); }
+
+/* 6. Encode / decode */
+.flow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1fr); gap: var(--s-4); align-items: center; }
+.f-col { list-style: none; margin: 0; padding: 0; display: grid; gap: .55rem; }
+.f-col li { padding: .75rem 1rem; border: 1px solid var(--rule); border-radius: var(--r-2); background: var(--paper); font-size: var(--t-sm); color: var(--ink); position: relative; }
+.f-src li::after, .f-ai li::before { content: ""; position: absolute; top: 50%; width: var(--s-4); border-top: 1px dashed var(--rule-strong); }
+.f-src li::after { left: 100%; }
+.f-ai li::before { right: 100%; }
+.f-mid { padding: 1.6rem 1.5rem; border-radius: var(--r-3); background: var(--ink); color: var(--paper); text-align: center; box-shadow: var(--shadow-2); }
+.f-mid .f-k { font: 650 var(--t-lg)/1.2 var(--display); letter-spacing: -.01em; }
+.f-mid p + p { margin-top: .6rem; font-size: var(--t-sm); color: oklch(0.85 0.006 255); }
+.f-mid .f-tok { display: inline-block; margin-top: .9rem; padding: .35rem .7rem; border-radius: var(--r-pill); background: oklch(0.28 0.012 260); font: 500 var(--t-xs)/1 var(--mono); color: oklch(0.86 0.12 155); }
+
+/* 7. Shared memory */
+.h-four { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s-4); }
+.h-four div { padding-top: var(--s-3); border-top: 2px solid var(--ink); }
+.h-four p { margin-top: .6rem !important; color: var(--ink-2); font-size: var(--t-sm); line-height: 1.55; }
+.h-four a { color: var(--accent); }
+
+/* 8. Examples */
+.ex-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-4); }
+.ex { position: relative; display: block; aspect-ratio: 16 / 10; border-radius: var(--r-3); overflow: hidden; text-decoration: none; background: var(--paper-3); }
+.ex img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform .6s ease; }
+.ex:hover img { transform: scale(1.03); }
+.ex::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, oklch(0.12 0.01 260 / 0) 40%, oklch(0.12 0.01 260 / .78) 100%); }
+.ex-b { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; padding: 1.3rem 1.4rem; color: oklch(0.98 0 0); }
+.ex-b b { display: block; font: 640 clamp(1.15rem, 1.8vw, 1.45rem)/1.2 var(--display); letter-spacing: -.015em; }
+.ex-b span { display: block; margin-top: .4rem; font-size: var(--t-sm); line-height: 1.45; color: oklch(0.92 0.004 255); max-width: 34rem; }
+.ex-more { margin-top: var(--s-4) !important; display: flex; flex-wrap: wrap; gap: .4rem 1rem; color: var(--mute); }
+
+/* 9. Try it */
+.ask { display: flex; gap: var(--s-2); max-width: 46rem; }
+.ask input { flex: 1; min-width: 0; padding: .95rem 1.1rem; border: 1px solid var(--rule-strong); border-radius: var(--r-pill); background: var(--paper);
+  color: var(--ink); font: 400 var(--t-md)/1.2 var(--ui); }
+.ask input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+.chips { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: var(--s-3) !important; }
+.chips button { padding: .45rem .85rem; border: 1px solid var(--rule); border-radius: var(--r-pill); background: var(--paper-2); color: var(--ink-2); font: 500 var(--t-xs)/1 var(--ui); cursor: pointer; }
+.chips button:hover { border-color: var(--rule-strong); color: var(--ink); }
+.ask-out { margin-top: var(--s-4); max-width: 46rem; padding: 1.2rem 1.3rem; border: 1px solid var(--rule); border-radius: var(--r-3); background: var(--paper-2); }
+.ask-out .a-s { font-size: var(--t-md); line-height: 1.5; color: var(--ink); }
+.ask-out .a-l { margin-top: .6rem; font-size: var(--t-xs); color: var(--mute); }
+.ask-out .tok { background: var(--paper); }
+
+/* 10. Build */
+.build { border: 1px solid var(--rule); border-radius: var(--r-3); overflow: hidden; }
+.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--rule); background: var(--paper-2); }
+.tabs button { padding: .8rem 1.2rem; border: 0; border-right: 1px solid var(--rule); background: transparent; color: var(--mute); font: 600 var(--t-xs)/1 var(--ui); cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--paper); color: var(--ink); }
+.build pre { margin: 0; padding: 1.3rem 1.4rem; background: var(--paper); overflow-x: auto; font: 500 var(--t-sm)/1.6 var(--mono); color: var(--ink); }
+.b-links { display: flex; flex-wrap: wrap; gap: .4rem 1.4rem; padding: .9rem 1.4rem; border-top: 1px solid var(--rule); background: var(--paper-2); }
+.hosts { margin-top: var(--s-4) !important; font-size: var(--t-sm); color: var(--mute); line-height: 1.7; }
+.hosts b { color: var(--ink-2); font-weight: 600; }
+
+/* 11. Research */
+.res { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: var(--s-4); align-items: stretch; }
+.res-poster { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr); gap: var(--s-4); align-items: center; padding: 1.2rem; border: 1px solid var(--rule); border-radius: var(--r-3); text-decoration: none; background: var(--paper); }
+.res-poster img { width: 100%; height: auto; border-radius: var(--r-1); box-shadow: var(--shadow-1); }
+.res-poster span { font-size: var(--t-sm); line-height: 1.55; color: var(--ink-2); }
+.res-poster b { display: block; margin-bottom: .4rem; font: 640 var(--t-md)/1.3 var(--display); color: var(--ink); }
+.res-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-3); }
+.res-list a { padding: 1rem 1.1rem; border: 1px solid var(--rule); border-radius: var(--r-2); text-decoration: none; background: var(--paper); }
+.res-list a:hover, .res-poster:hover { border-color: var(--rule-strong); }
+.res-list b { display: block; font-weight: 620; color: var(--ink); }
+.res-list span { display: block; margin-top: .3rem; font-size: var(--t-xs); line-height: 1.5; color: var(--mute); }
+.nums { display: flex; flex-wrap: wrap; gap: .5rem 2rem; margin-top: var(--s-5) !important; padding-top: var(--s-4); border-top: 1px solid var(--rule); font-size: var(--t-sm); color: var(--mute); }
+.nums b { font: 640 var(--t-lg)/1 var(--display); color: var(--ink); margin-right: .3rem; }
+
+/* 12. End */
+.h-end { text-align: center; }
+.h-end .h-cta { justify-content: center; }
+
+@media (max-width: 1100px) {
+  .formula > div { grid-template-columns: 6rem minmax(0, 1fr); }
+  .f-v { grid-column: 2; }
+  .f-m { grid-column: 2; text-align: left; }
+  .h-four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .h-card { right: .75rem; }
 }
-:root[data-theme="dark"] .inverted{
-  --paper:oklch(0.965 0.005 85);--paper-2:oklch(0.945 0.005 85);
-  --paper-3:oklch(0.92 0.006 85);--ink:oklch(0.20 0.005 85);
-  --ink-2:oklch(0.32 0.005 85);--mute:oklch(0.48 0.006 85);
-  --rule:oklch(0.86 0.006 85);--rule-strong:oklch(0.72 0.010 85);
-  --accent:oklch(0.45 0.09 145)}
-section[id], h1[id], h2[id], h3[id], [id]:target{scroll-margin-top:4.5rem}
-
-/* ── The reel: one substrate per slide ─────────────────────────────────────
-   Picture, noun, verbs, one way out, and three overlays on every picture:
-   what it is (tags), what it weighs at the source against what an agent reads
-   (size), and a button that hands an agent the name. The track is a native
-   horizontal scroll with snap points, so swipe, trackpad and keyboard work
-   with no script; the script adds the buttons, the dots, the autoplay and the
-   motion. Reduced motion stops the autoplay and every animation, never the
-   reel: each slide still shows a still frame and still verifies. */
-.cz{ width:min(100%, 52rem); text-align:left; position:relative;
-  background:var(--paper); border:1px solid var(--rule-strong); border-radius:6px; }
-.cz-track{ display:flex; overflow-x:auto; overflow-y:hidden; scroll-snap-type:x mandatory;
-  scrollbar-width:none; overscroll-behavior-x:contain; border-radius:6px 6px 0 0; }
-.cz-track::-webkit-scrollbar{ display:none; }
-.cz-track:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
-.cz-slide{ flex:0 0 100%; scroll-snap-align:start; scroll-snap-stop:always; min-width:0;
-  display:grid; grid-template-columns:minmax(0, 1.25fr) minmax(0, 1fr); }
-/* The picture fills the slide's height beside the text; on a phone it
-   stacks and keeps the 16:10 of the frames it shows. Photos are cropped to
-   cover, and every overlay drawn on a photo is cropped the same way (slice). */
-.cz-vis{ margin:0; position:relative; min-height:22rem; background:var(--paper-3);
-  overflow:hidden; border-right:1px solid var(--rule); color:var(--ink-2); }
-.cz-vis.dark{ background:#07090c; color:#c9d3df; }
-.cz-vis > img, .cz-vis > svg, .cz-vis > canvas, .cz-vis > video{ position:absolute; inset:0;
-  display:block; width:100%; height:100%; object-fit:cover; }
-.cz-vis > canvas, .cz-vis > video, .cz-vis > img{ opacity:0; transition:opacity .5s ease; }
-.cz-vis > .on{ opacity:1; }
-.cz-vis .cz-miss{ position:absolute; inset:0; display:grid; place-items:center; padding:var(--s-3);
-  font-family:var(--ui); font-size:var(--t-2xs); color:var(--mute); text-align:center; }
-/* overlays: tags top left, weight bottom left */
-.cz-tags{ position:absolute; left:var(--s-2); top:var(--s-2); right:var(--s-2); margin:0; padding:0;
-  list-style:none; display:flex; flex-wrap:wrap; gap:4px; pointer-events:none; }
-.cz-tags li{ font-family:var(--ui); font-size:var(--t-3xs); line-height:1; letter-spacing:.04em;
-  background:var(--paper); color:var(--ink-2); border:1px solid var(--rule-strong);
-  border-radius:999px; padding:4px 8px; }
-.cz-tags li.tt{ color:var(--accent); border-color:var(--accent); font-weight:600; }
-.cz-size{ position:absolute; left:var(--s-2); bottom:var(--s-2); margin:0; max-width:calc(100% - 2 * var(--s-2));
-  background:var(--paper); color:var(--ink); border:1px solid var(--rule-strong); border-radius:4px;
-  padding:4px 8px; font-family:var(--mono); font-size:var(--t-2xs); line-height:1.35; }
-.cz-size b{ font-size:var(--t-sm); font-weight:600; letter-spacing:-.01em; }
-.cz-size b + i{ font-style:normal; color:var(--mute); margin:0 4px; }
-.cz-size b:last-of-type{ color:var(--accent); }
-.cz-size span{ display:block; color:var(--mute); font-size:var(--t-3xs); letter-spacing:.03em; }
-.cz-txt{ padding:var(--s-4); display:flex; flex-direction:column; gap:var(--s-2); min-width:0; }
-.cz-kind{ margin:0; font-family:var(--ui); font-size:var(--t-2xs); letter-spacing:.08em;
-  text-transform:lowercase; color:var(--mute); }
-.cz-kind .live{ color:var(--accent); }
-.cz-kind .ok{ color:var(--accent); }
-.cz-kind .no{ color:var(--absent); }
-.cz-noun{ margin:0; font-family:var(--display); font-weight:420; font-size:var(--t-xl);
-  line-height:1.15; color:var(--ink); text-wrap:balance; }
-.cz-verbs{ list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:var(--s-1); }
-.cz-verbs li{ font-family:var(--ui); font-size:var(--t-2xs); color:var(--ink-2);
-  border:1px solid var(--rule-strong); border-radius:999px; padding:2px 10px; white-space:nowrap; }
-.cz-verbs li i{ font-style:normal; color:var(--accent); margin-left:4px; }
-.cz-read{ margin:0; font-family:var(--ui); font-size:var(--t-2xs); color:var(--mute);
-  line-height:1.5; overflow-wrap:anywhere; min-height:3em; }
-.cz-read b{ color:var(--ink-2); font-weight:600; }
-.cz-read .ok{ color:var(--accent); }
-.cz-read .no{ color:var(--absent); }
-.cz-acts{ margin-top:auto; display:flex; flex-wrap:wrap; align-items:center; gap:var(--s-1) var(--s-3); }
-.cz-copy{ font:inherit; font-family:var(--ui); font-size:var(--t-xs); min-height:44px; padding:0 var(--s-3);
-  color:var(--paper); background:var(--accent); border:1px solid var(--accent); border-radius:999px; cursor:pointer; }
-.cz-copy:hover{ filter:brightness(1.08); }
-.cz-copy:focus-visible{ outline:2px solid var(--ink); outline-offset:2px; }
-.cz-go{ display:inline-flex; align-items:center;
-  min-height:44px; color:var(--accent); font-family:var(--ui); font-size:var(--t-sm);
-  text-decoration:underline; text-underline-offset:3px; text-decoration-thickness:1px; }
-.cz-go:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
-.cz-bar{ display:flex; align-items:center; justify-content:space-between; gap:var(--s-1);
-  border-top:1px solid var(--rule); padding:0 var(--s-1); }
-.cz-dots{ display:flex; flex-wrap:wrap; justify-content:center; }
-.cz-btn, .cz-dot{ min-width:44px; min-height:44px; background:none; border:0; cursor:pointer;
-  color:var(--ink-2); font-family:var(--ui); font-size:var(--t-sm); padding:0; }
-.cz-dot{ min-width:32px; }
-.cz-btn:hover{ color:var(--ink); }
-.cz-btn:focus-visible, .cz-dot:focus-visible{ outline:2px solid var(--accent); outline-offset:-4px; }
-.cz-dot::before{ content:""; display:inline-block; width:8px; height:8px; border-radius:50%;
-  border:1px solid var(--ink-2); vertical-align:middle; }
-.cz-dot[aria-current="true"]::before{ background:var(--accent); border-color:var(--accent); width:22px; border-radius:4px; }
-.cz-dot::before{ transition:width .3s ease, background .3s ease; }
-.cz-play{ font-size:var(--t-2xs); padding:0 var(--s-2); }
-.cz-count{ display:none; font-family:var(--ui); font-size:var(--t-2xs); color:var(--mute); }
-/* drawn figures */
-.cz-fig rect.dim{ fill:none; stroke:currentColor; stroke-opacity:.35; stroke-dasharray:2 2; }
-.cz-fig rect.lit{ fill:var(--accent); stroke:none; }
-.cz-fig rect.now{ stroke:var(--ink); stroke-width:1.5; }
-.cz-fig path{ fill:none; stroke:currentColor; stroke-width:1; vector-effect:non-scaling-stroke; }
-.cz-fig path.hot{ stroke:var(--accent); stroke-width:1.6; }
-.cz-fig line.strip{ stroke:#7fd3ff; stroke-width:.6; stroke-opacity:0; transition:stroke-opacity .5s ease; }
-.cz-fig line.strip.on{ stroke-opacity:.9; }
-.cz-fig line.scan{ stroke:#7fd3ff; stroke-width:1.2; }
-.cz-fig .lane{ fill:currentColor; fill-opacity:.12; }
-.cz-fig .fill{ fill:var(--accent); }
-.cz-fig .link{ stroke:var(--accent); stroke-width:1.4; stroke-dasharray:3 3; fill:none; }
-.cz-fig circle.dg{ fill:var(--paper); stroke:var(--accent); stroke-width:1.4; }
-.cz-fig circle.dg.on{ fill:var(--accent); }
-.cz-heat rect{ fill:var(--accent); stroke:var(--paper); stroke-width:1; }
-.cz-heat rect.miss{ fill:none; stroke:var(--rule-strong); stroke-dasharray:2 2; }
-.cz-heat rect.absent{ fill:var(--rule-strong); fill-opacity:.35; }
-.cz-heat rect.cur{ fill:none; stroke:var(--ink); stroke-width:2.5; animation:none; }
-.cz-fig text{ font-family:var(--mono); font-size:var(--t-3xs); fill:currentColor; }
-.cz-fig .band{ fill:var(--paper); fill-opacity:.88; }
-.cz-fig rect.scanband{ fill:none; stroke:#7fd3ff; stroke-width:1.4; }
-.cz-fig path.c0{ stroke:#f2b35e; }
-.cz-fig path.c1{ stroke:#7fd3ff; }
-.cz-fig path.now{ stroke-width:2.6; }
-/* a small locator map in the picture's corner */
-.cz-vis > svg.cz-inset{ inset:auto; right:var(--s-2); bottom:var(--s-2); width:64px; height:64px; }
-.cz-vis > svg.cz-inset.wide{ width:96px; height:48px; }
-.cz-inset .frame{ fill:var(--paper); fill-opacity:.9; stroke:var(--rule-strong); }
-.cz-inset .grat{ stroke:var(--ink-2); stroke-opacity:.3; }
-.cz-inset circle.tile{ fill:var(--ink-2); fill-opacity:.45; }
-.cz-inset circle.pin{ fill:var(--accent); }
-.cz-inset circle.ring{ fill:none; stroke:var(--accent); stroke-width:1.4; transform-box:fill-box; transform-origin:center; }
-/* a scanned page, read one line at a time */
-.cz-doc{ position:absolute; inset:0 10%; background:var(--paper); border-left:1px solid var(--rule-strong);
-  border-right:1px solid var(--rule-strong); overflow:hidden; padding:2.6rem var(--s-3) 3.6rem; }
-.cz-doc ol{ list-style:none; margin:0; padding:0; transition:transform .4s ease; }
-.cz-doc li{ font-family:var(--ui); font-size:var(--t-3xs); line-height:1.6; color:var(--mute);
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0 4px; border-radius:2px; min-height:1.6em; }
-.cz-doc li.done{ color:var(--ink); }
-.cz-doc li.now{ color:var(--ink); background:var(--accent-bg); box-shadow:inset 3px 0 0 var(--accent); }
-.cz-doc li b{ color:var(--accent); font-weight:600; }
-/* motion, only while a slide runs and only when motion is wanted */
-.cz-slide.cz-on .kb{ animation:czkb 16s ease-in-out infinite alternate; }
-@keyframes czkb{ from{ transform:scale(1.02) translate(0, 0); } to{ transform:scale(1.22) translate(-5%, 3%); } }
-.cz-slide.cz-on .cz-heat rect{ animation:czin .5s ease both; }
-@keyframes czin{ from{ opacity:0; } to{ opacity:1; } }
-.cz-slide.cz-on .cz-inset circle.ring{ animation:czring 1.8s ease-out infinite; }
-@keyframes czring{ from{ transform:scale(.4); opacity:1; } to{ transform:scale(2.4); opacity:0; } }
-@media (max-width:640px){
-  .cz-slide{ grid-template-columns:1fr; }
-  .cz-vis{ min-height:0; aspect-ratio:16/10; border-right:0; border-bottom:1px solid var(--rule); }
-  .cz-size span{ display:none; }
-  .cz-txt{ padding:var(--s-3); }
-  .cz-noun{ font-size:var(--t-lg); }
-  .cz-dots{ display:none; }
-  .cz-count{ display:inline; margin-right:auto; margin-left:var(--s-2); }
+@media (max-width: 900px) {
+  .h-hero, .h-why, .res { grid-template-columns: minmax(0, 1fr); }
+  .h-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .h-strip div:nth-child(3) { padding-left: 0; border-left: 0; }
+  .h-three { grid-template-columns: minmax(0, 1fr); }
+  .flow { grid-template-columns: minmax(0, 1fr); }
+  .f-src li::after, .f-ai li::before { display: none; }
+  .h-card { position: relative; right: auto; bottom: auto; width: auto; margin-top: -2.5rem; margin-inline: .75rem; }
 }
-@media (prefers-reduced-motion: reduce){
-  .cz-track{ scroll-behavior:auto; }
-  .cz-slide.cz-on .kb, .cz-slide.cz-on .cz-heat rect, .cz-slide.cz-on .cz-inset circle.ring{ animation:none; }
-  .cz-doc ol{ transition:none; }
+@media (max-width: 560px) {
+  .ex-grid, .res-list, .h-four, .h-strip { grid-template-columns: minmax(0, 1fr); }
+  .h-strip div, .h-strip div + div { padding-left: 0; border-left: 0; }
+  .h-rows div { grid-template-columns: minmax(0, 1fr); gap: .2rem; }
+  .res-poster { grid-template-columns: 6rem minmax(0, 1fr); }
+  .ask { flex-direction: column; }
+  .ex { aspect-ratio: 4 / 3; }
 }
-
-/* ---- the page: a hero with a composer, the reel, three steps, three ways in ---- */
-.home{ position:relative; padding:0 var(--s-3); }
-.home > section{ max-width:68rem; margin:0 auto; }
-.home h2{ font-family:var(--display); font-weight:420; font-size:var(--t-2xl); line-height:1.1;
-  letter-spacing:-.012em; margin:0 0 var(--s-3); color:var(--ink); text-wrap:balance; }
-.eyebrow{ margin:0 0 var(--s-1); font-family:var(--ui); font-size:var(--t-2xs); letter-spacing:.08em;
-  text-transform:lowercase; color:var(--mute); }
-.eyebrow b{ color:var(--accent); font-weight:600; }
-
-.hero{ padding:var(--s-6) 0 var(--s-4); }
-.home > .hero{ max-width:54rem; }
-.cmp-box, .thread{ max-width:48rem; margin-left:auto; margin-right:auto; }
-.hero h1{ font-family:var(--display); font-weight:420; font-size:clamp(var(--t-2xl), 5.4vw, var(--t-4xl));
-  line-height:1.06; letter-spacing:-.02em; margin:0 auto var(--s-2); text-align:center; text-wrap:balance;
-  font-variation-settings:'opsz' 60; color:var(--ink); }
-/* One sentence a line: a break inside "the data / lives." read as two
-   half-thoughts. The size follows the width so the longer line still fits. */
-.hero h1 span{ display:block; white-space:nowrap; }
-@media (max-width:640px){ .hero h1{ font-size:min(var(--t-2xl), 7vw); } }
-.hero .lede{ margin:0 auto var(--s-5); text-align:center; font-family:var(--ui); font-size:var(--t-sm);
-  color:var(--mute); letter-spacing:.01em; }
-
-/* ---- the composer, in the idiom of a chat input ---- */
-.home{ --field:oklch(0.995 0.002 85); --field-shadow:oklch(0.20 0.02 85 / .09); }
-@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .home{ --field:oklch(0.205 0.005 85); --field-shadow:oklch(0 0 0 / .45); } }
-:root[data-theme="dark"] .home{ --field:oklch(0.205 0.005 85); --field-shadow:oklch(0 0 0 / .45); }
-.cmp{ position:relative; margin:0; }
-.cmp-box{ position:relative; display:flex; flex-direction:column; gap:var(--s-1);
-  background:var(--field); border:1px solid var(--rule); border-radius:1.618rem;
-  box-shadow:0 1px 2px var(--field-shadow), 0 .618rem 1.618rem -.382rem var(--field-shadow);
-  padding:var(--s-2) var(--s-2) var(--s-1); transition:border-color .15s ease, box-shadow .15s ease; }
-.cmp-box:hover{ border-color:var(--rule-strong); }
-.cmp-box:focus-within{ border-color:var(--rule-strong);
-  box-shadow:0 1px 2px var(--field-shadow), 0 .618rem 2.618rem -.382rem var(--field-shadow); }
-.cmp-in{ display:block; width:100%; min-height:3.2rem; max-height:14rem; resize:none; overflow-y:auto;
-  margin:0; padding:var(--s-1) var(--s-2) 0; border:0; outline:0; background:transparent; color:var(--ink);
-  font-family:var(--display); font-size:var(--t-md); line-height:1.5; }
-.cmp-in::placeholder{ color:var(--mute); opacity:1; }
-.cmp-in:focus-visible{ outline:0; }
-.cmp-row{ display:flex; align-items:center; gap:var(--s-1); }
-.cmp-icon{ position:relative; flex:0 0 auto; width:44px; height:44px; display:grid; place-items:center;
-  border:0; border-radius:50%; background:transparent; color:var(--ink-2); cursor:pointer; padding:0; }
-.cmp-icon:hover{ background:var(--paper-3); color:var(--ink); }
-.cmp-icon:focus-within, .cmp-icon:focus-visible{ outline:2px solid var(--accent); outline-offset:-2px; }
-.cmp-icon input{ position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; }
-.cmp-icon svg{ width:20px; height:20px; }
-.cmp-mode{ appearance:none; -webkit-appearance:none; min-height:44px; max-width:14rem; padding:0 1.8rem 0 var(--s-2);
-  border:0; border-radius:999px; color:var(--mute);
-  background:transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right .8rem center;
-  font-family:var(--ui); font-size:var(--t-2xs); cursor:pointer; text-overflow:ellipsis; }
-.cmp-mode:hover{ color:var(--ink); background-color:var(--paper-3); }
-.cmp-mode:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
-.cmp-hint{ flex:1 1 auto; min-width:0; font-family:var(--ui); font-size:var(--t-3xs); color:var(--mute);
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:right; }
-.cmp-send{ flex:0 0 auto; width:44px; height:44px; padding:0; border:0; background:transparent; cursor:pointer;
-  display:grid; place-items:center; border-radius:50%; }
-.cmp-send span{ width:36px; height:36px; border-radius:50%; display:grid; place-items:center;
-  background:var(--ink); color:var(--paper); transition:background .15s ease, opacity .15s ease, transform .15s ease; }
-.cmp-send svg{ width:18px; height:18px; }
-.cmp-send:hover span{ transform:scale(1.04); }
-.cmp-send:focus-visible{ outline:2px solid var(--accent); outline-offset:0; }
-.cmp-send[disabled]{ cursor:default; }
-.cmp-send[disabled] span{ background:var(--rule); color:var(--mute); transform:none; }
-.cmp-send.busy span{ background:var(--mute); }
-/* an attached file sits in the box as a card, as it does in a chat app */
-.cmp-files{ display:flex; flex-wrap:wrap; gap:var(--s-1); padding:var(--s-1) var(--s-1) 0; }
-.cmp-files:empty{ display:none; }
-.cmp-file{ display:inline-flex; align-items:center; gap:var(--s-2); max-width:100%; padding:var(--s-1) var(--s-1) var(--s-1) var(--s-2);
-  border:1px solid var(--rule); border-radius:.618rem; background:var(--paper-2); font-family:var(--ui); font-size:var(--t-2xs); color:var(--ink-2); }
-.cmp-file b{ color:var(--ink); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:16rem; }
-.cmp-file button{ width:44px; height:44px; margin:-.382rem 0; border:0; background:transparent; color:var(--mute); cursor:pointer; border-radius:50%; font-size:var(--t-md); }
-.cmp-file button:hover{ color:var(--ink); background:var(--paper-3); }
-/* the whole composer is the drop target */
-.cmp-drop{ position:absolute; inset:0; border-radius:inherit; display:none; place-items:center; pointer-events:none;
-  border:2px dashed var(--accent); background:var(--accent-bg); color:var(--accent);
-  font-family:var(--ui); font-size:var(--t-sm); font-weight:600; }
-.cmp.over .cmp-drop{ display:grid; }
-.cmp-chips{ display:flex; flex-wrap:wrap; justify-content:center; gap:var(--s-1); margin:var(--s-3) 0 0; padding:0; list-style:none; }
-.chip{ display:inline-flex; align-items:center; gap:var(--s-1); min-height:44px; padding:0 var(--s-3);
-  border:1px solid var(--rule); border-radius:999px; background:transparent; color:var(--ink-2);
-  font-family:var(--ui); font-size:var(--t-2xs); cursor:pointer; white-space:nowrap; }
-.chip:hover{ background:var(--paper-2); border-color:var(--rule-strong); color:var(--ink); }
-.chip:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
-.chip svg{ width:15px; height:15px; color:var(--accent); flex:0 0 auto; }
-
-/* ---- the replies ---- */
-.thread{ display:flex; flex-direction:column; gap:var(--s-4); margin:var(--s-4) 0 0; }
-.thread:empty{ display:none; }
-.turn{ display:flex; flex-direction:column; gap:var(--s-2); animation:turnin .3s ease both; }
-@keyframes turnin{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:none; } }
-.you{ align-self:flex-end; max-width:85%; margin:0; padding:var(--s-2) var(--s-3); border-radius:1.2rem 1.2rem .382rem 1.2rem;
-  background:var(--paper-3); color:var(--ink); font-family:var(--ui); font-size:var(--t-2xs); line-height:1.5;
-  overflow-wrap:anywhere; white-space:pre-wrap; max-height:8.5em; overflow:hidden; }
-.bot{ display:grid; grid-template-columns:2rem minmax(0, 1fr); gap:var(--s-2); align-items:start; }
-.bot-mark{ width:2rem; height:2rem; border-radius:50%; border:1px solid var(--rule); background:var(--field);
-  display:grid; place-items:center; overflow:hidden; }
-.bot-mark img{ width:1.2rem; height:1.2rem; object-fit:contain; }
-.bot-body{ min-width:0; display:flex; flex-direction:column; gap:var(--s-2); padding-top:.2rem; }
-.bot-what{ margin:0; font-family:var(--ui); font-size:var(--t-2xs); color:var(--mute); letter-spacing:.04em; }
-.bot-what b{ color:var(--accent); font-weight:600; }
-.bot-card{ border:1px solid var(--rule); border-radius:1rem; background:var(--field); overflow:hidden; }
-.bot-vis{ margin:0; position:relative; background:var(--paper-2); border-bottom:1px solid var(--rule); }
-.bot-vis:empty{ display:none; }
-.bot-in{ padding:var(--s-3); display:flex; flex-direction:column; gap:var(--s-2); }
-.bot-tok{ font-family:var(--mono); font-size:var(--t-sm); font-weight:600; color:var(--accent); overflow-wrap:anywhere; line-height:1.4; }
-.bot-val{ margin:0; font-family:var(--display); font-size:var(--t-xl); line-height:1.15; color:var(--ink); }
-.bot-val small{ font-family:var(--mono); font-size:var(--t-2xs); color:var(--mute); margin-left:var(--s-1); }
-.bot-text{ margin:0; font-family:var(--display); font-size:var(--t-base); line-height:1.55; color:var(--ink-2); overflow-wrap:anywhere; }
-.bot-size{ align-self:flex-start; margin:0; padding:4px 10px; border:1px solid var(--rule-strong); border-radius:999px;
-  font-family:var(--mono); font-size:var(--t-2xs); color:var(--ink-2); }
-.bot-size b{ color:var(--ink); font-weight:600; }
-.bot-size b:last-of-type{ color:var(--accent); }
-.bot-size i{ font-style:normal; color:var(--mute); margin:0 4px; }
-.bot-size span{ color:var(--mute); font-size:var(--t-3xs); letter-spacing:.03em; margin-left:6px; }
-.bot-pic{ display:block; width:100%; max-height:260px; object-fit:cover; border-radius:6px; margin-bottom:var(--s-2); }
-.bot-cells i.pub{ background:var(--accent); opacity:.55; }
-.bot-units summary{ cursor:pointer; }
-.bot-ulist{ margin:4px 0 0; padding-left:1.4em; font-family:var(--mono); font-size:var(--t-2xs); color:var(--ink-2); max-height:220px; overflow:auto; }
-.bot-ulist li span{ color:var(--mute); margin-left:6px; }
-.bot-ulist li.more{ list-style:none; color:var(--mute); }
-.bot-r1{ font-size:var(--t-2xs); font-weight:500; color:var(--ink-2); padding:6px 8px; border:1px dashed var(--rule-strong); border-radius:6px; }
-.bot-proof{ list-style:none; margin:0; padding:0; font-family:var(--ui); font-size:var(--t-2xs); color:var(--ink-2); line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; }
-.bot-proof li + li{ margin-top:2px; }
-.bot-say{ margin:0; font-family:var(--ui); font-size:var(--t-2xs); color:var(--ink-2); white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.5; }
-.bot-say:empty{ display:none; }
-.ok{ color:var(--accent); font-weight:600; }
-.no{ color:var(--absent); font-weight:600; }
-.bot-cites{ display:flex; flex-wrap:wrap; gap:var(--s-1); margin:0; padding:0; list-style:none; }
-.bot-cites a{ display:inline-flex; align-items:center; min-height:44px; padding:0 var(--s-2); border:1px solid var(--rule);
-  border-radius:.618rem; font-family:var(--mono); font-size:var(--t-3xs); color:var(--accent); text-decoration:none; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.bot-cites a:hover{ border-color:var(--accent); }
-.bot-acts{ display:flex; flex-wrap:wrap; align-items:center; gap:var(--s-1); padding:0 var(--s-3) var(--s-3); }
-.bot-acts:empty{ display:none; }
-.bot-sum{ min-height:44px; display:flex; align-items:center; gap:var(--s-2); cursor:pointer; list-style:none; }
-.bot-sum::-webkit-details-marker{ display:none; }
-.bot-sum::before{ content:""; width:.4rem; height:.4rem; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:rotate(-45deg); transition:transform .15s ease; }
-details[open] > .bot-sum::before{ transform:rotate(45deg); }
-.bot-chunks{ padding:var(--s-3); display:flex; flex-direction:column; gap:var(--s-1); }
-.bot-chunks .bot-cells{ height:14px; }
-.bot-chunks .bot-cells i{ border-radius:2px; }
-.bot-chunks span{ font-family:var(--mono); font-size:var(--t-3xs); color:var(--mute); }
-.act{ display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:0 var(--s-3);
-  border:1px solid var(--rule-strong); border-radius:999px; background:transparent; color:var(--ink);
-  font-family:var(--ui); font-size:var(--t-2xs); cursor:pointer; text-decoration:none; }
-.act:hover{ background:var(--paper-2); }
-.act:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
-.act.main{ background:var(--accent); border-color:var(--accent); color:var(--paper); }
-.act.main:hover{ filter:brightness(1.08); }
-.act[disabled]{ opacity:.55; cursor:progress; }
-.bot-rows{ margin:0; display:grid; grid-template-columns:auto minmax(0, 1fr); gap:2px var(--s-3);
-  font-family:var(--mono); font-size:var(--t-3xs); }
-.bot-rows dt{ color:var(--mute); }
-.bot-rows dd{ margin:0; color:var(--ink-2); overflow-wrap:anywhere; }
-.bot-cells{ display:flex; gap:1px; height:6px; margin:0; }
-.bot-cells i{ flex:1 1 0; background:var(--rule); }
-.bot-cells i.on{ background:var(--accent); }
-.bot-cells i.now{ background:var(--accent-bg); }
-.bot-heat{ display:block; width:100%; max-width:18rem; margin:0 auto; aspect-ratio:1; }
-.bot-heat rect{ fill:var(--accent); stroke:var(--field); stroke-width:1.5; animation:czin .4s ease both; }
-.bot-heat rect.miss{ fill:none; stroke:var(--rule-strong); stroke-dasharray:2 2; }
-.bot-heat rect.absent{ fill:var(--rule-strong); fill-opacity:.35; }
-.bot-vis .bot-heatwrap{ padding:var(--s-3); }
-.bot-dots{ display:inline-flex; gap:4px; }
-.bot-dots i{ width:6px; height:6px; border-radius:50%; background:var(--mute); animation:dot 1s ease-in-out infinite; }
-.bot-dots i:nth-child(2){ animation-delay:.15s; } .bot-dots i:nth-child(3){ animation-delay:.3s; }
-@keyframes dot{ 0%, 100%{ opacity:.25; } 50%{ opacity:1; } }
-
-/* ---- the reel, after the composer ---- */
-.live{ padding:var(--s-5) 0 var(--s-4); }
-.live .cz{ margin:0 auto; }
-
-/* ---- how it works: three steps, each a drawing ---- */
-.how{ padding:var(--s-5) 0; }
-.how-sub{ margin:0 0 var(--s-3); font-family:var(--ui); font-size:var(--t-2xs); color:var(--mute); }
-.pipe{ list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); gap:0; position:relative;
-  border:1px solid var(--rule); border-radius:1rem; background:var(--field); overflow:hidden; }
-.st{ position:relative; display:flex; flex-direction:column; gap:4px; padding:var(--s-3) var(--s-2); min-width:0; border-left:1px solid var(--rule);
-  font-family:var(--ui); color:var(--ink-2); transition:background .4s; }
-.st:first-child{ border-left:0; }
-.st b{ font-size:var(--t-3xs); letter-spacing:.06em; text-transform:uppercase; color:var(--mute); font-weight:600; }
-.st .v{ font-size:var(--t-xs); color:var(--ink); overflow-wrap:anywhere; line-height:1.35; min-height:2.7em; }
-.st .k{ font-size:var(--t-3xs); color:var(--mute); }
-.st .dot{ position:absolute; top:var(--s-2); right:var(--s-2); width:8px; height:8px; border-radius:50%; border:1px solid var(--rule-strong); background:transparent; }
-.st.run .dot{ border-color:var(--accent); animation:pulse 1s ease-in-out infinite; }
-.st.done .dot{ background:var(--accent); border-color:var(--accent); }
-.st.done .v{ color:var(--accent); }
-.st.bad .dot{ background:var(--absent); border-color:var(--absent); }
-.st.done b{ color:var(--ink-2); }
-.st .bar{ display:flex; gap:1px; height:6px; margin-top:2px; }
-.st .bar i{ flex:1 1 0; background:var(--rule); border-radius:1px; }
-.st .bar i.on{ background:var(--accent); }
-@keyframes pulse{ 0%, 100%{ opacity:.35; } 50%{ opacity:1; } }
-.how-foot{ margin:var(--s-2) 0 0; font-family:var(--ui); font-size:var(--t-2xs); color:var(--mute); }
-.how-foot a{ display:inline-flex; align-items:center; min-height:44px; color:var(--accent); }
-
-/* ---- use it from: rendered from #surfaces ---- */
-.flow, .kpi, .toks, .writers, .dev{ padding:var(--s-4) 0; }
-.home > .flow, .home > .toks{ max-width:68rem; }
-.flow-sub{ margin:0 0 var(--s-3); font-family:var(--ui); font-size:var(--t-2xs); color:var(--mute); }
-.fl{ position:relative; display:grid; grid-template-columns:minmax(0, 1fr) minmax(11rem, .8fr) minmax(0, 1fr); gap:var(--s-4); align-items:center; }
-.fl-col{ list-style:none; margin:0; padding:0; display:grid; gap:var(--s-1); position:relative; z-index:1; }
-.fl-n a{ display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:0 var(--s-1); padding:var(--s-1) var(--s-2); border:1px solid var(--rule); border-radius:var(--r-2);
-  background:var(--field); text-decoration:none; color:var(--ink); }
-.fl-n a:hover{ border-color:var(--accent); }
-.fl-n b{ font-family:var(--display); font-weight:420; font-size:var(--t-sm); }
-.fl-n .fl-c{ grid-column:1; font-family:var(--ui); font-size:var(--t-3xs); color:var(--mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.fl-n code{ grid-row:1 / span 2; grid-column:2; align-self:center; font-family:var(--mono); font-size:var(--t-3xs); color:var(--accent); }
-.fl-mid{ position:relative; z-index:1; display:grid; justify-items:center; gap:6px; padding:var(--s-3) var(--s-2); border:1.5px solid var(--accent); border-radius:1rem;
-  background:var(--paper); text-align:center; }
-.fl-core{ font-family:var(--display); font-size:var(--t-2xl); line-height:1; color:var(--ink); }
-.fl-verbs{ font-family:var(--ui); font-size:var(--t-3xs); color:var(--mute); letter-spacing:.04em; }
-.fl-tok{ font-family:var(--mono); font-size:var(--t-3xs); color:var(--accent); max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.fl-head{ font-family:var(--ui); font-size:var(--t-3xs); color:var(--ink-2); }
-.fl-wires{ position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:0; overflow:visible; }
-.fl-wires path{ fill:none; stroke:var(--rule-strong); stroke-width:1.2; stroke-dasharray:4 5; }
-.fl.on .fl-wires path{ animation:flw 1.6s linear infinite; }
-@keyframes flw{ to{ stroke-dashoffset:-18; } }
-@media (prefers-reduced-motion: reduce){ .fl.on .fl-wires path{ animation:none; } }
-@media (max-width:760px){
-  .fl{ grid-template-columns:minmax(0, 1fr); gap:var(--s-2); }
-  .fl-wires{ display:none; }
-  .fl-mid{ order:0; }
-  .fl-enc::after{ content:"\2193"; display:block; text-align:center; color:var(--mute); }
-  .fl-mid{ margin-bottom:var(--s-3); }
-  .fl-mid::after{ content:"\2193"; position:absolute; left:50%; bottom:calc(-1 * var(--s-3)); transform:translateX(-50%); color:var(--mute); }
-}
-.kpi-l{ margin:0; display:grid; grid-template-columns:repeat(auto-fit, minmax(9rem, 1fr)); gap:var(--s-1); }
-.kpi-l div{ padding:var(--s-2); border:1px solid var(--rule); border-radius:var(--r-3); background:var(--field); }
-.kpi-l dt{ font-family:var(--ui); font-size:var(--t-3xs); color:var(--mute); }
-.kpi-l dd{ margin:4px 0 0; font-family:var(--display); font-size:var(--t-xl); color:var(--ink); line-height:1.1; overflow-wrap:anywhere; }
-.kpi-note{ margin:var(--s-1) 0 0; font-family:var(--ui); font-size:var(--t-3xs); color:var(--mute); }
-.tk{ list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fill, minmax(15rem, 1fr)); gap:var(--s-1); }
-.tk-t{ display:grid; gap:4px; padding:var(--s-2); border:1px solid var(--rule); border-radius:var(--r-3); background:var(--field); min-width:0; }
-.tk-t:first-child{ grid-column:auto; }
-.tk-f{ font-family:var(--ui); font-size:var(--t-sm); color:var(--accent); font-weight:600; }
-.tk-v{ font-family:var(--display); font-size:var(--t-base); color:var(--ink); }
-.tk-c{ font-family:var(--mono); font-size:var(--t-2xs); color:var(--ink-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.tk-s{ font-family:var(--ui); font-size:var(--t-3xs); color:var(--mute); }
-.tk-row{ display:flex; align-items:center; justify-content:space-between; gap:var(--s-1); }
-.tk-go{ min-height:36px; display:inline-flex; align-items:center; font-family:var(--ui); font-size:var(--t-3xs); color:var(--accent); }
-@media (max-width:560px){ .tk-t:first-child{ grid-column:auto; } }
-.wr-sum{ margin:0 0 var(--s-2); font-family:var(--ui); font-size:var(--t-2xs); color:var(--ink-2); }
-.wr-sum b{ font-family:var(--display); font-size:var(--t-lg); color:var(--ink); font-weight:420; }
-.wr-l{ list-style:none; margin:0 0 var(--s-2); padding:0; display:grid; gap:var(--s-1); grid-template-columns:repeat(auto-fit, minmax(15rem, 1fr)); }
-.wr-l li{ display:grid; gap:2px; padding:var(--s-2); border:1px solid var(--rule); border-radius:var(--r-3); background:var(--field); }
-.wr-l b{ font-family:var(--display); font-weight:420; font-size:var(--t-base); color:var(--ink); }
-.wr-l span{ font-family:var(--ui); font-size:var(--t-3xs); color:var(--mute); overflow-wrap:anywhere; }
-.wr-tiers{ display:flex; gap:2px; height:28px; border-radius:.4rem; overflow:hidden; }
-.wr-bar{ display:flex; align-items:center; min-width:2.6rem; padding:0 6px; background:var(--rule); }
-.wr-bar:nth-child(2n){ background:var(--rule-strong); }
-.wr-bar:last-child{ background:var(--accent); }
-.wr-bar i{ font-style:normal; font-family:var(--mono); font-size:var(--t-3xs); color:var(--ink); white-space:nowrap; overflow:hidden; }
-.wr-bar:last-child i{ color:var(--paper); }
-.wr-note{ margin:var(--s-1) 0 0; font-family:var(--ui); font-size:var(--t-3xs); color:var(--mute); }
-.dev-tabs{ display:flex; gap:var(--s-1); margin:0 0 var(--s-2); }
-.dev-tabs button{ min-height:40px; padding:0 var(--s-3); border:1px solid var(--rule); border-radius:999px; background:transparent; color:var(--ink-2);
-  font-family:var(--ui); font-size:var(--t-2xs); cursor:pointer; }
-.dev-tabs button[aria-selected="true"]{ background:var(--ink); border-color:var(--ink); color:var(--paper); }
-.dev-p{ display:grid; gap:var(--s-1); }
-.dev-p[hidden]{ display:none; }
-.dev-cmd{ display:flex; align-items:center; gap:var(--s-1); padding:var(--s-1) var(--s-1) var(--s-1) var(--s-2); border:1px solid var(--rule-strong); border-radius:var(--r-2); background:var(--field); min-width:0; }
-.dev-cmd code{ flex:1 1 auto; min-width:0; font-family:var(--mono); font-size:var(--t-2xs); color:var(--ink); overflow-x:auto; white-space:nowrap; }
-.dev-copy{ flex:none; min-height:36px; padding:0 var(--s-2); border:1px solid var(--rule-strong); border-radius:999px; background:transparent; color:var(--accent);
-  font-family:var(--ui); font-size:var(--t-3xs); cursor:pointer; }
-.dev-p pre{ margin:0; padding:var(--s-2); border-radius:var(--r-2); background:var(--ink); color:var(--paper); overflow-x:auto; white-space:pre-wrap; word-break:break-all; font-size:var(--t-3xs); }
-.dev-l{ margin:0; padding-left:1.2em; font-family:var(--ui); font-size:var(--t-2xs); color:var(--ink-2); }
-.dev-links{ margin:var(--s-2) 0 0; font-family:var(--ui); font-size:var(--t-2xs); }
-.dev-links a{ color:var(--accent); display:inline-flex; align-items:center; min-height:44px; }
-.use{ padding:var(--s-4) 0 var(--s-5); }
-.use-kinds{ display:flex; flex-wrap:wrap; gap:var(--s-1); margin:0 0 var(--s-2); }
-.use-kinds button{ min-height:36px; padding:0 var(--s-2); border:1px solid var(--rule); border-radius:999px; background:transparent;
-  color:var(--ink-2); font-family:var(--ui); font-size:var(--t-3xs); cursor:pointer; }
-.use-kinds button[aria-pressed="true"]{ background:var(--ink); border-color:var(--ink); color:var(--paper); }
-.use-kinds button:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
-.surf{ list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fill, minmax(13.5rem, 1fr)); gap:var(--s-1); }
-.sf{ display:grid; grid-template-columns:auto minmax(0, 1fr) auto; grid-template-rows:auto auto; column-gap:var(--s-2); align-items:center;
-  padding:var(--s-2); border:1px solid var(--rule); border-radius:var(--r-3); background:var(--field); min-width:0; }
-.sf[hidden]{ display:none; }
-.sf svg{ grid-row:1 / span 2; width:28px; height:28px; color:var(--ink); }
-.sf .n{ font-family:var(--ui); font-weight:600; font-size:var(--t-sm); color:var(--ink); line-height:1.2; }
-.sf .w{ grid-column:2; font-family:var(--ui); font-size:var(--t-2xs); color:var(--mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.sf .go{ grid-row:1 / span 2; grid-column:3; min-height:36px; min-width:44px; padding:0 var(--s-2); border:1px solid var(--rule-strong); border-radius:999px;
-  background:transparent; color:var(--accent); font-family:var(--ui); font-size:var(--t-3xs); cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; justify-content:center; }
-.sf .go:hover{ border-color:var(--accent); }
-.sf .s{ width:7px; height:7px; border-radius:50%; display:inline-block; margin-left:6px; vertical-align:middle; border:1px solid var(--rule-strong); }
-.sf .s[data-s="live"]{ background:var(--accent); border-color:var(--accent); }
-.sf .s[data-s="down"]{ background:var(--absent); border-color:var(--absent); }
-@media (max-width:560px){
-  .surf{ grid-template-columns:repeat(2, minmax(0, 1fr)); }
-  .sf{ grid-template-columns:auto minmax(0, 1fr); row-gap:6px; }
-  .sf svg{ grid-row:1; width:22px; height:22px; }
-  .sf .w{ grid-column:1 / -1; }
-  .sf .go{ grid-row:auto; grid-column:1 / -1; }
-}
-
-@media (max-width:980px){
-  .pipe{ grid-template-columns:repeat(4, minmax(0, 1fr)); }
-  .st:nth-child(5){ border-left:0; }
-  .st:nth-child(n+5){ border-top:1px solid var(--rule); }
-}
-@media (max-width:560px){
-  .pipe{ grid-template-columns:repeat(2, minmax(0, 1fr)); }
-  .st{ border-left:1px solid var(--rule); border-top:1px solid var(--rule); }
-  .st:nth-child(odd){ border-left:0; }
-  .st:nth-child(-n+2){ border-top:0; }
-  .st:last-child{ grid-column:1 / -1; border-left:0; }
-}
-@media (prefers-reduced-motion: reduce){ .st.run .dot{ animation:none; opacity:1; } .st{ transition:none; } }
-@media (max-width:640px){
-  .hero{ padding:var(--s-5) 0 var(--s-3); }
-  .hero .lede{ margin-bottom:var(--s-4); font-size:var(--t-2xs); }
-  .cmp-box{ border-radius:1.382rem; }
-  .cmp-hint{ display:none; }
-  .cmp-row .cmp-mode{ margin-right:auto; max-width:11rem; }
-  .cmp-chips{ justify-content:flex-start; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; margin-left:calc(-1 * var(--s-3)); margin-right:calc(-1 * var(--s-3)); padding:0 var(--s-3); }
-  .cmp-chips::-webkit-scrollbar{ display:none; }
-  .you{ max-width:92%; }
-  .bot{ grid-template-columns:1fr; }
-  .bot-mark{ display:none; }
-  .home h2{ font-size:var(--t-xl); }
-}
-@media (prefers-reduced-motion: reduce){
-  .turn, .bot-heat rect, .bot-dots i{ animation:none; }
-}
-@media (max-width:720px){
-  .foot{grid-template-columns:1fr;padding:2rem 0}
-}
-@media (max-width:480px){
-  html{font-size:93.75%}
-  .page{padding:0 1rem}
-}
-
-/* ---- 2026-11-20 product layer: two CTAs, the MCP line, teams, why, numbers, stays, more ---- */
-.hero .lede-main{ font-family:var(--display); font-size:var(--t-md); color:var(--ink-2); max-width:44rem; line-height:1.4; margin-bottom:var(--s-3); }
-.hero-cta{ display:flex; gap:var(--s-2); justify-content:center; flex-wrap:wrap; margin:0 0 var(--s-2); }
-.mcp-line{ display:flex; align-items:center; justify-content:center; gap:var(--s-1); flex-wrap:wrap; margin:0 auto var(--s-4);
-  font-family:var(--ui); font-size:var(--t-2xs); color:var(--mute); }
-.mcp-line code{ font-family:var(--mono); font-size:var(--t-2xs); color:var(--ink); padding:2px var(--s-1); border:1px solid var(--rule-strong); border-radius:var(--r-2); background:var(--field); }
-.home > .teams, .home > .why, .home > .stays, .home > .more{ padding:var(--s-5) 0 0; }
-.tm{ list-style:none; margin:0; padding:0; display:grid; gap:var(--s-2); grid-template-columns:repeat(auto-fit, minmax(16rem, 1fr)); }
-.tm a{ display:flex; flex-direction:column; gap:var(--s-1); height:100%; padding:var(--s-3); border:1px solid var(--rule); border-radius:var(--r-3);
-  background:var(--field); color:var(--ink); text-decoration:none; }
-.tm a:hover{ border-color:var(--rule-strong); }
-.tm b{ font-family:var(--display); font-weight:500; font-size:var(--t-lg); line-height:1.2; }
-.tm span{ font-family:var(--ui); font-size:var(--t-xs); color:var(--ink-2); line-height:1.5; flex:1 1 auto; }
-.tm i{ font-style:normal; font-family:var(--ui); font-size:var(--t-xs); color:var(--accent); }
-.wy{ list-style:none; margin:0; padding:0; display:grid; gap:var(--s-2) var(--s-4); grid-template-columns:repeat(2, minmax(0, 1fr)); }
-@media (max-width:640px){ .wy{ grid-template-columns:minmax(0, 1fr); } }
-.wy li{ font-family:var(--ui); font-size:var(--t-xs); color:var(--ink-2); line-height:1.55; padding:var(--s-2) 0; border-top:1px solid var(--rule); }
-.wy b{ color:var(--ink); }
-.wy a, .stays a, .more-sub a{ color:var(--accent); }
-.nums{ margin:var(--s-3) 0 0; font-family:var(--ui); font-size:var(--t-2xs); color:var(--mute); overflow-wrap:anywhere; }
-.stays p, .more-sub{ font-family:var(--ui); font-size:var(--t-sm); color:var(--ink-2); max-width:48rem; margin:0; }
-@media (max-width:560px){ .hero-cta{ flex-direction:column; align-items:stretch; } .hero-cta .btn{ justify-content:center; } }
-
-.ex{ max-width:36rem; margin:0 auto var(--s-4); padding:var(--s-3); border:1px solid var(--rule-strong); border-radius:var(--r-3); background:var(--field); font-family:var(--ui); }
-.ex p{ margin:0 0 var(--s-1); }
-.ex-q{ font-size:var(--t-xs); color:var(--ink-2); }
-.ex-q span{ font-size:var(--t-3xs); letter-spacing:.08em; text-transform:uppercase; color:var(--mute); margin-right:var(--s-1); }
-.ex-a{ font-size:var(--t-sm); color:var(--ink); }
-.ex-a b{ font-family:var(--display); font-size:var(--t-lg); font-weight:500; }
-.ex-lim{ font-size:var(--t-2xs); color:var(--mute); }
-.ex-tok code{ font-family:var(--mono); font-size:var(--t-3xs); overflow-wrap:anywhere; }
-.ex figcaption{ font-size:var(--t-3xs); color:var(--mute); }
-.ex figcaption code{ font-family:var(--mono); }
-.home > .asks, .home > .cmpw{ padding:var(--s-5) 0 0; }
-.ak{ list-style:none; margin:0; padding:0; display:grid; gap:var(--s-2); grid-template-columns:repeat(auto-fit, minmax(15rem, 1fr)); }
-.ak li{ display:flex; flex-direction:column; gap:4px; padding:var(--s-2) var(--s-3); border:1px solid var(--rule); border-radius:var(--r-3); background:var(--field); }
-.ak b{ font-family:var(--display); font-weight:500; font-size:var(--t-md); color:var(--ink); }
-.ak q{ font-family:var(--ui); font-size:var(--t-xs); color:var(--ink-2); quotes:"\201C" "\201D"; }
-.ak span{ font-family:var(--ui); font-size:var(--t-3xs); color:var(--mute); }
-.cw-wrap{ overflow-x:auto; border:1px solid var(--rule); border-radius:var(--r-3); background:var(--field); }
-.cw{ width:100%; border-collapse:collapse; font-family:var(--ui); font-size:var(--t-xs); min-width:30rem; }
-.cw th, .cw td{ text-align:left; padding:var(--s-2) var(--s-3); border-bottom:1px solid var(--rule); vertical-align:top; color:var(--ink-2); }
-.cw thead th{ font-size:var(--t-3xs); letter-spacing:.08em; text-transform:uppercase; color:var(--mute); font-weight:500; }
-.cw tbody th{ color:var(--ink); font-weight:600; white-space:nowrap; }
-.cw td:last-child{ color:var(--ink); }
-.cw tbody tr:last-child th, .cw tbody tr:last-child td{ border-bottom:0; }
+@media (prefers-reduced-motion: reduce) { .h-img img, .ex img { transition: none; } }
 </style>
 <link rel=stylesheet href="/site.css?v=5692554a8f14">
 </head>
 <body>
-
 <!--nav:start-->
 <header class="sitebar"><nav class="sitebar-in" aria-label="Site">
 <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
 <button type="button" class="navtoggle" aria-expanded="false" aria-controls="sitenav-panel"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>Menu</button>
 <div class="navpanel" id="sitenav-panel">
-<a class="navlink" href="/demos">Demos</a>
-<a class="navlink" href="/how-it-works">How it works</a>
-<a class="navlink" href="/reference">Reference</a>
-<a class="navlink" href="/tools">MCP tools</a>
-<a class="navlink" href="/verify">Verify</a>
-<a class="navlink" href="/docs/">Docs</a>
 <details class="navgrp" name="sitenav">
-<summary>More</summary>
-<div class="navmenu navmenu-cols">
-<div class="navsec"><h6>learn</h6>
+<summary>Product</summary>
+<div class="navmenu">
+<a href="/how-it-works"><b>The memory model</b><span>address, fact, receipt, token, log</span></a>
+<a href="/verify"><b>Verify</b><span>check any token in this tab</span></a>
+<a href="/guard"><b>Guard</b><span>gate an answer on its citations</span></a>
+<a href="/a2a"><b>Agent handoff</b><span>hand memory between agents</span></a>
+</div></details>
+<details class="navgrp" name="sitenav">
+<summary>Examples</summary>
+<div class="navmenu">
 <a href="/eudr"><b>EUDR evidence</b><span>check supplier plots, plot by plot</span></a>
 <a href="/agriculture"><b>Crop intelligence</b><span>fields, areas and districts</span></a>
-<a href="/contact"><b>Talk to us</b><span>email the team, or open an issue</span></a>
-<a href="/solutions"><b>Solutions</b><span>see four agents using it</span></a>
-<a href="/whitepaper"><b>Whitepaper</b><span>read the math and the proofs</span></a>
-<a href="/the-long-version"><b>The long read</b><span>the album, the loop, the proof</span></a>
-<a href="/spec"><b>Spec</b><span>implement the wire format</span></a>
-</div>
-<div class="navsec"><h6>connect</h6>
-<a href="/a2a"><b>A2A</b><span>hand memory between agents</span></a>
-<a href="/reference#client-setup"><b>Connect a client</b><span>Claude, ChatGPT, Cursor, VS Code</span></a>
+<a href="/solutions"><b>All examples</b><span>what teams use it for</span></a>
+</div></details>
+<details class="navgrp" name="sitenav">
+<summary>Developers</summary>
+<div class="navmenu">
+<a href="/demos"><b>Live demos</b><span>run live calls in the browser</span></a>
+<a href="/reference#client-setup"><b>Quick start</b><span>connect Claude, ChatGPT, Cursor, VS Code</span></a>
+<a href="/reference"><b>API reference</b><span>call every endpoint</span></a>
+<a href="/tools"><b>MCP tools</b><span>browse all tools, copy a call</span></a>
 <a href="/openapi.json"><b>OpenAPI</b><span>load the machine contract</span></a>
 <a href="/skills.md"><b>Skills</b><span>run a procedure as an agent</span></a>
-</div>
-<div class="navsec"><h6>verify</h6>
-<a href="/guard"><b>Guard</b><span>gate an answer on its citations</span></a>
-<a href="/agents"><b>Attesters</b><span>see every key that writes</span></a>
-<a href="/v1/log/sth"><b>Log head</b><span>pin a signed head</span></a>
-</div>
-<div class="navsec"><h6>lab</h6>
-<a href="/worlds"><b>Worlds<i class="labtag">lab</i></b><span>fly places built on signed facts</span></a>
-<a href="/channel"><b>Channel<i class="labtag">lab</i></b><span>read agents talking</span></a>
-<a href="/scoreboard"><b>Scoreboard<i class="labtag">lab</i></b><span>watch a benchmark race</span></a>
-<a href="/gallery"><b>Gallery<i class="labtag">lab</i></b><span>see the record rendered</span></a>
-<a href="/arcade"><b>Arcade<i class="labtag">lab</i></b><span>watch agents run the loop</span></a>
-</div>
+<a href="https://huggingface.co/spaces/vortx-ai/emem" target="_blank" rel="noopener noreferrer"><b>Hugging Face Space<i class="ext" aria-hidden="true">&#8599;</i></b><span>the same image, running on a Space</span></a>
 </div></details>
+<details class="navgrp" name="sitenav">
+<summary>Research</summary>
+<div class="navmenu">
+<a href="/whitepaper"><b>Whitepaper</b><span>the math and the proofs</span></a>
+<a href="/spec"><b>Spec</b><span>implement the wire format</span></a>
+<a href="/the-long-version"><b>The long read</b><span>the album, the loop, the proof</span></a>
+<a href="/agents"><b>Attesters</b><span>every key that writes</span></a>
+<a href="/v1/log/sth"><b>Log head</b><span>pin a signed head</span></a>
+<a href="https://vortx-ai.github.io/esa_poster/" target="_blank" rel="noopener noreferrer"><b>ESA poster<i class="ext" aria-hidden="true">&#8599;</i></b><span>Agentic AI for Earth Observation, BIFOLD and ESA Phi-lab, Berlin, Oct 2026</span></a>
+<a href="https://doi.org/10.5281/zenodo.20706893" target="_blank" rel="noopener noreferrer"><b>Whitepaper DOI<i class="ext" aria-hidden="true">&#8599;</i></b><span>the protocol paper on Zenodo</span></a>
+<a href="https://vortx-ai.github.io/ememdemo/" target="_blank" rel="noopener noreferrer"><b>ememdemo<i class="ext" aria-hidden="true">&#8599;</i></b><span>a site built on emem, with its own probes</span></a>
+</div></details>
+<a class="navlink" href="/docs/">Docs</a>
 <span class="sitebar-gap"></span>
-<a class="navcta" href="/reference#client-setup">Connect</a>
 <a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">GitHub</a>
+<a class="navplain navtalk" href="/contact">Talk to us</a>
+<a class="navcta" href="/reference#client-setup">Connect</a>
 </div></nav></header>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
+<main class="home" id="top">
 
-<main class="home">
-
-<section class="hero" id="hero" aria-labelledby="hero-h">
-  <h1 id="hero-h"><span>Search the physical world.</span> <span>Every answer is signed.</span></h1>
-  <p class="lede lede-main">Ask about any place, field, river, forest, building or machine. emem reads open sensors and models, computes the answer, and returns it with its source, its method and a signature anyone can check offline.</p>
-  <div class="hero-cta">
-    <a class="btn" href="/connect">Connect your agent</a>
-    <a class="btn ghost" href="/contact">Talk to us</a>
-  </div>
-  <p class="mcp-line"><code>https://emem.dev/mcp</code><button type="button" class="dev-copy">copy</button><span>works in Claude, ChatGPT, Cursor and VS Code &middot; no key to read</span></p>
-  <figure class="ex" aria-label="An example answer">
-    <p class="ex-q"><span>Asked</span>What is the air quality in Delhi right now?</p>
-    <p class="ex-a"><b>PM2.5 69.8 &micro;g/m&sup3;</b> &middot; CAMS analysis &middot; 20 November 2026</p>
-    <p class="ex-lim">Limits: a model grid, not a street monitor.</p>
-    <p class="ex-tok"><a href="/verify?q=emem%3Afact%3Adefi.zb545.zf86d.zb6c2%3Aolew2lwppg4uazm4sgiiv56qv4p4owphfon3ijqb3bvkqb35lyua" title="check this answer"><code>emem:fact:defi.zb545.zf86d.zb6c2:olew2lwp&hellip;</code></a></p>
-    <figcaption>One call to <code>/v1/ask</code>, 49 signed facts behind the answer. Open the token to check it.</figcaption>
-  </figure>
-  <p class="lede">Try it here: name a place, paste an emem token, or drop a file. Files are hashed in this tab and never uploaded.</p>
-
-  <!-- The composer. What is typed or dropped decides the call: a file or text
-       is hashed in this tab, an emem: token is resolved, "lat,lng" or a name
-       is read as a grid, a question goes to /v1/ask, a link to /v1/read. -->
-  <form class="cmp" id="cmp" autocomplete="off">
-    <div class="cmp-box" id="cmpBox">
-      <div class="cmp-files" id="cmpFiles"></div>
-      <textarea class="cmp-in" id="cmpIn" rows="1" enterkeyhint="send" spellcheck="false"
-        placeholder="Paste a link, drop a file, name a place, or paste an emem token"
-        aria-label="Paste a link, drop a file, name a place, or paste an emem token"></textarea>
-      <div class="cmp-row">
-        <label class="cmp-icon" title="Attach a file">
-          <input type="file" id="cmpFile" aria-label="Attach a file to tokenise">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5 12.6 19.9a5.5 5.5 0 0 1-7.8-7.8l8.5-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.8-7.8"/></svg>
-        </label>
-        <select class="cmp-mode" id="cmpMode" aria-label="What to do with it">
-          <option value="auto">auto</option>
-          <option value="text">tokenise</option>
-          <option value="place">read a place</option>
-          <option value="ask">ask</option>
-          <option value="token">check a token</option>
-          <option value="url">read a link</option>
-        </select>
-        <span class="cmp-hint" id="cmpHint">This tab hashes files. It never uploads them.</span>
-        <button type="submit" class="cmp-send" id="cmpSend" disabled aria-label="Send">
-          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/></svg></span>
-        </button>
-      </div>
-      <div class="cmp-drop" aria-hidden="true">Drop to tokenise. It stays in this tab.</div>
+<!-- 1. Category and the first thing it does, beside the world it remembers -->
+<section class="h-hero wrap">
+  <div class="h-hero-text">
+    <p class="eyebrow">Where space meets AI &middot; Verifiable memory</p>
+    <h1>The memory of the physical world. <span class="tone">Search it. Every answer is signed.</span></h1>
+    <p class="lede">Ask about any place, field, river, forest or building. emem reads it from orbit and from open sensors, keeps every reading at one address, and signs it, so any AI can read the answer back and check it.</p>
+    <div class="h-cta">
+      <a class="btn" href="/reference#client-setup">Connect your agent</a>
+      <a class="btn ghost" href="/contact">Talk to us</a>
     </div>
-    <ul class="cmp-chips" aria-label="Examples">
-      <li><button type="button" class="chip" data-chip="file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>Tokenise a file</button></li>
-      <li><button type="button" class="chip" data-chip="place"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Read a place</button></li>
-      <li><button type="button" class="chip" data-chip="token"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8 8 9 4.6-1 8-4.6 8-9V6z"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg>Check a token</button></li>
-      <li><button type="button" class="chip" data-chip="ask"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>Ask about a place</button></li>
-      <li><button type="button" class="chip" data-chip="url"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>Read a link</button></li>
+    <p class="h-mcp"><code>https://emem.dev/mcp</code><button type="button" class="copy" data-copy="https://emem.dev/mcp">Copy</button><span>Claude, ChatGPT, Cursor and VS Code &middot; no key to read</span></p>
+  </div>
+  <figure class="h-scene" data-scene>
+    <div class="h-img">
+      <img class="on" src="/img/punjab-sep-260eaac912.jpg" width="864" height="885" alt="Sentinel-2 true-colour image of green rice fields in Punjab on 8 September 2026" data-date="sep">
+      <img src="/img/punjab-nov-a8002c05e4.jpg" width="864" height="885" alt="The same Punjab fields on 17 November 2026, harvested, with dark burnt stubble" data-date="nov" loading="lazy">
+      <div class="h-dates" role="group" aria-label="Image date">
+        <button type="button" class="on" data-show="sep" aria-pressed="true">8 Sep</button>
+        <button type="button" data-show="nov" aria-pressed="false">17 Nov</button>
+      </div>
+    </div>
+    <div class="h-card">
+      <p class="k">One field in Punjab &middot; 2.7 ha &middot; 262 pixels at 10 m</p>
+      <svg class="spark" viewBox="0 0 300 72" role="img" aria-label="Field NDVI on 18 dates from 16 August to 17 November 2026: 0.88 on 8 September, 0.04 on 12 November">
+        <path class="area" d="M0,72 L0.0,20.9 L9.7,26.6 L58.1,27.9 L64.5,20.1 L74.2,13.2 L90.3,12.4 L122.6,27.3 L129.0,23.3 L154.8,14.3 L171.0,24.6 L187.1,18.6 L193.5,28.6 L203.2,25.7 L235.5,42.9 L251.6,54.3 L267.7,55.1 L283.9,65.8 L300.0,61.3 L300,72 Z"/>
+        <path class="line" d="M0.0,20.9 L9.7,26.6 L58.1,27.9 L64.5,20.1 L74.2,13.2 L90.3,12.4 L122.6,27.3 L129.0,23.3 L154.8,14.3 L171.0,24.6 L187.1,18.6 L193.5,28.6 L203.2,25.7 L235.5,42.9 L251.6,54.3 L267.7,55.1 L283.9,65.8 L300.0,61.3"/>
+        <circle cx="74.2" cy="13.2" r="3.5"/><circle cx="283.9" cy="65.8" r="3.5"/>
+      </svg>
+      <p class="v"><b>NDVI 0.88</b> on 8 Sep, <b>0.04</b> on 12 Nov: the season, the harvest and the burn, 18 dates remembered.</p>
+      <a class="tok" href="/verify?q=emem%3Afact%3Adefi.zb55a.weno.qoca%3Ap5lko2rjfdzlb5pvjrbr3oej2l6wckj2wapslrgryyzadgrabjva"><i aria-hidden="true">&#10003;</i><span class="t">emem:fact:defi.zb55a.weno.qoca:p5lko2rjfdzlb5pvjrbr3oej2l6wckj2wapslrgryyzadgrabjva</span><span>check it</span></a>
+    </div>
+    <figcaption>Sentinel-2 L2A, scene S2B&middot;T43REP of 8 Sep 2026 (and of 17 Nov 2026), read by emem at 10 m. The values beside it are one signed series.</figcaption>
+  </figure>
+</section>
+
+<!-- 2. The four things it does, one line each -->
+<section class="h-strip wrap" aria-label="What emem does">
+  <div><b>Remember</b><span>Every reading at one address: where, what and when.</span></div>
+  <div><b>Search</b><span>Ask in words. The value comes back with its source.</span></div>
+  <div><b>Encode at the source</b><span>The data stays where it is made. A short name travels.</span></div>
+  <div><b>Decode with any AI</b><span>Every model reads the same bytes, and can check them.</span></div>
+</section>
+
+<!-- 3. Why space: the category contrast -->
+<section class="h-why wrap">
+  <h2>When web search misses, <span class="tone">space answers.</span></h2>
+  <div class="h-why-body">
+    <p>Most of the physical world was never written about, and what was written goes out of date. Satellites pass over every place on Earth every few days and measure it the same way each time. emem turns those passes, and the open sensors and models beside them, into a memory an AI can cite.</p>
+    <dl class="h-rows">
+      <div><dt>Nobody wrote about it</dt><dd>emem reads the place itself, from the source.</dd></div>
+      <div><dt>The page is out of date</dt><dd>emem reads the latest pass, and still holds the earlier ones.</dd></div>
+      <div><dt>The answer must hold up</dt><dd>emem signs it, and anyone can check it offline.</dd></div>
+    </dl>
+  </div>
+</section>
+
+<!-- 4. The memory model, filled with one real memory -->
+<section class="h-model wrap" id="memory-model">
+  <div class="h-head">
+    <p class="eyebrow">The memory model</p>
+    <h2>One reading, one address, one name, one signature.</h2>
+    <p class="sub">Five lines define every memory emem holds. Here they are, filled in with the reading at the centre of that Punjab field on 17 November 2026.</p>
+  </div>
+  <div class="formula" role="table" aria-label="The emem memory model">
+    <div role="row"><span role="cell" class="f-l">address</span><span role="cell" class="f-d">= (cell, band, tslot)</span><span role="cell" class="f-v">(<code>defi.zb55a.weno.qobE</code>, <code>indices.ndvi</code>, <code>20774</code>)</span><span role="cell" class="f-m">where, what and when</span></div>
+    <div role="row"><span role="cell" class="f-l">value</span><span role="cell" class="f-d">= read at the source</span><span role="cell" class="f-v"><code>0.120</code> from Sentinel-2 L2A, captured 17 Nov 2026 05:41Z</span><span role="cell" class="f-m">computed when asked</span></div>
+    <div role="row"><span role="cell" class="f-l">fact_cid</span><span role="cell" class="f-d">= BLAKE3(canonical CBOR(fact))</span><span role="cell" class="f-v"><code>2ma2zvyphae2e5mr2wmjaxngbjytbmgirk5ptx7fx5mtlhhsf33a</code></span><span role="cell" class="f-m">named by its own bytes</span></div>
+    <div role="row"><span role="cell" class="f-l">receipt</span><span role="cell" class="f-d">= Ed25519 over (cell, fact_cid)</span><span role="cell" class="f-v">signed by the key in <a href="/.well-known/emem.json">/.well-known/emem.json</a></span><span role="cell" class="f-m">checkable offline</span></div>
+    <div role="row"><span role="cell" class="f-l">log</span><span role="cell" class="f-d">= append-only tree, witnessed</span><span role="cell" class="f-v">one of 3.4 million entries, <a href="/v1/log/sth">signed head</a></span><span role="cell" class="f-m">nothing changes quietly</span></div>
+    <div role="row" class="f-tok"><span role="cell" class="f-l">token</span><span role="cell" class="f-d">= emem:fact:&lt;cell&gt;:&lt;fact_cid&gt;</span><span role="cell" class="f-v"><a href="/verify?q=emem%3Afact%3Adefi.zb55a.weno.qobE%3A2ma2zvyphae2e5mr2wmjaxngbjytbmgirk5ptx7fx5mtlhhsf33a"><code>emem:fact:defi.zb55a.weno.qobE:2ma2zvyp&hellip;</code> check it</a></span><span role="cell" class="f-m">any AI reads the same bytes</span></div>
+  </div>
+  <p class="h-note">The same model holds two kinds of memory: <b>Earth memory</b>, addressed by place, band and time, and <b>agent memory</b>, signed notes that one agent writes and any other can check. <a href="/how-it-works">Read the memory model &rarr;</a></p>
+</section>
+
+<!-- 5. What it remembers -->
+<section class="h-what wrap">
+  <div class="h-head">
+    <p class="eyebrow">What it remembers</p>
+    <h2>The world first. Then what agents and machines record about it.</h2>
+  </div>
+  <div class="h-three">
+    <article class="panel">
+      <img src="/img/bhakra-f83df84d5f.jpg" width="950" height="885" alt="Sentinel-2 image of the Gobind Sagar reservoir behind the Bhakra dam, 17 November 2026" loading="lazy">
+      <div class="panel-b">
+        <h3>The physical world</h3>
+        <p>Weather, air, water, land, crops, forests, terrain and buildings from 46 open sources, satellites first. Read when asked, kept at one address.</p>
+        <a href="/docs/">What it can read &rarr;</a>
+      </div>
+    </article>
+    <article class="panel">
+      <div class="mock mock-note" aria-hidden="true">
+        <p class="m-k">signed note</p>
+        <p class="m-path">/memories/by_attester/&lt;key&gt;/field-plan.md</p>
+        <p class="m-l"><i>written</i> agent A, one vendor</p>
+        <p class="m-l"><i>read</i> agent B, another vendor</p>
+        <p class="m-ok">&#10003; same bytes, author checked</p>
+      </div>
+      <div class="panel-b">
+        <h3>What agents write</h3>
+        <p>Notes signed with an agent's own key, in its own namespace. Another agent, from another vendor, reads the same bytes and checks who wrote them.</p>
+        <a href="/a2a">Agent handoff &rarr;</a>
+      </div>
+    </article>
+    <article class="panel">
+      <div class="mock mock-file" aria-hidden="true">
+        <p class="m-k">encoded at the source</p>
+        <p class="m-big">143.7 MB <span>&rarr;</span> 15.3 kB</p>
+        <p class="m-l">a Webb TIFF stays at esawebb.org</p>
+        <p class="m-l">its pointer travels, strip by strip</p>
+        <p class="m-ok">&#10003; any strip proves itself</p>
+      </div>
+      <div class="panel-b">
+        <h3>What machines and documents record</h3>
+        <p>Device traces, lab reports, land records and files, signed where they are made. The bytes stay put; a short name travels and proves any part of them.</p>
+        <a href="/demos/tokenise-files">Encode a file &rarr;</a>
+      </div>
+    </article>
+  </div>
+</section>
+
+<!-- 6. Encode where the data is generated, decode with any AI -->
+<section class="h-flow wrap">
+  <div class="h-head">
+    <p class="eyebrow">Encode and decode</p>
+    <h2>Encode where the data is generated. <span class="tone">Decode with any AI.</span></h2>
+    <p class="sub">Nothing is copied into a model and nothing is retyped from a screenshot. The record is signed at its source, and every model that reads it reads the same bytes.</p>
+  </div>
+  <div class="flow">
+    <ul class="f-col f-src" aria-label="Sources">
+      <li>Satellite pass</li><li>Weather and air model</li><li>Field sensor or device</li><li>Lab report or land record</li><li>Any file</li>
     </ul>
+    <div class="f-mid">
+      <p class="f-k">Signed at the source</p>
+      <p>one address &middot; one hash &middot; one signature &middot; one log entry</p>
+      <p class="f-tok">emem:fact:&hellip;</p>
+    </div>
+    <ul class="f-col f-ai" aria-label="Readers">
+      <li>Claude</li><li>ChatGPT</li><li>Gemini</li><li>Cursor and VS Code</li><li>Your own model</li>
+    </ul>
+  </div>
+</section>
+
+<!-- 7. Shared, verifiable memory -->
+<section class="h-trust wrap">
+  <div class="h-head">
+    <p class="eyebrow">Shared, verifiable memory</p>
+    <h2>One memory for every agent, team and vendor.</h2>
+  </div>
+  <div class="h-four">
+    <div><h3>Same bytes for every reader</h3><p>A token names one record. Any agent that resolves it gets byte-identical content, so two agents never cite two versions of one fact.</p></div>
+    <div><h3>Nothing changes quietly</h3><p>Every record goes into an append-only log that independent operators co-sign. A fault is corrected in the open, with a signed erratum.</p></div>
+    <div><h3>Check it without us</h3><p>Each answer verifies offline against a published key, or in the browser at <a href="/verify">/verify</a>.</p></div>
+    <div><h3>Gaps are stated</h3><p>Where nothing qualifies, a signed absence says where emem looked and why, so silence is never taken for an answer.</p></div>
+  </div>
+</section>
+
+<!-- 8. Examples: proof it works, never the identity -->
+<section class="h-ex wrap" id="examples">
+  <div class="h-head">
+    <p class="eyebrow">Examples</p>
+    <h2>Real-world tasks where a cited answer matters.</h2>
+  </div>
+  <div class="ex-grid">
+    <a class="ex" href="/eudr"><img src="/img/rondonia-86df6235b1.jpg" width="877" height="775" alt="Sentinel-2 image of forest edges and cleared land in Rondonia, Brazil, 16 September 2026" loading="lazy"><span class="ex-b"><b>EUDR evidence, plot by plot</b><span>Each supplier plot checked against the EU forest map and loss after 2020, with a signed result the statement can cite.</span></span></a>
+    <a class="ex" href="/agriculture"><img src="/img/punjab-nov-a8002c05e4.jpg" width="864" height="885" alt="Harvested Punjab fields with burnt stubble, 17 November 2026" loading="lazy"><span class="ex-b"><b>Crop intelligence for every field</b><span>Season curves, field boundaries with pixel support, harvest and burning, field by field and district by district.</span></span></a>
+    <a class="ex" href="/solutions"><img src="/img/bhakra-f83df84d5f.jpg" width="950" height="885" alt="Gobind Sagar reservoir, 17 November 2026" loading="lazy"><span class="ex-b"><b>Water, rain and drought</b><span>Surface water, rainfall ranked against thirty years, and drought indices for a place, each with its date.</span></span></a>
+    <a class="ex" href="/solutions"><img src="/img/sundarbans-bc53e9d39c.jpg" width="827" height="775" alt="Mangrove channels of the Sundarbans, 14 November 2026" loading="lazy"><span class="ex-b"><b>Forests and coasts</b><span>Tree cover, the year of loss and canopy change, read from the same sources an auditor would use.</span></span></a>
+  </div>
+  <p class="ex-more"><a href="/guard">Agents that cite before they answer</a> &middot; <a href="/demos/document-evidence">Lab reports and land records</a> &middot; <a href="/solutions">All examples &rarr;</a></p>
+</section>
+
+<!-- 9. Try it -->
+<section class="h-try wrap" id="try">
+  <div class="h-head">
+    <p class="eyebrow">Try it</p>
+    <h2>Ask the physical world.</h2>
+  </div>
+  <form class="ask" data-ask>
+    <label for="ask-q" class="sr">Your question</label>
+    <input id="ask-q" name="q" type="text" autocomplete="off" placeholder="What is the air quality in Delhi right now?">
+    <button type="submit" class="btn">Ask</button>
   </form>
-  <div class="thread" id="thread" aria-live="polite"></div>
+  <p class="chips"><button type="button" data-q="What is the air quality in Delhi right now?">Air in Delhi</button><button type="button" data-q="How warm is it in Pune right now?">Temperature in Pune</button><button type="button" data-q="What is the NDVI near Ludhiana?">Greenness near Ludhiana</button></p>
+  <div class="ask-out" data-ask-out aria-live="polite" hidden></div>
 </section>
 
-<section class="asks" id="asks" aria-labelledby="asks-h">
-  <h2 id="asks-h">What you can ask about</h2>
-  <ul class="ak">
-    <li><b>Weather and climate</b><q>How warm is it here right now?</q><span>ERA5, Open-Meteo, met.no, NASA POWER; sea state from Open-Meteo Marine</span></li>
-    <li><b>Air</b><q>What is the air quality in Delhi right now?</q><span>CAMS: PM2.5, PM10, NO2, ozone, SO2, CO</span></li>
-    <li><b>Water</b><q>How often is this ground under water?</q><span>JRC surface water, Sentinel-2 water indices</span></li>
-    <li><b>Land and crops</b><q>How did this field&rsquo;s season go?</q><span>Sentinel-2 and -1, Landsat, field boundaries, MODIS evapotranspiration</span></li>
-    <li><b>Forests</b><q>Was this plot forest at the end of 2020?</q><span>Hansen, JRC GFC2020, TMF</span></li>
-    <li><b>Terrain and seabed</b><q>How high is this hillside?</q><span>Copernicus DEM, GMRT</span></li>
-    <li><b>Buildings and places</b><q>How many buildings are in this block?</q><span>Overture buildings, places and roads</span></li>
-    <li><b>Soil</b><q>What is the clay content here?</q><span>SoilGrids</span></li>
-    <li><b>Fires</b><q>Were there fires near this village this week?</q><span>VIIRS active fires (NASA FIRMS)</span></li>
-    <li><b>Machines</b><q>Did this device run the code it claims?</q><span>signed execution traces</span></li>
-    <li><b>Documents</b><q>What does this lab report say, line by line?</q><span>lab reports and land records, read and signed</span></li>
-  </ul>
-  <p class="nums">46 registered sources and more than 110 live measurements, computed on demand.</p>
-</section>
-
-<section class="cmpw" id="compare" aria-labelledby="compare-h">
-  <h2 id="compare-h">Web search and emem</h2>
-  <div class="cw-wrap"><table class="cw">
-    <thead><tr><th scope="col"></th><th scope="col">Web search</th><th scope="col">emem</th></tr></thead>
-    <tbody>
-      <tr><th scope="row">Returns</th><td>pages that mention the place</td><td>a measured value at the place</td></tr>
-      <tr><th scope="row">Source</th><td>whoever wrote the page</td><td>the sensor or model reading, named</td></tr>
-      <tr><th scope="row">Fresh</th><td>when it was crawled</td><td>read on demand from the latest pass or run</td></tr>
-      <tr><th scope="row">Trust</th><td>rank</td><td>a signature, an append-only log, a check anyone can run</td></tr>
-      <tr><th scope="row">For an agent</th><td>text to paraphrase</td><td>a value and a token to cite</td></tr>
-      <tr><th scope="row">When nothing is known</th><td>more pages</td><td>a signed absence that says where it looked</td></tr>
-    </tbody>
-  </table></div>
-</section>
-
-<section class="teams" id="teams" aria-labelledby="teams-h">
-  <h2 id="teams-h">What teams use it for today</h2>
-  <ul class="tm">
-    <li><a href="/developers"><b>Agents that cite instead of guess</b><span>Your agent gets a value and a token that any other agent resolves to the same signed bytes.</span><i>For developers &rarr;</i></a></li>
-    <li><a href="/eudr"><b>EUDR evidence, plot by plot</b><span>Check each supplier plot against the EU forest map and forest loss after 31 December 2020. One call per plot, one signed result your due-diligence statement can cite.</span><i>EUDR evidence &rarr;</i></a></li>
-    <li><a href="/agriculture"><b>Crop intelligence for every field</b><span>Season curves, field boundaries with pixel support, crop timing, burning and water use. One call per field per season.</span><i>Crop intelligence &rarr;</i></a></li>
-    <li><a href="/solutions"><b>Machines and documents that prove what they saw</b><span>Devices sign what they ran. Lab reports and land records are read line by line and signed.</span><i>Solutions &rarr;</i></a></li>
-  </ul>
-</section>
-
-<section class="why" id="why" aria-labelledby="why-h">
-  <h2 id="why-h">Why the answers hold up</h2>
-  <ul class="wy">
-    <li><b>Every answer traces to its source.</b> The sensor pass or model run, the method and the registry version. <a href="/how-it-works">How a fact is made</a></li>
-    <li><b>Nothing changes quietly.</b> An append-only log, co-signed by two independent operators. When we find a fault we correct it in the open with a signed erratum. <a href="/demos/transparency-log">See the log only grow</a></li>
-    <li><b>Check it without us.</b> Each result verifies offline, or in the browser. <a href="/verify">Verify one</a></li>
-    <li><b>Gaps are stated.</b> Where nothing qualifies, a signed absence says where we looked and why. <a href="/reference">Reference</a></li>
-  </ul>
-  <p class="nums">119 tools &middot; 177 algorithms &middot; 3.39 million log entries &middot; 2 independent witnesses</p>
-</section>
-
-<section class="stays" id="stays" aria-labelledby="stays-h">
-  <h2 id="stays-h">What stays with you</h2>
-  <p>emem provides evidence. Legal interpretation, risk assessment beyond deforestation (legality, tenure, consent) and filing the statement stay with the operator and its advisers.</p>
-</section>
-
-<section class="dev" id="dev" aria-labelledby="dev-h">
-  <h2 id="dev-h">Build with it</h2>
-  <div class="dev-tabs" role="tablist" aria-label="ways to start">
-    <button type="button" role="tab" aria-selected="true" aria-controls="dev-mcp" id="dt-mcp">MCP</button>
-    <button type="button" role="tab" aria-selected="false" aria-controls="dev-sdk" id="dt-sdk">SDK</button>
-    <button type="button" role="tab" aria-selected="false" aria-controls="dev-self" id="dt-self">Self-host</button>
+<!-- 10. Build -->
+<section class="h-build wrap" id="dev">
+  <div class="h-head">
+    <p class="eyebrow">Build with it</p>
+    <h2>One URL for every agent. No key to read.</h2>
   </div>
-  <div class="dev-p" role="tabpanel" id="dev-mcp" aria-labelledby="dt-mcp">
-    <div class="dev-cmd"><code>claude mcp add --transport http emem https://emem.dev/mcp</code><button type="button" class="dev-copy">copy</button></div>
-<pre><code>curl -s https://emem.dev/mcp -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"emem_locate","arguments":{"place":"Lusail"}}}'</code></pre>
-  </div>
-  <div class="dev-p" role="tabpanel" id="dev-sdk" aria-labelledby="dt-sdk" hidden>
-    <div class="dev-cmd"><code>pip install ememdev</code><button type="button" class="dev-copy">copy</button></div>
-<pre><code>from ememdev import Client
+  <div class="build">
+    <div class="tabs" role="tablist" aria-label="Ways to connect">
+      <button type="button" role="tab" aria-selected="true" data-tab="mcp">MCP</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="rest">REST</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="py">Python</button>
+    </div>
+    <pre data-pane="mcp"><code>claude mcp add --transport http emem https://emem.dev/mcp</code></pre>
+    <pre data-pane="rest" hidden><code>curl -s https://emem.dev/v1/ask -H 'content-type: application/json' \
+  -d '{"q":"What is the air quality in Delhi right now?"}'</code></pre>
+    <pre data-pane="py" hidden><code>pip install ememdev
 
+from ememdev import Client
 with Client() as em:
     cell = em.locate("Mount Fuji")["cell64"]
     facts = em.recall(cell, bands=["copdem30m.elevation_mean"])
     print(facts["facts"][0]["value"])</code></pre>
-    <div class="dev-cmd"><code>npm i @vortxai/emem</code><button type="button" class="dev-copy">copy</button></div>
+    <p class="b-links"><a href="/reference#client-setup">Quick start</a><a href="/reference">API reference</a><a href="/tools">MCP tools</a><a href="/docs/">Docs</a><a href="https://huggingface.co/spaces/vortx-ai/emem" target="_blank" rel="noopener noreferrer">Hugging Face Space</a></p>
   </div>
-  <div class="dev-p" role="tabpanel" id="dev-self" aria-labelledby="dt-self" hidden>
-    <div class="dev-cmd"><code>docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest</code><button type="button" class="dev-copy">copy</button></div>
-    <ul class="dev-l"><li>point any MCP client at <code>http://127.0.0.1:5051/mcp</code></li><li>its own key signs, its own log grows</li><li>no network: <code>ghcr.io/vortx-ai/emem-airgap</code></li></ul>
-  </div>
-  <p class="dev-links"><a href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer">GitHub</a> &middot; <a href="/reference">reference</a> &middot; <a href="/tools">MCP tools</a> &middot; <a href="/verify">verify</a></p>
+  <p class="hosts">Works in <b>Claude</b> &middot; <b>ChatGPT</b> &middot; <b>Gemini CLI</b> &middot; <b>Cursor</b> &middot; <b>VS Code</b> &middot; <b>Cline</b> &middot; <b>Dify</b> &middot; <b>LangChain</b> and <b>LlamaIndex</b> &middot; Python and TypeScript clients</p>
 </section>
 
-<section class="more" id="more" aria-labelledby="more-h">
-  <h2 id="more-h">emem holds other records too</h2>
-  <p class="more-sub">19 worked examples below, each read and checked in your tab, and the parts every record shares.</p>
-</section>
-
-<section class="flow" id="flow" aria-labelledby="flow-h">
-  <h2 id="flow-h">What writes, what reads</h2>
-  <p class="flow-sub">Sources write signed records. emem names, signs and logs each one. Readers resolve and check them.</p>
-  <div class="fl" id="fl">
-    <ol class="fl-col fl-enc" id="flEnc" aria-label="encoders"></ol>
-    <div class="fl-mid" id="flMid">
-      <b class="fl-core">emem</b>
-      <span class="fl-verbs">name &middot; sign &middot; log</span>
-      <code class="fl-tok" id="flTok">emem:fact:…</code>
-      <span class="fl-head" id="flHead">log head &hellip;</span>
+<!-- 11. Research and where it runs -->
+<section class="h-res wrap" id="research">
+  <div class="h-head">
+    <p class="eyebrow">Research</p>
+    <h2>Published, presented and open.</h2>
+  </div>
+  <div class="res">
+    <a class="res-poster" href="https://vortx-ai.github.io/esa_poster/" target="_blank" rel="noopener noreferrer">
+      <img src="/img/poster-esa-073fd5ea51.jpg" width="720" height="1018" alt="The emem poster: A Content-Addressed, Verifiable Earth-Memory Protocol" loading="lazy">
+      <span><b>ESA &Phi;-lab and BIFOLD, Berlin, October 2026</b>EMEM: A Content-Addressed, Verifiable Earth-Memory Protocol. Presented at Agentic AI for Earth Observation. Poster, demo and reproduction.</span>
+    </a>
+    <div class="res-list">
+      <a href="https://doi.org/10.5281/zenodo.20706893" target="_blank" rel="noopener noreferrer"><b>Whitepaper</b><span>The protocol, its proofs and its limits. DOI 10.5281/zenodo.20706893.</span></a>
+      <a href="/how-it-works"><b>How emem works</b><span>One request end to end, from a place name to a token anyone can check.</span></a>
+      <a href="https://vortx-ai.github.io/ememdemo/" target="_blank" rel="noopener noreferrer"><b>ememdemo</b><span>A site built on emem, with probes that test what it claims.</span></a>
+      <a href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer"><b>Source on GitHub</b><span>Apache-2.0. Run your own node from one container.</span></a>
     </div>
-    <ol class="fl-col fl-dec" id="flDec" aria-label="decoders"></ol>
-    <svg class="fl-wires" id="flWires" aria-hidden="true"></svg>
   </div>
-  <script type="application/json" id="encoders">[
-{"id":"world","name":"The world","what":"satellites, sensors, open data","tok":"emem:fact","count":{"url":"/v1/materializers?page_size=1","path":"pagination.total","unit":"wired bands"},"to":"reel"},
-{"id":"files","name":"Files","what":"any file, read as units","tok":"emem:tree","count":{"tab":"in your tab"},"to":"hero"},
-{"id":"claims","name":"Agent claims","what":"signed notes, derivations","tok":"note · emem:fact","count":{"url":"/v1/agents","sum":"agents.notes","unit":"signed notes"},"to":"writers"},
-{"id":"reasoning","name":"Reasoning","what":"each step of an answer","tok":"emem:state","count":{"tab":"per answer"},"to":"tokens"},
-{"id":"decisions","name":"Decisions","what":"closed-set answers, signed","tok":"receipt","count":{"tab":"POST /v1/decide"},"to":"dev"},
-{"id":"edge","name":"On the device","what":"satellite, drone, robot: custody offline, the payload stays","tok":"custody record","count":{"tab":"emem-airgap"},"to":"tokens"},
-{"id":"traces","name":"Traces","what":"device and OS execution","tok":"emem:trace","count":{"url":"/v1/trace_encodings","len":"registry.encodings","unit":"capture encodings"},"to":"tokens"},
-{"id":"identities","name":"Identities","what":"one object, one name","tok":"emem:entity","count":{"tab":"POST /v1/entity"},"to":"tokens"}
-]</script>
+  <p class="nums"><span><b>3.4 million</b> signed log entries</span><span><b>46</b> open sources</span><span><b>117</b> wired measurements</span><span><b>119</b> MCP tools</span><span><b>Apache-2.0</b></span></p>
 </section>
 
-<section class="kpi" aria-label="Measured now">
-  <dl class="kpi-l" id="kpi">
-    <div><dt>log entries</dt><dd id="kpi-log" data-pending>&hellip;</dd></div>
-    <div><dt>signing keys</dt><dd id="kpi-keys" data-pending>&hellip;</dd></div>
-    <div><dt>signed notes</dt><dd id="kpi-notes" data-pending>&hellip;</dd></div>
-    <div><dt>wired bands</dt><dd id="kpi-bands" data-pending>&hellip;</dd></div>
-    <div><dt>MCP tools</dt><dd id="kpi-tools" data-pending>&hellip;</dd></div>
-    <div><dt>head verified here</dt><dd id="kpi-ms" data-pending>&hellip;</dd></div>
-  </dl>
-  <p class="kpi-note">This tab measured these just now, from the responder&rsquo;s own endpoints.</p>
+<!-- 12. Talk to us -->
+<section class="h-end wrap">
+  <h2>Give your AI a memory of the physical world.</h2>
+  <div class="h-cta"><a class="btn" href="/reference#client-setup">Connect your agent</a><a class="btn ghost" href="/contact">Talk to us</a></div>
 </section>
-
-<section class="toks" id="tokens" aria-labelledby="tokens-h">
-  <h2 id="tokens-h">One token per thing</h2>
-  <ul class="tk" id="tk"></ul>
-</section>
-
-<section class="writers" id="writers" aria-labelledby="writers-h">
-  <h2 id="writers-h">Who writes to emem</h2>
-  <div class="wr" id="wr"><p class="wr-sum" id="wrSum">&hellip;</p><ul class="wr-l" id="wrL"></ul><div class="wr-tiers" id="wrTiers"></div></div>
-</section>
-
-<section class="live" aria-labelledby="live-h">
-  <p class="eyebrow"><b>live</b> &middot; read and checked in your tab</p>
-  <h2 id="live-h">Encoded: what agents already carry</h2>
-<section class="cz" id="reel" aria-roledescription="carousel" aria-label="What emem carries">
-  <div class="cz-track" id="czTrack" tabindex="0" aria-label="Slides; swipe or use the arrow keys">
-
-    <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="1 of 19: space" data-kind="note" data-note="wkxa7tcmw2orf7ujjf5yi66dhe" data-thumb="cewrfxewtujjvuibt35yhk6hwi" data-draw="strips">
-      <figure class="cz-vis dark"><canvas class="kb" width="320" height="200" role="img" aria-label="The Cosmic Cliffs in Carina, from Webb, drawn from strips whose bytes were hashed"></canvas><svg class="cz-fig" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
-        <ul class="cz-tags"><li>space</li><li>Webb</li><li class="tt">emem:tree</li></ul>
-        <p class="cz-size" data-size><b>143.7 MB</b><i>&rarr;</i><b>15.3 kB</b><span>the TIFF at esawebb.org &rarr; what an agent reads</span></p></figure>
-      <div class="cz-txt">
-        <p class="cz-kind" data-state><span class="live">live</span> &middot; space</p>
-        <h3 class="cz-noun">Webb&rsquo;s Cosmic Cliffs, strip by strip</h3>
-        <ul class="cz-verbs"><li>read header</li><li>hash<i>&times;97</i></li><li>root</li><li>point</li></ul>
-        <p class="cz-read" data-read>emem:tree:wkxa7tcmw2orf7ujjf5yi66dhe</p>
-        <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2Fwkxa7tcmw2orf7ujjf5yi66dhe.md" data-go target="_blank" rel="noopener noreferrer">open the pointer</a></div>
-      </div>
-    </article>
-
-    <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="2 of 19: robotics" data-kind="note" data-note="qcoylkllqzfqnsinn4af5i2mi4" data-thumb="n4ggrilp564puezzmriopxssse" data-draw="keyframes">
-      <figure class="cz-vis dark"><canvas width="320" height="200" role="img" aria-label="An ALOHA robot making coffee: 12 keyframes decoded from hashed bytes"></canvas>
-        <ul class="cz-tags"><li>robotics</li><li>MP4</li><li class="tt">emem:tree</li></ul>
-        <p class="cz-size" data-size><b>502.5 MB</b><i>&rarr;</i><b>3.2 kB</b><span>the episode on Hugging Face &rarr; what an agent reads</span></p></figure>
-      <div class="cz-txt">
-        <p class="cz-kind" data-state><span class="live">live</span> &middot; robotics</p>
-        <h3 class="cz-noun">Robot arms making coffee, 12 keyframes</h3>
-        <ul class="cz-verbs"><li>read moov</li><li>hash<i>&times;14</i></li><li>decode</li><li>root</li></ul>
-        <p class="cz-read" data-read>emem:tree:qcoylkllqzfqnsinn4af5i2mi4</p>
-        <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2Fqcoylkllqzfqnsinn4af5i2mi4.md" data-go target="_blank" rel="noopener noreferrer">open the pointer</a></div>
-      </div>
-    </article>
-
-    <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="3 of 19: earth" data-kind="note" data-note="gkc2jap4r47zgs4t2sja4qderu" data-thumb="nvps75wnuzshrb7moubmggfzom" data-draw="timelapse" data-entity="5pitnkcnle3cq6yldbffj52zja">
-      <figure class="cz-vis"><canvas width="320" height="200" role="img" aria-label="The Amazon frontier in Rond&ocirc;nia, true colour, 2017 to 2025"></canvas>
-        <ul class="cz-tags"><li>earth</li><li>timelapse</li><li class="tt">emem:rasterset</li><li class="tt">emem:cube</li><li class="tt">emem:entity</li></ul>
-        <p class="cz-size" data-size><b>15 rasters</b><i>&rarr;</i><b>120 B</b><span>signed Sentinel-2 rasters &rarr; one token</span></p></figure>
-      <div class="cz-txt">
-        <p class="cz-kind" data-state><span class="live">live</span> &middot; earth</p>
-        <h3 class="cz-noun">The Amazon frontier, 2017 to 2025</h3>
-        <ul class="cz-verbs"><li>mint<i>&times;3 cubes</i></li><li>hash frames</li><li>bind</li></ul>
-        <p class="cz-read" data-read>emem:rasterset:sml5syqegico2sobfkxjp2o2twwepdwve7753ubkoa5n27y22rba:zu5p3u4r5n5uinu2ghwzjo2272ztjvnnf7cnlt7hiqwxo4cq3hhq</p>
-        <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2Fgkc2jap4r47zgs4t2sja4qderu.md" data-go target="_blank" rel="noopener noreferrer">play every frame</a></div>
-      </div>
-    </article>
-
-    <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="4 of 19: AI model" data-kind="note" data-note="amii4tnpkfoofsyzrbbs2vxsj4" data-draw="tensors">
-      <figure class="cz-vis"><svg class="cz-fig" viewBox="0 0 320 200" role="img" aria-label="GPT-2&rsquo;s 160 tensors, one square each, lit as their bytes are hashed"></svg>
-        <ul class="cz-tags"><li>AI model</li><li>safetensors</li><li class="tt">emem:tree</li></ul>
-        <p class="cz-size" data-size><b>548.1 MB</b><i>&rarr;</i><b>19.7 kB</b><span>GPT-2 weights on Hugging Face &rarr; what an agent reads</span></p></figure>
-      <div class="cz-txt">
-        <p class="cz-kind" data-state><span class="live">live</span> &middot; model weights</p>
-        <h3 class="cz-noun">GPT-2, every tensor named</h3>
-        <ul class="cz-verbs"><li>read header</li><li>hash<i>&times;107</i></li><li>stat</li><li>prove a row</li></ul>
-        <p class="cz-read" data-read>emem:tree:amii4tnpkfoofsyzrbbs2vxsj4</p>
-        <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2Famii4tnpkfoofsyzrbbs2vxsj4.md" data-go target="_blank" rel="noopener noreferrer">open the pointer</a></div>
-      </div>
-    </article>
-
-    <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="5 of 19: maps" data-kind="note" data-note="ppdqanaf7ufpxedvwdrwuqhf5u" data-thumb="nurixabv76sxwnyxfmmfl62sra" data-draw="tiles">
-      <figure class="cz-vis"><canvas width="320" height="200" role="img" aria-label="Elevation tiles from a 30.5 GB map of the whole Earth, each drawn from bytes checked against its name"></canvas><svg class="cz-fig cz-inset" viewBox="0 0 100 100" aria-hidden="true"></svg>
-        <ul class="cz-tags"><li>maps</li><li>PMTiles</li><li class="tt">emem:tree</li></ul>
-        <p class="cz-size" data-size><b>30.54 GB</b><i>&rarr;</i><b>2.4 kB</b><span>the whole-Earth terrain map &rarr; what an agent reads</span></p></figure>
-      <div class="cz-txt">
-        <p class="cz-kind" data-state><span class="live">live</span> &middot; maps</p>
-        <h3 class="cz-noun">The whole Earth&rsquo;s terrain, 349,525 tiles</h3>
-        <ul class="cz-verbs"><li>read directory</li><li>hash<i>&times;12</i></li><li>place</li><li>prove a row</li></ul>
-        <p class="cz-read" data-read>emem:tree:ppdqanaf7ufpxedvwdrwuqhf5u</p>
-        <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2Fppdqanaf7ufpxedvwdrwuqhf5u.md" data-go target="_blank" rel="noopener noreferrer">open the pointer</a></div>
-      </div>
-    </article>
-
-    <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="6 of 19: 3D splats" data-kind="splat" data-world="world_lahaul">
-      <figure class="cz-vis dark"><canvas width="560" height="440" role="img" aria-label="A hillside above Keylong, Lahaul, as 66,560 Gaussian splats turning"></canvas>
-        <ul class="cz-tags"><li>3D splats</li><li>.splat</li><li class="tt">emem:raster</li><li class="tt">emem:bundle</li></ul>
-        <p class="cz-size" data-size><b>3.2 MB</b><i>&rarr;</i><b>139 B</b><span>the splat file &rarr; the signed field it grew from</span></p></figure>
-      <div class="cz-txt">
-        <p class="cz-kind" data-state><span class="live">live</span> &middot; 3d</p>
-        <h3 class="cz-noun">Keylong hillside, Lahaul, as splats</h3>
-        <ul class="cz-verbs"><li>recall DEM</li><li>drape S2</li><li>splat</li><li>turn</li></ul>
-        <p class="cz-read" data-read>emem:raster:m7kktwsz3pluzxj3lqd2oz6r3tvjg7u52ooda42rx2mb4dvr7ctq:copdem30m.elevation:0:jbeyfmrxxhjozo2gmribunxgzypyxop3wgcpk7yfpazm37xaa7ma</p>
-        <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="/splats/viewer/temporal.html?world=../world_lahaul/" data-go>fly through it</a></div>
-      </div>
-    </article>
-
-    <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="7 of 19: video" data-kind="note" data-note="t7ebh6s6imxrwdmizebnw52nwe" data-drawn="o7rm7ykhf2zl2tizeo42efc57e" data-draw="clips">
-      <figure class="cz-vis dark"><video muted playsinline preload="auto" aria-label="London traffic camera clips, each checked against its sha256"></video>
-        <ul class="cz-tags"><li>video</li><li>CCTV</li><li class="tt">note cid</li></ul>
-        <p class="cz-size" data-size><b>12 clips</b><i>&rarr;</i><b>6.2 kB</b><span>12 camera clips &rarr; what an agent reads</span></p></figure>
-      <div class="cz-txt">
-        <p class="cz-kind" data-state><span class="live">live</span> &middot; cameras</p>
-        <h3 class="cz-noun">London street cameras, clip by clip</h3>
-        <ul class="cz-verbs"><li>fetch<i>&times;12</i></li><li>sha256</li><li>blake3</li><li>sun check</li></ul>
-        <p class="cz-read" data-read>note t7ebh6s6imxrwdmizebnw52nwe</p>
-        <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2Ft7ebh6s6imxrwdmizebnw52nwe.md" data-go target="_blank" rel="noopener noreferrer">open the survey</a></div>
-      </div>
-    </article>
-
-    <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="8 of 19: climate" data-kind="note" data-note="o2iyw5aexedv7sneir7sgng4fm" data-thumb="5tzuj4g3ed4cwudrzgk3ym5pri" data-draw="records">
-      <figure class="cz-vis"><canvas width="320" height="200" role="img" aria-label="Ozone from a GISS climate model run, 1950 to 1990, drawn from hashed records"></canvas><svg class="cz-fig" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
-        <ul class="cz-tags"><li>climate</li><li>NetCDF</li><li class="tt">emem:tree</li></ul>
-        <p class="cz-size" data-size><b>1.05 GB</b><i>&rarr;</i><b>4.8 kB</b><span>41 years of a climate model &rarr; what an agent reads</span></p></figure>
-      <div class="cz-txt">
-        <p class="cz-kind" data-state><span class="live">live</span> &middot; climate</p>
-        <h3 class="cz-noun">Ozone, 41 years of a climate model</h3>
-        <ul class="cz-verbs"><li>read header</li><li>hash<i>&times;22</i></li><li>stat</li><li>prove a row</li></ul>
-        <p class="cz-read" data-read>emem:tree:o2iyw5aexedv7sneir7sgng4fm</p>
-        <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2Fo2iyw5aexedv7sneir7sgng4fm.md" data-go target="_blank" rel="noopener noreferrer">open the pointer</a></div>
-      </div>
-    </article>
-
-    <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="9 of 19: medical" data-kind="note" data-note="elk3oajsbjlws4ad4up7ha7rey" data-thumb="cmqw3ycfppltxw6hsoavs7bh4m" data-draw="scan">
-      <figure class="cz-vis dark"><canvas width="320" height="200" role="img" aria-label="A CT slice through a vertebra, drawn from hashed pixel blocks"></canvas><svg class="cz-fig" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
-        <ul class="cz-tags"><li>medical</li><li>DICOM</li><li class="tt">emem:tree</li></ul>
-        <p class="cz-size" data-size><b>39.2 kB</b><i>&rarr;</i><b>1.3 kB</b><span>the DICOM file &rarr; what an agent reads</span></p></figure>
-      <div class="cz-txt">
-        <p class="cz-kind" data-state><span class="live">live</span> &middot; medical</p>
-        <h3 class="cz-noun">A CT slice, in Hounsfield units</h3>
-        <ul class="cz-verbs"><li>read tags</li><li>hash pixels</li><li>rescale</li><li>root</li></ul>
-        <p class="cz-read" data-read>emem:tree:elk3oajsbjlws4ad4up7ha7rey</p>
-        <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2Felk3oajsbjlws4ad4up7ha7rey.md" data-go target="_blank" rel="noopener noreferrer">open the pointer</a></div>
-      </div>
-    </article>
-
-    <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="10 of 19: code" data-kind="note" data-note="5otn33skohjocfbhychddlovme" data-draw="sections">
-      <figure class="cz-vis"><svg class="cz-fig" viewBox="0 0 320 200" role="img" aria-label="express v5.2.1 as 45 sections, each block sized by its tokens"></svg>
-        <ul class="cz-tags"><li>code</li><li>git repo</li><li class="tt">note cid</li></ul>
-        <p class="cz-size" data-size><b>~182k tok</b><i>&rarr;</i><b>20.8 kB</b><span>178 files of express &rarr; the index an agent reads</span></p></figure>
-      <div class="cz-txt">
-        <p class="cz-kind" data-state><span class="live">live</span> &middot; code</p>
-        <h3 class="cz-noun">express v5.2.1, 45 sections</h3>
-        <ul class="cz-verbs"><li>list<i>178 files</i></li><li>split</li><li>name each</li><li>index</li></ul>
-        <p class="cz-read" data-read>note 5otn33skohjocfbhychddlovme</p>
-        <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2F5otn33skohjocfbhychddlovme.md" data-go target="_blank" rel="noopener noreferrer">open the index</a></div>
-      </div>
-    </article>
-
-    <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="11 of 19: photo" data-kind="note" data-note="rcv34ptfbsoynlzs6yjxtchpwe" data-thumb="n7c42b47aadn4dujjjk7owz47e" data-draw="photo">
-      <figure class="cz-vis"><canvas class="kb" width="320" height="200" role="img" aria-label="A holiday photo from Tuscany, 2008, placed by its own EXIF"></canvas><svg class="cz-fig cz-inset wide" viewBox="0 0 200 100" aria-hidden="true"></svg>
-        <ul class="cz-tags"><li>photo</li><li>JPEG &middot; EXIF</li><li class="tt">emem:tree</li><li class="tt">emem:fact</li><li class="tt">emem:cell</li></ul>
-        <p class="cz-size" data-size><b>161.7 kB</b><i>&rarr;</i><b>1.7 kB</b><span>the photo &rarr; what an agent reads</span></p></figure>
-      <div class="cz-txt">
-        <p class="cz-kind" data-state><span class="live">live</span> &middot; photo</p>
-        <h3 class="cz-noun">A holiday photo, placed by its EXIF</h3>
-        <ul class="cz-verbs"><li>read EXIF</li><li>hash</li><li>place</li><li>verify<i>&times;3 facts</i></li></ul>
-        <p class="cz-read" data-read>emem:tree:rcv34ptfbsoynlzs6yjxtchpwe</p>
-        <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2Frcv34ptfbsoynlzs6yjxtchpwe.md" data-go target="_blank" rel="noopener noreferrer">open the pointer</a></div>
-      </div>
-    </article>
-
-    <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="12 of 19: earth" data-kind="fact" data-cell="defi.zb521.jawI.gOze" data-note="gpnxkvkwz22ug4jeqexggiy63q" data-thumb="spx3yyqmt77lpp4nv4movoj434">
-      <figure class="cz-vis"><canvas width="320" height="200" role="img" aria-label="Lusail, Qatar, rising from sand, 2017 to 2025"></canvas>
-        <ul class="cz-tags"><li>earth</li><li>timelapse</li><li class="tt">emem:fact</li><li class="tt">emem:cell</li></ul>
-        <p class="cz-size" data-size><b>1 reading</b><i>&rarr;</i><b>~72 B</b><span>a signed elevation &rarr; its token</span></p></figure>
-      <div class="cz-txt">
-        <p class="cz-kind" data-state><span class="live">live</span> &middot; fact</p>
-        <h3 class="cz-noun">Lusail rising, one signed number</h3>
-        <ul class="cz-verbs"><li>recall</li><li>sign</li><li>verify<i>here</i></li></ul>
-        <p class="cz-read" data-read>emem:fact:defi.zb521.jawI.gOze:&hellip;</p>
-        <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="/verify" data-go>check it again</a></div>
-      </div>
-    </article>
-
-    <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="13 of 19: microscopy" data-kind="note" data-note="54t6krywa6eeklzpapklpuhqau" data-draw="zstack">
-      <figure class="cz-vis dark"><svg class="cz-fig" viewBox="0 0 320 200" role="img" aria-label="A microscope volume from the Image Data Resource: the z-slices whose chunks were hashed, turning"></svg>
-        <ul class="cz-tags"><li>microscopy</li><li>OME-Zarr</li><li class="tt">emem:tree</li></ul>
-        <p class="cz-size" data-size><b>~28.5 MB</b><i>&rarr;</i><b>11.5 kB</b><span>a 3D microscope image at EMBL-EBI &rarr; what an agent reads</span></p></figure>
-      <div class="cz-txt">
-        <p class="cz-kind" data-state><span class="live">live</span> &middot; microscopy</p>
-        <h3 class="cz-noun">A cell volume, 236 slices deep</h3>
-        <ul class="cz-verbs"><li>read .zattrs</li><li>hash<i>&times;60</i></li><li>stack</li><li>prove a row</li></ul>
-        <p class="cz-read" data-read>emem:tree:54t6krywa6eeklzpapklpuhqau</p>
-        <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2F54t6krywa6eeklzpapklpuhqau.md" data-go target="_blank" rel="noopener noreferrer">open the pointer</a></div>
-      </div>
-    </article>
-
-    <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="14 of 19: lidar" data-kind="note" data-note="jjyznjvil64vzygbs6mxceszbu" data-draw="octree">
-      <figure class="cz-vis dark"><svg class="cz-fig" viewBox="0 0 320 200" role="img" aria-label="The Autzen lidar octree: the nodes whose bytes were hashed, turning"></svg>
-        <ul class="cz-tags"><li>lidar</li><li>COPC</li><li class="tt">emem:tree</li></ul>
-        <p class="cz-size" data-size><b>81.1 MB</b><i>&rarr;</i><b>2.2 kB</b><span>10.6 million points on S3 &rarr; what an agent reads</span></p></figure>
-      <div class="cz-txt">
-        <p class="cz-kind" data-state><span class="live">live</span> &middot; lidar</p>
-        <h3 class="cz-noun">Autzen, 10.6 million lidar points</h3>
-        <ul class="cz-verbs"><li>read octree</li><li>hash<i>&times;10</i></li><li>root</li><li>turn</li></ul>
-        <p class="cz-read" data-read>emem:tree:jjyznjvil64vzygbs6mxceszbu</p>
-        <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2Fjjyznjvil64vzygbs6mxceszbu.md" data-go target="_blank" rel="noopener noreferrer">open the pointer</a></div>
-      </div>
-    </article>
-
-    <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="15 of 19: research" data-kind="note" data-note="5k4rsdbh3oe3zudjanr42mh6wy" data-draw="pages">
-      <figure class="cz-vis"><svg class="cz-fig" viewBox="0 0 320 200" role="img" aria-label="Attention Is All You Need: 15 pages in 3 named sections"></svg>
-        <ul class="cz-tags"><li>research</li><li>PDF</li><li class="tt">note cid</li></ul>
-        <p class="cz-size" data-size><b>~9.5k tok</b><i>&rarr;</i><b>1.4 kB</b><span>a 15-page paper &rarr; the index an agent reads</span></p></figure>
-      <div class="cz-txt">
-        <p class="cz-kind" data-state><span class="live">live</span> &middot; research</p>
-        <h3 class="cz-noun">Attention Is All You Need, in 3 parts</h3>
-        <ul class="cz-verbs"><li>read PDF</li><li>split<i>&times;3</i></li><li>name each</li><li>index</li></ul>
-        <p class="cz-read" data-read>note 5k4rsdbh3oe3zudjanr42mh6wy</p>
-        <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2F5k4rsdbh3oe3zudjanr42mh6wy.md" data-go target="_blank" rel="noopener noreferrer">open the index</a></div>
-      </div>
-    </article>
-
-    <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="16 of 19: planets" data-kind="note" data-note="fi67bt4rxkic3ssuag2v2hskly" data-thumb="2wxof63h5p3hrmzatw7mam2mom" data-draw="swatches">
-      <figure class="cz-vis dark"><canvas class="kb" width="320" height="200" role="img" aria-label="Mars from Hubble, 28 and 29 December 2024, drawn from strips whose bytes were hashed"></canvas><svg class="cz-fig" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
-        <ul class="cz-tags"><li>planets</li><li>Hubble</li><li class="tt">emem:tree</li></ul>
-        <p class="cz-size" data-size><b>2.0 MB</b><i>&rarr;</i><b>6.0 kB</b><span>the TIFF at esahubble.org &rarr; what an agent reads</span></p></figure>
-      <div class="cz-txt">
-        <p class="cz-kind" data-state><span class="live">live</span> &middot; planets</p>
-        <h3 class="cz-noun">Mars, two nights in December 2024</h3>
-        <ul class="cz-verbs"><li>read header</li><li>hash<i>&times;35</i></li><li>colour</li><li>prove a row</li></ul>
-        <p class="cz-read" data-read>emem:tree:fi67bt4rxkic3ssuag2v2hskly</p>
-        <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2Ffi67bt4rxkic3ssuag2v2hskly.md" data-go target="_blank" rel="noopener noreferrer">open the pointer</a></div>
-      </div>
-    </article>
-
-    <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="17 of 19: documents" data-kind="note" data-note="g6u3kpc4varj6epnzcbxkqmpyi" data-draw="ocr">
-      <figure class="cz-vis"><div class="cz-doc" role="img" aria-label="A scanned sample invoice, its OCR text read one line at a time"><ol></ol></div>
-        <ul class="cz-tags"><li>documents</li><li>OCR</li><li class="tt">note cid</li></ul>
-        <p class="cz-size" data-size><b>1 scanned page</b><i>&rarr;</i><b>468 B</b><span>a sample invoice scan &rarr; the text an agent reads</span></p></figure>
-      <div class="cz-txt">
-        <p class="cz-kind" data-state><span class="live">live</span> &middot; documents</p>
-        <h3 class="cz-noun">A scanned invoice, read and added up</h3>
-        <ul class="cz-verbs"><li>OCR</li><li>hash</li><li>add up<i>here</i></li><li>flag</li></ul>
-        <p class="cz-read" data-read>note g6u3kpc4varj6epnzcbxkqmpyi</p>
-        <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2Fg6u3kpc4varj6epnzcbxkqmpyi.md" data-go target="_blank" rel="noopener noreferrer">open the text</a></div>
-      </div>
-    </article>
-
-    <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="18 of 19: earth" data-kind="grid" data-center="12.9763,77.5929">
-      <figure class="cz-vis"><svg class="cz-heat" viewBox="0 0 256 256" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Vegetation over central Bengaluru as 144 signed squares"></svg>
-        <ul class="cz-tags"><li>earth</li><li>grid</li><li class="tt">emem:bundle</li></ul>
-        <p class="cz-size" data-size><b>144 squares</b><i>&rarr;</i><b>38 B</b><span>signed NDVI squares &rarr; one bundle token</span></p></figure>
-      <div class="cz-txt">
-        <p class="cz-kind" data-state><span class="live">live</span> &middot; grid</p>
-        <h3 class="cz-noun">Bengaluru, 144 signed squares</h3>
-        <ul class="cz-verbs"><li>grid<i>&times;1 call</i></li><li>recall<i data-n>&times;144</i></li><li>bundle</li><li>sign</li></ul>
-        <p class="cz-read" data-read>reading the grid&hellip;</p>
-        <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="/v1/grid" data-go>the bundle</a></div>
-      </div>
-    </article>
-
-    <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="19 of 19: devices" data-kind="trace" data-token=emem:trace:mxyer5c2oxn4ud3xqbtnaxcxhdv4kkxiu67q32inbwxgpa7r3s6a>
-      <figure class="cz-vis"><svg class="cz-fig" viewBox="0 0 320 200" role="img" aria-label="A Linux host&rsquo;s kernel trace in four chained layers"></svg>
-        <ul class="cz-tags"><li>devices</li><li>ftrace</li><li class="tt">emem:trace</li></ul>
-        <p class="cz-size" data-size><b>13,870 events</b><i>&rarr;</i><b>63 B</b><span>a machine&rsquo;s kernel trace &rarr; one token</span></p></figure>
-      <div class="cz-txt">
-        <p class="cz-kind" data-state><span class="live">live</span> &middot; device</p>
-        <h3 class="cz-noun">A machine&rsquo;s own trace, chained</h3>
-        <ul class="cz-verbs"><li>capture<i>&times;4 layers</i></li><li>digest</li><li>chain</li><li>sign</li></ul>
-        <p class="cz-read" data-read>emem:trace:mxyer5c2oxn4ud3xqbtnaxcxhdv4kkxiu67q32inbwxgpa7r3s6a</p>
-        <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="/v1/devices" data-go>every device</a></div>
-      </div>
-    </article>
-
-  </div>
-  <div class="cz-bar">
-    <button type="button" class="cz-btn" id="czPrev" aria-label="Previous slide">&larr;</button>
-    <div class="cz-dots" id="czDots"></div>
-    <span class="cz-count" id="czCount" aria-hidden="true"></span>
-    <button type="button" class="cz-btn cz-play" id="czPlay" aria-pressed="false" hidden>pause</button>
-    <button type="button" class="cz-btn" id="czNext" aria-label="Next slide">&rarr;</button>
-  </div>
-</section>
-</section>
-
-<section class="how" id="how" aria-labelledby="how-h">
-  <h2 id="how-h">How it works</h2>
-  <p class="how-sub">Your tab tokenises this page live, one step at a time.</p>
-  <ol class="pipe" id="pipe" aria-live="polite">
-    <li class="st" data-st="bytes"><i class="dot"></i><b>read</b><span class="v" data-v>this page</span><span class="k">bytes</span></li>
-    <li class="st" data-st="units"><i class="dot"></i><b>split</b><span class="v" data-v>&hellip;</span><span class="k">units</span><span class="bar" data-bar aria-hidden="true"></span></li>
-    <li class="st" data-st="hash"><i class="dot"></i><b>hash</b><span class="v" data-v>&hellip;</span><span class="k">blake3 per unit</span></li>
-    <li class="st" data-st="root"><i class="dot"></i><b>fold</b><span class="v" data-v>&hellip;</span><span class="k">one root</span></li>
-    <li class="st" data-st="log"><i class="dot"></i><b>log</b><span class="v" data-v>&hellip;</span><span class="k">signed head</span></li>
-    <li class="st" data-st="name"><i class="dot"></i><b>name</b><span class="v" data-v>&hellip;</span><span class="k">26 chars</span></li>
-    <li class="st" data-st="check"><i class="dot"></i><b>check</b><span class="v" data-v>&hellip;</span><span class="k">offline</span></li>
-  </ol>
-  <p class="how-foot"><a href="#cmpIn">tokenise yours</a> &middot; <a href="/how-it-works">the full walk</a> &middot; <a href="/verify">verify a token</a></p>
-</section>
-
-<section class="use" id="use" aria-labelledby="use-h">
-  <h2 id="use-h">Decode it anywhere</h2>
-  <div class="use-kinds" id="useKinds" role="toolbar" aria-label="Filter"></div>
-  <ul class="surf" id="surf"></ul>
-  <script type="application/json" id="surfaces">[{"id":"mcp","kind":"protocol","name":"MCP","what":"any MCP client","do":"copy","val":"{ \"mcpServers\": { \"emem\": { \"type\": \"http\", \"url\": \"https://emem.dev/mcp\" } } }","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"plug","role":"both"},{"id":"rest","kind":"protocol","name":"REST","what":"OpenAPI 3.1","do":"open","val":"/openapi.json","check":{"url":"/openapi.json","method":"HEAD"},"mark":"braces","role":"both"},{"id":"a2a","kind":"protocol","name":"A2A","what":"agent card","do":"copy","val":"curl -s https://emem.dev/.well-known/agent-card.json","check":{"url":"/.well-known/agent-card.json","method":"HEAD"},"mark":"a2a","role":"both"},{"id":"claude-code","kind":"assistant","name":"Claude Code","what":"one command","do":"copy","val":"claude mcp add --transport http emem https://emem.dev/mcp","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"claude","role":"decoder"},{"id":"claude-plugin","kind":"assistant","name":"Claude plugin","what":"MCP server + skills","do":"copy","val":"/plugin marketplace add Vortx-AI/emem","listed":"repo: .claude-plugin/marketplace.json","mark":"claude","role":"decoder"},{"id":"claude-ai","kind":"assistant","name":"Claude.ai","what":"custom connector","do":"copy","val":"https://emem.dev/mcp","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"claude","role":"decoder"},{"id":"chatgpt","kind":"assistant","name":"ChatGPT","what":"app","do":"open","val":"https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77","listed":"2026-09-27","mark":"chatgpt","role":"decoder"},{"id":"dify","kind":"assistant","name":"Dify","what":"marketplace plugin","do":"open","val":"https://marketplace.dify.ai/plugin/vortx-ai/emem","listed":"2026-09-27","mark":"dify","role":"decoder"},{"id":"cursor","kind":"editor","name":"Cursor","what":"one-click install","do":"open","val":"cursor://anysphere.cursor-deeplink/mcp/install?name=emem&config=eyJ1cmwiOiJodHRwczovL2VtZW0uZGV2L21jcCJ9","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"cursor","role":"decoder"},{"id":"vscode","kind":"editor","name":"VS Code","what":"one command","do":"copy","val":"code --add-mcp '{\"name\":\"emem\",\"type\":\"http\",\"url\":\"https://emem.dev/mcp\"}'","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"vscode","role":"decoder"},{"id":"gemini","kind":"editor","name":"Gemini CLI","what":"extension config","do":"open","val":"https://github.com/Vortx-AI/emem/blob/main/examples/gemini-extension.json","listed":"repo: examples/gemini-extension.json","mark":"gemini","role":"decoder"},{"id":"cline","kind":"editor","name":"Cline","what":"MCP config","do":"open","val":"https://github.com/Vortx-AI/emem/blob/main/examples/cline.mcp.json","listed":"repo: examples/cline.mcp.json","mark":"cline","role":"decoder"},{"id":"mcp-registry","kind":"registry","name":"MCP Registry","what":"io.github.Vortx-AI/emem","do":"open","val":"https://registry.modelcontextprotocol.io/v0/servers?search=io.github.Vortx-AI/emem","listed":"2026-09-27","mark":"registry","role":"decoder"},{"id":"github-mcp","kind":"registry","name":"GitHub MCP","what":"github.com/mcp","do":"open","val":"https://github.com/mcp/Vortx-AI/emem","listed":"2026-09-27","mark":"github","role":"decoder"},{"id":"glama","kind":"registry","name":"Glama","what":"MCP directory","do":"open","val":"https://glama.ai/mcp/servers/Vortx-AI/emem","listed":"2026-09-27","mark":"glama","role":"decoder"},{"id":"hf","kind":"registry","name":"Hugging Face","what":"Space","do":"open","val":"https://huggingface.co/spaces/vortx-ai/emem","listed":"2026-09-27","mark":"hf","role":"decoder"},{"id":"context7","kind":"registry","role":"decoder","name":"Context7","what":"docs for coding agents · /vortx-ai/emem","do":"open","val":"https://context7.com/vortx-ai/emem","listed":"2026-09-27","mark":"context7"},{"id":"mulesoft","kind":"registry","role":"decoder","name":"MuleSoft","what":"Vortx AI MCP Server on Anypoint Exchange · flows reach it through MuleSoft's MCP and A2A connectors","do":"open","val":"https://anypoint.mulesoft.com/exchange/68e53915-e89b-4e82-b794-12d37982db4c/vortxAi-asset/","listed":"Exchange: mcp 2.0.0, published 2026-08-13","mark":"mulesoft"},{"id":"docker","kind":"self-host","name":"Docker","what":"the whole responder","do":"copy","val":"docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest","listed":"ghcr.io 2026-09-27","mark":"docker","role":"both"},{"id":"encoder","kind":"self-host","name":"Air-gapped encoder","what":"no network, one binary","do":"copy","val":"docker pull ghcr.io/vortx-ai/emem-encode:latest && docker pull ghcr.io/vortx-ai/emem-airgap:latest","listed":"ghcr.io 2026-09-27","mark":"airgap","role":"both"},{"id":"py","kind":"sdk","name":"Python","what":"ememdev","do":"copy","val":"pip install ememdev","listed":"pypi 2.4.2","mark":"py","role":"both"},{"id":"ts","kind":"sdk","name":"TypeScript","what":"@vortxai/emem","do":"copy","val":"npm i @vortxai/emem","listed":"npm 2.4.2","mark":"ts","role":"both"},{"id":"frameworks","kind":"sdk","name":"Frameworks","what":"LangChain · LlamaIndex · CrewAI · AutoGen · Mastra · Agno · Semantic Kernel","do":"open","val":"https://github.com/Vortx-AI/emem/tree/main/examples","listed":"repo: examples/","mark":"layers","role":"both"},{"id":"github","kind":"sdk","name":"GitHub","what":"Apache-2.0 source","do":"open","val":"https://github.com/Vortx-AI/emem","listed":"2026-09-27","mark":"github","role":"both"}]</script>
-</section>
-
 
 </main>
-<script src="/home.js?v=bf0b54d6cd13" defer></script>
 
+<script src="/home.js?v=2cbdfa8e91e1" defer></script>
 <!--foot:start-->
-<nav class="pathbar" aria-label="Where this page sits on the developer path">
-<span class="pb-prev pb-start">Start of the developer path</span>
-<span class="pb-pos">1 of 8</span>
-<a class="pb-next" href="/demos"><span>Next</span><b>Demos</b><em>run live calls in the browser</em></a>
-</nav>
 <footer class="page foot sitefoot">
 <div class="sf-top"><a class="sf-brand" href="/"><img src="/vortxgola.gif" alt="">emem</a><p class="sf-proof" data-proof>log head: checking in this tab&hellip;</p></div>
 <div class="sf-grid">
-<div class="foot-col"><h4>Try</h4><ul>
+<div class="foot-col"><h4>Product</h4><ul>
 <li><a href="/">Home</a></li>
-<li><a href="/demos">Demos</a></li>
-</ul></div>
-<div class="foot-col"><h4>Learn</h4><ul>
-<li><a href="/how-it-works">How it works</a></li>
-<li><a href="/eudr">EUDR evidence</a></li>
-<li><a href="/agriculture">Crop intelligence</a></li>
-<li><a href="/contact">Talk to us</a></li>
-<li><a href="/solutions">Solutions</a></li>
-<li><a href="/whitepaper">Whitepaper</a></li>
-<li><a href="/the-long-version">The long read</a></li>
-<li><a href="/spec">Spec</a></li>
-</ul></div>
-<div class="foot-col"><h4>Connect</h4><ul>
-<li><a href="/reference">Reference</a></li>
-<li><a href="/tools">MCP tools</a></li>
-<li><a href="/a2a">A2A</a></li>
-<li><a href="/docs/">Docs</a></li>
-<li><a href="/reference#client-setup">Connect a client</a></li>
-<li><a href="/openapi.json">OpenAPI</a></li>
-<li><a href="/skills.md">Skills</a></li>
-</ul></div>
-<div class="foot-col"><h4>Verify</h4><ul>
+<li><a href="/how-it-works">The memory model</a></li>
 <li><a href="/verify">Verify</a></li>
 <li><a href="/guard">Guard</a></li>
+<li><a href="/a2a">Agent handoff</a></li>
+</ul></div>
+<div class="foot-col"><h4>Examples</h4><ul>
+<li><a href="/eudr">EUDR evidence</a></li>
+<li><a href="/agriculture">Crop intelligence</a></li>
+<li><a href="/solutions">All examples</a></li>
+</ul></div>
+<div class="foot-col"><h4>Developers</h4><ul>
+<li><a href="/demos">Live demos</a></li>
+<li><a href="/reference#client-setup">Quick start</a></li>
+<li><a href="/reference">API reference</a></li>
+<li><a href="/tools">MCP tools</a></li>
+<li><a href="/docs/">Docs</a></li>
+<li><a href="/openapi.json">OpenAPI</a></li>
+<li><a href="/skills.md">Skills</a></li>
+<li><a href="https://huggingface.co/spaces/vortx-ai/emem" target="_blank" rel="noopener noreferrer">Hugging Face Space</a></li>
+</ul></div>
+<div class="foot-col"><h4>Research</h4><ul>
+<li><a href="/whitepaper">Whitepaper</a></li>
+<li><a href="/spec">Spec</a></li>
+<li><a href="/the-long-version">The long read</a></li>
 <li><a href="/agents">Attesters</a></li>
 <li><a href="/v1/log/sth">Log head</a></li>
+<li><a href="https://vortx-ai.github.io/esa_poster/" target="_blank" rel="noopener noreferrer">ESA poster</a></li>
+<li><a href="https://doi.org/10.5281/zenodo.20706893" target="_blank" rel="noopener noreferrer">Whitepaper DOI</a></li>
+<li><a href="https://vortx-ai.github.io/ememdemo/" target="_blank" rel="noopener noreferrer">ememdemo</a></li>
 </ul></div>
-<div class="foot-col"><h4>Lab</h4><ul>
-<li><a href="/worlds">Worlds</a></li>
-<li><a href="/channel">Channel</a></li>
-<li><a href="/scoreboard">Scoreboard</a></li>
-<li><a href="/gallery">Gallery</a></li>
-<li><a href="/arcade">Arcade</a></li>
+<div class="foot-col"><h4>Company</h4><ul>
+<li><a href="/contact">Talk to us</a></li>
+<li><a href="https://vortx.ai" target="_blank" rel="noopener noreferrer">vortx.ai</a></li>
+<li><a href="/security">Security</a></li>
+<li><a href="/privacy">Privacy</a></li>
 </ul></div>
-<div class="foot-col"><h4>Machine</h4><ul>
+<div class="foot-col"><h4>For agents</h4><ul>
 <li><a href="/llms.txt">llms.txt</a></li>
 <li><a href="/.well-known/agent-card.json">agent card</a></li>
 <li><a href="/.well-known/emem.json">emem.json</a></li>

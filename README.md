@@ -2,9 +2,11 @@
 
 <img src="web/logo-300w.png" alt="emem logo" width="64">
 
-<h1>Search the physical world.<br>Every answer is signed.</h1>
+<h1>The memory of the physical world.</h1>
 
-<p><b>Ask emem about any place, field, river, forest, building or machine. It reads open sensors and models, computes the answer, and returns it with its source, its method and a signature anyone can check offline. One MCP URL, no key.</b></p>
+<p><b>Search it. Every answer is signed.</b></p>
+
+<p>Where space meets AI. Ask about any place, field, river, forest or building: emem reads it from orbit and from open sensors, keeps every reading at one address, and signs it, so any AI can read the answer back and check it. When web search misses, space answers. One MCP URL, no key.</p>
 
 [![Install in VS Code](https://img.shields.io/badge/VS%20Code-Install%20emem-0098FF?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D)
 [![Claude plugin](https://img.shields.io/badge/Claude-plugin-D97757)](plugins/emem/)
@@ -17,6 +19,22 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
 
 </div>
+
+## The memory model
+
+emem is a memory, not a search index and not a database. Every memory it holds is defined by five lines:
+
+```text
+address  = (cell, band, tslot)            where, what and when
+fact_cid = BLAKE3(canonical CBOR(fact))   the memory is named by its own bytes
+receipt  = Ed25519 over (cell, fact_cid)  who vouches for it, checkable offline
+token    = emem:fact:<cell>:<fact_cid>    any AI reads back the same bytes
+log      = append-only tree, witnessed    nothing changes quietly
+```
+
+One real memory, the NDVI of a field in Punjab on 17 November 2026: address (`defi.zb55a.weno.qobE`, `indices.ndvi`, `20774`), value 0.120 from Sentinel-2 L2A, token `emem:fact:defi.zb55a.weno.qobE:2ma2zvyphae2e5mr2wmjaxngbjytbmgirk5ptx7fx5mtlhhsf33a`. Paste the token at [emem.dev/verify](https://emem.dev/verify) and the check runs in your browser.
+
+The same model holds two kinds of memory. **Earth memory** is addressed by place, band and time. **Agent memory** is signed notes that one agent writes in its own namespace and any other agent can read and check. [How emem works](https://emem.dev/how-it-works) walks one request end to end.
 
 ## Try it: one question, no key
 
@@ -52,7 +70,19 @@ curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
 
 On 20 November that gave NDVI 0.169 from scene `S2B_MSIL2A_20261117T054109_R005_T43REQ`, with the pixel read as bare soil: a field between the rice harvest and the wheat.
 
-## Web search and emem
+## What it remembers
+
+1. **The physical world.** Weather, air, water, land, crops, forests, terrain and buildings from 46 open sources, satellites first. Read when asked, kept at one address.
+2. **What agents write.** Notes signed with an agent's own key. Another agent, from another vendor, reads the same bytes and checks who wrote them.
+3. **What machines and documents record.** Device traces, lab reports, land records and files, signed where they are made. The bytes stay put; a short name travels and proves any part of them.
+
+## What you do with it
+
+- **Search it.** Ask in words; the value comes back with its source, its date and its limits.
+- **Encode where the data is generated, decode with any AI.** The record is signed at its source, and Claude, ChatGPT, Gemini or your own model all read the same bytes.
+- **Share it and verify it.** Hand another agent a token instead of a paraphrase. It resolves to byte-identical content, and anyone can check it offline.
+
+## When web search misses, space answers
 
 | | Web search | emem |
 |---|---|---|
@@ -92,6 +122,19 @@ Then ask in plain words. Each prompt below runs one tool:
 
 117 wired measurements from open sources, read on demand. The full list: [emem.dev/tools](https://emem.dev/tools).
 
+## Examples
+
+Real-world tasks where a cited answer matters. Each one uses the same memory; none of them is the product.
+
+| Task | What emem gives | Where |
+|---|---|---|
+| EUDR due diligence | each supplier plot checked against the EU forest map and loss after 31 December 2020, one signed result per plot | [emem.dev/eudr](https://emem.dev/eudr) |
+| Crop and field intelligence | season curves, field boundaries with pixel support, harvest and burning, field by field | [emem.dev/agriculture](https://emem.dev/agriculture) |
+| Water, rain and drought | surface water history, rainfall ranked against thirty years, drought indices, each with its date | `emem_water`, `/v1/rain_series`, `emem_spi` |
+| Forests and land change | tree cover, year of loss, canopy change, land class | `emem_forest`, `emem_deforestation_alert` |
+| Agents that cite before they answer | every number in a draft checked against the signed value it cites | `emem_guard_verdict` |
+| Documents and devices | lab reports and land records read and signed line by line; device runs checked segment by segment | `emem_ocr`, `emem_trace_verify` |
+
 ## Why the answers hold up
 
 - **Every number traces to its source:** the satellite scene, the band, the method and the registry version are in the record.
@@ -118,6 +161,13 @@ The long form, with what each record promises and how each promise is checked, i
 
 - **[eudr.dev](https://eudr.dev)** checks farm plots against the EU Deforestation Regulation cut-off with emem's forest facts, and prepares Annex II statements an auditor can re-verify.
 - **[geo.qa](https://geo.qa)** runs a second node, whose transparency-log head emem co-signs.
+
+## Research
+
+- **ESA Φ-lab and BIFOLD, Berlin, October 2026.** *EMEM: A Content-Addressed, Verifiable Earth-Memory Protocol*, presented at Agentic AI for Earth Observation: [poster, demo and reproduction](https://vortx-ai.github.io/esa_poster/) ([source](https://github.com/Vortx-AI/esa_poster)).
+- **Whitepaper.** The protocol, its proofs and its limits: [DOI 10.5281/zenodo.20706893](https://doi.org/10.5281/zenodo.20706893), with the current revision in [docs/whitepaper-v2.md](docs/whitepaper-v2.md).
+- **ememdemo.** A site built on emem, with probes that test what it claims: [vortx-ai.github.io/ememdemo](https://vortx-ai.github.io/ememdemo/) ([source](https://github.com/Vortx-AI/ememdemo)).
+- **Hugging Face Space.** The same image, running on a Space: [huggingface.co/spaces/vortx-ai/emem](https://huggingface.co/spaces/vortx-ai/emem).
 
 ## Use it where you already work
 
@@ -204,12 +254,12 @@ Issues and pull requests welcome: [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.
 
 ## Content address
 
-Every section above this one is a unit of one signed tree: `emem:tree:omu3zfjzvpb65jn6f44ux452ey`, root `cjijxfeat7eftjkitxi4inilopfwhaj5l6v3nz4pveelydnd2mka`, published under the key `k572x7go`. A single section is `emem:tree:omu3zfjzvpb65jn6f44ux452ey#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
+Every section above this one is a unit of one signed tree: `emem:tree:2pt54mtubin45h7kqo3mos5bxy`, root `yuo5kkga77zig2zm4x3bj2dhrum4zp2jgtqmtli2b7dtpuqrrzea`, published under the key `k572x7go`. A single section is `emem:tree:2pt54mtubin45h7kqo3mos5bxy#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
 
 ```bash
-curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261120d.md" > index.md
-curl -s "https://emem.dev/v1/tree/omu3zfjzvpb65jn6f44ux452ey?row=3" > row.json
+curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261120f.md" > index.md
+curl -s "https://emem.dev/v1/tree/2pt54mtubin45h7kqo3mos5bxy?row=3" > row.json
 python3 tools/verifiers/emem-tokenise-files/tree_proof.py check row.json index.md README.md
 ```
 
-`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261120d.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261120d.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
+`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261120f.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261120f.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
