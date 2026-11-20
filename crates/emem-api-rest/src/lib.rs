@@ -2758,6 +2758,11 @@ async fn agent_access_log_layer(
         .unwrap_or("")
         .to_string();
     let ip_h = hashed_ip(&req);
+    let referer = headers
+        .get("referer")
+        .and_then(|v| v.to_str().ok())
+        .map(referer_host)
+        .unwrap_or_default();
 
     let resp = REQUESTER.scope(ip_h.clone(), next.run(req)).await;
 
@@ -2827,10 +2832,20 @@ async fn agent_access_log_layer(
         agent_accept = %accept,
         agent_traceparent = %traceparent,
         agent_ip_hash = %ip_h,
+        http_referer_host = %referer,
         emem_receipt_cid = %receipt_cid,
         "access"
     );
     resp
+}
+
+/// The referring site's host, lowercased, with no path, query, user or port: the path and query of
+/// another site's URL can carry its visitor's own data, and the host alone says where traffic came from.
+fn referer_host(r: &str) -> String {
+    let rest = r.split_once("://").map(|(_, x)| x).unwrap_or("");
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host = authority.rsplit('@').next().unwrap_or("");
+    host.split(':').next().unwrap_or("").to_ascii_lowercase()
 }
 
 /// True when the response is JSON AND the exact body size is known to fit
@@ -93388,6 +93403,23 @@ mod s2_surface_class {
 
 #[cfg(test)]
 mod tests {
+    /// Only the host of a referrer is logged: a path or query from another site can name its visitor.
+    #[test]
+    fn referer_host_keeps_only_the_host() {
+        assert_eq!(
+            super::referer_host("https://www.Google.com/search?q=emem"),
+            "www.google.com"
+        );
+        assert_eq!(
+            super::referer_host("https://user:pw@news.ycombinator.com:443/item?id=1"),
+            "news.ycombinator.com"
+        );
+        assert_eq!(
+            super::referer_host("https://emem.dev/verify?q=/memories/x"),
+            "emem.dev"
+        );
+        assert_eq!(super::referer_host("not a url"), "");
+    }
 
     /// No advertised tool descriptor carries an explicit JSON `null`.
     ///
