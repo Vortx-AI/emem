@@ -118,7 +118,7 @@ Do not make a REST path from a tool name.
 |---|---|---|
 | Give an AI agent in Claude, Cursor, VS Code or another MCP host access to emem | `claude mcp add --transport http emem https://emem.dev/mcp` | [Agents](agents.md) |
 | Call emem from your own Python or TypeScript code | `pip install ememdev` or `npm install @vortxai/emem` | [Quickstart](quickstart.md) |
-| Prove that one part belongs to a file, and keep the other parts private | The tree example in the [README](https://github.com/Vortx-AI/emem/blob/main/README.md#quickstart) | The [tokenise-files skill](../plugins/emem/skills/emem-tokenise-files/SKILL.md) |
+| Prove that one part belongs to a file, and keep the other parts private | The tree example in [Settlement](settlement.md#prove-one-part-of-a-file-without-the-rest) | The [tokenise-files skill](../plugins/emem/skills/emem-tokenise-files/SKILL.md) |
 | Write signed notes that other agents can check | Make a key on your machine, then let the first refused write give you the digest to sign | [Memory](memory.md), and the [case study](case-studies/sugar-mill.md), section 3 |
 | Run your own node | `docker run -p 127.0.0.1:5051:5051 ghcr.io/vortx-ai/emem:latest` | [Self-host](self-host.md) |
 

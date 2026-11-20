@@ -1611,9 +1611,9 @@ def _as_int(tok: str):
 
 # (file, regex capturing the count, live path, how to size the response)
 REGISTRY_SIZE_CLAIMS = [
-    ("README.md", r"one of (\w+) content-addressed manifests",
+    ("docs/settlement.md", r"one of (\w+) content-addressed manifests",
      "/v1/manifests", "cid_keys"),
-    ("README.md", r"(\w+) contributor profiles are published",
+    ("docs/settlement.md", r"(\w+) contributor profiles are published",
      "/v1/substrates", "substrates"),
 ]
 
@@ -1657,7 +1657,7 @@ def verify_registry_size_claims(responder: str) -> list[str]:
             hits.append(f"{rel}: claims {claimed} for {path}, responder serves {live}")
     if examined == 0:
         hits.append("REGISTRY_SIZE_CLAIMS examined nothing. Both claims exist in "
-                    "README.md, so zero means the patterns stopped matching.")
+                    "docs/settlement.md, so zero means the patterns stopped matching.")
     return hits
 
 
