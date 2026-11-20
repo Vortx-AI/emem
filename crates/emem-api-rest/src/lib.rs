@@ -382,6 +382,9 @@ const API_REDOC_HTML: &str = include_str!("../../../web/api-redoc.html");
 // protocol map (the canonical markdown alternate advertised in their <head>).
 const HOW_IT_WORKS_HTML: &str = include_str!("../../../web/how-it-works.html");
 const SOLUTIONS_HTML: &str = include_str!("../../../web/solutions.html");
+const EUDR_HTML: &str = include_str!("../../../web/eudr.html");
+const AGRICULTURE_HTML: &str = include_str!("../../../web/agriculture.html");
+const CONTACT_HTML: &str = include_str!("../../../web/contact.html");
 /// `/the-long-version`, the narrative that used to BE the homepage: the
 /// living album, what drifts without a shared memory, the loop, the proof,
 /// and the 30-second connect. It moved here on 2026-08-26 when the homepage
@@ -973,6 +976,19 @@ pub fn router(state: AppState) -> Router {
         // Redesign sub-pages: depth moved off the homepage funnel.
         .route("/how-it-works", get(serve_how_it_works))
         .route("/solutions", get(serve_solutions))
+        // The two jobs buyers come for, each with its own page.
+        .route("/eudr", get(serve_eudr))
+        .route("/agriculture", get(serve_agriculture))
+        .route("/contact", get(serve_contact))
+        // Both were 404s that people typed or followed (79 hits in three days).
+        .route(
+            "/connect",
+            get(|| async { Redirect::permanent("/reference#client-setup") }),
+        )
+        .route(
+            "/developers",
+            get(|| async { Redirect::permanent("/#dev") }),
+        )
         .route("/the-long-version", get(serve_the_long_version))
         .route("/reference", get(serve_reference))
         // The living atlas: type a place, get its signed facts rendered.
@@ -2441,9 +2457,9 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         // the heuristic cache held it. A page that changes whenever an agent
         // writes a note must not be cached by guess. /card and /a2a are baked
         // but iterated for the same reason.
-        "/" | "/index.html" | "/how-it-works" | "/solutions" | "/the-long-version"
-        | "/reference" | "/channel" | "/collaboration" | "/card" | "/a2a" | "/guard"
-        | "/verify" => Some("no-cache"),
+        "/" | "/index.html" | "/how-it-works" | "/solutions" | "/eudr" | "/agriculture"
+        | "/contact" | "/the-long-version" | "/reference" | "/channel" | "/collaboration"
+        | "/card" | "/a2a" | "/guard" | "/verify" => Some("no-cache"),
         // Stable across deploys (build-pinned constants).
         "/v1/grid_info"
         | "/v1/agent_card"
@@ -3861,6 +3877,9 @@ fn served_html_pages() -> Vec<&'static str> {
         DOCS_DIAGRAMS_INDEX_HTML,
         HOW_IT_WORKS_HTML,
         SOLUTIONS_HTML,
+        EUDR_HTML,
+        AGRICULTURE_HTML,
+        CONTACT_HTML,
         THE_LONG_VERSION_HTML,
         REFERENCE_HTML,
         WHITEPAPER_HTML,
@@ -4224,6 +4243,18 @@ async fn serve_whitepaper_page(headers: HeaderMap) -> Response {
 }
 async fn serve_solutions(headers: HeaderMap) -> Response {
     html_or_md(&headers, SOLUTIONS_HTML, LLMS_TXT)
+}
+
+async fn serve_eudr(headers: HeaderMap) -> Response {
+    html_or_md(&headers, EUDR_HTML, LLMS_TXT)
+}
+
+async fn serve_agriculture(headers: HeaderMap) -> Response {
+    html_or_md(&headers, AGRICULTURE_HTML, LLMS_TXT)
+}
+
+async fn serve_contact(headers: HeaderMap) -> Response {
+    html_or_md(&headers, CONTACT_HTML, LLMS_TXT)
 }
 async fn serve_the_long_version(headers: HeaderMap) -> Response {
     html_or_md(&headers, THE_LONG_VERSION_HTML, LLMS_TXT)

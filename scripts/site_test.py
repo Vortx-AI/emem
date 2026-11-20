@@ -71,7 +71,7 @@ WEIGHT_BUDGET_GZIP = {
 # Pages whose inline scripts a browser must be allowed to run. Anything served
 # as HTML is fair game; this list is the crawl seed, not the limit.
 SEEDS = [
-    "/", "/how-it-works", "/solutions", "/reference", "/verify", "/a2a",
+    "/", "/how-it-works", "/solutions", "/eudr", "/agriculture", "/contact", "/reference", "/verify", "/a2a",
     "/channel", "/collaboration", "/worlds", "/card", "/docs/gallery",
     "/gallery", "/demos", "/demos/signed-answer",
     "/demos/verify-before-publish", "/demos/handoff",

@@ -47,7 +47,7 @@ import glob
 import os
 import sys
 
-PAGES = ["/", "/channel", "/how-it-works", "/the-long-version", "/reference", "/solutions",
+PAGES = ["/", "/channel", "/how-it-works", "/the-long-version", "/reference", "/solutions", "/eudr", "/agriculture", "/contact",
          "/verify", "/tools", "/a2a", "/guard", "/demos"]
 
 PROBE = """(() => {

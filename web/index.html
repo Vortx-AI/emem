@@ -2,8 +2,8 @@
 <head>
 <script type="importmap">{"imports":{},"integrity":{"https://esm.sh/pdfjs-dist@4.10.38/build/pdf.min.mjs?raw":"sha384-+0ti2moQlmLN7WZHE2RHIf5lV8hHxhxEalN0il3YZceG26fUPyOkR0hp9daxk1i7"}}</script>
 <meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<title>emem: shared, verifiable memory for machines and AI</title>
-<meta name=description content="Shared, verifiable memory for AI agents. Every place has one address, every observation is one signed fact, and any agent can check any answer offline with no account.">
+<title>emem: search the physical world, every answer signed</title>
+<meta name=description content="Search the physical world. Ask about any place, field, river, forest or building; emem returns the answer with its source, method and a signature anyone can check offline.">
 <link rel=canonical href="https://emem.dev/">
 <link rel=alternate type=text/markdown href=/llms.txt>
 <link rel=alternate type=text/markdown href=/agents.md>
@@ -17,8 +17,8 @@
 <link rel="apple-touch-icon" href="/vortxgola.gif">
 <meta property=og:type content=website>
 <meta property=og:url content="https://emem.dev/">
-<meta property=og:title content="emem: shared, verifiable memory for machines and AI">
-<meta property=og:description content="Encode where the data lives, decode with any AI. A satellite, a drone, a robot or a file server signs a small record of what it holds, the bytes stay put, and any model can resolve and check it. No key, no account to read.">
+<meta property=og:title content="emem: search the physical world, every answer signed">
+<meta property=og:description content="Search the physical world. Ask about any place, field, river, forest or building; emem returns the answer with its source, method and a signature anyone can check offline.">
 <meta property=og:image content="https://emem.dev/og-image.png">
 <meta property=og:image:width content="1200">
 <meta property=og:image:height content="630">
@@ -26,8 +26,8 @@
 <meta property=og:image:alt content="emem.dev. Shared, verifiable memory for AI agents, and every fact in it can be checked.">
 <meta property=og:site_name content=emem>
 <meta name=twitter:card content=summary_large_image>
-<meta name=twitter:title content="emem: shared, verifiable memory for machines and AI">
-<meta name=twitter:description content="Encode where the data lives, decode with any AI. A satellite, a drone, a robot or a file server signs a small record of what it holds, the bytes stay put, and any model can resolve and check it. No key, no account to read.">
+<meta name=twitter:title content="emem: search the physical world, every answer signed">
+<meta name=twitter:description content="Search the physical world. Ask about any place, field, river, forest or building; emem returns the answer with its source, method and a signature anyone can check offline.">
 <meta name=twitter:image content="https://emem.dev/og-image.png">
 <meta name=twitter:image:alt content="emem.dev. A verified memory of Earth for AI agents.">
 <link rel=preconnect href="https://fonts.googleapis.com">
@@ -578,6 +578,53 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
   html{font-size:93.75%}
   .page{padding:0 1rem}
 }
+
+/* ---- 2026-11-20 product layer: two CTAs, the MCP line, teams, why, numbers, stays, more ---- */
+.hero .lede-main{ font-family:var(--display); font-size:var(--t-md); color:var(--ink-2); max-width:44rem; line-height:1.4; margin-bottom:var(--s-3); }
+.hero-cta{ display:flex; gap:var(--s-2); justify-content:center; flex-wrap:wrap; margin:0 0 var(--s-2); }
+.mcp-line{ display:flex; align-items:center; justify-content:center; gap:var(--s-1); flex-wrap:wrap; margin:0 auto var(--s-4);
+  font-family:var(--ui); font-size:var(--t-2xs); color:var(--mute); }
+.mcp-line code{ font-family:var(--mono); font-size:var(--t-2xs); color:var(--ink); padding:2px var(--s-1); border:1px solid var(--rule-strong); border-radius:var(--r-2); background:var(--field); }
+.home > .teams, .home > .why, .home > .stays, .home > .more{ padding:var(--s-5) 0 0; }
+.tm{ list-style:none; margin:0; padding:0; display:grid; gap:var(--s-2); grid-template-columns:repeat(auto-fit, minmax(16rem, 1fr)); }
+.tm a{ display:flex; flex-direction:column; gap:var(--s-1); height:100%; padding:var(--s-3); border:1px solid var(--rule); border-radius:var(--r-3);
+  background:var(--field); color:var(--ink); text-decoration:none; }
+.tm a:hover{ border-color:var(--rule-strong); }
+.tm b{ font-family:var(--display); font-weight:500; font-size:var(--t-lg); line-height:1.2; }
+.tm span{ font-family:var(--ui); font-size:var(--t-xs); color:var(--ink-2); line-height:1.5; flex:1 1 auto; }
+.tm i{ font-style:normal; font-family:var(--ui); font-size:var(--t-xs); color:var(--accent); }
+.wy{ list-style:none; margin:0; padding:0; display:grid; gap:var(--s-2) var(--s-4); grid-template-columns:repeat(2, minmax(0, 1fr)); }
+@media (max-width:640px){ .wy{ grid-template-columns:minmax(0, 1fr); } }
+.wy li{ font-family:var(--ui); font-size:var(--t-xs); color:var(--ink-2); line-height:1.55; padding:var(--s-2) 0; border-top:1px solid var(--rule); }
+.wy b{ color:var(--ink); }
+.wy a, .stays a, .more-sub a{ color:var(--accent); }
+.nums{ margin:var(--s-3) 0 0; font-family:var(--ui); font-size:var(--t-2xs); color:var(--mute); overflow-wrap:anywhere; }
+.stays p, .more-sub{ font-family:var(--ui); font-size:var(--t-sm); color:var(--ink-2); max-width:48rem; margin:0; }
+@media (max-width:560px){ .hero-cta{ flex-direction:column; align-items:stretch; } .hero-cta .btn{ justify-content:center; } }
+
+.ex{ max-width:36rem; margin:0 auto var(--s-4); padding:var(--s-3); border:1px solid var(--rule-strong); border-radius:var(--r-3); background:var(--field); font-family:var(--ui); }
+.ex p{ margin:0 0 var(--s-1); }
+.ex-q{ font-size:var(--t-xs); color:var(--ink-2); }
+.ex-q span{ font-size:var(--t-3xs); letter-spacing:.08em; text-transform:uppercase; color:var(--mute); margin-right:var(--s-1); }
+.ex-a{ font-size:var(--t-sm); color:var(--ink); }
+.ex-a b{ font-family:var(--display); font-size:var(--t-lg); font-weight:500; }
+.ex-lim{ font-size:var(--t-2xs); color:var(--mute); }
+.ex-tok code{ font-family:var(--mono); font-size:var(--t-3xs); overflow-wrap:anywhere; }
+.ex figcaption{ font-size:var(--t-3xs); color:var(--mute); }
+.ex figcaption code{ font-family:var(--mono); }
+.home > .asks, .home > .cmpw{ padding:var(--s-5) 0 0; }
+.ak{ list-style:none; margin:0; padding:0; display:grid; gap:var(--s-2); grid-template-columns:repeat(auto-fit, minmax(15rem, 1fr)); }
+.ak li{ display:flex; flex-direction:column; gap:4px; padding:var(--s-2) var(--s-3); border:1px solid var(--rule); border-radius:var(--r-3); background:var(--field); }
+.ak b{ font-family:var(--display); font-weight:500; font-size:var(--t-md); color:var(--ink); }
+.ak q{ font-family:var(--ui); font-size:var(--t-xs); color:var(--ink-2); quotes:"\201C" "\201D"; }
+.ak span{ font-family:var(--ui); font-size:var(--t-3xs); color:var(--mute); }
+.cw-wrap{ overflow-x:auto; border:1px solid var(--rule); border-radius:var(--r-3); background:var(--field); }
+.cw{ width:100%; border-collapse:collapse; font-family:var(--ui); font-size:var(--t-xs); min-width:30rem; }
+.cw th, .cw td{ text-align:left; padding:var(--s-2) var(--s-3); border-bottom:1px solid var(--rule); vertical-align:top; color:var(--ink-2); }
+.cw thead th{ font-size:var(--t-3xs); letter-spacing:.08em; text-transform:uppercase; color:var(--mute); font-weight:500; }
+.cw tbody th{ color:var(--ink); font-weight:600; white-space:nowrap; }
+.cw td:last-child{ color:var(--ink); }
+.cw tbody tr:last-child th, .cw tbody tr:last-child td{ border-bottom:0; }
 </style>
 <link rel=stylesheet href="/site.css?v=5692554a8f14">
 </head>
@@ -598,6 +645,9 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
 <summary>More</summary>
 <div class="navmenu navmenu-cols">
 <div class="navsec"><h6>learn</h6>
+<a href="/eudr"><b>EUDR evidence</b><span>check supplier plots, plot by plot</span></a>
+<a href="/agriculture"><b>Crop intelligence</b><span>fields, areas and districts</span></a>
+<a href="/contact"><b>Talk to us</b><span>email the team, or open an issue</span></a>
 <a href="/solutions"><b>Solutions</b><span>see four agents using it</span></a>
 <a href="/whitepaper"><b>Whitepaper</b><span>read the math and the proofs</span></a>
 <a href="/the-long-version"><b>The long read</b><span>the album, the loop, the proof</span></a>
@@ -632,8 +682,21 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
 <main class="home">
 
 <section class="hero" id="hero" aria-labelledby="hero-h">
-  <h1 id="hero-h"><span>Encode where the data lives.</span> <span>Decode with any AI.</span></h1>
-  <p class="lede">The proof travels; the file stays. Hash a file, read a place, sign it, hand it on.</p>
+  <h1 id="hero-h"><span>Search the physical world.</span> <span>Every answer is signed.</span></h1>
+  <p class="lede lede-main">Ask about any place, field, river, forest, building or machine. emem reads open sensors and models, computes the answer, and returns it with its source, its method and a signature anyone can check offline.</p>
+  <div class="hero-cta">
+    <a class="btn" href="/connect">Connect your agent</a>
+    <a class="btn ghost" href="/contact">Talk to us</a>
+  </div>
+  <p class="mcp-line"><code>https://emem.dev/mcp</code><button type="button" class="dev-copy">copy</button><span>works in Claude, ChatGPT, Cursor and VS Code &middot; no key to read</span></p>
+  <figure class="ex" aria-label="An example answer">
+    <p class="ex-q"><span>Asked</span>What is the air quality in Delhi right now?</p>
+    <p class="ex-a"><b>PM2.5 69.8 &micro;g/m&sup3;</b> &middot; CAMS analysis &middot; 20 November 2026</p>
+    <p class="ex-lim">Limits: a model grid, not a street monitor.</p>
+    <p class="ex-tok"><a href="/verify?q=emem%3Afact%3Adefi.zb545.zf86d.zb6c2%3Aolew2lwppg4uazm4sgiiv56qv4p4owphfon3ijqb3bvkqb35lyua" title="check this answer"><code>emem:fact:defi.zb545.zf86d.zb6c2:olew2lwp&hellip;</code></a></p>
+    <figcaption>One call to <code>/v1/ask</code>, 49 signed facts behind the answer. Open the token to check it.</figcaption>
+  </figure>
+  <p class="lede">Try it here: name a place, paste an emem token, or drop a file. Files are hashed in this tab and never uploaded.</p>
 
   <!-- The composer. What is typed or dropped decides the call: a file or text
        is hashed in this tab, an emem: token is resolved, "lat,lng" or a name
@@ -673,6 +736,98 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
     </ul>
   </form>
   <div class="thread" id="thread" aria-live="polite"></div>
+</section>
+
+<section class="asks" id="asks" aria-labelledby="asks-h">
+  <h2 id="asks-h">What you can ask about</h2>
+  <ul class="ak">
+    <li><b>Weather and climate</b><q>How much rain fell here last week?</q><span>ERA5, Open-Meteo, met.no, NASA POWER; sea state from Open-Meteo Marine</span></li>
+    <li><b>Air</b><q>What is the air quality in Delhi right now?</q><span>CAMS: PM2.5, PM10, NO2, ozone, SO2, CO</span></li>
+    <li><b>Water</b><q>Has this lake shrunk since the 1980s?</q><span>JRC surface water, Sentinel-2 water indices</span></li>
+    <li><b>Land and crops</b><q>How did this field&rsquo;s season go?</q><span>Sentinel-2 and -1, Landsat, field boundaries, MODIS evapotranspiration</span></li>
+    <li><b>Forests</b><q>Was this plot forest at the end of 2020?</q><span>Hansen, JRC GFC2020, TMF</span></li>
+    <li><b>Terrain and seabed</b><q>How high is this hillside?</q><span>Copernicus DEM, GMRT</span></li>
+    <li><b>Buildings, places and people</b><q>How many buildings are in this block?</q><span>Overture buildings, places and roads; population</span></li>
+    <li><b>Soil</b><q>What is the clay content here?</q><span>SoilGrids</span></li>
+    <li><b>Fires</b><q>Were there fires near this village this week?</q><span>VIIRS active fires (NASA FIRMS)</span></li>
+    <li><b>Machines</b><q>Did this device run the code it claims?</q><span>signed execution traces</span></li>
+    <li><b>Documents</b><q>What does this lab report say, line by line?</q><span>lab reports and land records, read and signed</span></li>
+  </ul>
+  <p class="nums">46 registered sources and more than 110 live measurements, computed on demand.</p>
+</section>
+
+<section class="cmpw" id="compare" aria-labelledby="compare-h">
+  <h2 id="compare-h">Web search and emem</h2>
+  <div class="cw-wrap"><table class="cw">
+    <thead><tr><th scope="col"></th><th scope="col">Web search</th><th scope="col">emem</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Returns</th><td>pages that mention the place</td><td>a measured value at the place</td></tr>
+      <tr><th scope="row">Source</th><td>whoever wrote the page</td><td>the sensor or model reading, named</td></tr>
+      <tr><th scope="row">Fresh</th><td>when it was crawled</td><td>read on demand from the latest pass or run</td></tr>
+      <tr><th scope="row">Trust</th><td>rank</td><td>a signature, an append-only log, a check anyone can run</td></tr>
+      <tr><th scope="row">For an agent</th><td>text to paraphrase</td><td>a value and a token to cite</td></tr>
+      <tr><th scope="row">When nothing is known</th><td>more pages</td><td>a signed absence that says where it looked</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="teams" id="teams" aria-labelledby="teams-h">
+  <h2 id="teams-h">What teams use it for today</h2>
+  <ul class="tm">
+    <li><a href="/developers"><b>Agents that cite instead of guess</b><span>Your agent gets a value and a token that any other agent resolves to the same signed bytes.</span><i>For developers &rarr;</i></a></li>
+    <li><a href="/eudr"><b>EUDR evidence, plot by plot</b><span>Check each supplier plot against the EU forest map and forest loss after 31 December 2020. One call per plot, one signed result your due-diligence statement can cite.</span><i>EUDR evidence &rarr;</i></a></li>
+    <li><a href="/agriculture"><b>Crop intelligence for every field</b><span>Season curves, field boundaries with pixel support, crop timing, burning and water use. One call per field per season.</span><i>Crop intelligence &rarr;</i></a></li>
+    <li><a href="/solutions"><b>Machines and documents that prove what they saw</b><span>Devices sign what they ran. Lab reports and land records are read line by line and signed.</span><i>Solutions &rarr;</i></a></li>
+  </ul>
+</section>
+
+<section class="why" id="why" aria-labelledby="why-h">
+  <h2 id="why-h">Why the answers hold up</h2>
+  <ul class="wy">
+    <li><b>Every answer traces to its source.</b> The sensor pass or model run, the method and the registry version. <a href="/how-it-works">How a fact is made</a></li>
+    <li><b>Nothing changes quietly.</b> An append-only log, co-signed by two independent operators. When we find a fault we correct it in the open with a signed erratum. <a href="/demos/transparency-log">See the log only grow</a></li>
+    <li><b>Check it without us.</b> Each result verifies offline, or in the browser. <a href="/verify">Verify one</a></li>
+    <li><b>Gaps are stated.</b> Where nothing qualifies, a signed absence says where we looked and why. <a href="/reference">Reference</a></li>
+  </ul>
+  <p class="nums">119 tools &middot; 177 algorithms &middot; 3.39 million log entries &middot; 2 independent witnesses &middot; 416 Claude Code client addresses in 3 days (17 to 20 November 2026)</p>
+</section>
+
+<section class="stays" id="stays" aria-labelledby="stays-h">
+  <h2 id="stays-h">What stays with you</h2>
+  <p>emem provides evidence. Legal interpretation, risk assessment beyond deforestation (legality, tenure, consent) and filing the statement stay with the operator and its advisers.</p>
+</section>
+
+<section class="dev" id="dev" aria-labelledby="dev-h">
+  <h2 id="dev-h">Build with it</h2>
+  <div class="dev-tabs" role="tablist" aria-label="ways to start">
+    <button type="button" role="tab" aria-selected="true" aria-controls="dev-mcp" id="dt-mcp">MCP</button>
+    <button type="button" role="tab" aria-selected="false" aria-controls="dev-sdk" id="dt-sdk">SDK</button>
+    <button type="button" role="tab" aria-selected="false" aria-controls="dev-self" id="dt-self">Self-host</button>
+  </div>
+  <div class="dev-p" role="tabpanel" id="dev-mcp" aria-labelledby="dt-mcp">
+    <div class="dev-cmd"><code>claude mcp add --transport http emem https://emem.dev/mcp</code><button type="button" class="dev-copy">copy</button></div>
+<pre><code>curl -s https://emem.dev/mcp -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"emem_locate","arguments":{"place":"Lusail"}}}'</code></pre>
+  </div>
+  <div class="dev-p" role="tabpanel" id="dev-sdk" aria-labelledby="dt-sdk" hidden>
+    <div class="dev-cmd"><code>pip install ememdev</code><button type="button" class="dev-copy">copy</button></div>
+<pre><code>from ememdev import Client
+
+with Client() as em:
+    cell = em.locate("Mount Fuji")["cell64"]
+    facts = em.recall(cell, bands=["copdem30m.elevation_mean"])
+    print(facts["facts"][0]["value"])</code></pre>
+    <div class="dev-cmd"><code>npm i @vortxai/emem</code><button type="button" class="dev-copy">copy</button></div>
+  </div>
+  <div class="dev-p" role="tabpanel" id="dev-self" aria-labelledby="dt-self" hidden>
+    <div class="dev-cmd"><code>docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest</code><button type="button" class="dev-copy">copy</button></div>
+    <ul class="dev-l"><li>point any MCP client at <code>http://127.0.0.1:5051/mcp</code></li><li>its own key signs, its own log grows</li><li>no network: <code>ghcr.io/vortx-ai/emem-airgap</code></li></ul>
+  </div>
+  <p class="dev-links"><a href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer">GitHub</a> &middot; <a href="/reference">reference</a> &middot; <a href="/tools">MCP tools</a> &middot; <a href="/verify">verify</a></p>
+</section>
+
+<section class="more" id="more" aria-labelledby="more-h">
+  <h2 id="more-h">emem holds other records too</h2>
+  <p class="more-sub">19 worked examples below, each read and checked in your tab, and the parts every record shares.</p>
 </section>
 
 <section class="flow" id="flow" aria-labelledby="flow-h">
@@ -1009,33 +1164,6 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
   <script type="application/json" id="surfaces">[{"id":"mcp","kind":"protocol","name":"MCP","what":"any MCP client","do":"copy","val":"{ \"mcpServers\": { \"emem\": { \"type\": \"http\", \"url\": \"https://emem.dev/mcp\" } } }","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"plug","role":"both"},{"id":"rest","kind":"protocol","name":"REST","what":"OpenAPI 3.1","do":"open","val":"/openapi.json","check":{"url":"/openapi.json","method":"HEAD"},"mark":"braces","role":"both"},{"id":"a2a","kind":"protocol","name":"A2A","what":"agent card","do":"copy","val":"curl -s https://emem.dev/.well-known/agent-card.json","check":{"url":"/.well-known/agent-card.json","method":"HEAD"},"mark":"a2a","role":"both"},{"id":"claude-code","kind":"assistant","name":"Claude Code","what":"one command","do":"copy","val":"claude mcp add --transport http emem https://emem.dev/mcp","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"claude","role":"decoder"},{"id":"claude-plugin","kind":"assistant","name":"Claude plugin","what":"MCP server + skills","do":"copy","val":"/plugin marketplace add Vortx-AI/emem","listed":"repo: .claude-plugin/marketplace.json","mark":"claude","role":"decoder"},{"id":"claude-ai","kind":"assistant","name":"Claude.ai","what":"custom connector","do":"copy","val":"https://emem.dev/mcp","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"claude","role":"decoder"},{"id":"chatgpt","kind":"assistant","name":"ChatGPT","what":"app","do":"open","val":"https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77","listed":"2026-09-27","mark":"chatgpt","role":"decoder"},{"id":"dify","kind":"assistant","name":"Dify","what":"marketplace plugin","do":"open","val":"https://marketplace.dify.ai/plugin/vortx-ai/emem","listed":"2026-09-27","mark":"dify","role":"decoder"},{"id":"cursor","kind":"editor","name":"Cursor","what":"one-click install","do":"open","val":"cursor://anysphere.cursor-deeplink/mcp/install?name=emem&config=eyJ1cmwiOiJodHRwczovL2VtZW0uZGV2L21jcCJ9","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"cursor","role":"decoder"},{"id":"vscode","kind":"editor","name":"VS Code","what":"one command","do":"copy","val":"code --add-mcp '{\"name\":\"emem\",\"type\":\"http\",\"url\":\"https://emem.dev/mcp\"}'","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"vscode","role":"decoder"},{"id":"gemini","kind":"editor","name":"Gemini CLI","what":"extension config","do":"open","val":"https://github.com/Vortx-AI/emem/blob/main/examples/gemini-extension.json","listed":"repo: examples/gemini-extension.json","mark":"gemini","role":"decoder"},{"id":"cline","kind":"editor","name":"Cline","what":"MCP config","do":"open","val":"https://github.com/Vortx-AI/emem/blob/main/examples/cline.mcp.json","listed":"repo: examples/cline.mcp.json","mark":"cline","role":"decoder"},{"id":"mcp-registry","kind":"registry","name":"MCP Registry","what":"io.github.Vortx-AI/emem","do":"open","val":"https://registry.modelcontextprotocol.io/v0/servers?search=io.github.Vortx-AI/emem","listed":"2026-09-27","mark":"registry","role":"decoder"},{"id":"github-mcp","kind":"registry","name":"GitHub MCP","what":"github.com/mcp","do":"open","val":"https://github.com/mcp/Vortx-AI/emem","listed":"2026-09-27","mark":"github","role":"decoder"},{"id":"glama","kind":"registry","name":"Glama","what":"MCP directory","do":"open","val":"https://glama.ai/mcp/servers/Vortx-AI/emem","listed":"2026-09-27","mark":"glama","role":"decoder"},{"id":"hf","kind":"registry","name":"Hugging Face","what":"Space","do":"open","val":"https://huggingface.co/spaces/vortx-ai/emem","listed":"2026-09-27","mark":"hf","role":"decoder"},{"id":"context7","kind":"registry","role":"decoder","name":"Context7","what":"docs for coding agents · /vortx-ai/emem","do":"open","val":"https://context7.com/vortx-ai/emem","listed":"2026-09-27","mark":"context7"},{"id":"mulesoft","kind":"registry","role":"decoder","name":"MuleSoft","what":"Vortx AI MCP Server on Anypoint Exchange · flows reach it through MuleSoft's MCP and A2A connectors","do":"open","val":"https://anypoint.mulesoft.com/exchange/68e53915-e89b-4e82-b794-12d37982db4c/vortxAi-asset/","listed":"Exchange: mcp 2.0.0, published 2026-08-13","mark":"mulesoft"},{"id":"docker","kind":"self-host","name":"Docker","what":"the whole responder","do":"copy","val":"docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest","listed":"ghcr.io 2026-09-27","mark":"docker","role":"both"},{"id":"encoder","kind":"self-host","name":"Air-gapped encoder","what":"no network, one binary","do":"copy","val":"docker pull ghcr.io/vortx-ai/emem-encode:latest && docker pull ghcr.io/vortx-ai/emem-airgap:latest","listed":"ghcr.io 2026-09-27","mark":"airgap","role":"both"},{"id":"py","kind":"sdk","name":"Python","what":"ememdev","do":"copy","val":"pip install ememdev","listed":"pypi 2.4.2","mark":"py","role":"both"},{"id":"ts","kind":"sdk","name":"TypeScript","what":"@vortxai/emem","do":"copy","val":"npm i @vortxai/emem","listed":"npm 2.4.2","mark":"ts","role":"both"},{"id":"frameworks","kind":"sdk","name":"Frameworks","what":"LangChain · LlamaIndex · CrewAI · AutoGen · Mastra · Agno · Semantic Kernel","do":"open","val":"https://github.com/Vortx-AI/emem/tree/main/examples","listed":"repo: examples/","mark":"layers","role":"both"},{"id":"github","kind":"sdk","name":"GitHub","what":"Apache-2.0 source","do":"open","val":"https://github.com/Vortx-AI/emem","listed":"2026-09-27","mark":"github","role":"both"}]</script>
 </section>
 
-<section class="dev" id="dev" aria-labelledby="dev-h">
-  <h2 id="dev-h">Build with it</h2>
-  <div class="dev-tabs" role="tablist" aria-label="ways to start">
-    <button type="button" role="tab" aria-selected="true" aria-controls="dev-mcp" id="dt-mcp">MCP</button>
-    <button type="button" role="tab" aria-selected="false" aria-controls="dev-sdk" id="dt-sdk">SDK</button>
-    <button type="button" role="tab" aria-selected="false" aria-controls="dev-self" id="dt-self">Self-host</button>
-  </div>
-  <div class="dev-p" role="tabpanel" id="dev-mcp" aria-labelledby="dt-mcp">
-    <div class="dev-cmd"><code>claude mcp add --transport http emem https://emem.dev/mcp</code><button type="button" class="dev-copy">copy</button></div>
-<pre><code>curl -s https://emem.dev/mcp -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"emem_locate","arguments":{"place":"Lusail"}}}'</code></pre>
-  </div>
-  <div class="dev-p" role="tabpanel" id="dev-sdk" aria-labelledby="dt-sdk" hidden>
-    <div class="dev-cmd"><code>pip install ememdev</code><button type="button" class="dev-copy">copy</button></div>
-<pre><code>from ememdev import Client
-
-with Client() as em:
-    cell = em.locate("Mount Fuji")["cell64"]
-    facts = em.recall(cell, bands=["copdem30m.elevation_mean"])
-    print(facts["facts"][0]["value"])</code></pre>
-    <div class="dev-cmd"><code>npm i @vortxai/emem</code><button type="button" class="dev-copy">copy</button></div>
-  </div>
-  <div class="dev-p" role="tabpanel" id="dev-self" aria-labelledby="dt-self" hidden>
-    <div class="dev-cmd"><code>docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest</code><button type="button" class="dev-copy">copy</button></div>
-    <ul class="dev-l"><li>point any MCP client at <code>http://127.0.0.1:5051/mcp</code></li><li>its own key signs, its own log grows</li><li>no network: <code>ghcr.io/vortx-ai/emem-airgap</code></li></ul>
-  </div>
-  <p class="dev-links"><a href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer">GitHub</a> &middot; <a href="/reference">reference</a> &middot; <a href="/tools">MCP tools</a> &middot; <a href="/verify">verify</a></p>
-</section>
 
 </main>
 <script src="/home.js?v=bf0b54d6cd13" defer></script>
@@ -1055,6 +1183,9 @@ with Client() as em:
 </ul></div>
 <div class="foot-col"><h4>Learn</h4><ul>
 <li><a href="/how-it-works">How it works</a></li>
+<li><a href="/eudr">EUDR evidence</a></li>
+<li><a href="/agriculture">Crop intelligence</a></li>
+<li><a href="/contact">Talk to us</a></li>
 <li><a href="/solutions">Solutions</a></li>
 <li><a href="/whitepaper">Whitepaper</a></li>
 <li><a href="/the-long-version">The long read</a></li>

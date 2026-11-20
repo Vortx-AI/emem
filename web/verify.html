@@ -160,6 +160,10 @@ a{color:var(--accent)}
 :root[data-theme="dark"] .vfy{ --field:oklch(0.205 0.005 85); --field-shadow:oklch(0 0 0 / .45); }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 @media (max-width:720px){.foot{grid-template-columns:1fr;gap:1.618rem}.you{max-width:100%}}
+
+.vfy-cta{margin:var(--s-3) 0 0;padding:var(--s-2) var(--s-3);border:1px solid var(--rule);border-radius:var(--r-2);
+  font-family:var(--ui);font-size:var(--t-xs);color:var(--ink-2);background:var(--paper-2);overflow-wrap:anywhere}
+.vfy-cta a{color:var(--accent)}
 </style>
 <link rel=stylesheet href="/site.css?v=5692554a8f14">
 </head>
@@ -180,6 +184,9 @@ a{color:var(--accent)}
 <summary>More</summary>
 <div class="navmenu navmenu-cols">
 <div class="navsec"><h6>learn</h6>
+<a href="/eudr"><b>EUDR evidence</b><span>check supplier plots, plot by plot</span></a>
+<a href="/agriculture"><b>Crop intelligence</b><span>fields, areas and districts</span></a>
+<a href="/contact"><b>Talk to us</b><span>email the team, or open an issue</span></a>
 <a href="/solutions"><b>Solutions</b><span>see four agents using it</span></a>
 <a href="/whitepaper"><b>Whitepaper</b><span>read the math and the proofs</span></a>
 <a href="/the-long-version"><b>The long read</b><span>the album, the loop, the proof</span></a>
@@ -243,6 +250,7 @@ a{color:var(--accent)}
       <ul class=chips id=chips aria-label="examples, each fetched live"></ul>
     </section>
     <section class=thread id=thread aria-live=polite aria-label="verifications"></section>
+    <p class="vfy-cta">Checked by emem, the search engine for the physical world where every answer is signed. <a href="/">What is emem</a> &middot; <a href="/connect">Connect your agent</a></p>
   </div>
 
   <aside class="vfy-ref" aria-label="Reference">
@@ -294,6 +302,9 @@ a{color:var(--accent)}
 </ul></div>
 <div class="foot-col"><h4>Learn</h4><ul>
 <li><a href="/how-it-works">How it works</a></li>
+<li><a href="/eudr">EUDR evidence</a></li>
+<li><a href="/agriculture">Crop intelligence</a></li>
+<li><a href="/contact">Talk to us</a></li>
 <li><a href="/solutions">Solutions</a></li>
 <li><a href="/whitepaper">Whitepaper</a></li>
 <li><a href="/the-long-version">The long read</a></li>
