@@ -20,8 +20,8 @@ authors:
 repository-code: "https://github.com/Vortx-AI/emem"
 url: "https://emem.dev"
 license: Apache-2.0
-version: 2.4.5
-date-released: 2026-10-10
+version: 2.4.6
+date-released: 2026-11-20
 keywords:
   - verifiable-memory
   - content-addressing

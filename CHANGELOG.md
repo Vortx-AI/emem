@@ -7,6 +7,20 @@ to verify.
 
 ## [Unreleased]
 
+## [2.4.6] - 2026-11-20
+
+A patch release: no wire change to the signed receipt or the fact preimage. Receipts and facts signed before it verify unchanged. It carries field-boundary work for farm products, the storage and log fixes that matter once a node logs its own reports, the whole-plot EUDR check, MODIS from Planetary Computer, and the dated-recall, guard and Sentinel-2 fixes below.
+
+- `POST /v1/field_boundaries`: `area_m2` is the ground area of the outline returned, net of its holes. It was the outer ring only, and after `clean` it was the area before the cut, so one outline with 624 holes read 324.6 ha against 184.2 ha of ground and 310.1 ha for its outer ring. Each field now carries `n_holes`, and `total_area_m2` is the sum over the fields returned.
+- `POST /v1/field_boundaries` takes `regularize: true`: each outline becomes its minimum rotated rectangle (IoU 0.85 or more), else its convex hull (IoU 0.90 or more), else a Douglas-Peucker line at 5 m. A field never takes a neighbour's ground and never changes area by more than 15 %; otherwise it is kept. The `regularisation` record (operator `selective_regularisation@1`) counts each outcome and says what it is not: on 10 m outlines it is a cleaner drawing of the same evidence, not a sharper boundary (mean NDVI gradient along the outlines 0.0043 before and 0.0044 after, on two public boxes).
+- `POST /v1/field_boundaries` takes `support: true`: each field carries `s2_support`, its 10 m Sentinel-2 pixel centres, those at least 5 m inside, and the label a field value can carry (`field_value` at 30 or more inner pixels, `small_field_value` at 4 to 29, `no_field_value` under 4), on the UTM grid of the outline's zone.
+- `POST /v1/band_raster` refuses a bbox given as an array, as `recall_polygon` and `field_boundaries` already did. The array was read lat-first, so a GeoJSON-order box for a field in Punjab served an Arctic scene with a 200.
+- `POST /v1/field_series` with several `fields` and fewer `max_scenes` than candidate dates says that the dates are chosen over the call's whole area, so a field sent in another batch can get other dates, and how many scenes make them batch-independent.
+- EUDR: a whole-plot zonal check (one `eudr_plot_raster@1` fact per plot over JRC 10 m and the Hansen and TMF pixels that contain it, area by coverage fraction), the JRC-only forest rule by default with a `review` verdict for loss on JRC non-forest, a salted plot commitment, the `eudr_compliance@2` card, season, imagery and burn sections behind a pending token, and a `Server-Timing` header that names each step.
+- MODIS LST, GPP, LAI and NDVI read Planetary Computer COGs first (median 2.4 s against 38 s), with ORNL as the fallback.
+- Storage: an attestation write finishes when its caller goes away; a failed log write is cut back so no frame follows a tear; the log walk reads an entry longer than 64 MiB as an entry; a log repair appends the entries the tree missed at the head and signs an erratum (`emem.translog.erratum.v1`) served in `/v1/log/sth`; and a loopback-only operator route finds and backs up facts the log never received.
+- `era5.snow_depth` from ERA5-Land, and `POST /v1/persist`: did the state a clear pass saw last until a later hour.
+
 - A dated recall (`tslot` or `as_of_tslot`) of `sentinel1_raw` reads the pass of the date asked. It ignored the date and read the newest pass. A pass inside the asked day comes first, then the nearest one, and an `as_of_tslot` takes the newest pass at or before the bound. A pass already signed at the cell is returned, not signed again.
 - A dated recall of `modis.ndvi_mean` reads the 16-day composite whose first day falls in the asked slot, else the nearest one. It read the newest composite of the last 90 days.
 - A dated recall of a `weather.*` band for an hour that has passed is refused with `reason_class: "no_archive"`. The source (met.no) keeps no past, and the materializer read now and signed it under the past date. The reason names the ERA5 band for that quantity (`era5.t2m` for `weather.temperature_2m`). The current hour and the forecast read as before.

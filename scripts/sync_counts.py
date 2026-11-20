@@ -124,7 +124,7 @@ CANON = {
     "mcp_resources": 21,       # resources/list entries (emem-mcp 8 + emem-api-rest 12 docs + 1 MCP Apps view)
     "mcp_uri_templates": 9,    # resource template entries (emem-mcp 3 + emem-api-rest 5)
     "crates": 19,
-    "version": "2.4.5",
+    "version": "2.4.6",
 }
 
 
