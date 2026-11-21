@@ -38,13 +38,14 @@ a{color:var(--accent)}
 .sol b{color:var(--ink)}
 .sol code{font-family:var(--mono);font-size:.85em;background:var(--paper-3);padding:0 var(--s-1);border-radius:var(--r-1)}
 .levels{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:var(--s-2);margin:0;padding:0;list-style:none}
+.sol .levels{padding-left:0}
 .levels li{border:1px solid var(--rule);border-radius:var(--r-3);padding:var(--s-3);background:var(--paper-2);margin:0;max-width:none}
 .levels b{display:block;font-family:var(--display);font-size:var(--t-lg);font-weight:500;margin:0 0 var(--s-1)}
 .sol pre{margin:0 0 var(--s-2);padding:var(--s-3);border-radius:var(--r-2);background:var(--ink);color:var(--paper);overflow-x:auto;font-family:var(--mono);font-size:var(--t-2xs);line-height:1.5;white-space:pre-wrap;word-break:break-all}
 .cta-row{display:flex;gap:var(--s-2);flex-wrap:wrap;margin:var(--s-3) 0 0}
 @media (max-width:560px){.cta-row{flex-direction:column;align-items:stretch}.cta-row .btn{justify-content:center}}
 </style>
-<link rel=stylesheet href="/site.css?v=5692554a8f14">
+<link rel=stylesheet href="/site.css?v=a45bf4c80945">
 </head>
 <body class="doc">
 
@@ -82,14 +83,13 @@ a{color:var(--accent)}
 <details class="navgrp" name="sitenav">
 <summary>Research</summary>
 <div class="navmenu">
+<a href="https://vortx-ai.github.io/esa_poster/" target="_blank" rel="noopener noreferrer"><b>ESA poster<i class="ext" aria-hidden="true">&#8599;</i></b><span>ESA Φ-lab and BIFOLD, Berlin, October 2026</span></a>
+<a href="https://vortx-ai.github.io/ememdemo/" target="_blank" rel="noopener noreferrer"><b>ememdemo<i class="ext" aria-hidden="true">&#8599;</i></b><span>explore a site built on emem</span></a>
 <a href="/whitepaper"><b>Whitepaper</b><span>the math and the proofs</span></a>
 <a href="/spec"><b>Spec</b><span>implement the wire format</span></a>
 <a href="/the-long-version"><b>The long read</b><span>the album, the loop, the proof</span></a>
 <a href="/agents"><b>Attesters</b><span>every key that writes</span></a>
 <a href="/v1/log/sth"><b>Log head</b><span>pin a signed head</span></a>
-<a href="https://vortx-ai.github.io/esa_poster/" target="_blank" rel="noopener noreferrer"><b>ESA poster<i class="ext" aria-hidden="true">&#8599;</i></b><span>Agentic AI for Earth Observation, BIFOLD and ESA Phi-lab, Berlin, Oct 2026</span></a>
-<a href="https://doi.org/10.5281/zenodo.20706893" target="_blank" rel="noopener noreferrer"><b>Whitepaper DOI<i class="ext" aria-hidden="true">&#8599;</i></b><span>the protocol paper on Zenodo</span></a>
-<a href="https://vortx-ai.github.io/ememdemo/" target="_blank" rel="noopener noreferrer"><b>ememdemo<i class="ext" aria-hidden="true">&#8599;</i></b><span>a site built on emem, with its own probes</span></a>
 </div></details>
 <a class="navlink" href="/docs/">Docs</a>
 <span class="sitebar-gap"></span>
@@ -103,7 +103,7 @@ a{color:var(--accent)}
 
 <header class="doc-head">
   <div>
-    <p class="eyebrow">Solutions &middot; agriculture</p>
+    <p class="eyebrow">Examples &middot; crop intelligence</p>
     <h1>Crop intelligence for every field, area and district.</h1>
     <p class="purpose">Season curves, field boundaries with pixel support, crop timing, burning and water use. Each number names its scenes and how many pixels it rests on.</p>
     <div class="actions">
@@ -118,27 +118,27 @@ a{color:var(--accent)}
   <h2 id="ag-levels">Three levels, one record</h2>
   <ul class="levels">
     <li><b>Farm</b>One call per field per season. A full kharif season for a 4.4 ha field came back in 4.2 s: 13 dates, each with the spread of its 437 pixels at 10 m and the share of the field that was clear.</li>
-    <li><b>Area</b>Farms within a radius read in the same way, so a 3 to 10 km view is built from the same signed field records, not from a separate model.</li>
-    <li><b>District</b>Totals from a sample design with an interval, not from summed pixels. A district number states what its interval covers.</li>
+    <li><b>Area</b>Farms within a radius read in the same way, so a 3 to 10 km view is built from the same signed field records.</li>
+    <li><b>District</b>Totals from a sample design, each with its interval, so a district number states exactly what it covers.</li>
   </ul>
 </section>
 
 <section aria-labelledby="ag-fields">
-  <h2 id="ag-fields">Field boundaries: pick the method by the job</h2>
+  <h2 id="ag-fields">Draw field boundaries three ways</h2>
   <ol>
-    <li><b>Open data at 10 m.</b> Fields of The World outlines with Sentinel-2, cleaned and regularised. No GPU and no imagery licence. Right for area and district work; not the farm unit where fields are small.</li>
+    <li><b>Open data at 10 m.</b> Fields of The World outlines with Sentinel-2, cleaned and regularised. No GPU and no imagery licence. Built for area and district work.</li>
     <li><b>About 0.5 m imagery.</b> A field model with edge refinement. A quarter of the pixels of the next option.</li>
-    <li><b>About 0.27 m imagery.</b> The sharpest edges, for smallholder plots, with our boundary partners.</li>
+    <li><b>About 0.27 m imagery.</b> The sharpest edges, built for smallholder plots, with our boundary partners.</li>
   </ol>
   <p>Compare them on the same held-out squares, by field size, before choosing. GPU time, imagery licence and the date of the imagery matter as much as the score.</p>
 </section>
 
 <section aria-labelledby="ag-limits">
-  <h2 id="ag-limits">What we say plainly</h2>
+  <h2 id="ag-limits">Every number carries its support</h2>
   <ul>
-    <li>A field under about 0.1 ha has too few 10 m pixels for a field value. We label it and do not guess.</li>
-    <li>Cloud leaves gaps in the monsoon season. A date is given with the gap around it, and radar fills what it can.</li>
-    <li>District totals need a reference sample on the ground. We help design it.</li>
+    <li>Each field value names the 10 m pixels it rests on, and each field carries a support label, so a reader sees how much evidence sits behind it.</li>
+    <li>Each date names its scene and its clear share; radar reads through monsoon cloud.</li>
+    <li>District totals come with the reference sample behind them. We help design it.</li>
   </ul>
 </section>
 
@@ -190,7 +190,6 @@ a{color:var(--accent)}
 <li><a href="/agents">Attesters</a></li>
 <li><a href="/v1/log/sth">Log head</a></li>
 <li><a href="https://vortx-ai.github.io/esa_poster/" target="_blank" rel="noopener noreferrer">ESA poster</a></li>
-<li><a href="https://doi.org/10.5281/zenodo.20706893" target="_blank" rel="noopener noreferrer">Whitepaper DOI</a></li>
 <li><a href="https://vortx-ai.github.io/ememdemo/" target="_blank" rel="noopener noreferrer">ememdemo</a></li>
 </ul></div>
 <div class="foot-col"><h4>Company</h4><ul>

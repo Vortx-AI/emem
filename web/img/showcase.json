@@ -1,37 +1,52 @@
 {
- "generated_at": "2026-11-20T20:12:54Z",
+ "generated_at": "2026-11-21T05:31:51Z",
  "origin": "https://emem.dev",
  "note": "Sentinel-2 L2A true colour, read by emem at native 10 m via GET /v1/scene.png",
  "scenes": {
-  "punjab-sep": {
-   "file": "punjab-sep-260eaac912.jpg",
-   "sha256_10": "260eaac912",
-   "caption": "Field mosaic in Punjab at the height of the kharif season",
-   "bbox": "75.30,30.42,75.39,30.50",
-   "width": 864,
+  "bhakra-jun": {
+   "file": "bhakra-jun-0fb0a19236.jpg",
+   "sha256_10": "0fb0a19236",
+   "caption": "Gobind Sagar reservoir in the dry season, its shore exposed",
+   "bbox": "76.40,31.38,76.50,31.46",
+   "width": 950,
    "height": 885,
-   "bytes": 224674,
-   "item_id": "S2B_MSIL2A_20260908T053639_R005_T43REP_20260908T092339",
-   "datetime": "2026-09-08T05:36:39.024000Z",
-   "cloud_cover_pct": 0.32,
+   "bytes": 148424,
+   "item_id": "S2B_MSIL2A_20260610T053639_R005_T43RFQ_20260610T091702",
+   "datetime": "2026-06-10T05:36:39.024000Z",
+   "cloud_cover_pct": 0.16,
    "pixel_size_m": "10.0000,10.0000",
    "epsg": "32643",
-   "request": "https://emem.dev/v1/scene.png?bbox=75.30%2C30.42%2C75.39%2C30.50&max_cloud=10&datetime=2026-08-20%2F2026-09-30"
+   "request": "https://emem.dev/v1/scene.png?bbox=76.40%2C31.38%2C76.50%2C31.46&max_cloud=5&datetime=2026-05-20%2F2026-06-25"
   },
-  "punjab-nov": {
-   "file": "punjab-nov-a8002c05e4.jpg",
-   "sha256_10": "a8002c05e4",
-   "caption": "The same Punjab fields after harvest, with burnt stubble",
-   "bbox": "75.30,30.42,75.39,30.50",
-   "width": 864,
+  "bhakra-oct": {
+   "file": "bhakra-oct-86437cbe7a.jpg",
+   "sha256_10": "86437cbe7a",
+   "caption": "Gobind Sagar reservoir after the monsoon, full to the treeline",
+   "bbox": "76.40,31.38,76.50,31.46",
+   "width": 950,
    "height": 885,
-   "bytes": 221799,
-   "item_id": "S2B_MSIL2A_20261117T054109_R005_T43REP_20261117T074534",
-   "datetime": "2026-11-17T05:41:09.024000Z",
+   "bytes": 265173,
+   "item_id": "S2A_MSIL2A_20261022T053241_R105_T43RFQ_20261022T102211",
+   "datetime": "2026-10-22T05:32:41.024000Z",
    "cloud_cover_pct": 0.0,
    "pixel_size_m": "10.0000,10.0000",
    "epsg": "32643",
-   "request": "https://emem.dev/v1/scene.png?bbox=75.30%2C30.42%2C75.39%2C30.50&max_cloud=5&datetime=2026-11-10%2F2026-11-20"
+   "request": "https://emem.dev/v1/scene.png?bbox=76.40%2C31.38%2C76.50%2C31.46&max_cloud=5&datetime=2026-09-25%2F2026-10-25"
+  },
+  "gangotri": {
+   "file": "gangotri-8f9cb01523.jpg",
+   "sha256_10": "8f9cb01523",
+   "caption": "Gangotri glacier in the Garhwal Himalaya",
+   "bbox": "79.02,30.86,79.11,30.94",
+   "width": 860,
+   "height": 885,
+   "bytes": 225737,
+   "item_id": "S2A_MSIL2A_20261118T052231_R062_T44RLV_20261118T101205",
+   "datetime": "2026-11-18T05:22:31.024000Z",
+   "cloud_cover_pct": 0.0,
+   "pixel_size_m": "10.0000,10.0000",
+   "epsg": "32644",
+   "request": "https://emem.dev/v1/scene.png?bbox=79.02%2C30.86%2C79.11%2C30.94&max_cloud=5&datetime=2026-10-01%2F2026-11-20"
   },
   "rondonia": {
    "file": "rondonia-86df6235b1.jpg",
@@ -47,21 +62,6 @@
    "pixel_size_m": "10.0000,10.0000",
    "epsg": "32720",
    "request": "https://emem.dev/v1/scene.png?bbox=-63.21%2C-10.10%2C-63.13%2C-10.03&max_cloud=2&datetime=2026-09-01%2F2026-09-30"
-  },
-  "bhakra": {
-   "file": "bhakra-f83df84d5f.jpg",
-   "sha256_10": "f83df84d5f",
-   "caption": "Gobind Sagar reservoir behind the Bhakra dam",
-   "bbox": "76.40,31.38,76.50,31.46",
-   "width": 950,
-   "height": 885,
-   "bytes": 260459,
-   "item_id": "S2B_MSIL2A_20261117T054109_R005_T43RFQ_20261117T074534",
-   "datetime": "2026-11-17T05:41:09.024000Z",
-   "cloud_cover_pct": 0.0,
-   "pixel_size_m": "10.0000,10.0000",
-   "epsg": "32643",
-   "request": "https://emem.dev/v1/scene.png?bbox=76.40%2C31.38%2C76.50%2C31.46&max_cloud=5&datetime=2026-11-10%2F2026-11-20"
   },
   "sundarbans": {
    "file": "sundarbans-bc53e9d39c.jpg",
@@ -92,6 +92,43 @@
    "pixel_size_m": "10.0000,10.0000",
    "epsg": "32643",
    "request": "https://emem.dev/v1/scene.png?bbox=77.19%2C28.58%2C77.29%2C28.66&max_cloud=5&datetime=2026-11-05%2F2026-11-20"
+  },
+  "punjab-nov": {
+   "file": "punjab-nov-a8002c05e4.jpg",
+   "sha256_10": "a8002c05e4",
+   "caption": "Fields in Punjab after harvest",
+   "bbox": "75.30,30.42,75.39,30.50",
+   "width": 864,
+   "height": 885,
+   "bytes": 221799,
+   "item_id": "S2B_MSIL2A_20261117T054109_R005_T43REP_20261117T074534",
+   "datetime": "2026-11-17T05:41:09.024000Z",
+   "cloud_cover_pct": 0.0,
+   "pixel_size_m": "10.0000,10.0000",
+   "epsg": "32643",
+   "request": "https://emem.dev/v1/scene.png?bbox=75.30%2C30.42%2C75.39%2C30.50&max_cloud=5&datetime=2026-11-10%2F2026-11-20"
+  }
+ },
+ "extras": {
+  "poster-esa": {
+   "file": "poster-esa-073fd5ea51.jpg",
+   "sha256_10": "073fd5ea51",
+   "caption": "The emem poster: A Content-Addressed, Verifiable Earth-Memory Protocol",
+   "credit": "Vortx AI",
+   "source": "https://raw.githubusercontent.com/Vortx-AI/esa_poster/HEAD/poster/emem-poster-preview.png",
+   "width": 720,
+   "height": 1018,
+   "bytes": 227910
+  },
+  "webb-cliffs": {
+   "file": "webb-cliffs-f5b6b8f66d.jpg",
+   "sha256_10": "f5b6b8f66d",
+   "caption": "The Cosmic Cliffs in Carina, imaged by Webb",
+   "credit": "NASA, ESA, CSA, and STScI, CC BY 4.0",
+   "source": "https://vortx.ai/assets/wow/wkxa7tcmw2orf7ujjf5yi66dhe-1600.webp",
+   "width": 1200,
+   "height": 750,
+   "bytes": 204818
   }
  }
 }

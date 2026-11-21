@@ -8,12 +8,13 @@
   var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
 
   $$("[data-copy]").forEach(function (b) {
+    var label = $("i", b) || b, was = label.textContent;
     b.addEventListener("click", function () {
       var t = b.getAttribute("data-copy");
       (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () {
-        b.textContent = "Copied"; b.classList.add("done");
-        setTimeout(function () { b.textContent = "Copy"; b.classList.remove("done"); }, 1600);
-      }, function () { b.textContent = "Select and copy"; });
+        label.textContent = "Copied"; b.classList.add("done");
+        setTimeout(function () { label.textContent = was; b.classList.remove("done"); }, 1800);
+      }, function () { label.textContent = t; });
     });
   });
 
@@ -23,6 +24,7 @@
       btn.addEventListener("click", function () {
         var d = btn.getAttribute("data-show");
         $$("img[data-date]", scene).forEach(function (im) { im.classList.toggle("on", im.getAttribute("data-date") === d); });
+        $$("[data-for]", scene).forEach(function (el) { el.hidden = el.getAttribute("data-for") !== d; });
         $$("[data-show]", scene).forEach(function (o) { var on = o === btn; o.classList.toggle("on", on); o.setAttribute("aria-pressed", on ? "true" : "false"); });
       });
     });
@@ -47,22 +49,20 @@
   function ask(q) {
     q = (q || "").trim();
     if (!q) { input.focus(); return; }
-    show('<p class="a-l">Reading the place and signing the answer&hellip;</p>');
+    show('<p class="a-l">Reading the place from orbit and signing the answer&hellip;</p>');
     fetch("/v1/ask", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ q: q }) })
       .then(function (r) { return r.json(); })
       .then(function (d) {
         var a = d.direct_answer || {};
-        var sentence = a.sentence || d.answer_md || "emem could not answer that one.";
+        var sentence = a.sentence || d.answer_md || "Try a place and a question, such as the ones above.";
         var cell = d.place_resolved && d.place_resolved.cell64;
         var tok = cell && a.fact_cid ? "emem:fact:" + cell + ":" + a.fact_cid : "";
-        var lim = (a.limits || [])[0] || "";
         var h = '<p class="a-s">' + esc(String(sentence).split("\n")[0]) + "</p>";
-        if (lim) h += '<p class="a-l">Limits: ' + esc(lim) + "</p>";
         if (tok) h += '<a class="tok" href="/verify?q=' + encodeURIComponent(tok) + '"><i aria-hidden="true">&#10003;</i><span class="t">' +
-          esc(tok) + '</span><span>check it</span></a>';
+          esc(tok) + '</span><span>Verify</span></a>';
         show(h);
       })
-      .catch(function () { show('<p class="a-s">The answer did not arrive. Try again in a moment.</p>'); });
+      .catch(function () { show('<p class="a-s">Ask again in a moment.</p>'); });
   }
   form.addEventListener("submit", function (e) { e.preventDefault(); ask(input.value || input.placeholder); });
   $$(".chips [data-q]").forEach(function (c) {

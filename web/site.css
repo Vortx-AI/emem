@@ -127,3 +127,8 @@ body.doc th { font-family: var(--ui) }
 body.doc :is(input[type="text"], input[type="search"], input:not([type]), textarea, select) {
   border-radius: var(--r-2);
 }
+
+/* v3 (2026-11-21): headings in the display face at one weight and tracking on every inner page, so a page
+   heading reads the same as the homepage's. The per-page weights (400-420) were tuned for the old serif. */
+body.doc :is(h1, h2, h3) { font-family: var(--display); font-weight: 640; letter-spacing: -.024em; font-variation-settings: normal; }
+body.doc .doc-head h1 { letter-spacing: -.035em; }

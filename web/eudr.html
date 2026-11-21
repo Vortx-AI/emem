@@ -45,7 +45,7 @@ dl.dates dd{margin:var(--s-1) 0 0;font-family:var(--display);font-size:var(--t-l
 .cta-row{display:flex;gap:var(--s-2);flex-wrap:wrap;margin:var(--s-3) 0 0}
 @media (max-width:560px){.cta-row{flex-direction:column;align-items:stretch}.cta-row .btn{justify-content:center}}
 </style>
-<link rel=stylesheet href="/site.css?v=5692554a8f14">
+<link rel=stylesheet href="/site.css?v=a45bf4c80945">
 </head>
 <body class="doc">
 
@@ -83,14 +83,13 @@ dl.dates dd{margin:var(--s-1) 0 0;font-family:var(--display);font-size:var(--t-l
 <details class="navgrp" name="sitenav">
 <summary>Research</summary>
 <div class="navmenu">
+<a href="https://vortx-ai.github.io/esa_poster/" target="_blank" rel="noopener noreferrer"><b>ESA poster<i class="ext" aria-hidden="true">&#8599;</i></b><span>ESA Φ-lab and BIFOLD, Berlin, October 2026</span></a>
+<a href="https://vortx-ai.github.io/ememdemo/" target="_blank" rel="noopener noreferrer"><b>ememdemo<i class="ext" aria-hidden="true">&#8599;</i></b><span>explore a site built on emem</span></a>
 <a href="/whitepaper"><b>Whitepaper</b><span>the math and the proofs</span></a>
 <a href="/spec"><b>Spec</b><span>implement the wire format</span></a>
 <a href="/the-long-version"><b>The long read</b><span>the album, the loop, the proof</span></a>
 <a href="/agents"><b>Attesters</b><span>every key that writes</span></a>
 <a href="/v1/log/sth"><b>Log head</b><span>pin a signed head</span></a>
-<a href="https://vortx-ai.github.io/esa_poster/" target="_blank" rel="noopener noreferrer"><b>ESA poster<i class="ext" aria-hidden="true">&#8599;</i></b><span>Agentic AI for Earth Observation, BIFOLD and ESA Phi-lab, Berlin, Oct 2026</span></a>
-<a href="https://doi.org/10.5281/zenodo.20706893" target="_blank" rel="noopener noreferrer"><b>Whitepaper DOI<i class="ext" aria-hidden="true">&#8599;</i></b><span>the protocol paper on Zenodo</span></a>
-<a href="https://vortx-ai.github.io/ememdemo/" target="_blank" rel="noopener noreferrer"><b>ememdemo<i class="ext" aria-hidden="true">&#8599;</i></b><span>a site built on emem, with its own probes</span></a>
 </div></details>
 <a class="navlink" href="/docs/">Docs</a>
 <span class="sitebar-gap"></span>
@@ -104,7 +103,7 @@ dl.dates dd{margin:var(--s-1) 0 0;font-family:var(--display);font-size:var(--t-l
 
 <header class="doc-head">
   <div>
-    <p class="eyebrow">Solutions &middot; EUDR due diligence</p>
+    <p class="eyebrow">Examples &middot; EUDR due diligence</p>
     <h1>EUDR evidence, plot by plot.</h1>
     <p class="purpose">Check each plot against the forest map the Commission's guidance points to (JRC GFC2020) and against forest loss after 31 December 2020. Each plot gets a signed result that your due-diligence statement and your auditor can check.</p>
     <div class="actions">
@@ -125,17 +124,17 @@ dl.dates dd{margin:var(--s-1) 0 0;font-family:var(--display);font-size:var(--t-l
 </section>
 
 <section aria-labelledby="eu-how">
-  <h2 id="eu-how">How a check works</h2>
+  <h2 id="eu-how">Check a plot</h2>
   <ol>
-    <li><b>Send the plot.</b> A GeoJSON polygon, or a point for a plot of 4 ha or less that is not cattle land, with the country of production, the commodity code and the quantity.</li>
-    <li><b>One read of the whole plot.</b> emem reads every 10 m pixel of the JRC GFC2020 map inside the plot, and the Hansen and TMF pixels that contain it. Each class's area comes from the share of each pixel the plot covers.</li>
-    <li><b>A verdict per plot.</b> Deforestation-free; <code>review</code>, when loss falls on land JRC does not map as forest, which is not fileable without your review; or not deforestation-free.</li>
-    <li><b>A signed record.</b> One signed fact per plot and an <code>eudr_compliance@2</code> card. Season, imagery and burn sections can be added to the same answer.</li>
+    <li><b>Send the plot.</b> A GeoJSON polygon, or a point for a plot of 4 ha or less outside cattle land, with the country of production, the commodity code and the quantity.</li>
+    <li><b>Read the whole plot at once.</b> emem reads every 10 m pixel of the JRC GFC2020 map inside the plot, and the Hansen and TMF pixels that contain it. Each class's area comes from the share of each pixel the plot covers.</li>
+    <li><b>Get a verdict per plot.</b> Deforestation-free, not deforestation-free, or <code>review</code> when loss falls on land outside the JRC forest map, routed to your team before filing.</li>
+    <li><b>Cite a signed record.</b> One signed fact per plot and an <code>eudr_compliance@2</code> card. Season, imagery and burn sections can be added to the same answer.</li>
   </ol>
 </section>
 
 <section aria-labelledby="eu-audit">
-  <h2 id="eu-audit">What it gives an auditor</h2>
+  <h2 id="eu-audit">Hand an auditor the proof</h2>
   <ul>
     <li>The source layers and their versions, and the rule that was applied.</li>
     <li>The plot's area in each class, so the verdict can be recomputed from the numbers.</li>
@@ -145,8 +144,8 @@ dl.dates dd{margin:var(--s-1) 0 0;font-family:var(--display);font-size:var(--t-l
 </section>
 
 <section aria-labelledby="eu-scope">
-  <h2 id="eu-scope">What it checks and what it does not</h2>
-  <p>It checks Article 3(a), deforestation-free, only. Legality, tenure and free, prior and informed consent are not checked, and every result says so. Legal interpretation, the wider risk assessment and filing the statement stay with the operator and its advisers.</p>
+  <h2 id="eu-scope">Scope</h2>
+  <p>Each result covers Article 3(a), deforestation-free, and names that scope in the record. Legality, tenure, free, prior and informed consent, legal interpretation and filing the statement sit with the operator and its advisers, who cite the signed plot results in their file.</p>
 </section>
 
 <section id="run" aria-labelledby="eu-run">
@@ -201,7 +200,6 @@ dl.dates dd{margin:var(--s-1) 0 0;font-family:var(--display);font-size:var(--t-l
 <li><a href="/agents">Attesters</a></li>
 <li><a href="/v1/log/sth">Log head</a></li>
 <li><a href="https://vortx-ai.github.io/esa_poster/" target="_blank" rel="noopener noreferrer">ESA poster</a></li>
-<li><a href="https://doi.org/10.5281/zenodo.20706893" target="_blank" rel="noopener noreferrer">Whitepaper DOI</a></li>
 <li><a href="https://vortx-ai.github.io/ememdemo/" target="_blank" rel="noopener noreferrer">ememdemo</a></li>
 </ul></div>
 <div class="foot-col"><h4>Company</h4><ul>

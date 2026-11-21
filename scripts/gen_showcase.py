@@ -28,18 +28,28 @@ ORIGIN = "https://emem.dev"
 
 # name, what the picture shows, bbox w,s,e,n, datetime window (or None for the latest), max cloud %
 SCENES = [
-    ("punjab-sep", "Field mosaic in Punjab at the height of the kharif season",
-     "75.30,30.42,75.39,30.50", "2026-08-20/2026-09-30", 10),
-    ("punjab-nov", "The same Punjab fields after harvest, with burnt stubble",
-     "75.30,30.42,75.39,30.50", "2026-11-10/2026-11-20", 5),
+    ("bhakra-jun", "Gobind Sagar reservoir in the dry season, its shore exposed",
+     "76.40,31.38,76.50,31.46", "2026-05-20/2026-06-25", 5),
+    ("bhakra-oct", "Gobind Sagar reservoir after the monsoon, full to the treeline",
+     "76.40,31.38,76.50,31.46", "2026-09-25/2026-10-25", 5),
+    ("gangotri", "Gangotri glacier in the Garhwal Himalaya",
+     "79.02,30.86,79.11,30.94", "2026-10-01/2026-11-20", 5),
     ("rondonia", "Forest edge and cleared land in Rondonia, Brazil",
      "-63.21,-10.10,-63.13,-10.03", "2026-09-01/2026-09-30", 2),
-    ("bhakra", "Gobind Sagar reservoir behind the Bhakra dam",
-     "76.40,31.38,76.50,31.46", "2026-11-10/2026-11-20", 5),
     ("sundarbans", "Mangrove channels of the Sundarbans",
      "89.06,21.85,89.14,21.92", "2026-11-10/2026-11-20", 5),
     ("delhi", "Delhi along the Yamuna",
      "77.19,28.58,77.29,28.66", "2026-11-05/2026-11-20", 5),
+    ("punjab-nov", "Fields in Punjab after harvest",
+     "75.30,30.42,75.39,30.50", "2026-11-10/2026-11-20", 5),
+]
+
+# Images that are not emem scenes, with their credit. Fetched and re-encoded the same way.
+EXTRAS = [
+    ("poster-esa", "https://raw.githubusercontent.com/Vortx-AI/esa_poster/HEAD/poster/emem-poster-preview.png",
+     "The emem poster: A Content-Addressed, Verifiable Earth-Memory Protocol", "Vortx AI", 720),
+    ("webb-cliffs", "https://vortx.ai/assets/wow/wkxa7tcmw2orf7ujjf5yi66dhe-1600.webp",
+     "The Cosmic Cliffs in Carina, imaged by Webb", "NASA, ESA, CSA, and STScI, CC BY 4.0", 1200),
 ]
 QUALITY = 84
 
@@ -80,8 +90,24 @@ def build():
         out["scenes"][name] = {"file": fname, "sha256_10": digest, "caption": caption, "bbox": bbox,
                                "width": im.width, "height": im.height, "bytes": len(data), **meta}
         print(f"{name}: {fname} {im.width}x{im.height} {len(data) // 1024} KB, {meta['item_id']} {meta['datetime']}")
+    out["extras"] = {}
+    for name, url, caption, credit, width in EXTRAS:
+        req = urllib.request.Request(url, headers={"user-agent": "emem-gen-showcase/1"})
+        with urllib.request.urlopen(req, timeout=120) as r:
+            im = Image.open(io.BytesIO(r.read())).convert("RGB")
+        if im.width > width:
+            im = im.resize((width, round(im.height * width / im.width)), Image.LANCZOS)
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=QUALITY, optimize=True, progressive=True)
+        data = buf.getvalue()
+        digest = hashlib.sha256(data).hexdigest()[:10]
+        fname = f"{name}-{digest}.jpg"
+        (IMG / fname).write_bytes(data)
+        out["extras"][name] = {"file": fname, "sha256_10": digest, "caption": caption, "credit": credit,
+                               "source": url, "width": im.width, "height": im.height, "bytes": len(data)}
+        print(f"{name}: {fname} {im.width}x{im.height} {len(data) // 1024} KB")
     MANIFEST.write_text(json.dumps(out, indent=1) + "\n")
-    keep = {s["file"] for s in out["scenes"].values()}
+    keep = {s["file"] for s in out["scenes"].values()} | {s["file"] for s in out["extras"].values()}
     for stale in old - keep:
         (IMG / stale).unlink()
         print(f"removed stale {stale}")
@@ -92,18 +118,18 @@ def check():
         print("no web/img/showcase.json; run scripts/gen_showcase.py"); return 1
     m = json.loads(MANIFEST.read_text())
     bad = 0
-    for name, s in m["scenes"].items():
+    for name, s in {**m["scenes"], **m.get("extras", {})}.items():
         f = IMG / s["file"]
         if not f.exists():
             print(f"{name}: {s['file']} missing"); bad += 1; continue
         d = hashlib.sha256(f.read_bytes()).hexdigest()[:10]
         if d != s["sha256_10"] or not s["file"].endswith(f"-{d}.jpg"):
             print(f"{name}: {s['file']} does not hash to its name ({d})"); bad += 1
-    names = {s["file"] for s in m["scenes"].values()}
+    names = {s["file"] for s in {**m["scenes"], **m.get("extras", {})}.values()}
     for p in IMG.glob("*.jpg"):
-        if p.name not in names and not p.name.startswith("poster-"):
+        if p.name not in names:
             print(f"{p.name}: on disk but not in the manifest"); bad += 1
-    print(f"showcase: {len(m['scenes'])} scenes, {'all present and named by their hash' if not bad else f'{bad} problem(s)'}")
+    print(f"showcase: {len(m['scenes'])} scenes and {len(m.get('extras', {}))} extras, {'all present and named by their hash' if not bad else f'{bad} problem(s)'}")
     return 1 if bad else 0
 
 

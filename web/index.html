@@ -3,7 +3,7 @@
 <script type="importmap">{"imports":{},"integrity":{"https://esm.sh/pdfjs-dist@4.10.38/build/pdf.min.mjs?raw":"sha384-+0ti2moQlmLN7WZHE2RHIf5lV8hHxhxEalN0il3YZceG26fUPyOkR0hp9daxk1i7"}}</script>
 <meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>emem: the memory of the physical world</title>
-<meta name=description content="The memory of the physical world. Ask about any place; emem reads it from orbit and open sensors, signs the answer, and lets any AI read it back and check it.">
+<meta name=description content="The memory of the physical world, where space meets AI. Search any place on Earth from orbit; every answer is signed, addressable and checkable by any AI.">
 <link rel=canonical href="https://emem.dev/">
 <link rel=alternate type=text/markdown href=/llms.txt>
 <link rel=alternate type=text/markdown href=/agents.md>
@@ -18,7 +18,7 @@
 <meta property=og:type content=website>
 <meta property=og:url content="https://emem.dev/">
 <meta property=og:title content="emem: the memory of the physical world">
-<meta property=og:description content="The memory of the physical world. Ask about any place; emem reads it from orbit and open sensors, signs the answer, and lets any AI read it back and check it.">
+<meta property=og:description content="The memory of the physical world, where space meets AI. Search any place on Earth from orbit; every answer is signed, addressable and checkable by any AI.">
 <meta property=og:image content="https://emem.dev/og-image.png">
 <meta property=og:image:width content="1200">
 <meta property=og:image:height content="630">
@@ -27,7 +27,7 @@
 <meta property=og:site_name content=emem>
 <meta name=twitter:card content=summary_large_image>
 <meta name=twitter:title content="emem: the memory of the physical world">
-<meta name=twitter:description content="The memory of the physical world. Ask about any place; emem reads it from orbit and open sensors, signs the answer, and lets any AI read it back and check it.">
+<meta name=twitter:description content="The memory of the physical world, where space meets AI. Search any place on Earth from orbit; every answer is signed, addressable and checkable by any AI.">
 <meta name=twitter:image content="https://emem.dev/og-image.png">
 <meta name=twitter:image:alt content="emem.dev, the memory of the physical world. Every answer is signed.">
 <link rel=preconnect href="https://fonts.googleapis.com">
@@ -37,178 +37,201 @@
 <link rel=stylesheet href="/nav.css?v=1001118daea4">
 <script type=application/ld+json>{"@context":"https://schema.org","@graph":[{"@type":"WebAPI","@id":"https://emem.dev/#api","name":"emem","url":"https://emem.dev","description":"The memory of the physical world: verifiable memory for AI. Ask about any place; emem reads it from orbit and open sensors, keeps each reading at one address, signs it, and any AI can read it back and check it.","documentation":"https://emem.dev/openapi.json","provider":{"@id":"https://vortx.ai/#org"},"license":"https://www.apache.org/licenses/LICENSE-2.0","termsOfService":"https://emem.dev/terms"},{"@type":"SoftwareApplication","@id":"https://emem.dev/#app","name":"emem","applicationCategory":"DeveloperApplication","operatingSystem":"Linux, macOS, Windows","url":"https://emem.dev","downloadUrl":"https://github.com/Vortx-AI/emem","license":"https://www.apache.org/licenses/LICENSE-2.0","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"creator":{"@id":"https://vortx.ai/#org"}},{"@type":"WebSite","@id":"https://emem.dev/#site","name":"emem","url":"https://emem.dev","publisher":{"@id":"https://vortx.ai/#org"},"potentialAction":{"@type":"SearchAction","target":{"@type":"EntryPoint","urlTemplate":"https://emem.dev/v1/locate?place={query}"},"query-input":"required name=query"}},{"@type":"Organization","@id":"https://vortx.ai/#org","name":"Vortx AI Private Limited","url":"https://vortx.ai","email":"avijeet@vortx.ai","logo":"https://emem.dev/logo.png","sameAs":["https://github.com/Vortx-AI"]},{"@type":"Service","@id":"https://emem.dev/#service","name":"emem use cases","provider":{"@id":"https://vortx.ai/#org"},"serviceType":"Shared, verifiable memory for AI agents","areaServed":{"@type":"Place","name":"Earth"},"hasOfferCatalog":{"@type":"OfferCatalog","name":"emem agent use cases","itemListElement":[{"@type":"Offer","itemOffered":{"@type":"Service","name":"Consumer health","description":"Air quality (CAMS PM2.5, NO₂, O₃), urban heat exposure, wildfire smoke risk, pollen seasonality."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Real estate and insurance","description":"Flood risk composite, walkability, elevation, surface-water recurrence, storm-surge exposure."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Climate finance and carbon MRV","description":"Above-ground biomass proxies, mangrove cover, deforestation rate, NDVI / EVI trajectories with signed receipts for VM0042 / VCS / Gold Standard MRV."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"ESG and SDG reporting","description":"Biodiversity proxies (Tessera embedding novelty), supply-chain forest-loss adjacency, land-cover transitions for SDG 15."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Agriculture","description":"Crop stress (NDVI / NDRE), evapotranspiration (MODIS ET), soil moisture proxy, growing-season anomaly."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Urban planning","description":"Surface temperature, urban heat island, building density (Overture), road network length, green-space share."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Disaster response","description":"S1 backscatter for flood extent under cloud, MODIS burned area, JRC GSW for permanent vs flood water."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Conservation and biodiversity","description":"Hansen forest loss, ESA WorldCover transitions, ecoregion lookup, mangrove change."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Energy siting","description":"Solar irradiance (NASA POWER), wind speed (ERA5), DEM slope, land cover constraints."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Mining impact","description":"Pre / post NDVI delta, surface-water encroachment, land-cover change attestable per cell."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Tourism and recreation","description":"Marine wave height (ECMWF WAM), SST, snow cover seasonality, weather nowcast (MET Norway)."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Fisheries","description":"Sea-surface temperature, ocean chlorophyll-a proxy, marine wave conditions, bathymetry (GMRT)."}}]}},{"@type":"FAQPage","@id":"https://emem.dev/#faq","mainEntity":[{"@type":"Question","name":"What is emem?","acceptedAnswer":{"@type":"Answer","text":"emem is a shared, verifiable memory for AI agents. Every place on Earth gets a stable address called a cell64 (about 10 m on a side). Facts at that address (elevation, weather, land cover, foundation embeddings) are recall-able as Cell × Band × Tslot → Fact, signed with ed25519, content-addressed with blake3. There are no API keys for read endpoints."}},{"@type":"Question","name":"How do I connect Claude, Cursor, Cline, Gemini, or ChatGPT?","acceptedAnswer":{"@type":"Answer","text":"Point any MCP client at https://emem.dev/mcp. tools/list advertises the 18 core tools, which keeps the descriptors out of your context; call emem_tools to search the rest or fetch one tool's schema, and note that every tool stays callable by name whether or not it was advertised. Point at https://emem.dev/mcp/full instead to have all 119 registered up front. Claude Code, Claude Desktop, Cursor, Cline, Gemini CLI, and ChatGPT Custom GPTs all support Streamable HTTP MCP. For ChatGPT Actions, import https://emem.dev/openapi.action.json with auth: none."}},{"@type":"Question","name":"Does it cost anything?","acceptedAnswer":{"@type":"Answer","text":"L0 and L1 read endpoints are free and anonymous. No accounts, no API keys, no payment. Apache-2.0 source. Operators self-hosting their own responder pay only for their own compute."}},{"@type":"Question","name":"Can I verify the answers offline?","acceptedAnswer":{"@type":"Answer","text":"Yes. Every read returns a receipt with the responder's ed25519 public key, the signed payload, and the content-addressed CID for each fact. Recompute blake3 over the canonical CBOR fact, verify ed25519 against the signer pubkey, and the answer is reproducible. POST /v1/verify_receipt does this for you, or do it offline in any ed25519 + blake3 implementation."}},{"@type":"Question","name":"Where does the data come from?","acceptedAnswer":{"@type":"Answer","text":"Sentinel-2 L2A and Sentinel-1 GRD via the Element84 STAC, MODIS Terra/Aqua via NASA LP DAAC, Copernicus DEM, GMRT topo and bathy, JRC Global Surface Water, Hansen Global Forest Change, ESA WorldCover, SoilGrids 2.0, MET Norway nowcast weather, ECMWF ERA5 and CAMS via Open-Meteo, NASA POWER, Overture Maps. Foundation embedding: Tessera v1 (Cambridge). Earlier versions also ran Clay, Prithvi and Galileo; facts they signed still verify."}},{"@type":"Question","name":"How does emem handle GDPR, CCPA, and DPDP? Does the site track visitors?","acceptedAnswer":{"@type":"Answer","text":"The canonical channel carries no PII. The hosted responder logs only a blake3-hashed truncated IP (non-reversible), the request path, and GET query strings, retained for 30 days then vacuumed by systemd-journald. THE SITE RUNS NO THIRD-PARTY ANALYTICS: Google Analytics was removed, along with the consent banner and the emem_consent cookie it set, because a page whose argument is that you do not have to trust the responder should not ask you to trust a second party to count you. No cookies are set. Nothing is loaded from a third-party origin for measurement."}}]}]}</script>
 <style>
-/* Homepage v3 (2026-11-20). Light and imagery-led: the scenes carry the colour, the type carries the hierarchy.
-   One container (--w-page), one rhythm (--s-*), two-tone headlines (--ink then --mute-2). Order of sections is the
-   site hierarchy: category, memory model, what it remembers, encode/decode, shared memory, examples, try, build,
-   research. Media-query overrides follow the rules they override. */
+/* Homepage v3.1 (2026-11-21). Space first, verbs first, light and imagery-led: the scenes carry the colour, the
+   type carries the hierarchy. One container (--w-page), full-bleed bands that alternate paper and paper-2 for
+   rhythm, two-tone headlines (--ink then --mute-2). Media-query overrides follow the rules they override. */
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; overflow-x: clip; }
 body { background: var(--paper); color: var(--ink); font-family: var(--ui); font-size: var(--t-base); line-height: 1.6; -webkit-font-smoothing: antialiased; }
-.home { --gut: clamp(1rem, 4vw, 2rem); }
-.wrap { max-width: var(--w-page); margin: 0 auto; padding-inline: var(--gut); box-sizing: border-box; }
-.home section { padding-block: clamp(3rem, 7vw, 6rem); }
-.home section + section { border-top: 1px solid var(--rule); }
+.home { --gut: clamp(1rem, 4vw, 2rem); --rad: 16px; }
+.wrap { max-width: var(--w-page); margin: 0 auto; padding-inline: var(--gut); }
+.home > section { padding-block: clamp(3.5rem, 7.5vw, 6.5rem); }
+.home > section.alt { background: var(--paper-2); }
 .home h1, .home h2, .home h3 { font-family: var(--display); color: var(--ink); margin: 0; text-wrap: balance; }
 .home h1 { font-size: clamp(2.6rem, 4.9vw, 4.25rem); line-height: 1.0; letter-spacing: -.038em; font-weight: 650; }
-.home h1 .tone { display: block; margin-top: .22em; font-size: .56em; line-height: 1.1; letter-spacing: -.028em; font-weight: 600; }
-.home h2 { font-size: clamp(1.8rem, 3.4vw, 3rem); line-height: 1.06; letter-spacing: -.03em; font-weight: 620; }
-.home h3 { font-size: var(--t-lg); line-height: 1.25; letter-spacing: -.012em; font-weight: 620; }
+.home h1 .tone { display: block; margin-top: .24em; font-size: .56em; line-height: 1.1; letter-spacing: -.028em; font-weight: 600; }
+.home h2 { font-size: clamp(1.85rem, 3.4vw, 3rem); line-height: 1.06; letter-spacing: -.03em; font-weight: 640; }
+.home h3 { font-size: var(--t-lg); line-height: 1.25; letter-spacing: -.012em; font-weight: 630; }
 .tone { color: var(--mute-2); }
-.h1-break { display: block; }
-.eyebrow { margin: 0 0 var(--s-3); font: 600 var(--t-2xs)/1.3 var(--ui); letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+.eyebrow { margin: 0 0 var(--s-3); font: 650 var(--t-2xs)/1.3 var(--ui); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
 .home p { margin: 0; }
-.lede { margin-top: var(--s-4) !important; font-size: clamp(1.05rem, 1.35vw, 1.22rem); line-height: 1.55; color: var(--ink-2); max-width: 36rem; }
+.lede { margin-top: var(--s-4) !important; font-size: clamp(1.06rem, 1.35vw, 1.22rem); line-height: 1.55; color: var(--ink-2); max-width: 35rem; }
 .sub { margin-top: var(--s-3) !important; font-size: var(--t-md); line-height: 1.55; color: var(--ink-2); max-width: 46rem; }
-.h-head { margin-bottom: var(--s-5); }
-.home a:not(.btn) { color: inherit; }
+.h-head { margin-bottom: clamp(2rem, 4vw, 3rem); }
+.h-head.row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .5rem 2rem; }
+.h-head.row .sub { margin-top: 0 !important; }
+.home :where(a:not(.btn)) { color: inherit; }
 code { font-family: var(--mono); font-size: .92em; }
-.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-
-/* Buttons: the site's own .btn (ink) and .btn.ghost (outline) from site.css. */
 .h-cta { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-4); }
+.btn { border-radius: var(--r-pill) !important; padding: 0 1.3rem !important; min-height: 46px !important; font-weight: 600 !important; }
+.h-note { margin-top: var(--s-4) !important; color: var(--ink-2); line-height: 1.6; max-width: 52rem; }
+.h-note a, .panel-b a, .ex-more a, .b-links a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.h-note a:hover, .panel-b a:hover, .ex-more a:hover, .b-links a:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 /* 1. Hero */
-.h-hero { display: grid; grid-template-columns: minmax(0, 1.02fr) minmax(0, 1fr); gap: clamp(2rem, 5vw, 4.5rem); align-items: center; padding-top: clamp(2.5rem, 6vw, 5rem) !important; }
-.h-mcp { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin-top: var(--s-4) !important; font-size: var(--t-xs); color: var(--mute); }
-.h-mcp code { padding: .35rem .6rem; border: 1px solid var(--rule); border-radius: var(--r-1); background: var(--paper-2); color: var(--ink); }
-.copy { padding: .3rem .65rem; border: 1px solid var(--rule-strong); border-radius: var(--r-pill); background: var(--paper); color: var(--ink-2); font: 500 var(--t-2xs)/1 var(--ui); cursor: pointer; }
-.copy.done { border-color: var(--accent); color: var(--accent); }
+.h-hero { padding-top: clamp(2.5rem, 6vw, 5rem) !important; }
+.h-hero .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.02fr); gap: clamp(2rem, 5vw, 4.5rem); align-items: center; }
+.h-words { display: flex; flex-wrap: wrap; gap: .4rem; margin: var(--s-4) 0 0; padding: 0; list-style: none; }
+.h-words li { padding: .3rem .7rem; border: 1px solid var(--rule); border-radius: var(--r-pill); font: 550 var(--t-2xs)/1.2 var(--ui); color: var(--ink-2); background: var(--paper-2); }
 .h-scene { margin: 0; position: relative; }
-.h-img { position: relative; aspect-ratio: 864 / 885; border-radius: var(--r-3); overflow: hidden; background: var(--paper-3); box-shadow: var(--shadow-2); }
-.h-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .5s ease; }
+.h-img { position: relative; aspect-ratio: 950 / 885; border-radius: var(--rad); overflow: hidden; background: var(--paper-3); box-shadow: 0 24px 60px oklch(0.2 0.02 260 / .18), 0 4px 14px oklch(0.2 0.02 260 / .08); }
+.h-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .6s ease; }
 .h-img img.on { opacity: 1; }
-.h-dates { position: absolute; top: .9rem; left: .9rem; display: flex; gap: 2px; padding: 3px; border-radius: var(--r-pill); background: oklch(0.15 0.01 260 / .55); backdrop-filter: blur(6px); }
-.h-dates button { padding: .38rem .8rem; border: 0; border-radius: var(--r-pill); background: transparent; color: oklch(0.96 0 0); font: 600 var(--t-2xs)/1 var(--ui); cursor: pointer; }
+.pin { position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: oklch(0.99 0 0); border: 3px solid var(--accent); box-shadow: 0 0 0 4px oklch(0.99 0 0 / .35); z-index: 1; }
+.pin::after { content: ""; position: absolute; inset: -10px; border-radius: 50%; border: 2px solid oklch(0.99 0 0 / .8); animation: ping 2.4s ease-out infinite; }
+@keyframes ping { 0% { transform: scale(.5); opacity: 1; } 100% { transform: scale(1.6); opacity: 0; } }
+.h-dates { position: absolute; top: .9rem; left: .9rem; display: flex; gap: 2px; padding: 3px; border-radius: var(--r-pill); background: oklch(0.15 0.01 260 / .58); backdrop-filter: blur(8px); z-index: 2; }
+.h-dates button { padding: .42rem .85rem; border: 0; border-radius: var(--r-pill); background: transparent; color: oklch(0.96 0 0); font: 600 var(--t-2xs)/1 var(--ui); cursor: pointer; }
 .h-dates button.on { background: oklch(0.99 0 0); color: oklch(0.18 0.01 260); }
-.h-card { position: absolute; right: -1.25rem; bottom: 3.6rem; width: min(22rem, 78%); padding: 1rem 1.1rem 1.05rem; border-radius: var(--r-3);
-  background: var(--paper); border: 1px solid var(--rule); box-shadow: var(--shadow-2); }
+.h-card { position: absolute; right: -1.25rem; bottom: 3.4rem; width: min(21rem, 76%); padding: 1rem 1.1rem 1.05rem; border-radius: 14px;
+  background: var(--paper); border: 1px solid var(--rule); box-shadow: 0 18px 44px oklch(0.2 0.02 260 / .18); z-index: 2; }
+.h-card [hidden] { display: none !important; }
 .h-card .k { font-size: var(--t-2xs); color: var(--mute); }
-.spark { display: block; width: 100%; height: auto; margin: .55rem 0 .45rem; }
-.spark .area { fill: var(--accent-bg); }
-.spark .line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.spark circle { fill: var(--paper); stroke: var(--accent); stroke-width: 2; }
-.h-card .v { font-size: var(--t-xs); line-height: 1.45; color: var(--ink-2); }
-.h-card .v b { color: var(--ink); font-family: var(--mono); font-weight: 600; }
-.tok { display: flex; align-items: center; gap: .4rem; margin-top: .7rem; padding: .45rem .6rem; border-radius: var(--r-1); background: var(--paper-2);
+.h-card .state { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; margin-top: .35rem !important; }
+.h-card .state b { font: 650 clamp(1.3rem, 2vw, 1.6rem)/1.15 var(--display); letter-spacing: -.02em; color: var(--ink); }
+.h-card .state span { font-size: var(--t-2xs); color: var(--mute); white-space: nowrap; }
+.h-card .hist { margin-top: .4rem !important; font-size: var(--t-xs); color: var(--ink-2); }
+.tok { display: flex; align-items: center; gap: .45rem; margin-top: .75rem; padding: .48rem .65rem; border-radius: 10px; background: var(--paper-2); border: 1px solid var(--rule);
   font: 500 var(--t-2xs)/1.2 var(--mono); color: var(--ink-2); text-decoration: none; white-space: nowrap; overflow: hidden; }
+.tok:hover { border-color: var(--accent); }
 .tok i { font-style: normal; color: var(--accent); font-weight: 700; flex: none; }
-.tok code, .tok .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.tok span:last-child { flex: none; margin-left: auto; padding-left: .5rem; font-family: var(--ui); font-weight: 600; color: var(--accent); }
-.ask .btn { min-height: 54px; padding: 0 1.6rem; border-radius: var(--r-pill); }
-.h-scene figcaption { margin-top: .8rem; font-size: var(--t-2xs); line-height: 1.45; color: var(--mute); max-width: 34rem; }
+.tok .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tok span:last-child { flex: none; padding-left: .5rem; font-family: var(--ui); font-weight: 650; color: var(--accent); }
+.h-scene figcaption { margin-top: .85rem; font-size: var(--t-2xs); line-height: 1.45; color: var(--mute); max-width: 32rem; }
 
-/* 2. Strip */
-.h-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; padding-block: 0 !important; border-top: 0 !important; }
-.h-strip div { padding: var(--s-4) var(--s-4) var(--s-4) 0; border-top: 1px solid var(--rule); }
-.h-strip div + div { padding-left: var(--s-4); border-left: 1px solid var(--rule); }
-.h-strip b { display: block; font: 620 var(--t-md)/1.3 var(--display); letter-spacing: -.01em; }
-.h-strip span { display: block; margin-top: .35rem; font-size: var(--t-sm); line-height: 1.5; color: var(--mute); }
+/* 2. Try it */
+.hosts-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin: 0; padding: 0; list-style: none; }
+.host { position: relative; display: flex; flex-direction: column; gap: .3rem; width: 100%; height: 100%; padding: 1rem 1.1rem 1rem; border: 1px solid var(--rule); border-radius: 14px;
+  background: var(--paper); text-align: left; text-decoration: none; font: inherit; color: inherit; cursor: pointer; transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
+.host:hover { border-color: var(--rule-strong); box-shadow: 0 10px 26px oklch(0.2 0.02 260 / .08); transform: translateY(-1px); }
+.host:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.host b { font: 650 var(--t-md)/1.2 var(--display); letter-spacing: -.01em; color: var(--ink); }
+.host span { font-size: var(--t-xs); line-height: 1.45; color: var(--mute); padding-right: 5.5rem; }
+.host i { position: absolute; top: 1rem; right: 1rem; padding: .28rem .65rem; border-radius: var(--r-pill); background: var(--ink); color: var(--paper); font: 600 var(--t-3xs)/1.2 var(--ui); font-style: normal; letter-spacing: .02em; }
+.host.done i { background: var(--accent); }
+.ask { margin-top: clamp(1.75rem, 3vw, 2.5rem); max-width: 46rem; }
+.ask label { display: block; margin-bottom: .5rem; font: 600 var(--t-xs)/1.2 var(--ui); color: var(--ink-2); }
+.ask-row { display: flex; gap: var(--s-2); }
+.ask input { flex: 1; min-width: 0; padding: .95rem 1.15rem; border: 1px solid var(--rule-strong); border-radius: var(--r-pill); background: var(--paper);
+  color: var(--ink); font: 400 var(--t-md)/1.2 var(--ui); }
+.ask input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+.ask .btn { min-height: 54px !important; padding: 0 1.7rem !important; }
+.chips { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: var(--s-3) !important; }
+.chips button { padding: .45rem .9rem; border: 1px solid var(--rule); border-radius: var(--r-pill); background: var(--paper); color: var(--ink-2); font: 500 var(--t-xs)/1 var(--ui); cursor: pointer; }
+.chips button:hover { border-color: var(--rule-strong); color: var(--ink); }
+.ask-out { margin-top: var(--s-4); max-width: 46rem; padding: 1.2rem 1.3rem; border: 1px solid var(--rule); border-radius: 14px; background: var(--paper); }
+.ask-out .a-s { font-size: var(--t-md); line-height: 1.5; color: var(--ink); }
+.ask-out .a-l { font-size: var(--t-xs); color: var(--mute); }
 
-/* 3. Why space */
-.h-why { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(2rem, 5vw, 5rem); align-items: start; }
+/* 3. Verbs */
+.h-verbs { padding-block: clamp(2.5rem, 4vw, 3.25rem) !important; border-bottom: 1px solid var(--rule); }
+.verbs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; margin: 0; padding: 0; list-style: none; counter-reset: v; }
+.verbs li { padding: 0 1.25rem; border-left: 1px solid var(--rule); }
+.verbs li:first-child { padding-left: 0; border-left: 0; }
+.verbs b { display: block; font: 660 clamp(1.25rem, 2vw, 1.6rem)/1.1 var(--display); letter-spacing: -.025em; color: var(--ink); }
+.verbs span { display: block; margin-top: .35rem; font-size: var(--t-sm); color: var(--mute); }
+
+/* 4. Why space */
+.h-why .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(2rem, 5vw, 5rem); align-items: start; }
 .h-why-body > p { font-size: var(--t-md); line-height: 1.6; color: var(--ink-2); }
 .h-rows { margin: var(--s-4) 0 0; }
-.h-rows div { display: grid; grid-template-columns: 13rem minmax(0, 1fr); gap: var(--s-3); padding: .95rem 0; border-top: 1px solid var(--rule); }
-.h-rows dt { font-weight: 600; color: var(--ink); }
-.h-rows dd { margin: 0; color: var(--ink-2); }
+.h-rows div { display: grid; grid-template-columns: 13rem minmax(0, 1fr); gap: var(--s-3); padding: 1rem 0; border-top: 1px solid var(--rule); }
+.h-rows dt { color: var(--mute); }
+.h-rows dd { margin: 0; font-weight: 600; color: var(--ink); }
 
-/* 4. Memory model */
-.formula { border: 1px solid var(--rule); border-radius: var(--r-3); background: var(--paper-2); overflow: hidden; }
-.formula > div { display: grid; grid-template-columns: 6.5rem 15rem minmax(0, 1fr) 12rem; gap: var(--s-3); align-items: baseline; padding: .95rem 1.25rem; border-top: 1px solid var(--rule); }
+/* 5. Memory model */
+.formula { border: 1px solid var(--rule); border-radius: var(--rad); background: var(--paper); overflow: hidden; box-shadow: 0 10px 30px oklch(0.2 0.02 260 / .05); }
+.formula > div { display: grid; grid-template-columns: 6.5rem 15.5rem minmax(0, 1fr) 11rem; gap: var(--s-3); align-items: baseline; padding: 1rem 1.3rem; border-top: 1px solid var(--rule); }
 .formula > div:first-child { border-top: 0; }
 .f-l { font: 650 var(--t-sm)/1.3 var(--mono); color: var(--ink); }
 .f-d { font: 500 var(--t-xs)/1.4 var(--mono); color: var(--accent); }
 .f-v { font-size: var(--t-sm); line-height: 1.45; color: var(--ink-2); min-width: 0; overflow-wrap: anywhere; }
 .f-v code { color: var(--ink); }
+.f-v a { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-strong); }
 .f-m { font-size: var(--t-xs); color: var(--mute); text-align: right; }
-.f-tok { background: var(--paper); }
-.f-tok a { text-decoration: none; color: var(--accent); font-weight: 600; }
+.f-tok { background: var(--accent-bg); }
+.f-tok a { text-decoration: none !important; color: var(--accent) !important; font-weight: 650; }
 .f-tok a code { color: var(--ink-2); font-weight: 500; }
-.h-note { margin-top: var(--s-4) !important; color: var(--ink-2); line-height: 1.6; max-width: 52rem; }
-.h-note a { color: var(--accent); font-weight: 600; text-decoration: none; }
 
-/* 5. What it remembers */
+/* 6. What it remembers */
 .h-three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-4); }
-.panel { display: flex; flex-direction: column; border: 1px solid var(--rule); border-radius: var(--r-3); overflow: hidden; background: var(--paper); }
-.panel > img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block; }
-.panel-b { padding: 1.2rem 1.25rem 1.35rem; display: flex; flex-direction: column; gap: .6rem; flex: 1; }
+.panel { display: flex; flex-direction: column; border: 1px solid var(--rule); border-radius: var(--rad); overflow: hidden; background: var(--paper); }
+.panel > img, .mock { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; }
+.panel-b { padding: 1.25rem 1.3rem 1.4rem; display: flex; flex-direction: column; gap: .6rem; flex: 1; }
 .panel-b p { color: var(--ink-2); line-height: 1.55; font-size: var(--t-sm); }
-.panel-b a, .ex-more a, .b-links a { color: var(--accent); font-weight: 600; text-decoration: none; font-size: var(--t-sm); }
-.panel-b a { margin-top: auto; }
-.mock { aspect-ratio: 16 / 10; box-sizing: border-box; padding: 1.25rem 1.35rem; background: var(--paper-2); border-bottom: 1px solid var(--rule);
-  display: flex; flex-direction: column; justify-content: center; gap: .45rem; font: 500 var(--t-xs)/1.35 var(--mono); color: var(--ink-2); }
-.m-k { font: 600 var(--t-3xs)/1 var(--ui) !important; letter-spacing: .1em; text-transform: uppercase; color: var(--mute) !important; }
-.m-path { color: var(--ink); overflow-wrap: anywhere; }
-.m-l i { font-style: normal; display: inline-block; min-width: 4.2rem; color: var(--mute); }
-.m-ok { color: var(--accent) !important; font-weight: 600; }
-.m-big { font: 650 clamp(1.4rem, 2.4vw, 1.9rem)/1.1 var(--display) !important; color: var(--ink) !important; letter-spacing: -.02em; }
-.m-big span { color: var(--mute-2); }
+.panel-b a { margin-top: auto; font-size: var(--t-sm); }
+.mock { padding: 1.4rem; background: linear-gradient(160deg, var(--paper-2), var(--paper-3)); border-bottom: 1px solid var(--rule); display: flex; flex-direction: column; justify-content: center; gap: .7rem; }
+.mock-agents .ag { display: flex; align-items: center; gap: .6rem; font-size: var(--t-xs); color: var(--ink-2); }
+.mock-agents .ag i { margin-left: auto; font-style: normal; color: var(--accent); font-weight: 700; }
+.dot { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; font: 700 var(--t-2xs)/1 var(--ui); color: var(--paper); flex: none; }
+.dot.a { background: var(--ink); } .dot.b { background: var(--accent); }
+.mock-agents .note { margin-left: 2.4rem; padding: .6rem .75rem; border: 1px solid var(--rule); border-radius: 10px; background: var(--paper); }
+.mock-agents .note code { display: block; font-size: var(--t-3xs); color: var(--ink); overflow-wrap: anywhere; }
+.mock-agents .note em { display: block; margin-top: .25rem; font-style: normal; font-size: var(--t-3xs); color: var(--accent); font-weight: 600; }
+.mock-records .rec { display: flex; align-items: center; gap: .6rem; padding: .7rem .85rem; border: 1px solid var(--rule); border-radius: 10px; background: var(--paper); font-size: var(--t-xs); }
+.mock-records .rec b { color: var(--ink); font-weight: 650; }
+.mock-records .rec span { color: var(--mute); }
+.mock-records .rec i { margin-left: auto; font-style: normal; color: var(--accent); font-weight: 700; }
 
-/* 6. Encode / decode */
-.flow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1fr); gap: var(--s-4); align-items: center; }
-.f-col { list-style: none; margin: 0; padding: 0; display: grid; gap: .55rem; }
-.f-col li { padding: .75rem 1rem; border: 1px solid var(--rule); border-radius: var(--r-2); background: var(--paper); font-size: var(--t-sm); color: var(--ink); position: relative; }
-.f-src li::after, .f-ai li::before { content: ""; position: absolute; top: 50%; width: var(--s-4); border-top: 1px dashed var(--rule-strong); }
-.f-src li::after { left: 100%; }
-.f-ai li::before { right: 100%; }
-.f-mid { padding: 1.6rem 1.5rem; border-radius: var(--r-3); background: var(--ink); color: var(--paper); text-align: center; box-shadow: var(--shadow-2); }
+/* 7. Encode / decode */
+.flow { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, .9fr) minmax(0, .8fr); gap: var(--s-4); align-items: center; }
+.f-src { margin: 0; position: relative; border-radius: var(--rad); overflow: hidden; box-shadow: 0 18px 44px oklch(0.2 0.02 260 / .16); }
+.f-src img { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; object-fit: cover; }
+.f-src figcaption { position: absolute; left: .8rem; bottom: .8rem; right: .8rem; padding: .55rem .75rem; border-radius: 10px; background: oklch(0.15 0.01 260 / .62); backdrop-filter: blur(8px);
+  color: oklch(0.97 0 0); font-size: var(--t-xs); }
+.f-src figcaption b { font-family: var(--mono); }
+.f-src small { display: block; margin-top: .15rem; font-size: var(--t-3xs); opacity: .8; }
+.f-mid { position: relative; padding: 1.5rem 1.4rem; border-radius: var(--rad); background: var(--ink); color: var(--paper); box-shadow: 0 18px 44px oklch(0.2 0.02 260 / .2); }
+.f-mid::before, .f-mid::after { content: ""; position: absolute; top: 50%; width: var(--s-4); border-top: 2px dashed var(--rule-strong); }
+.f-mid::before { right: 100%; } .f-mid::after { left: 100%; }
 .f-mid .f-k { font: 650 var(--t-lg)/1.2 var(--display); letter-spacing: -.01em; }
-.f-mid p + p { margin-top: .6rem; font-size: var(--t-sm); color: oklch(0.85 0.006 255); }
-.f-mid .f-tok { display: inline-block; margin-top: .9rem; padding: .35rem .7rem; border-radius: var(--r-pill); background: oklch(0.28 0.012 260); font: 500 var(--t-xs)/1 var(--mono); color: oklch(0.86 0.12 155); }
+.f-mid ol { margin: .8rem 0 0; padding-left: 1.2rem; font-size: var(--t-sm); line-height: 1.7; color: oklch(0.86 0.006 255); }
+.f-mid .f-name { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .6rem; margin-top: 1rem; }
+.f-mid .f-name code { padding: .35rem .65rem; border-radius: var(--r-pill); background: oklch(0.29 0.012 260); color: oklch(0.86 0.12 155); font-size: var(--t-xs); }
+.f-mid .f-name span { font-size: var(--t-2xs); color: oklch(0.8 0.006 255); }
+.f-ai { list-style: none; margin: 0; padding: 0; display: grid; gap: .45rem; }
+.f-ai li { padding: .62rem .9rem; border: 1px solid var(--rule); border-radius: 10px; background: var(--paper); font-size: var(--t-sm); font-weight: 550; color: var(--ink); }
+.f-ai .f-same { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); font-size: var(--t-xs); font-weight: 650; }
 
-/* 7. Shared memory */
+/* 8. Shared memory */
 .h-four { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s-4); }
 .h-four div { padding-top: var(--s-3); border-top: 2px solid var(--ink); }
 .h-four p { margin-top: .6rem !important; color: var(--ink-2); font-size: var(--t-sm); line-height: 1.55; }
 .h-four a { color: var(--accent); }
 
-/* 8. Examples */
+/* 9. Examples */
 .ex-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-4); }
-.ex { position: relative; display: block; aspect-ratio: 16 / 10; border-radius: var(--r-3); overflow: hidden; text-decoration: none; background: var(--paper-3); }
-.ex img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform .6s ease; }
-.ex:hover img { transform: scale(1.03); }
-.ex::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, oklch(0.12 0.01 260 / 0) 40%, oklch(0.12 0.01 260 / .78) 100%); }
-.ex-b { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; padding: 1.3rem 1.4rem; color: oklch(0.98 0 0); }
-.ex-b b { display: block; font: 640 clamp(1.15rem, 1.8vw, 1.45rem)/1.2 var(--display); letter-spacing: -.015em; }
-.ex-b span { display: block; margin-top: .4rem; font-size: var(--t-sm); line-height: 1.45; color: oklch(0.92 0.004 255); max-width: 34rem; }
+.ex { position: relative; display: block; aspect-ratio: 16 / 10; border-radius: var(--rad); overflow: hidden; text-decoration: none; background: var(--paper-3); }
+.ex img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform .7s ease; }
+.ex:hover img { transform: scale(1.035); }
+.ex::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, oklch(0.12 0.01 260 / 0) 38%, oklch(0.12 0.01 260 / .8) 100%); }
+.ex-b { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; padding: 1.35rem 1.45rem; color: oklch(0.98 0 0); }
+.ex-b b { display: block; font: 650 clamp(1.2rem, 1.8vw, 1.5rem)/1.2 var(--display); letter-spacing: -.018em; }
+.ex-b span { display: block; margin-top: .4rem; font-size: var(--t-sm); line-height: 1.45; color: oklch(0.93 0.004 255); max-width: 34rem; }
+.ex:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .ex-more { margin-top: var(--s-4) !important; display: flex; flex-wrap: wrap; gap: .4rem 1rem; color: var(--mute); }
 
-/* 9. Try it */
-.ask { display: flex; gap: var(--s-2); max-width: 46rem; }
-.ask input { flex: 1; min-width: 0; padding: .95rem 1.1rem; border: 1px solid var(--rule-strong); border-radius: var(--r-pill); background: var(--paper);
-  color: var(--ink); font: 400 var(--t-md)/1.2 var(--ui); }
-.ask input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
-.chips { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: var(--s-3) !important; }
-.chips button { padding: .45rem .85rem; border: 1px solid var(--rule); border-radius: var(--r-pill); background: var(--paper-2); color: var(--ink-2); font: 500 var(--t-xs)/1 var(--ui); cursor: pointer; }
-.chips button:hover { border-color: var(--rule-strong); color: var(--ink); }
-.ask-out { margin-top: var(--s-4); max-width: 46rem; padding: 1.2rem 1.3rem; border: 1px solid var(--rule); border-radius: var(--r-3); background: var(--paper-2); }
-.ask-out .a-s { font-size: var(--t-md); line-height: 1.5; color: var(--ink); }
-.ask-out .a-l { margin-top: .6rem; font-size: var(--t-xs); color: var(--mute); }
-.ask-out .tok { background: var(--paper); }
-
 /* 10. Build */
-.build { border: 1px solid var(--rule); border-radius: var(--r-3); overflow: hidden; }
-.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--rule); background: var(--paper-2); }
-.tabs button { padding: .8rem 1.2rem; border: 0; border-right: 1px solid var(--rule); background: transparent; color: var(--mute); font: 600 var(--t-xs)/1 var(--ui); cursor: pointer; }
-.tabs button[aria-selected="true"] { background: var(--paper); color: var(--ink); }
-.build pre { margin: 0; padding: 1.3rem 1.4rem; background: var(--paper); overflow-x: auto; font: 500 var(--t-sm)/1.6 var(--mono); color: var(--ink); }
-.b-links { display: flex; flex-wrap: wrap; gap: .4rem 1.4rem; padding: .9rem 1.4rem; border-top: 1px solid var(--rule); background: var(--paper-2); }
-.hosts { margin-top: var(--s-4) !important; font-size: var(--t-sm); color: var(--mute); line-height: 1.7; }
-.hosts b { color: var(--ink-2); font-weight: 600; }
+.build { border: 1px solid var(--rule); border-radius: var(--rad); overflow: hidden; background: var(--paper); }
+.tabs { display: flex; border-bottom: 1px solid var(--rule); background: var(--paper-2); }
+.tabs button { padding: .85rem 1.25rem; border: 0; border-right: 1px solid var(--rule); background: transparent; color: var(--mute); font: 600 var(--t-xs)/1 var(--ui); cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--paper); color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent); }
+.build pre { margin: 0; padding: 1.35rem 1.45rem; overflow-x: auto; font: 500 var(--t-sm)/1.65 var(--mono); color: var(--ink); background: var(--paper); }
+.b-links { display: flex; flex-wrap: wrap; gap: .45rem 1.5rem; padding: .95rem 1.45rem; border-top: 1px solid var(--rule); background: var(--paper-2); font-size: var(--t-sm); }
 
 /* 11. Research */
 .res { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: var(--s-4); align-items: stretch; }
-.res-poster { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr); gap: var(--s-4); align-items: center; padding: 1.2rem; border: 1px solid var(--rule); border-radius: var(--r-3); text-decoration: none; background: var(--paper); }
-.res-poster img { width: 100%; height: auto; border-radius: var(--r-1); box-shadow: var(--shadow-1); }
+.res-poster { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr); gap: var(--s-4); align-items: center; padding: 1.2rem; border: 1px solid var(--rule); border-radius: var(--rad); text-decoration: none; background: var(--paper); transition: border-color .15s ease; }
+.res-poster img { width: 100%; height: auto; border-radius: 6px; box-shadow: 0 6px 18px oklch(0.2 0.02 260 / .14); }
 .res-poster span { font-size: var(--t-sm); line-height: 1.55; color: var(--ink-2); }
-.res-poster b { display: block; margin-bottom: .4rem; font: 640 var(--t-md)/1.3 var(--display); color: var(--ink); }
+.res-poster b { display: block; margin-bottom: .4rem; font: 650 var(--t-md)/1.3 var(--display); color: var(--ink); }
 .res-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-3); }
-.res-list a { padding: 1rem 1.1rem; border: 1px solid var(--rule); border-radius: var(--r-2); text-decoration: none; background: var(--paper); }
+.res-list a { padding: 1.05rem 1.15rem; border: 1px solid var(--rule); border-radius: 14px; text-decoration: none; background: var(--paper); transition: border-color .15s ease; }
 .res-list a:hover, .res-poster:hover { border-color: var(--rule-strong); }
-.res-list b { display: block; font-weight: 620; color: var(--ink); }
+.res-list b { display: block; font-weight: 640; color: var(--ink); }
 .res-list span { display: block; margin-top: .3rem; font-size: var(--t-xs); line-height: 1.5; color: var(--mute); }
-.nums { display: flex; flex-wrap: wrap; gap: .5rem 2rem; margin-top: var(--s-5) !important; padding-top: var(--s-4); border-top: 1px solid var(--rule); font-size: var(--t-sm); color: var(--mute); }
-.nums b { font: 640 var(--t-lg)/1 var(--display); color: var(--ink); margin-right: .3rem; }
+.nums { display: flex; flex-wrap: wrap; gap: .5rem 2.2rem; margin-top: var(--s-5) !important; padding-top: var(--s-4); border-top: 1px solid var(--rule); font-size: var(--t-sm); color: var(--mute); }
+.nums b { font: 650 var(--t-lg)/1 var(--display); color: var(--ink); margin-right: .3rem; letter-spacing: -.01em; }
 
 /* 12. End */
 .h-end { text-align: center; }
@@ -216,31 +239,41 @@ code { font-family: var(--mono); font-size: .92em; }
 
 @media (max-width: 1100px) {
   .formula > div { grid-template-columns: 6rem minmax(0, 1fr); }
-  .f-v { grid-column: 2; }
-  .f-m { grid-column: 2; text-align: left; }
+  .f-v, .f-m { grid-column: 2; }
+  .f-m { text-align: left; }
   .h-four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .h-card { right: .75rem; }
+  .flow { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .f-src { grid-column: 1 / -1; }
+  .f-mid::before { display: none; }
 }
 @media (max-width: 900px) {
-  .h-hero, .h-why, .res { grid-template-columns: minmax(0, 1fr); }
-  .h-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .h-strip div:nth-child(3) { padding-left: 0; border-left: 0; }
+  .h-hero .wrap, .h-why .wrap, .res { grid-template-columns: minmax(0, 1fr); }
+  .hosts-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .verbs { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 1.25rem; }
+  .verbs li:nth-child(4) { padding-left: 0; border-left: 0; }
   .h-three { grid-template-columns: minmax(0, 1fr); }
-  .flow { grid-template-columns: minmax(0, 1fr); }
-  .f-src li::after, .f-ai li::before { display: none; }
-  .h-card { position: relative; right: auto; bottom: auto; width: auto; margin-top: -2.5rem; margin-inline: .75rem; }
+  .h-card { position: relative; right: auto; bottom: auto; width: auto; margin: -2.5rem .75rem 0; }
 }
 @media (max-width: 560px) {
-  .ex-grid, .res-list, .h-four, .h-strip { grid-template-columns: minmax(0, 1fr); }
-  .h-strip div, .h-strip div + div { padding-left: 0; border-left: 0; }
+  .ex-grid, .res-list, .h-four, .hosts-grid, .flow { grid-template-columns: minmax(0, 1fr); }
+  .verbs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .verbs li:nth-child(3), .verbs li:nth-child(5) { padding-left: 0; border-left: 0; }
+  .verbs li:nth-child(4) { padding-left: 1.25rem; border-left: 1px solid var(--rule); }
   .h-rows div { grid-template-columns: minmax(0, 1fr); gap: .2rem; }
+  .h-card .state { flex-direction: column; gap: .1rem; }
+  .h-card .state b { white-space: nowrap; }
   .res-poster { grid-template-columns: 6rem minmax(0, 1fr); }
-  .ask { flex-direction: column; }
+  .ask-row { flex-direction: column; }
   .ex { aspect-ratio: 4 / 3; }
+  .f-mid::after { display: none; }
 }
-@media (prefers-reduced-motion: reduce) { .h-img img, .ex img { transition: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .h-img img, .ex img, .host { transition: none; }
+  .pin::after { animation: none; display: none; }
+}
 </style>
-<link rel=stylesheet href="/site.css?v=5692554a8f14">
+<link rel=stylesheet href="/site.css?v=a45bf4c80945">
 </head>
 <body>
 <!--nav:start-->
@@ -277,14 +310,13 @@ code { font-family: var(--mono); font-size: .92em; }
 <details class="navgrp" name="sitenav">
 <summary>Research</summary>
 <div class="navmenu">
+<a href="https://vortx-ai.github.io/esa_poster/" target="_blank" rel="noopener noreferrer"><b>ESA poster<i class="ext" aria-hidden="true">&#8599;</i></b><span>ESA Φ-lab and BIFOLD, Berlin, October 2026</span></a>
+<a href="https://vortx-ai.github.io/ememdemo/" target="_blank" rel="noopener noreferrer"><b>ememdemo<i class="ext" aria-hidden="true">&#8599;</i></b><span>explore a site built on emem</span></a>
 <a href="/whitepaper"><b>Whitepaper</b><span>the math and the proofs</span></a>
 <a href="/spec"><b>Spec</b><span>implement the wire format</span></a>
 <a href="/the-long-version"><b>The long read</b><span>the album, the loop, the proof</span></a>
 <a href="/agents"><b>Attesters</b><span>every key that writes</span></a>
 <a href="/v1/log/sth"><b>Log head</b><span>pin a signed head</span></a>
-<a href="https://vortx-ai.github.io/esa_poster/" target="_blank" rel="noopener noreferrer"><b>ESA poster<i class="ext" aria-hidden="true">&#8599;</i></b><span>Agentic AI for Earth Observation, BIFOLD and ESA Phi-lab, Berlin, Oct 2026</span></a>
-<a href="https://doi.org/10.5281/zenodo.20706893" target="_blank" rel="noopener noreferrer"><b>Whitepaper DOI<i class="ext" aria-hidden="true">&#8599;</i></b><span>the protocol paper on Zenodo</span></a>
-<a href="https://vortx-ai.github.io/ememdemo/" target="_blank" rel="noopener noreferrer"><b>ememdemo<i class="ext" aria-hidden="true">&#8599;</i></b><span>a site built on emem, with its own probes</span></a>
 </div></details>
 <a class="navlink" href="/docs/">Docs</a>
 <span class="sitebar-gap"></span>
@@ -296,197 +328,209 @@ code { font-family: var(--mono); font-size: .92em; }
 <!--nav:end-->
 <main class="home" id="top">
 
-<!-- 1. Category and the first thing it does, beside the world it remembers -->
-<section class="h-hero wrap">
+<!-- 1. Category, from orbit -->
+<section class="h-hero"><div class="wrap">
   <div class="h-hero-text">
-    <p class="eyebrow">Where space meets AI &middot; Verifiable memory</p>
-    <h1>The memory of the physical world. <span class="tone">Search it. Every answer is signed.</span></h1>
-    <p class="lede">Ask about any place, field, river, forest or building. emem reads it from orbit and from open sensors, keeps every reading at one address, and signs it, so any AI can read the answer back and check it.</p>
+    <p class="eyebrow">Where space meets AI</p>
+    <h1>The memory of the physical world. <span class="tone">Search it.<br> Every answer is signed.</span></h1>
+    <p class="lede">Ask about any place on Earth. emem reads it from orbit and from open sensors, remembers every reading at one address, and signs it. Any AI reads the answer back, and checks it.</p>
     <div class="h-cta">
-      <a class="btn" href="/reference#client-setup">Connect your agent</a>
+      <a class="btn" href="#try">Try it now</a>
       <a class="btn ghost" href="/contact">Talk to us</a>
     </div>
-    <p class="h-mcp"><code>https://emem.dev/mcp</code><button type="button" class="copy" data-copy="https://emem.dev/mcp">Copy</button><span>Claude, ChatGPT, Cursor and VS Code &middot; no key to read</span></p>
+    <ul class="h-words" aria-label="What emem is">
+      <li>Memory</li><li>Protocol</li><li>Shared</li><li>Addressable</li><li>Verifiable</li>
+    </ul>
   </div>
   <figure class="h-scene" data-scene>
     <div class="h-img">
-      <img class="on" src="/img/punjab-sep-260eaac912.jpg" width="864" height="885" alt="Sentinel-2 true-colour image of green rice fields in Punjab on 8 September 2026" data-date="sep">
-      <img src="/img/punjab-nov-a8002c05e4.jpg" width="864" height="885" alt="The same Punjab fields on 17 November 2026, harvested, with dark burnt stubble" data-date="nov" loading="lazy">
-      <div class="h-dates" role="group" aria-label="Image date">
-        <button type="button" class="on" data-show="sep" aria-pressed="true">8 Sep</button>
-        <button type="button" data-show="nov" aria-pressed="false">17 Nov</button>
+      <img class="on" src="/img/bhakra-oct-86437cbe7a.jpg" width="950" height="885" alt="Sentinel-2 image of the Gobind Sagar reservoir on 22 October 2026, full after the monsoon" data-date="oct" fetchpriority="high">
+      <img src="/img/bhakra-jun-0fb0a19236.jpg" width="950" height="885" alt="The same reservoir on 10 June 2026, low, with a wide band of exposed shore" data-date="jun" loading="lazy">
+      <span class="pin" style="left:69.5%;top:33.9%" aria-hidden="true"></span>
+      <div class="h-dates" role="group" aria-label="Pass">
+        <button type="button" data-show="jun" aria-pressed="false">10 Jun 2026</button>
+        <button type="button" class="on" data-show="oct" aria-pressed="true">22 Oct 2026</button>
       </div>
     </div>
-    <div class="h-card">
-      <p class="k">One field in Punjab &middot; 2.7 ha &middot; 262 pixels at 10 m</p>
-      <svg class="spark" viewBox="0 0 300 72" role="img" aria-label="Field NDVI on 18 dates from 16 August to 17 November 2026: 0.88 on 8 September, 0.04 on 12 November">
-        <path class="area" d="M0,72 L0.0,20.9 L9.7,26.6 L58.1,27.9 L64.5,20.1 L74.2,13.2 L90.3,12.4 L122.6,27.3 L129.0,23.3 L154.8,14.3 L171.0,24.6 L187.1,18.6 L193.5,28.6 L203.2,25.7 L235.5,42.9 L251.6,54.3 L267.7,55.1 L283.9,65.8 L300.0,61.3 L300,72 Z"/>
-        <path class="line" d="M0.0,20.9 L9.7,26.6 L58.1,27.9 L64.5,20.1 L74.2,13.2 L90.3,12.4 L122.6,27.3 L129.0,23.3 L154.8,14.3 L171.0,24.6 L187.1,18.6 L193.5,28.6 L203.2,25.7 L235.5,42.9 L251.6,54.3 L267.7,55.1 L283.9,65.8 L300.0,61.3"/>
-        <circle cx="74.2" cy="13.2" r="3.5"/><circle cx="283.9" cy="65.8" r="3.5"/>
-      </svg>
-      <p class="v"><b>NDVI 0.88</b> on 8 Sep, <b>0.04</b> on 12 Nov: the season, the harvest and the burn, 18 dates remembered.</p>
-      <a class="tok" href="/verify?q=emem%3Afact%3Adefi.zb55a.weno.qoca%3Ap5lko2rjfdzlb5pvjrbr3oej2l6wckj2wapslrgryyzadgrabjva"><i aria-hidden="true">&#10003;</i><span class="t">emem:fact:defi.zb55a.weno.qoca:p5lko2rjfdzlb5pvjrbr3oej2l6wckj2wapslrgryyzadgrabjva</span><span>check it</span></a>
+    <div class="h-card" aria-live="polite">
+      <p class="k">This point on the shore of Gobind Sagar</p>
+      <p class="state" data-for="oct"><b>Open water</b><span>22 Oct 2026, Sentinel-2</span></p>
+      <p class="state" data-for="jun" hidden><b>Bare ground</b><span>10 Jun 2026, Sentinel-2</span></p>
+      <p class="hist">Under water 38% of the time since 1984</p>
+      <a class="tok" data-for="oct" href="/verify?q=emem%3Afact%3Adefi.zb565.yOqU.xApA%3Adeqxdntu2clvx2qasongy5bjhvjk7enrdkcyaso65xpg3s2imdza"><i aria-hidden="true">&#10003;</i><span class="t">emem:fact:defi.zb565.yOqU.xApA:deqxdntu2clvx2qasongy5bjhvjk7enrdkcyaso65xpg3s2imdza</span><span>Verify</span></a>
+      <a class="tok" data-for="jun" hidden href="/verify?q=emem%3Afact%3Adefi.zb565.yOqU.xApA%3Aumxje7mavamg2uagb27oyenklji5rnh5h4wtn7ljfsw6ekjuf37a"><i aria-hidden="true">&#10003;</i><span class="t">emem:fact:defi.zb565.yOqU.xApA:umxje7mavamg2uagb27oyenklji5rnh5h4wtn7ljfsw6ekjuf37a</span><span>Verify</span></a>
     </div>
-    <figcaption>Sentinel-2 L2A, scene S2B&middot;T43REP of 8 Sep 2026 (and of 17 Nov 2026), read by emem at 10 m. The values beside it are one signed series.</figcaption>
+    <figcaption>Gobind Sagar reservoir from orbit. Switch the pass: each one is its own signed memory at the same address.</figcaption>
   </figure>
-</section>
+</div></section>
 
-<!-- 2. The four things it does, one line each -->
-<section class="h-strip wrap" aria-label="What emem does">
-  <div><b>Remember</b><span>Every reading at one address: where, what and when.</span></div>
-  <div><b>Search</b><span>Ask in words. The value comes back with its source.</span></div>
-  <div><b>Encode at the source</b><span>The data stays where it is made. A short name travels.</span></div>
-  <div><b>Decode with any AI</b><span>Every model reads the same bytes, and can check them.</span></div>
-</section>
+<!-- 2. Try it where you already work -->
+<section class="h-try alt" id="try"><div class="wrap">
+  <div class="h-head row">
+    <h2>Try it where you already work.</h2>
+    <p class="sub">One address, <code>https://emem.dev/mcp</code>, for every assistant. No key to read.</p>
+  </div>
+  <ul class="hosts-grid">
+    <li><a class="host" href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" target="_blank" rel="noopener noreferrer"><b>ChatGPT</b><span>Open the emem app, then mention @emem</span><i>Open</i></a></li>
+    <li><button type="button" class="host" data-copy="https://emem.dev/mcp"><b>Claude</b><span>Settings, Connectors, add a custom connector with this URL</span><i>Copy URL</i></button></li>
+    <li><button type="button" class="host" data-copy="claude mcp add --transport http emem https://emem.dev/mcp"><b>Claude Code</b><span>One command in your terminal</span><i>Copy command</i></button></li>
+    <li><a class="host" href="cursor://anysphere.cursor-deeplink/mcp/install?name=emem&amp;config=eyJ1cmwiOiJodHRwczovL2VtZW0uZGV2L21jcCJ9"><b>Cursor</b><span>One click adds the server</span><i>Install</i></a></li>
+    <li><a class="host" href="https://insiders.vscode.dev/redirect/mcp/install?name=emem&amp;config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D" target="_blank" rel="noopener noreferrer"><b>VS Code</b><span>One click adds the server</span><i>Install</i></a></li>
+    <li><button type="button" class="host" data-copy="gemini extensions install https://github.com/Vortx-AI/emem"><b>Gemini CLI</b><span>Install the emem extension</span><i>Copy command</i></button></li>
+  </ul>
+  <form class="ask" data-ask>
+    <label for="ask-q">Or ask here</label>
+    <div class="ask-row">
+      <input id="ask-q" name="q" type="text" autocomplete="off" placeholder="Is there snow at Gangotri glacier?">
+      <button type="submit" class="btn">Ask</button>
+    </div>
+  </form>
+  <p class="chips"><button type="button" data-q="Is there open water at Gobind Sagar?">Water at Gobind Sagar</button><button type="button" data-q="Is there snow at Gangotri glacier?">Snow at Gangotri</button><button type="button" data-q="What is the air quality in Delhi right now?">Air in Delhi</button></p>
+  <div class="ask-out" data-ask-out aria-live="polite" hidden></div>
+</div></section>
 
-<!-- 3. Why space: the category contrast -->
-<section class="h-why wrap">
+<!-- 3. Five verbs -->
+<section class="h-verbs"><div class="wrap">
+  <ol class="verbs">
+    <li><b>Remember</b><span>every reading, every pass</span></li>
+    <li><b>Address</b><span>one place, one address</span></li>
+    <li><b>Sign</b><span>every answer, at the source</span></li>
+    <li><b>Share</b><span>one token, the same bytes</span></li>
+    <li><b>Verify</b><span>offline, by anyone</span></li>
+  </ol>
+</div></section>
+
+<!-- 4. Why space -->
+<section class="h-why"><div class="wrap">
   <h2>When web search misses, <span class="tone">space answers.</span></h2>
   <div class="h-why-body">
-    <p>Most of the physical world was never written about, and what was written goes out of date. Satellites pass over every place on Earth every few days and measure it the same way each time. emem turns those passes, and the open sensors and models beside them, into a memory an AI can cite.</p>
+    <p>Satellites pass over every place on Earth every few days and measure it the same way each time. emem turns those passes, and the open sensors and models beside them, into a memory any AI can cite.</p>
     <dl class="h-rows">
-      <div><dt>Nobody wrote about it</dt><dd>emem reads the place itself, from the source.</dd></div>
-      <div><dt>The page is out of date</dt><dd>emem reads the latest pass, and still holds the earlier ones.</dd></div>
-      <div><dt>The answer must hold up</dt><dd>emem signs it, and anyone can check it offline.</dd></div>
+      <div><dt>Nobody wrote about it</dt><dd>Read the place itself, from orbit.</dd></div>
+      <div><dt>The page is out of date</dt><dd>Read the latest pass. Keep every earlier one.</dd></div>
+      <div><dt>The answer must hold up</dt><dd>Sign it, and let anyone check it.</dd></div>
     </dl>
   </div>
-</section>
+</div></section>
 
-<!-- 4. The memory model, filled with one real memory -->
-<section class="h-model wrap" id="memory-model">
+<!-- 5. The memory model -->
+<section class="h-model alt" id="memory-model"><div class="wrap">
   <div class="h-head">
     <p class="eyebrow">The memory model</p>
-    <h2>One reading, one address, one name, one signature.</h2>
-    <p class="sub">Five lines define every memory emem holds. Here they are, filled in with the reading at the centre of that Punjab field on 17 November 2026.</p>
+    <h2>Address it. Name it. Sign it. Cite it.</h2>
+    <p class="sub">Every memory emem holds is five lines. Here they are for the October pass at that point on the shore.</p>
   </div>
   <div class="formula" role="table" aria-label="The emem memory model">
-    <div role="row"><span role="cell" class="f-l">address</span><span role="cell" class="f-d">= (cell, band, tslot)</span><span role="cell" class="f-v">(<code>defi.zb55a.weno.qobE</code>, <code>indices.ndvi</code>, <code>20774</code>)</span><span role="cell" class="f-m">where, what and when</span></div>
-    <div role="row"><span role="cell" class="f-l">value</span><span role="cell" class="f-d">= read at the source</span><span role="cell" class="f-v"><code>0.120</code> from Sentinel-2 L2A, captured 17 Nov 2026 05:41Z</span><span role="cell" class="f-m">computed when asked</span></div>
-    <div role="row"><span role="cell" class="f-l">fact_cid</span><span role="cell" class="f-d">= BLAKE3(canonical CBOR(fact))</span><span role="cell" class="f-v"><code>2ma2zvyphae2e5mr2wmjaxngbjytbmgirk5ptx7fx5mtlhhsf33a</code></span><span role="cell" class="f-m">named by its own bytes</span></div>
-    <div role="row"><span role="cell" class="f-l">receipt</span><span role="cell" class="f-d">= Ed25519 over (cell, fact_cid)</span><span role="cell" class="f-v">signed by the key in <a href="/.well-known/emem.json">/.well-known/emem.json</a></span><span role="cell" class="f-m">checkable offline</span></div>
-    <div role="row"><span role="cell" class="f-l">log</span><span role="cell" class="f-d">= append-only tree, witnessed</span><span role="cell" class="f-v">one of 3.4 million entries, <a href="/v1/log/sth">signed head</a></span><span role="cell" class="f-m">nothing changes quietly</span></div>
-    <div role="row" class="f-tok"><span role="cell" class="f-l">token</span><span role="cell" class="f-d">= emem:fact:&lt;cell&gt;:&lt;fact_cid&gt;</span><span role="cell" class="f-v"><a href="/verify?q=emem%3Afact%3Adefi.zb55a.weno.qobE%3A2ma2zvyphae2e5mr2wmjaxngbjytbmgirk5ptx7fx5mtlhhsf33a"><code>emem:fact:defi.zb55a.weno.qobE:2ma2zvyp&hellip;</code> check it</a></span><span role="cell" class="f-m">any AI reads the same bytes</span></div>
+    <div role="row"><span role="cell" class="f-l">address</span><span role="cell" class="f-d">= (cell, band, tslot)</span><span role="cell" class="f-v">(<code>defi.zb565.yOqU.xApA</code>, <code>indices.mndwi</code>, <code>20748</code>)</span><span role="cell" class="f-m">where, what, when</span></div>
+    <div role="row"><span role="cell" class="f-l">value</span><span role="cell" class="f-d">= read at the source</span><span role="cell" class="f-v">open water, Sentinel-2 L2A, 22 Oct 2026 05:32Z</span><span role="cell" class="f-m">read from orbit</span></div>
+    <div role="row"><span role="cell" class="f-l">fact_cid</span><span role="cell" class="f-d">= BLAKE3(canonical CBOR(fact))</span><span role="cell" class="f-v"><code>deqxdntu2clvx2qasongy5bjhvjk7enrdkcyaso65xpg3s2imdza</code></span><span role="cell" class="f-m">named by its bytes</span></div>
+    <div role="row"><span role="cell" class="f-l">receipt</span><span role="cell" class="f-d">= Ed25519 over (cell, fact_cid)</span><span role="cell" class="f-v">signed with the key in <a href="/.well-known/emem.json">/.well-known/emem.json</a></span><span role="cell" class="f-m">checkable offline</span></div>
+    <div role="row"><span role="cell" class="f-l">log</span><span role="cell" class="f-d">= append-only tree, witnessed</span><span role="cell" class="f-v">one of 3.4 million entries, <a href="/v1/log/sth">signed head</a></span><span role="cell" class="f-m">append, never rewrite</span></div>
+    <div role="row" class="f-tok"><span role="cell" class="f-l">token</span><span role="cell" class="f-d">= emem:fact:&lt;cell&gt;:&lt;fact_cid&gt;</span><span role="cell" class="f-v"><a href="/verify?q=emem%3Afact%3Adefi.zb565.yOqU.xApA%3Adeqxdntu2clvx2qasongy5bjhvjk7enrdkcyaso65xpg3s2imdza"><code>emem:fact:defi.zb565.yOqU.xApA:deqxdntu&hellip;</code> Verify it</a></span><span role="cell" class="f-m">any AI, the same bytes</span></div>
   </div>
-  <p class="h-note">The same model holds two kinds of memory: <b>Earth memory</b>, addressed by place, band and time, and <b>agent memory</b>, signed notes that one agent writes and any other can check. <a href="/how-it-works">Read the memory model &rarr;</a></p>
-</section>
+  <p class="h-note">One model holds two kinds of memory: <b>Earth memory</b>, addressed by place, band and time, and <b>agent memory</b>, signed notes one agent writes and any other reads. <a href="/how-it-works">Read the memory model &rarr;</a></p>
+</div></section>
 
-<!-- 5. What it remembers -->
-<section class="h-what wrap">
+<!-- 6. What it remembers -->
+<section class="h-what"><div class="wrap">
   <div class="h-head">
     <p class="eyebrow">What it remembers</p>
-    <h2>The world first. Then what agents and machines record about it.</h2>
+    <h2>Remember the world. Then what agents and machines record.</h2>
   </div>
   <div class="h-three">
     <article class="panel">
-      <img src="/img/bhakra-f83df84d5f.jpg" width="950" height="885" alt="Sentinel-2 image of the Gobind Sagar reservoir behind the Bhakra dam, 17 November 2026" loading="lazy">
+      <img src="/img/gangotri-8f9cb01523.jpg" width="860" height="885" alt="Sentinel-2 image of the Gangotri glacier in the Garhwal Himalaya, 18 November 2026" loading="lazy" decoding="async">
       <div class="panel-b">
         <h3>The physical world</h3>
-        <p>Weather, air, water, land, crops, forests, terrain and buildings from 46 open sources, satellites first. Read when asked, kept at one address.</p>
-        <a href="/docs/">What it can read &rarr;</a>
+        <p>Read weather, air, water, land, forests, ice, terrain and buildings from 46 open sources, satellites first. Keep each reading at one address.</p>
+        <a href="/docs/">See what it reads &rarr;</a>
       </div>
     </article>
     <article class="panel">
-      <div class="mock mock-note" aria-hidden="true">
-        <p class="m-k">signed note</p>
-        <p class="m-path">/memories/by_attester/&lt;key&gt;/field-plan.md</p>
-        <p class="m-l"><i>written</i> agent A, one vendor</p>
-        <p class="m-l"><i>read</i> agent B, another vendor</p>
-        <p class="m-ok">&#10003; same bytes, author checked</p>
+      <div class="mock mock-agents" aria-hidden="true">
+        <div class="ag"><span class="dot a">A</span><span>agent A writes</span></div>
+        <div class="note"><code>/memories/by_attester/&lt;key&gt;/plan.md</code><em>signed by A</em></div>
+        <div class="ag"><span class="dot b">B</span><span>agent B reads the same bytes</span><i>&#10003;</i></div>
       </div>
       <div class="panel-b">
         <h3>What agents write</h3>
-        <p>Notes signed with an agent's own key, in its own namespace. Another agent, from another vendor, reads the same bytes and checks who wrote them.</p>
-        <a href="/a2a">Agent handoff &rarr;</a>
+        <p>Write notes under an agent's own key. Hand them to an agent from another vendor: it reads the same bytes and checks who wrote them.</p>
+        <a href="/a2a">Hand memory between agents &rarr;</a>
       </div>
     </article>
     <article class="panel">
-      <div class="mock mock-file" aria-hidden="true">
-        <p class="m-k">encoded at the source</p>
-        <p class="m-big">143.7 MB <span>&rarr;</span> 15.3 kB</p>
-        <p class="m-l">a Webb TIFF stays at esawebb.org</p>
-        <p class="m-l">its pointer travels, strip by strip</p>
-        <p class="m-ok">&#10003; any strip proves itself</p>
+      <div class="mock mock-records" aria-hidden="true">
+        <div class="rec"><b>Device run</b><span>segment by segment</span><i>&#10003;</i></div>
+        <div class="rec"><b>Lab report</b><span>line by line</span><i>&#10003;</i></div>
+        <div class="rec"><b>Land record</b><span>field by field</span><i>&#10003;</i></div>
       </div>
       <div class="panel-b">
         <h3>What machines and documents record</h3>
-        <p>Device traces, lab reports, land records and files, signed where they are made. The bytes stay put; a short name travels and proves any part of them.</p>
-        <a href="/demos/tokenise-files">Encode a file &rarr;</a>
+        <p>Sign device runs, lab reports and land records where they are made. Each value keeps its line, its source and its signature.</p>
+        <a href="/demos/document-evidence">Read a record &rarr;</a>
       </div>
     </article>
   </div>
-</section>
+</div></section>
 
-<!-- 6. Encode where the data is generated, decode with any AI -->
-<section class="h-flow wrap">
+<!-- 7. Encode where the data is generated, decode with any AI -->
+<section class="h-flow alt"><div class="wrap">
   <div class="h-head">
     <p class="eyebrow">Encode and decode</p>
     <h2>Encode where the data is generated. <span class="tone">Decode with any AI.</span></h2>
-    <p class="sub">Nothing is copied into a model and nothing is retyped from a screenshot. The record is signed at its source, and every model that reads it reads the same bytes.</p>
   </div>
   <div class="flow">
-    <ul class="f-col f-src" aria-label="Sources">
-      <li>Satellite pass</li><li>Weather and air model</li><li>Field sensor or device</li><li>Lab report or land record</li><li>Any file</li>
-    </ul>
+    <figure class="f-src">
+      <img src="/img/webb-cliffs-f5b6b8f66d.jpg" width="1200" height="750" alt="The Cosmic Cliffs in Carina, imaged by the Webb telescope" loading="lazy" decoding="async">
+      <figcaption><b>143.7 MB</b> image stays at esawebb.org<small>Webb: NASA, ESA, CSA, STScI, CC BY 4.0</small></figcaption>
+    </figure>
     <div class="f-mid">
-      <p class="f-k">Signed at the source</p>
-      <p>one address &middot; one hash &middot; one signature &middot; one log entry</p>
-      <p class="f-tok">emem:fact:&hellip;</p>
+      <p class="f-k">Encode at the source</p>
+      <ol><li>Split it into parts</li><li>Hash every part</li><li>Sign one root</li><li>Log it</li></ol>
+      <p class="f-name"><code>emem:tree:wkxa7tcm&hellip;</code><span>15.3 kB travels</span></p>
     </div>
-    <ul class="f-col f-ai" aria-label="Readers">
-      <li>Claude</li><li>ChatGPT</li><li>Gemini</li><li>Cursor and VS Code</li><li>Your own model</li>
+    <ul class="f-ai" aria-label="Readers">
+      <li>Claude</li><li>ChatGPT</li><li>Gemini</li><li>Cursor</li><li>Your own model</li>
+      <li class="f-same">&#10003; the same bytes, any part proven</li>
     </ul>
   </div>
-</section>
+  <p class="h-note">Satellite scenes, device runs and files work the same way: the bytes stay where they are made, and every model that reads the name reads the same bytes. <a href="/demos/tokenise-files">Encode a file in your browser &rarr;</a></p>
+</div></section>
 
-<!-- 7. Shared, verifiable memory -->
-<section class="h-trust wrap">
+<!-- 8. Shared, verifiable memory -->
+<section class="h-trust"><div class="wrap">
   <div class="h-head">
     <p class="eyebrow">Shared, verifiable memory</p>
-    <h2>One memory for every agent, team and vendor.</h2>
+    <h2>Share one memory. Verify every answer.</h2>
   </div>
   <div class="h-four">
-    <div><h3>Same bytes for every reader</h3><p>A token names one record. Any agent that resolves it gets byte-identical content, so two agents never cite two versions of one fact.</p></div>
-    <div><h3>Nothing changes quietly</h3><p>Every record goes into an append-only log that independent operators co-sign. A fault is corrected in the open, with a signed erratum.</p></div>
-    <div><h3>Check it without us</h3><p>Each answer verifies offline against a published key, or in the browser at <a href="/verify">/verify</a>.</p></div>
-    <div><h3>Gaps are stated</h3><p>Where nothing qualifies, a signed absence says where emem looked and why, so silence is never taken for an answer.</p></div>
+    <div><h3>Read the same bytes</h3><p>Resolve a token anywhere and get byte-identical content, so two agents never cite two versions of one fact.</p></div>
+    <div><h3>Append, never rewrite</h3><p>Every record joins an append-only log that independent operators co-sign.</p></div>
+    <div><h3>Check it offline</h3><p>Verify any answer against a published key, in code or in the browser at <a href="/verify">/verify</a>.</p></div>
+    <div><h3>Address everything</h3><p>One address per place, one name per record, one identity per object, for every agent.</p></div>
   </div>
-</section>
+</div></section>
 
-<!-- 8. Examples: proof it works, never the identity -->
-<section class="h-ex wrap" id="examples">
+<!-- 9. Examples: space first, crops last -->
+<section class="h-ex alt" id="examples"><div class="wrap">
   <div class="h-head">
-    <p class="eyebrow">Examples</p>
-    <h2>Real-world tasks where a cited answer matters.</h2>
+    <p class="eyebrow">Put it to work</p>
+    <h2>Real-world tasks, answered from orbit.</h2>
   </div>
   <div class="ex-grid">
-    <a class="ex" href="/eudr"><img src="/img/rondonia-86df6235b1.jpg" width="877" height="775" alt="Sentinel-2 image of forest edges and cleared land in Rondonia, Brazil, 16 September 2026" loading="lazy"><span class="ex-b"><b>EUDR evidence, plot by plot</b><span>Each supplier plot checked against the EU forest map and loss after 2020, with a signed result the statement can cite.</span></span></a>
-    <a class="ex" href="/agriculture"><img src="/img/punjab-nov-a8002c05e4.jpg" width="864" height="885" alt="Harvested Punjab fields with burnt stubble, 17 November 2026" loading="lazy"><span class="ex-b"><b>Crop intelligence for every field</b><span>Season curves, field boundaries with pixel support, harvest and burning, field by field and district by district.</span></span></a>
-    <a class="ex" href="/solutions"><img src="/img/bhakra-f83df84d5f.jpg" width="950" height="885" alt="Gobind Sagar reservoir, 17 November 2026" loading="lazy"><span class="ex-b"><b>Water, rain and drought</b><span>Surface water, rainfall ranked against thirty years, and drought indices for a place, each with its date.</span></span></a>
-    <a class="ex" href="/solutions"><img src="/img/sundarbans-bc53e9d39c.jpg" width="827" height="775" alt="Mangrove channels of the Sundarbans, 14 November 2026" loading="lazy"><span class="ex-b"><b>Forests and coasts</b><span>Tree cover, the year of loss and canopy change, read from the same sources an auditor would use.</span></span></a>
+    <a class="ex" href="/solutions"><img src="/img/sundarbans-bc53e9d39c.jpg" width="827" height="775" alt="Mangrove channels of the Sundarbans, 14 November 2026" loading="lazy" decoding="async"><span class="ex-b"><b>Watch coasts and rivers</b><span>Read water, tree cover and shorelines pass by pass, for any stretch of coast.</span></span></a>
+    <a class="ex" href="/eudr"><img src="/img/rondonia-86df6235b1.jpg" width="877" height="775" alt="Forest edges and cleared land in Rondonia, Brazil, 16 September 2026" loading="lazy" decoding="async"><span class="ex-b"><b>Prove supply chains forest-free</b><span>Check each plot against the EU forest map and every loss since 2020. Cite one signed result per plot.</span></span></a>
+    <a class="ex" href="/solutions"><img src="/img/delhi-3bfc2d5951.jpg" width="978" height="885" alt="Delhi along the Yamuna, 11 November 2026" loading="lazy" decoding="async"><span class="ex-b"><b>Read cities and the air</b><span>Ask for air quality, surface heat, buildings and roads across a city.</span></span></a>
+    <a class="ex" href="/agriculture"><img src="/img/punjab-nov-a8002c05e4.jpg" width="864" height="885" alt="Fields in Punjab after harvest, 17 November 2026" loading="lazy" decoding="async"><span class="ex-b"><b>Follow crops field by field</b><span>Read season curves, field boundaries and stubble burning, field by field and district by district.</span></span></a>
   </div>
-  <p class="ex-more"><a href="/guard">Agents that cite before they answer</a> &middot; <a href="/demos/document-evidence">Lab reports and land records</a> &middot; <a href="/solutions">All examples &rarr;</a></p>
-</section>
-
-<!-- 9. Try it -->
-<section class="h-try wrap" id="try">
-  <div class="h-head">
-    <p class="eyebrow">Try it</p>
-    <h2>Ask the physical world.</h2>
-  </div>
-  <form class="ask" data-ask>
-    <label for="ask-q" class="sr">Your question</label>
-    <input id="ask-q" name="q" type="text" autocomplete="off" placeholder="What is the air quality in Delhi right now?">
-    <button type="submit" class="btn">Ask</button>
-  </form>
-  <p class="chips"><button type="button" data-q="What is the air quality in Delhi right now?">Air in Delhi</button><button type="button" data-q="How warm is it in Pune right now?">Temperature in Pune</button><button type="button" data-q="What is the NDVI near Ludhiana?">Greenness near Ludhiana</button></p>
-  <div class="ask-out" data-ask-out aria-live="polite" hidden></div>
-</section>
+  <p class="ex-more"><a href="/guard">Check every number before an agent answers</a> &middot; <a href="/solutions">All examples &rarr;</a></p>
+</div></section>
 
 <!-- 10. Build -->
-<section class="h-build wrap" id="dev">
+<section class="h-build" id="dev"><div class="wrap">
   <div class="h-head">
     <p class="eyebrow">Build with it</p>
-    <h2>One URL for every agent. No key to read.</h2>
+    <h2>Build on one URL.</h2>
   </div>
   <div class="build">
     <div class="tabs" role="tablist" aria-label="Ways to connect">
@@ -504,41 +548,40 @@ with Client() as em:
     cell = em.locate("Mount Fuji")["cell64"]
     facts = em.recall(cell, bands=["copdem30m.elevation_mean"])
     print(facts["facts"][0]["value"])</code></pre>
-    <p class="b-links"><a href="/reference#client-setup">Quick start</a><a href="/reference">API reference</a><a href="/tools">MCP tools</a><a href="/docs/">Docs</a><a href="https://huggingface.co/spaces/vortx-ai/emem" target="_blank" rel="noopener noreferrer">Hugging Face Space</a></p>
+    <p class="b-links"><a href="/reference#client-setup">Quick start</a><a href="/reference">API reference</a><a href="/tools">MCP tools</a><a href="/docs/">Docs</a><a href="https://huggingface.co/spaces/vortx-ai/emem" target="_blank" rel="noopener noreferrer">Hugging Face Space</a><a href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer">GitHub</a></p>
   </div>
-  <p class="hosts">Works in <b>Claude</b> &middot; <b>ChatGPT</b> &middot; <b>Gemini CLI</b> &middot; <b>Cursor</b> &middot; <b>VS Code</b> &middot; <b>Cline</b> &middot; <b>Dify</b> &middot; <b>LangChain</b> and <b>LlamaIndex</b> &middot; Python and TypeScript clients</p>
-</section>
+</div></section>
 
-<!-- 11. Research and where it runs -->
-<section class="h-res wrap" id="research">
+<!-- 11. Research -->
+<section class="h-res alt" id="research"><div class="wrap">
   <div class="h-head">
     <p class="eyebrow">Research</p>
-    <h2>Published, presented and open.</h2>
+    <h2>Read the research.</h2>
   </div>
   <div class="res">
     <a class="res-poster" href="https://vortx-ai.github.io/esa_poster/" target="_blank" rel="noopener noreferrer">
-      <img src="/img/poster-esa-073fd5ea51.jpg" width="720" height="1018" alt="The emem poster: A Content-Addressed, Verifiable Earth-Memory Protocol" loading="lazy">
-      <span><b>ESA &Phi;-lab and BIFOLD, Berlin, October 2026</b>EMEM: A Content-Addressed, Verifiable Earth-Memory Protocol. Presented at Agentic AI for Earth Observation. Poster, demo and reproduction.</span>
+      <img src="/img/poster-esa-073fd5ea51.jpg" width="720" height="1018" alt="The emem poster: A Content-Addressed, Verifiable Earth-Memory Protocol" loading="lazy" decoding="async">
+      <span><b>ESA &Phi;-lab and BIFOLD, Berlin, October 2026</b>EMEM: A Content-Addressed, Verifiable Earth-Memory Protocol. Presented at Agentic AI for Earth Observation. Read the poster, run the demo, reproduce it.</span>
     </a>
     <div class="res-list">
-      <a href="https://doi.org/10.5281/zenodo.20706893" target="_blank" rel="noopener noreferrer"><b>Whitepaper</b><span>The protocol, its proofs and its limits. DOI 10.5281/zenodo.20706893.</span></a>
-      <a href="/how-it-works"><b>How emem works</b><span>One request end to end, from a place name to a token anyone can check.</span></a>
-      <a href="https://vortx-ai.github.io/ememdemo/" target="_blank" rel="noopener noreferrer"><b>ememdemo</b><span>A site built on emem, with probes that test what it claims.</span></a>
+      <a href="https://doi.org/10.5281/zenodo.20706893" target="_blank" rel="noopener noreferrer"><b>Whitepaper</b><span>The protocol and its proofs. DOI 10.5281/zenodo.20706893.</span></a>
+      <a href="/how-it-works"><b>How emem works</b><span>Follow one request from a place name to a token anyone can check.</span></a>
+      <a href="https://vortx-ai.github.io/ememdemo/" target="_blank" rel="noopener noreferrer"><b>ememdemo</b><span>Explore a site built on emem.</span></a>
       <a href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer"><b>Source on GitHub</b><span>Apache-2.0. Run your own node from one container.</span></a>
     </div>
   </div>
   <p class="nums"><span><b>3.4 million</b> signed log entries</span><span><b>46</b> open sources</span><span><b>117</b> wired measurements</span><span><b>119</b> MCP tools</span><span><b>Apache-2.0</b></span></p>
-</section>
+</div></section>
 
-<!-- 12. Talk to us -->
-<section class="h-end wrap">
+<!-- 12. End -->
+<section class="h-end"><div class="wrap">
   <h2>Give your AI a memory of the physical world.</h2>
-  <div class="h-cta"><a class="btn" href="/reference#client-setup">Connect your agent</a><a class="btn ghost" href="/contact">Talk to us</a></div>
-</section>
+  <div class="h-cta"><a class="btn" href="#try">Try it now</a><a class="btn ghost" href="/contact">Talk to us</a></div>
+</div></section>
 
 </main>
 
-<script src="/home.js?v=2cbdfa8e91e1" defer></script>
+<script src="/home.js?v=3814041de3db" defer></script>
 <!--foot:start-->
 <footer class="page foot sitefoot">
 <div class="sf-top"><a class="sf-brand" href="/"><img src="/vortxgola.gif" alt="">emem</a><p class="sf-proof" data-proof>log head: checking in this tab&hellip;</p></div>
@@ -572,7 +615,6 @@ with Client() as em:
 <li><a href="/agents">Attesters</a></li>
 <li><a href="/v1/log/sth">Log head</a></li>
 <li><a href="https://vortx-ai.github.io/esa_poster/" target="_blank" rel="noopener noreferrer">ESA poster</a></li>
-<li><a href="https://doi.org/10.5281/zenodo.20706893" target="_blank" rel="noopener noreferrer">Whitepaper DOI</a></li>
 <li><a href="https://vortx-ai.github.io/ememdemo/" target="_blank" rel="noopener noreferrer">ememdemo</a></li>
 </ul></div>
 <div class="foot-col"><h4>Company</h4><ul>

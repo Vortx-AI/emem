@@ -107,9 +107,8 @@ SITE = [
 # Off-site, by section: published work and the places emem runs outside this site. Each opens in a new tab.
 EXTERNAL = [
     ("ESA poster", "https://vortx-ai.github.io/esa_poster/",
-     "Agentic AI for Earth Observation, BIFOLD and ESA Phi-lab, Berlin, Oct 2026", "Research"),
-    ("Whitepaper DOI", "https://doi.org/10.5281/zenodo.20706893", "the protocol paper on Zenodo", "Research"),
-    ("ememdemo", "https://vortx-ai.github.io/ememdemo/", "a site built on emem, with its own probes", "Research"),
+     "ESA \u03a6-lab and BIFOLD, Berlin, October 2026", "Research"),
+    ("ememdemo", "https://vortx-ai.github.io/ememdemo/", "explore a site built on emem", "Research"),
     ("Hugging Face Space", "https://huggingface.co/spaces/vortx-ai/emem", "the same image, running on a Space",
      "Developers"),
 ]
@@ -263,12 +262,12 @@ def render(current: str) -> str:
         out.append(f'<details class="navgrp{" on" if hit else ""}" name="sitenav">')
         out.append(f'<summary>{sec}</summary>')
         out.append('<div class="navmenu">')
-        for href, label, note, _, kind in rows:
-            mark = ' aria-current="page"' if href == current else ''
-            out.append(f'<a href="{href}"{mark}><b>{label}</b><span>{note}</span></a>')
-        for label, url, note, _ in ext:
-            out.append(f'<a href="{url}" target="_blank" rel="noopener noreferrer"><b>{label}'
-                       f'<i class="ext" aria-hidden="true">&#8599;</i></b><span>{note}</span></a>')
+        own = [f'<a href="{href}"{" aria-current=\"page\"" if href == current else ""}><b>{label}</b><span>{note}</span></a>'
+               for href, label, note, _, kind in rows]
+        off = [f'<a href="{url}" target="_blank" rel="noopener noreferrer"><b>{label}'
+               f'<i class="ext" aria-hidden="true">&#8599;</i></b><span>{note}</span></a>' for label, url, note, _ in ext]
+        # Research leads with the published work; everywhere else the site's own pages come first.
+        out.extend(off + own if sec == "Research" else own + off)
         out.append('</div></details>')
     for href in BAR:
         label = ROW[href][1]
