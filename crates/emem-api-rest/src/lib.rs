@@ -19796,12 +19796,13 @@ async fn post_field_boundaries(
                     "hull": rrep.hull,
                     "simplified": rrep.simplified,
                     "kept": rrep.kept,
+                    "overlaps_reverted": rrep.overlaps_reverted,
                     "vertices_before": rrep.vertices_before,
                     "vertices_after": rrep.vertices_after,
                     "area_before_m2": rrep.area_before_m2,
                     "area_after_m2": rrep.area_after_m2,
                     "after_clean": req.clean,
-                    "what_this_is": "a simpler drawing of each outline where a simpler shape fits it closely, guarded so no field takes a neighbour's ground or changes area by more than the stated share",
+                    "what_this_is": "a simpler drawing of each outline where a simpler shape fits it closely, guarded so no field takes ground from a neighbour's outline, original or redrawn, no two redrawn outlines overlap, and no field changes area by more than the stated share",
                     "what_this_is_not": "a sharper boundary: on 10 m outlines it does not move an edge onto a truer one (mean NDVI gradient along the outlines 0.0043 before, 0.0044 after, on two public boxes measured 2026-11-20). Sub-metre imagery moves edges; this does not",
                 }));
                 kinds
