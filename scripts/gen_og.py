@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""The emem social card (og-image) in the Mithila hand: a dense engram beside
-the wordmark. Writes web/og-image.svg (the source of truth) and rasterises it to
-web/og-image.png (1200x630, the og:image) with cairosvg, so the two always match
-the served gallery's hand.
+"""The Mithila-hand engram card, kept as web/og-image.svg for the gallery.
+
+Since 2026-11-21 the og:image (web/og-image.png) is NOT written here. It is the
+site's hero card, rendered from scripts/og/og_card.html (the Gobind Sagar scene
+emem read from orbit beside the category line) by headless Chromium at
+1200x630. This script writes only the SVG, so running it can no longer bring
+back the old card.
 """
 import math, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -67,10 +70,6 @@ def main():
     s = build()
     s.save("web/og-image.svg")
     print("wrote web/og-image.svg")
-    import cairosvg
-    cairosvg.svg2png(url="web/og-image.svg", write_to="web/og-image.png",
-                     output_width=1200, output_height=630)
-    print("wrote web/og-image.png")
 
 
 if __name__ == "__main__":
