@@ -32,7 +32,7 @@ token    = emem:fact:<cell>:<fact_cid>    any AI reads back the same bytes
 log      = append-only tree, witnessed    nothing changes quietly
 ```
 
-One real memory, the NDVI of a field in Punjab on 17 November 2026: address (`defi.zb55a.weno.qobE`, `indices.ndvi`, `20774`), value 0.120 from Sentinel-2 L2A, token `emem:fact:defi.zb55a.weno.qobE:2ma2zvyphae2e5mr2wmjaxngbjytbmgirk5ptx7fx5mtlhhsf33a`. Paste the token at [emem.dev/verify](https://emem.dev/verify) and the check runs in your browser.
+One real memory, a point on the shore of the Gobind Sagar reservoir seen from orbit on 22 October 2026: address (`defi.zb565.yOqU.xApA`, `indices.mndwi`, `20748`), surface read as open water by Sentinel-2 L2A, token `emem:fact:defi.zb565.yOqU.xApA:deqxdntu2clvx2qasongy5bjhvjk7enrdkcyaso65xpg3s2imdza`. The pass of 10 June 2026 at the same address reads bare ground: two memories, one place. Paste a token at [emem.dev/verify](https://emem.dev/verify) and the check runs in your browser.
 
 The same model holds two kinds of memory. **Earth memory** is addressed by place, band and time. **Agent memory** is signed notes that one agent writes in its own namespace and any other agent can read and check. [How emem works](https://emem.dev/how-it-works) walks one request end to end.
 
@@ -60,15 +60,15 @@ What came back on 20 November 2026, in 2.3 s:
 
 The answer names its source and says what it cannot tell you. Every fact behind it is signed, and the fact id resolves, for you or any other agent, to the same bytes.
 
-The same for one farm field, from the latest clear Sentinel-2 pass:
+The same for one point on a reservoir shore, from the Sentinel-2 pass of 22 October 2026:
 
 ```bash
 curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
-  -d '{"lat":30.745,"lng":75.605,"bands":["indices.ndvi"]}' \
+  -d '{"lat":31.43288,"lng":76.46947,"bands":["indices.mndwi"],"tslot":20748}' \
   | jq '.facts[0] | {value, observed_at, scene: .derivation.args[2], surface: .surface_class.label, token: .memory_token}'
 ```
 
-On 20 November that gave NDVI 0.169 from scene `S2B_MSIL2A_20261117T054109_R005_T43REQ`, with the pixel read as bare soil: a field between the rice harvest and the wheat.
+That reads scene `S2A_MSIL2A_20261022T053241_R105_T43RFQ` and a surface of open water. Ask for `"tslot":20614`, the pass of 10 June, and the same address reads bare ground: the reservoir was low.
 
 ## What it remembers
 
@@ -110,8 +110,6 @@ Then ask in plain words. Each prompt below runs one tool:
 | "What is the air quality here right now?" | CAMS analysis: PM2.5, NO2 and ozone | `emem_air` |
 | "Will it rain here this week?" | met.no forecast: temperature, cloud, rain and wind (ERA5 past hours through `emem_recall`) | `emem_weather` |
 | "Is there open water here, and how often?" | JRC surface-water history since 1984 and Sentinel-1 radar, which sees water through cloud | `emem_water` |
-| "Show the NDVI of this field through the last kharif season" | every clear Sentinel-2 pass in one call, each date with its pixel count (4.2 s for a 4.4 ha field, 13 dates) | `emem_field_series` |
-| "Draw the field boundaries in this 1 km box" | Fields of The World outlines with net area and, if asked, the 10 m pixels each field holds | `emem_field_boundaries` |
 | "Is this cocoa plot deforestation-free under the EUDR?" | the EU forest map and forest loss after 31 December 2020, one signed check per plot | `emem_eudr_dds` |
 | "Was there tree-cover loss here since 2020?" | Hansen tree cover and year of loss, ESA WorldCover land class | `emem_forest` |
 | "How steep is this slope? What is the soil?" | Copernicus DEM slope and ruggedness, SoilGrids organic carbon and texture | `emem_terrain`, `emem_soil` |
@@ -119,6 +117,8 @@ Then ask in plain words. Each prompt below runs one tool:
 | "Read this scanned lab report" | Tesseract OCR, with a receipt that binds the image, the text and the engine | `emem_ocr` |
 | "Did this robot run what it says it ran?" | its signed execution trace, checked segment by segment | `emem_trace_verify` |
 | "Check the numbers in my draft before I send it" | each cited token resolves, and its value is compared with your sentence | `emem_guard_verdict` |
+| "Show the NDVI of this field through the last kharif season" | every clear Sentinel-2 pass in one call, each date with its pixel count (4.2 s for a 4.4 ha field, 13 dates) | `emem_field_series` |
+| "Draw the field boundaries in this 1 km box" | Fields of The World outlines with net area and, if asked, the 10 m pixels each field holds | `emem_field_boundaries` |
 
 117 wired measurements from open sources, read on demand. The full list: [emem.dev/tools](https://emem.dev/tools).
 
@@ -128,12 +128,12 @@ Real-world tasks where a cited answer matters. Each one uses the same memory; no
 
 | Task | What emem gives | Where |
 |---|---|---|
-| EUDR due diligence | each supplier plot checked against the EU forest map and loss after 31 December 2020, one signed result per plot | [emem.dev/eudr](https://emem.dev/eudr) |
-| Crop and field intelligence | season curves, field boundaries with pixel support, harvest and burning, field by field | [emem.dev/agriculture](https://emem.dev/agriculture) |
 | Water, rain and drought | surface water history, rainfall ranked against thirty years, drought indices, each with its date | `emem_water`, `/v1/rain_series`, `emem_spi` |
 | Forests and land change | tree cover, year of loss, canopy change, land class | `emem_forest`, `emem_deforestation_alert` |
+| EUDR due diligence | each supplier plot checked against the EU forest map and loss after 31 December 2020, one signed result per plot | [emem.dev/eudr](https://emem.dev/eudr) |
 | Agents that cite before they answer | every number in a draft checked against the signed value it cites | `emem_guard_verdict` |
 | Documents and devices | lab reports and land records read and signed line by line; device runs checked segment by segment | `emem_ocr`, `emem_trace_verify` |
+| Crop and field intelligence | season curves, field boundaries with pixel support, harvest and burning, field by field | [emem.dev/agriculture](https://emem.dev/agriculture) |
 
 ## Why the answers hold up
 
@@ -254,12 +254,12 @@ Issues and pull requests welcome: [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.
 
 ## Content address
 
-Every section above this one is a unit of one signed tree: `emem:tree:2pt54mtubin45h7kqo3mos5bxy`, root `yuo5kkga77zig2zm4x3bj2dhrum4zp2jgtqmtli2b7dtpuqrrzea`, published under the key `k572x7go`. A single section is `emem:tree:2pt54mtubin45h7kqo3mos5bxy#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
+Every section above this one is a unit of one signed tree: `emem:tree:xmv6k7mj5u7ayghzajh45uw3ve`, root `2ksqhmzsjopfxalozsclgwvnljxos3lmmbjtwxx37lgzcgpdfs5q`, published under the key `k572x7go`. A single section is `emem:tree:xmv6k7mj5u7ayghzajh45uw3ve#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
 
 ```bash
-curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261120f.md" > index.md
-curl -s "https://emem.dev/v1/tree/2pt54mtubin45h7kqo3mos5bxy?row=3" > row.json
+curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261121a.md" > index.md
+curl -s "https://emem.dev/v1/tree/xmv6k7mj5u7ayghzajh45uw3ve?row=3" > row.json
 python3 tools/verifiers/emem-tokenise-files/tree_proof.py check row.json index.md README.md
 ```
 
-`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261120f.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261120f.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
+`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261121a.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261121a.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
