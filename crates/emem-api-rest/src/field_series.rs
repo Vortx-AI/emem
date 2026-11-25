@@ -1665,6 +1665,52 @@ fn with_pooled(mut record: JsonValue, pooled: Option<JsonValue>) -> JsonValue {
     record
 }
 
+/// Backscatter statistics of a set of pixels from their linear power sums
+/// (count, VV sum and sum of squares, VH sum and sum of squares): the mean in
+/// dB (10 log10 of the mean power; for vh_vv, of the ratio of the two channel
+/// means), its standard error in dB from the pixels' scatter, and the pixels'
+/// ENL (mean^2 / variance of power). One function for the window rows and the
+/// field rows, so the two cannot drift.
+fn power_stats(
+    index: &str,
+    n: usize,
+    (sa, sa2): (f64, f64),
+    (sc, sc2): (f64, f64),
+) -> (Option<f64>, Option<f64>, Option<f64>) {
+    let nlf = n.max(1) as f64;
+    // Neighbouring pixels share speckle (20 m resolution on 10 m spacing),
+    // so the standard error understates it by up to about 2x.
+    let se_db = |s: f64, s2: f64| {
+        let m = s / nlf;
+        let var = ((s2 / nlf - m * m) * nlf / (nlf - 1.0).max(1.0)).max(0.0);
+        (m > 0.0).then(|| 10.0 / std::f64::consts::LN_10 * var.sqrt() / (m * nlf.sqrt()))
+    };
+    let enl = |s: f64, s2: f64| {
+        let m = s / nlf;
+        let var = (s2 / nlf - m * m).max(0.0);
+        (var > 0.0).then(|| m * m / var)
+    };
+    match index {
+        "vv" => (
+            (sa > 0.0).then(|| 10.0 * (sa / nlf).log10()),
+            se_db(sa, sa2),
+            enl(sa, sa2),
+        ),
+        "vh" => (
+            (sc > 0.0).then(|| 10.0 * (sc / nlf).log10()),
+            se_db(sc, sc2),
+            enl(sc, sc2),
+        ),
+        _ => (
+            (sa > 0.0 && sc > 0.0).then(|| 10.0 * (sc / sa).log10()),
+            se_db(sa, sa2)
+                .zip(se_db(sc, sc2))
+                .map(|(x, y)| (x * x + y * y).sqrt()),
+            enl(sc, sc2),
+        ),
+    }
+}
+
 /// What a `fields` request carries per field and scene, as it accumulates.
 struct FieldsAcc {
     /// (field index, day, row)
@@ -1674,6 +1720,8 @@ struct FieldsAcc {
     memory: bool,
     /// Run [`crate::canopy_loss::seasonal_canopy_loss`] over this window of days.
     canopy: Option<(i64, i64)>,
+    /// Columns a sensor adds after the shared ones, in the order `add` gets them.
+    extra_cols: &'static [&'static str],
 }
 
 /// A date is a fault across the window when at least this share of the
@@ -1687,6 +1735,7 @@ impl FieldsAcc {
             series: vec![(Vec::new(), Vec::new()); n],
             memory: false,
             canopy: None,
+            extra_cols: &[],
         }
     }
 
@@ -1703,25 +1752,24 @@ impl FieldsAcc {
         n_px: usize,
         min_share: f64,
         min_support: usize,
+        extra: &[JsonValue],
     ) {
         let zs = distribution(vals, n_px);
         let share = zs.n_clear as f64 / n_px as f64;
         if share < min_share || zs.n_clear < min_support {
             return;
         }
-        self.rows.push((
-            zi,
-            day,
-            json!([
-                id,
-                date,
-                round6(zs.median),
-                round6(zs.p10),
-                round6(zs.p90),
-                zs.n_clear,
-                round6(share)
-            ]),
-        ));
+        let mut row = vec![
+            json!(id),
+            json!(date),
+            round6(zs.median),
+            round6(zs.p10),
+            round6(zs.p90),
+            json!(zs.n_clear),
+            round6(share),
+        ];
+        row.extend_from_slice(extra);
+        self.rows.push((zi, day, JsonValue::Array(row)));
         self.series[zi].0.push(day);
         self.series[zi].1.push(zs.median);
     }
@@ -1828,6 +1876,7 @@ impl FieldsAcc {
             count_cols[0],
             count_cols[1],
         ];
+        columns.extend_from_slice(self.extra_cols);
         if check_scenes {
             columns.push("suspect");
         }
@@ -3188,6 +3237,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
                 px.len(),
                 min_clear,
                 min_support,
+                &[],
             );
         }
         if let Some(pl) = pooled.as_mut() {
@@ -3997,6 +4047,14 @@ async fn radar_series(
     let (zone_px, fields_skipped) = zone_pixels(&zones, &lattice, buffer_m, min_support);
     let mut fields_acc = FieldsAcc::new(zones.len());
     fields_acc.memory = req.memory == Some(true);
+    fields_acc.extra_cols = &[
+        "mean",
+        "se_db",
+        "pixel_enl",
+        "platform",
+        "orbit",
+        "orbit_state",
+    ];
     let (quads, block_px) = if map {
         let mut px: Vec<Vec<usize>> = vec![Vec::new(); (blocks * blocks) as usize];
         for (p, _) in inside.iter().enumerate().filter(|(_, v)| **v) {
@@ -4057,12 +4115,25 @@ async fn radar_series(
                 // Each field against its own median: a bright field is not a
                 // point target because its neighbours are darker.
                 let cut = scene.cut(px.iter().copied());
-                let mut zv: Vec<f32> = px
+                let mut zv: Vec<f32> = Vec::with_capacity(px.len());
+                let (mut a1, mut a2, mut c1, mut c2) = (0.0, 0.0, 0.0, 0.0);
+                for (a, c, _) in px
                     .iter()
                     .filter_map(|p| scene.pixel(*p, cut))
                     .filter(|(_, _, bright)| !bright)
-                    .map(|(a, c, _)| scene.db(a, c))
-                    .collect();
+                {
+                    zv.push(scene.db(a, c));
+                    (a1, a2, c1, c2) = (a1 + a, a2 + a * a, c1 + c, c2 + c * c);
+                }
+                let (m, se, enl) = power_stats(&index_key, zv.len(), (a1, a2), (c1, c2));
+                let extra = [
+                    m.map(round6).unwrap_or(JsonValue::Null),
+                    se.map(round6).unwrap_or(JsonValue::Null),
+                    enl.map(round6).unwrap_or(JsonValue::Null),
+                    json!(it.platform.as_deref().map(str::to_ascii_lowercase)),
+                    json!(orbit),
+                    json!(it.orbit_state),
+                ];
                 fields_acc.add(
                     zi,
                     &zones[zi].id,
@@ -4072,6 +4143,7 @@ async fn radar_series(
                     px.len(),
                     min_valid,
                     min_support,
+                    &extra,
                 );
             }
         }
@@ -4105,38 +4177,7 @@ async fn radar_series(
         let nl = vals.len();
         let valid_fraction = (nl + bright) as f64 / n_inside as f64;
         let nlf = nl.max(1) as f64;
-        // The standard error of a channel's mean, in dB, from the pixels'
-        // own scatter. Neighbouring pixels share speckle (20 m resolution
-        // on 10 m spacing), so this understates it by up to about 2x.
-        let se_db = |s: f64, s2: f64| {
-            let m = s / nlf;
-            let var = ((s2 / nlf - m * m) * nlf / (nlf - 1.0).max(1.0)).max(0.0);
-            (m > 0.0).then(|| 10.0 / std::f64::consts::LN_10 * var.sqrt() / (m * nlf.sqrt()))
-        };
-        let enl = |s: f64, s2: f64| {
-            let m = s / nlf;
-            let var = (s2 / nlf - m * m).max(0.0);
-            (var > 0.0).then(|| m * m / var)
-        };
-        let (mean_db, se, pixel_enl) = match index_key.as_str() {
-            "vv" => (
-                (sa > 0.0).then(|| 10.0 * (sa / nlf).log10()),
-                se_db(sa, sa2),
-                enl(sa, sa2),
-            ),
-            "vh" => (
-                (sc > 0.0).then(|| 10.0 * (sc / nlf).log10()),
-                se_db(sc, sc2),
-                enl(sc, sc2),
-            ),
-            _ => (
-                (sa > 0.0 && sc > 0.0).then(|| 10.0 * (sc / sa).log10()),
-                se_db(sa, sa2)
-                    .zip(se_db(sc, sc2))
-                    .map(|(x, y)| (x * x + y * y).sqrt()),
-                enl(sc, sc2),
-            ),
-        };
+        let (mean_db, se, pixel_enl) = power_stats(&index_key, nl, (sa, sa2), (sc, sc2));
         let below_nesz = dark as f64 / nlf;
         if vals.len() < min_support || valid_fraction < min_valid {
             excluded.push(json!({"date": date, "scene": it.id, "valid_fraction": round6(valid_fraction),
@@ -5627,6 +5668,55 @@ mod tests {
         assert!(scene_clamp_caution(Some(1), 3)
             .unwrap()
             .contains("max_scenes 1"));
+    }
+
+    #[test]
+    fn power_stats_read_the_mean_of_power_and_its_spread() {
+        // Four pixels of linear power 0.01, 0.02, 0.03, 0.04 in VV.
+        let v = [0.01f64, 0.02, 0.03, 0.04];
+        let (s, s2) = (v.iter().sum::<f64>(), v.iter().map(|x| x * x).sum::<f64>());
+        let (m, se, enl) = power_stats("vv", 4, (s, s2), (0.0, 0.0));
+        assert!((m.unwrap() - 10.0 * 0.025f64.log10()).abs() < 1e-9);
+        // Population variance 1.25e-4, so ENL = 0.025^2 / 1.25e-4 = 5.
+        assert!((enl.unwrap() - 5.0).abs() < 1e-9);
+        // Sample std 0.012910; SE in dB = 10/ln10 * 0.012910 / (0.025 * 2).
+        let want = 10.0 / std::f64::consts::LN_10 * (1.25e-4f64 * 4.0 / 3.0).sqrt() / (0.025 * 2.0);
+        assert!((se.unwrap() - want).abs() < 1e-9);
+        // The ratio index is the ratio of the channel means.
+        let (r, _, _) = power_stats("vh_vv", 4, (s, s2), (s / 4.0, s2 / 16.0));
+        assert!((r.unwrap() - 10.0 * 0.25f64.log10()).abs() < 1e-9);
+        // A uniform field has no spread to read a look count from.
+        // 0.25 and 0.25: exact in binary, so the variance is exactly zero.
+        assert_eq!(power_stats("vv", 2, (0.5, 0.125), (0.0, 0.0)).2, None);
+    }
+
+    #[test]
+    fn a_radar_field_row_carries_its_power_mean_and_orbit() {
+        let mut acc = FieldsAcc::new(1);
+        acc.extra_cols = &[
+            "mean",
+            "se_db",
+            "pixel_enl",
+            "platform",
+            "orbit",
+            "orbit_state",
+        ];
+        let mut vals: Vec<f32> = (0..40).map(|i| -12.0 + (i % 5) as f32 * 0.1).collect();
+        let extra = [
+            json!(-11.8),
+            json!(0.12),
+            json!(4.4),
+            json!("sentinel-1a"),
+            json!(63),
+            json!("descending"),
+        ];
+        acc.add(0, "f1", "2026-02-15", 20499, &mut vals, 40, 0.5, 30, &extra);
+        let (_, _, row) = &acc.rows[0];
+        let row = row.as_array().unwrap();
+        assert_eq!(row.len(), 7 + 6);
+        assert_eq!(row[7], json!(-11.8));
+        assert_eq!(row[11], json!(63));
+        assert_eq!(row[12], json!("descending"));
     }
 
     #[test]
