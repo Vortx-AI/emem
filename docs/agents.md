@@ -1653,6 +1653,7 @@ marks an optional field.
 | `/v1/trajectory` | `{cell or place or lat and lng, band, window?, as_of_tslot?, as_of_signed_at?, scope?}`, or `from_date` and `to_date` in place of `window` |
 | `/v1/field_series` | `{geometry or bbox or areas or fields, start_date, end_date, index?, sensor?, orbit?, inner_buffer_m?, min_support_px?, min_clear_fraction?, max_scenes?, blocks?, mask_policy?, qa_reject_bits?, memory?, pool?}`. `min_valid_share` is an alias of `min_clear_fraction` |
 | `/v1/diff` | `{cell or place or lat and lng, band, tslot_a or date_a, tslot_b or date_b}`. A date is `YYYY-MM-DD` |
+| `/v1/rain_series` | `{lat and lng or cell, start and end or past_days?, forecast_days?, climatology_years?}`. `start_date` and `end_date` are aliases of `start` and `end`; any other field is refused. Daily rain on UTC days from ERA5, the forecast model's analysis for the days ERA5 has not reached, and its forecast ahead. A named window (up to 366 days, from 1940) gets its own total; the recent window gets totals over 1 to 90 days back and 1 to 14 ahead. Each total is ranked against the same span of earlier years, signed as one `rain_series@3` derivation |
 | `/v1/temperature_series` | `{lat and lng or cell, start and end or past_days?, forecast_days?, base_c?, method?, cap_c?, heat_c?, climatology_years?}`. Daily Tmax, Tmin and Tmean on local days from ERA5-Land, growing degree-days, and the GDD total ranked against the same span of earlier years, signed as one `temperature_series@1` derivation. MCP tool `emem_temperature_series` |
 
 ##### Two forms of bbox

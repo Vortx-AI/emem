@@ -7,17 +7,19 @@
 //! CHIRPS final data lags a month. One call here returns, as one signed
 //! derivation:
 //!
-//! - the past `past_days` of daily totals, from ERA5 reanalysis where it has
-//!   arrived (about five days behind) and from the forecast model's own
-//!   analysis for the days ERA5 has not reached, each day tagged with which;
-//! - the next `forecast_days` of daily totals from the forecast model, each
-//!   with its lead time;
-//! - totals over 1 to 90 days back and 1 to 14 days ahead, each ranked
-//!   against every total of the same length ending (or, ahead, starting)
-//!   within a week of the same day of year in the climatology years, as a
-//!   non-exceedance probability and its standard-normal score. Over a 90-day
-//!   window that score is the standardized precipitation index computed
-//!   without a fitted distribution (Farahmand & AghaKouchak 2015).
+//! - the daily totals of the window, from ERA5 reanalysis where it has
+//!   arrived (about five days behind), from the forecast model's own analysis
+//!   for the days ERA5 has not reached, and from its forecast, with the lead,
+//!   for days ahead, each day tagged with which. The window is the last
+//!   `past_days` and next `forecast_days`, or a season named by `start` and
+//!   `end`;
+//! - for the recent window, totals over 1 to 90 days back and 1 to 14 days
+//!   ahead; for a named window, its own total. Each is ranked against every
+//!   total of the same length ending (or, ahead, starting) within a week of
+//!   the same day of year in the climatology years, as a non-exceedance
+//!   probability and its standard-normal score. Over a 90-day window that
+//!   score is the standardized precipitation index computed without a fitted
+//!   distribution (Farahmand & AghaKouchak 2015).
 
 use emem_storage::PutAttestationDetached;
 use std::time::Instant;
@@ -33,7 +35,7 @@ use crate::band_raster::{bad_request, upstream_error};
 use crate::change_attribution::json_to_cbor;
 use crate::{ApiError, AppState, EmemJson};
 
-const FN_KEY: &str = "rain_series@2";
+const FN_KEY: &str = "rain_series@3";
 const PAST_WINDOWS: [u32; 6] = [1, 3, 7, 14, 30, 90];
 const AHEAD_WINDOWS: [u32; 4] = [1, 3, 7, 14];
 /// Days either side of the day of year whose totals join the climatology:
@@ -49,10 +51,19 @@ const MAX_RAINLESS_SHARE: f64 = 0.5;
 const MAX_PAST_DAYS: u32 = 92;
 const MAX_FORECAST_DAYS: u32 = 16;
 const MAX_CLIMATOLOGY_YEARS: u32 = 40;
+const MAX_WINDOW_DAYS: i64 = 366;
 /// The forecast model's past days only fill what ERA5 has not reached yet.
 pub(crate) const ANALYSIS_DAYS: u32 = 10;
 
+/// ERA5's first day on the Open-Meteo archive.
+fn first_archive_day() -> i64 {
+    crate::days_from_civil(1940, 1, 1)
+}
+
+// A field this route does not read is refused: `start_date` and `end_date`
+// were once accepted and ignored, and the caller got the default window.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RainSeriesReq {
     #[serde(default)]
     pub lat: Option<f64>,
@@ -61,10 +72,16 @@ pub struct RainSeriesReq {
     /// A cell64 in place of lat/lng.
     #[serde(default, alias = "cell64")]
     pub cell: Option<String>,
+    /// First UTC day, YYYY-MM-DD. With `end`, in place of past_days and
+    /// forecast_days.
+    #[serde(default, alias = "start_date")]
+    pub start: Option<String>,
+    #[serde(default, alias = "end_date")]
+    pub end: Option<String>,
     /// Days back, 1..=92. Default 30.
     #[serde(default)]
     pub past_days: Option<u32>,
-    /// Days ahead, 1..=16. Default 7.
+    /// Days ahead, 0..=16. Default 7.
     #[serde(default)]
     pub forecast_days: Option<u32>,
     /// Complete years before this one to rank against, 0..=40. Default 30; 0
@@ -84,6 +101,88 @@ pub(crate) fn iso(day: i64) -> String {
 pub(crate) fn day_of(iso: &str) -> Option<i64> {
     let (y, m, d) = crate::band_raster::parse_ymd(iso)?;
     Some(crate::days_from_civil(y, m, d))
+}
+
+pub(crate) fn parse_date(field: &str, s: &str) -> Result<i64, String> {
+    // The round trip refuses 2025-02-30 and 2025-6-1, which parse_ymd lets by.
+    day_of(s)
+        .filter(|d| iso(*d) == s)
+        .ok_or_else(|| format!("`{field}` must be a calendar date as YYYY-MM-DD, got `{s}`"))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Window {
+    Dates { first: i64, last: i64 },
+    Recent { past: u32, ahead: u32 },
+}
+
+impl Window {
+    /// First and last UTC day, given `today`.
+    fn days(self, today: i64) -> (i64, i64) {
+        match self {
+            Window::Dates { first, last } => (first, last),
+            Window::Recent { past, ahead } => (today - past as i64, today + ahead as i64 - 1),
+        }
+    }
+}
+
+fn window_of(req: &RainSeriesReq, today: i64) -> Result<Window, String> {
+    match (req.start.as_deref(), req.end.as_deref()) {
+        (None, None) => {
+            let past = req.past_days.unwrap_or(30);
+            let ahead = req.forecast_days.unwrap_or(7);
+            if !(1..=MAX_PAST_DAYS).contains(&past) || ahead > MAX_FORECAST_DAYS {
+                return Err(format!(
+                    "past_days takes 1 to {MAX_PAST_DAYS} and forecast_days 0 to {MAX_FORECAST_DAYS}"
+                ));
+            }
+            Ok(Window::Recent { past, ahead })
+        }
+        (Some(s), Some(e)) => {
+            if req.past_days.is_some() || req.forecast_days.is_some() {
+                return Err(
+                    "give `start` and `end`, or `past_days` and `forecast_days`, not both".into(),
+                );
+            }
+            let first = parse_date("start", s)?;
+            let last = parse_date("end", e)?;
+            if first < first_archive_day() {
+                return Err(format!(
+                    "`start` ({s}) is before 1940-01-01, where ERA5 begins"
+                ));
+            }
+            if last < first {
+                return Err(format!("`end` ({e}) is before `start` ({s})"));
+            }
+            let len = last - first + 1;
+            if len > MAX_WINDOW_DAYS {
+                return Err(format!(
+                    "the window is {len} days; the most is {MAX_WINDOW_DAYS}"
+                ));
+            }
+            let reach = today + MAX_FORECAST_DAYS as i64 - 1;
+            if first > reach {
+                return Err(format!(
+                    "`start` ({s}) is after {}, the last day the forecast reaches",
+                    iso(reach)
+                ));
+            }
+            Ok(Window::Dates { first, last })
+        }
+        _ => Err("give both `start` and `end`, or neither".into()),
+    }
+}
+
+/// The climatology years for a window: the complete years before this one
+/// for the recent window, the years before the first day's year for a named
+/// one, so a season is never ranked against itself.
+fn climatology_years(window: Window, today: i64, years: u32) -> (i32, i32) {
+    let anchor = match window {
+        Window::Dates { first, .. } => first,
+        Window::Recent { .. } => today,
+    };
+    let (y, _, _) = crate::civil_from_days(anchor);
+    (y - years as i32, y - 1)
 }
 
 /// `{"daily": {"time": [...], "precipitation_sum": [...]}}` as day -> mm.
@@ -242,21 +341,50 @@ fn ranked(x: f64, sample: &[f64], years: usize) -> JsonValue {
     out
 }
 
-/// Past days in order: ERA5 where it has a value, the forecast model's
-/// analysis where it does not, missing otherwise.
-fn merge_past(
+/// The window's days in order. Before `today`: ERA5 where it has a value, the
+/// forecast model's analysis where it does not, missing otherwise. From
+/// `today` on: the forecast with its lead, else not yet.
+fn merge_days(
     first: i64,
     last: i64,
+    today: i64,
     era5: &std::collections::HashMap<i64, f64>,
-    analysis: &std::collections::HashMap<i64, f64>,
+    model: &std::collections::HashMap<i64, f64>,
 ) -> Vec<Day> {
     (first..=last)
-        .map(|d| match (era5.get(&d), analysis.get(&d)) {
-            (Some(v), _) => (d, Some(*v), "era5", None),
-            (None, Some(v)) => (d, Some(*v), "model_analysis", None),
-            (None, None) => (d, None, "missing", None),
+        .map(|d| {
+            if d >= today {
+                return match model.get(&d) {
+                    Some(v) => (d, Some(*v), "forecast", Some(d - today)),
+                    None => (d, None, "not_yet", None),
+                };
+            }
+            match (era5.get(&d), model.get(&d)) {
+                (Some(v), _) => (d, Some(*v), "era5", None),
+                (None, Some(v)) => (d, Some(*v), "model_analysis", None),
+                (None, None) => (d, None, "missing", None),
+            }
         })
         .collect()
+}
+
+/// Lengths of the spans of a named window to total, each from its first day:
+/// the days before today that all have a value, then, if forecast days
+/// continue it, the span through them.
+fn span_lengths(days: &[Day]) -> Vec<usize> {
+    let observed = days
+        .iter()
+        .take_while(|(_, v, _, lead)| v.is_some() && lead.is_none())
+        .count();
+    let valued = days.iter().take_while(|(_, v, _, _)| v.is_some()).count();
+    let mut out = Vec::new();
+    if observed > 0 {
+        out.push(observed);
+    }
+    if valued > observed {
+        out.push(valued);
+    }
+    out
 }
 
 pub(crate) async fn get_json(url: &str) -> Result<JsonValue, String> {
@@ -303,110 +431,149 @@ pub(crate) fn point(
 pub(crate) async fn rain_series(req: RainSeriesReq, s: &AppState) -> Result<JsonValue, ApiError> {
     let started = Instant::now();
     let (lat, lng) = point(req.lat, req.lng, req.cell.as_deref())?;
-    let past_days = req.past_days.unwrap_or(30);
-    let forecast_days = req.forecast_days.unwrap_or(7);
+    let today = crate::now_unix() as i64 / 86_400;
+    let window = window_of(&req, today).map_err(bad_request)?;
     let years = req.climatology_years.unwrap_or(30);
-    if !(1..=MAX_PAST_DAYS).contains(&past_days)
-        || !(1..=MAX_FORECAST_DAYS).contains(&forecast_days)
-        || years > MAX_CLIMATOLOGY_YEARS
-    {
+    if years > MAX_CLIMATOLOGY_YEARS {
         return Err(bad_request(format!(
-            "past_days takes 1 to {MAX_PAST_DAYS}, forecast_days 1 to {MAX_FORECAST_DAYS}, \
-             climatology_years 0 to {MAX_CLIMATOLOGY_YEARS}"
+            "climatology_years takes 0 to {MAX_CLIMATOLOGY_YEARS}, got {years}"
         )));
     }
     let cell = emem_codec::geo::cell64_from_latlng(lat, lng);
-    let today = crate::now_unix() as i64 / 86_400;
-    let (this_year, _, _) = crate::civil_from_days(today);
-    let first_past = today - past_days as i64;
+    let (first, last) = window.days(today);
     let yesterday = today - 1;
+    let clim_years = climatology_years(window, today, years);
 
-    let forecast_url = format!(
-        "https://api.open-meteo.com/v1/forecast?latitude={lat:.4}&longitude={lng:.4}\
-         &daily=precipitation_sum&past_days={}&forecast_days={forecast_days}&timezone=UTC",
-        ANALYSIS_DAYS.min(past_days)
-    );
-    // ERA5 from the first climatology year (or the first past day) to yesterday,
-    // in one request: about 11,000 values for 30 years.
-    let clim_years = (this_year - years as i32, this_year - 1);
-    let era5_from = if years > 0 {
-        crate::days_from_civil(clim_years.0, 1, 1).min(first_past)
-    } else {
-        first_past
+    // The forecast model fills the days ERA5 has not reached and gives the
+    // days ahead; a window that ends before them needs no forecast call.
+    let (fc_past, fc_ahead) = match window {
+        Window::Recent { past, ahead } => (ANALYSIS_DAYS.min(past), ahead),
+        Window::Dates { .. } => (
+            if last >= today - ANALYSIS_DAYS as i64 {
+                (today - first).clamp(0, ANALYSIS_DAYS as i64) as u32
+            } else {
+                0
+            },
+            (last - today + 1).clamp(0, MAX_FORECAST_DAYS as i64) as u32,
+        ),
     };
-    let archive_url = format!(
-        "https://archive-api.open-meteo.com/v1/archive?latitude={lat:.4}&longitude={lng:.4}\
-         &start_date={}&end_date={}&daily=precipitation_sum&timezone=UTC&models=era5",
-        iso(era5_from),
-        iso(yesterday)
+    let forecast_url = (fc_past > 0 || fc_ahead > 0).then(|| {
+        format!(
+            "https://api.open-meteo.com/v1/forecast?latitude={lat:.4}&longitude={lng:.4}\
+             &daily=precipitation_sum&past_days={fc_past}&forecast_days={fc_ahead}&timezone=UTC"
+        )
+    });
+    // ERA5 from far enough before the first climatology year that its first
+    // totals are whole, to the window's end or the last climatology year,
+    // in one request: about 11,000 values for 30 years.
+    let longest = match window {
+        Window::Recent { .. } => 90,
+        Window::Dates { first, last } => last - first + 1,
+    };
+    let era5_from = if years > 0 {
+        (crate::days_from_civil(clim_years.0, 1, 1) - longest - SEASON_HALF_WIDTH_DAYS).min(first)
+    } else {
+        first
+    }
+    .max(first_archive_day());
+    let era5_to = if years > 0 {
+        last.max(crate::days_from_civil(clim_years.1 + 1, 12, 31))
+    } else {
+        last
+    }
+    .min(yesterday);
+    let archive_url = (era5_from <= era5_to).then(|| {
+        format!(
+            "https://archive-api.open-meteo.com/v1/archive?latitude={lat:.4}&longitude={lng:.4}\
+             &start_date={}&end_date={}&daily=precipitation_sum&timezone=UTC&models=era5",
+            iso(era5_from),
+            iso(era5_to)
+        )
+    });
+    let fetch = |url: Option<String>, what: &'static str| async move {
+        match url {
+            None => Ok(vec![]),
+            Some(u) => daily_values(
+                &get_json(&u)
+                    .await
+                    .map_err(|e| upstream_error(format!("{what}: {e}")))?,
+            )
+            .map_err(|e| upstream_error(format!("{what}: {e}"))),
+        }
+    };
+    let (fc, ar) = tokio::join!(
+        fetch(forecast_url.clone(), "rain forecast"),
+        fetch(archive_url.clone(), "ERA5 archive")
     );
-    let (fc, ar) = tokio::join!(get_json(&forecast_url), get_json(&archive_url));
-    let fc = daily_values(&fc.map_err(|e| upstream_error(format!("rain forecast: {e}")))?)
-        .map_err(|e| upstream_error(format!("rain forecast: {e}")))?;
-    let ar = daily_values(&ar.map_err(|e| upstream_error(format!("ERA5 archive: {e}")))?)
-        .map_err(|e| upstream_error(format!("ERA5 archive: {e}")))?;
+    let (fc, ar) = (fc?, ar?);
 
     let era5: std::collections::HashMap<i64, f64> =
         ar.iter().filter_map(|(d, v)| Some((*d, (*v)?))).collect();
     let model: std::collections::HashMap<i64, f64> =
         fc.iter().filter_map(|(d, v)| Some((*d, (*v)?))).collect();
-    let analysis: std::collections::HashMap<i64, f64> = model
-        .iter()
-        .filter(|(d, _)| **d < today)
-        .map(|(d, v)| (*d, *v))
-        .collect();
-    let past = merge_past(first_past, yesterday, &era5, &analysis);
-    let ahead: Vec<Day> = (today..today + forecast_days as i64)
-        .map(|d| (d, model.get(&d).copied(), "forecast", Some(d - today)))
-        .collect();
-    let all_past: std::collections::HashMap<i64, f64> = past
+    let days_in = merge_days(first, last, today, &era5, &model);
+    let valued: std::collections::HashMap<i64, f64> = days_in
         .iter()
         .filter_map(|(d, v, _, _)| Some((*d, (*v)?)))
         .collect();
+    // The days before the first climatology year stay in, so its totals are
+    // whole; nothing after the last one does, so a window never ranks against
+    // its own days.
     let clim: std::collections::HashMap<i64, f64> = era5
         .iter()
-        .filter(|(d, _)| {
-            let (y, _, _) = crate::civil_from_days(**d);
-            y >= clim_years.0 && y <= clim_years.1
-        })
+        .filter(|(d, _)| crate::civil_from_days(**d).0 <= clim_years.1)
         .map(|(d, v)| (*d, *v))
         .collect();
+    let rank = |t: f64, anchor: i64, len: u32, ending: bool| {
+        let (sample, n_years) = if years > 0 {
+            season_totals(&clim, clim_years, anchor, len, ending)
+        } else {
+            (vec![], 0)
+        };
+        ranked(t, &sample, n_years)
+    };
 
     let round = |v: f64| (v * 10.0).round() / 10.0;
-    let mut past_totals = Vec::new();
-    for w in PAST_WINDOWS.into_iter().filter(|w| *w <= past_days) {
-        let first = yesterday - w as i64 + 1;
-        if let Some(t) = total(&all_past, first, w) {
-            let (sample, n_years) = if years > 0 {
-                season_totals(&clim, clim_years, yesterday, w, true)
-            } else {
-                (vec![], 0)
-            };
-            past_totals.push(json!({"days": w, "from": iso(first), "to": iso(yesterday),
-                                    "mm": round(t), "climatology": ranked(t, &sample, n_years)}));
+    let mut record_totals = serde_json::Map::new();
+    match window {
+        Window::Recent { past, ahead } => {
+            let mut past_totals = Vec::new();
+            for w in PAST_WINDOWS.into_iter().filter(|w| *w <= past) {
+                let from = yesterday - w as i64 + 1;
+                if let Some(t) = total(&valued, from, w) {
+                    past_totals.push(json!({"days": w, "from": iso(from), "to": iso(yesterday),
+                                            "mm": round(t), "climatology": rank(t, yesterday, w, true)}));
+                }
+            }
+            let mut ahead_totals = Vec::new();
+            for w in AHEAD_WINDOWS.into_iter().filter(|w| *w <= ahead) {
+                if let Some(t) = total(&valued, today, w) {
+                    ahead_totals.push(json!({"days": w, "from": iso(today), "to": iso(today + w as i64 - 1),
+                                             "mm": round(t), "climatology": rank(t, today, w, false)}));
+                }
+            }
+            record_totals.insert("past_totals".into(), json!(past_totals));
+            record_totals.insert("forecast_totals".into(), json!(ahead_totals));
+        }
+        Window::Dates { .. } => {
+            let spans: Vec<JsonValue> = span_lengths(&days_in)
+                .into_iter()
+                .filter_map(|n| {
+                    let to = first + n as i64 - 1;
+                    let t = total(&valued, first, n as u32)?;
+                    Some(
+                        json!({"days": n, "from": iso(first), "to": iso(to), "mm": round(t),
+                                "through": if to >= today { "forecast" } else { "observed" },
+                                "whole_window": to == last,
+                                "climatology": rank(t, to, n as u32, true)}),
+                    )
+                })
+                .collect();
+            record_totals.insert("window_totals".into(), json!(spans));
         }
     }
-    let ahead_map: std::collections::HashMap<i64, f64> = ahead
+    let days: Vec<JsonValue> = days_in
         .iter()
-        .filter_map(|(d, v, _, _)| Some((*d, (*v)?)))
-        .collect();
-    let mut ahead_totals = Vec::new();
-    for w in AHEAD_WINDOWS.into_iter().filter(|w| *w <= forecast_days) {
-        if let Some(t) = total(&ahead_map, today, w) {
-            let (sample, n_years) = if years > 0 {
-                season_totals(&clim, clim_years, today, w, false)
-            } else {
-                (vec![], 0)
-            };
-            ahead_totals.push(
-                json!({"days": w, "from": iso(today), "to": iso(today + w as i64 - 1),
-                                     "mm": round(t), "climatology": ranked(t, &sample, n_years)}),
-            );
-        }
-    }
-    let days: Vec<JsonValue> = past
-        .iter()
-        .chain(ahead.iter())
         .map(|(d, v, src, lead)| {
             let mut o = json!({"date": iso(*d), "mm": v.map(round), "source": src});
             if let Some(l) = lead {
@@ -415,30 +582,61 @@ pub(crate) async fn rain_series(req: RainSeriesReq, s: &AppState) -> Result<Json
             o
         })
         .collect();
-    let gaps = past.iter().filter(|(_, v, _, _)| v.is_none()).count();
-    let mut cautions = vec![
-        "The days ahead are a weather model's forecast, issued when this record was signed; \
-         past days are reanalysis (ERA5) or that model's own analysis, not a rain gauge."
-            .to_string(),
-        "The ranking compares totals with ERA5's at the same place. The forecast model and ERA5 \
-         are different models on different grids, and ERA5 is known to under-read short \
-         convective bursts, so a forecast total ranks high a little more easily than an \
-         observed one would."
-            .to_string(),
-    ];
+    let count = |src: &str| days_in.iter().filter(|(_, _, s, _)| *s == src).count();
+    let ahead_days = count("forecast");
+    let mut cautions = Vec::new();
+    if first < today {
+        cautions.push(
+            "Past days are ERA5 reanalysis, or the forecast model's own analysis for the days \
+             ERA5 has not reached; neither is a rain gauge. ERA5 is a 0.25 degree grid (about \
+             28 km), so a point gets its grid cell's rain, and it under-reads short convective \
+             bursts."
+                .to_string(),
+        );
+    }
+    if ahead_days > 0 {
+        cautions.push(format!(
+            "Days from {} on are a weather model's forecast, issued when this record was signed. \
+             A total that includes them is ranked against ERA5's: different models on different \
+             grids, so it ranks high a little more easily than an observed total would.",
+            iso(today)
+        ));
+    }
+    let gaps = count("missing");
     if gaps > 0 {
         cautions.push(format!(
             "{gaps} past day(s) had no value from either source, and totals that span them are left out."
         ));
     }
-    let record = json!({
+    let not_yet = count("not_yet");
+    if not_yet > 0 {
+        cautions.push(format!(
+            "{not_yet} day(s) of the window lie past the forecast's reach and have no value yet."
+        ));
+    }
+    let asked_as = match window {
+        Window::Dates { .. } => json!({"start": iso(first), "end": iso(last)}),
+        Window::Recent { past, ahead } => json!({"past_days": past, "forecast_days": ahead}),
+    };
+    let mut sources = Vec::new();
+    if let Some(u) = &forecast_url {
+        sources.push(
+            json!({"name": "Open-Meteo forecast API (best-match weather model for the location)",
+                            "url": u, "licence": "CC BY 4.0",
+                            "role": "days ahead, and past days ERA5 has not reached"}),
+        );
+    }
+    if let Some(u) = &archive_url {
+        sources.push(json!({"name": "Open-Meteo historical weather API, ERA5 (Hersbach et al. 2020)",
+                            "url": u, "licence": "CC BY 4.0", "role": "past days and the climatology"}));
+    }
+    let mut record = json!({
         "schema": "emem.rain_series.v1",
         "fn_key": FN_KEY,
         "location": {"lat": lat, "lng": lng, "cell": cell},
         "issued": iso(today),
+        "window": {"asked_as": asked_as, "from": iso(first), "to": iso(last), "days": last - first + 1},
         "days": days,
-        "past_totals": past_totals,
-        "forecast_totals": ahead_totals,
         "climatology": if years > 0 {
             json!({"years": [clim_years.0, clim_years.1], "source": "ERA5 daily totals",
                    "rule": format!("every total of the same length ending (past) or starting (ahead) within {SEASON_HALF_WIDTH_DAYS} days of the same day of year, each year; non-exceedance by rank, ties split, Weibull offset; z is its standard-normal quantile; classes after McKee et al. 1993")})
@@ -447,20 +645,18 @@ pub(crate) async fn rain_series(req: RainSeriesReq, s: &AppState) -> Result<Json
         },
         "estimand": {"quantity": "daily precipitation total at the point, UTC days",
                      "unit": "mm", "statistic": "sum over UTC days"},
-        "sources": [
-            {"name": "Open-Meteo forecast API (best-match weather model for the location)",
-             "url": forecast_url, "licence": "CC BY 4.0", "role": "days ahead, and past days ERA5 has not reached"},
-            {"name": "Open-Meteo historical weather API, ERA5 (Hersbach et al. 2020)",
-             "url": archive_url, "licence": "CC BY 4.0", "role": "past days and the climatology"},
-        ],
+        "sources": sources,
         "cautions": cautions,
     });
+    for (k, v) in record_totals {
+        record[k] = v;
+    }
     let what = SeriesFact {
         cell: &cell,
         band: "rain.series",
         fn_key: FN_KEY,
         receipt_kind: "emem.rain_series",
-        days: (first_past, today + forecast_days as i64 - 1),
+        days: (first, last),
     };
     sign_record(s, record, what, started).await
 }
@@ -588,7 +784,7 @@ mod tests {
     fn era5_wins_and_the_model_fills_what_it_has_not_reached() {
         let era5: HashMap<i64, f64> = [(1, 5.0), (2, 6.0)].into_iter().collect();
         let model: HashMap<i64, f64> = [(2, 9.0), (3, 7.0)].into_iter().collect();
-        let p = merge_past(1, 4, &era5, &model);
+        let p = merge_days(1, 4, 100, &era5, &model);
         let got: Vec<_> = p.iter().map(|(d, v, s, _)| (*d, *v, *s)).collect();
         assert_eq!(
             got,
@@ -634,6 +830,83 @@ mod tests {
         assert_eq!(r["class"], "extremely wet");
         let low = ranked(-1.0, &sample, 30);
         assert!(low["z"].as_f64().unwrap() > -2.2, "{low}");
+    }
+
+    fn req(body: serde_json::Value) -> Result<RainSeriesReq, serde_json::Error> {
+        serde_json::from_value(body)
+    }
+
+    #[test]
+    fn a_field_the_route_does_not_read_is_refused() {
+        let e = req(json!({"lat": 30.9, "lng": 75.85, "from": "2025-06-15"})).unwrap_err();
+        assert!(e.to_string().contains("unknown field `from`"), "{e}");
+        let r = req(json!({"lat": 30.9, "lng": 75.85,
+                           "start_date": "2025-06-15", "end_date": "2025-10-15"}))
+        .unwrap();
+        assert_eq!(r.start.as_deref(), Some("2025-06-15"));
+        assert_eq!(r.end.as_deref(), Some("2025-10-15"));
+    }
+
+    #[test]
+    fn a_named_window_is_read_as_its_dates() {
+        let today = crate::days_from_civil(2026, 11, 25);
+        let r = req(json!({"lat": 30.9, "lng": 75.85, "start": "2025-06-15", "end": "2025-10-15"}))
+            .unwrap();
+        let w = window_of(&r, today).unwrap();
+        let (first, last) = w.days(today);
+        assert_eq!(
+            (iso(first), iso(last)),
+            ("2025-06-15".into(), "2025-10-15".into())
+        );
+        assert_eq!(last - first + 1, 123);
+        assert_eq!(climatology_years(w, today, 30), (1995, 2024));
+    }
+
+    #[test]
+    fn the_recent_window_keeps_its_defaults_and_takes_no_forecast() {
+        let today = crate::days_from_civil(2026, 11, 25);
+        let w = window_of(&req(json!({"lat": 1.0, "lng": 2.0})).unwrap(), today).unwrap();
+        assert_eq!(w, Window::Recent { past: 30, ahead: 7 });
+        assert_eq!(climatology_years(w, today, 30), (1996, 2025));
+        let w0 = window_of(
+            &req(json!({"lat": 1.0, "lng": 2.0, "past_days": 92, "forecast_days": 0})).unwrap(),
+            today,
+        )
+        .unwrap();
+        assert_eq!(w0.days(today), (today - 92, today - 1));
+    }
+
+    #[test]
+    fn a_bad_window_is_refused_with_its_reason() {
+        let today = crate::days_from_civil(2026, 11, 25);
+        let bad = |b: serde_json::Value| window_of(&req(b).unwrap(), today).unwrap_err();
+        assert!(bad(json!({"start": "2025-06-15"})).contains("both"));
+        assert!(
+            bad(json!({"start": "2025-06-15", "end": "2025-10-15", "past_days": 7}))
+                .contains("not both")
+        );
+        assert!(bad(json!({"start": "2025-02-30", "end": "2025-03-01"})).contains("calendar date"));
+        assert!(bad(json!({"start": "1939-12-31", "end": "1940-01-31"})).contains("1940"));
+        assert!(bad(json!({"start": "2025-10-15", "end": "2025-06-15"})).contains("before"));
+        assert!(bad(json!({"start": "2024-01-01", "end": "2025-01-01"})).contains("367 days"));
+        assert!(
+            bad(json!({"start": "2026-12-11", "end": "2026-12-20"})).contains("forecast reaches")
+        );
+        assert!(bad(json!({"past_days": 93})).contains("past_days takes 1 to 92"));
+        assert!(bad(json!({"forecast_days": 17})).contains("forecast_days 0 to 16"));
+    }
+
+    #[test]
+    fn a_named_window_totals_what_it_has_observed_then_through_the_forecast() {
+        let today = 10;
+        let era5: HashMap<i64, f64> = (5..8).map(|d| (d, 1.0)).collect();
+        let model: HashMap<i64, f64> = (8..13).map(|d| (d, 2.0)).collect();
+        let days = merge_days(5, 14, today, &era5, &model);
+        assert_eq!(span_lengths(&days), vec![5, 8]);
+        assert_eq!(days[5].2, "forecast");
+        assert_eq!(days[9].2, "not_yet");
+        let past_only = merge_days(5, 7, today, &era5, &model);
+        assert_eq!(span_lengths(&past_only), vec![3]);
     }
 
     #[test]

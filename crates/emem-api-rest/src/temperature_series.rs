@@ -28,7 +28,8 @@ use serde_json::{json, Value as JsonValue};
 
 use crate::band_raster::{bad_request, upstream_error};
 use crate::rain_series::{
-    day_of, get_json, iso, point, rank_probability, sign_record, SeriesFact, ANALYSIS_DAYS,
+    day_of, get_json, iso, parse_date, point, rank_probability, sign_record, SeriesFact,
+    ANALYSIS_DAYS,
 };
 use crate::{ApiError, AppState, EmemJson};
 
@@ -113,13 +114,6 @@ struct Params {
     method: Method,
     heat: f64,
     years: u32,
-}
-
-fn parse_date(field: &str, s: &str) -> Result<i64, String> {
-    // The round trip refuses 2025-02-30 and 2025-6-1, which parse_ymd lets by.
-    day_of(s)
-        .filter(|d| iso(*d) == s)
-        .ok_or_else(|| format!("`{field}` must be a calendar date as YYYY-MM-DD, got `{s}`"))
 }
 
 fn window_of(req: &TemperatureSeriesReq, utc_today: i64) -> Result<Window, String> {
