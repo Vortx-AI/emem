@@ -56,7 +56,7 @@ Sentinel-2 scene, over an area named `aoi_cid`, at one time slot.
 
 | Band | Source | Window cap |
 |---|---|---|
-| `s2.B02`, `s2.B03`, `s2.B04`, `s2.B08`, `s2.B11`, `s2.B12` | Sentinel-2 L2A reflectance | 512 px a side, about 5.1 km at 10 m |
+| `s2.B02`, `s2.B03`, `s2.B04`, `s2.B08` (10 m); `s2.B05`, `s2.B06`, `s2.B07`, `s2.B8A`, `s2.B11`, `s2.B12` (20 m) | Sentinel-2 L2A reflectance | 512 px a side, about 5.1 km at 10 m and 10.2 km at 20 m |
 | `copdem30m.elevation` | Copernicus GLO-30 DEM. Open ocean has no tile. | 512 px a side |
 | `forest_change.lossyear`, `forest_change.treecover2000`, `forest_change.gain`, `jrc_gfc2020.forest_2020`, `jrc_tmf.deforestation_year` | Static forest layers | 1024 px a side |
 

@@ -407,8 +407,9 @@ in a window of 30 days before and after that date. The window ends at the
 current time. If no scene matches, it tries 60% cloud and 60 days, then 80%
 and 90 days (`s2_search_with_fallback` in `lib.rs`). Thus a date can select
 a scene up to 30 days after it. Dates that select one scene become one
-member. The band must be one of `s2.B02`, `s2.B03`, `s2.B04`, `s2.B08`,
-`s2.B11` or `s2.B12`.
+member. The band must be one of `s2.B02`, `s2.B03`, `s2.B04`, `s2.B08`
+(10 m), or `s2.B05`, `s2.B06`, `s2.B07`, `s2.B8A`, `s2.B11` or `s2.B12`
+(20 m).
 
 ```bash
 curl -s -X POST https://emem.dev/v1/band_cube \

@@ -71,11 +71,17 @@ fn harmonise(dn: f64, offset: f64) -> f32 {
 /// The raw Sentinel-2 bands this executor serves, with the Element84
 /// STAC asset aliases each may appear under. An allowlist, not a
 /// routing guess: any other band is a typed refusal naming this list.
-pub(crate) const S2_BANDS: [(&str, &[&str]); 6] = [
+/// The red-edge bands and B8A are 20 m, as B11 and B12 are; every read
+/// takes the pixel size from the band's own file.
+pub(crate) const S2_BANDS: [(&str, &[&str]); 10] = [
     ("s2.B02", &["blue", "B02"]),
     ("s2.B03", &["green", "B03"]),
     ("s2.B04", &["red", "B04"]),
+    ("s2.B05", &["rededge1", "B05"]),
+    ("s2.B06", &["rededge2", "B06"]),
+    ("s2.B07", &["rededge3", "B07"]),
     ("s2.B08", &["nir", "B08"]),
+    ("s2.B8A", &["nir08", "B8A"]),
     ("s2.B11", &["swir16", "B11"]),
     ("s2.B12", &["swir22", "B12"]),
 ];
@@ -4761,11 +4767,14 @@ mod tests {
     }
 
     #[test]
-    fn band_allowlist_is_the_documented_six() {
+    fn band_allowlist_is_the_documented_ten() {
         let keys: Vec<&str> = S2_BANDS.iter().map(|(k, _)| *k).collect();
         assert_eq!(
             keys,
-            vec!["s2.B02", "s2.B03", "s2.B04", "s2.B08", "s2.B11", "s2.B12"]
+            vec![
+                "s2.B02", "s2.B03", "s2.B04", "s2.B05", "s2.B06", "s2.B07", "s2.B08", "s2.B8A",
+                "s2.B11", "s2.B12"
+            ]
         );
     }
 }

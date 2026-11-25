@@ -1088,7 +1088,7 @@ const SCHEMA_CHANGE_ATTRIBUTION: &str = r#"{"type":"object","required":["cell"],
 
 const SCHEMA_BAND_RASTER: &str = r#"{"type":"object","required":["bbox","band"],"properties":{
 "bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"description":"WGS-84 bounding box of the area of interest."},
-"band":{"type":"string","description":"One of s2.B02, s2.B03, s2.B04, s2.B08, s2.B11, s2.B12 (Sentinel-2 scalar field); copdem30m.elevation (also elevation / dem) for a static GLO-30 DEM field via dem_raster@1; an encoder band (geotessera, geotessera.multi_year) for a MULTI-CHANNEL embedding field via embedding_raster@1 (a signed N-D vector per cell over the bbox; grid capped at 256 cells at the encoder's native 0.1-degree step); OR a forest layer (forest_change.lossyear, forest_change.treecover2000, forest_change.gain, jrc_gfc2020.forest_2020, jrc_tmf.deforestation_year) via forest_raster@1 (one window on the layer's own pixel grid, up to 1024 px per side; a bbox across a 10-degree tile line joins up to four tiles)."},
+"band":{"type":"string","description":"One of s2.B02, s2.B03, s2.B04, s2.B08 (10 m), or s2.B05, s2.B06, s2.B07 (red edge), s2.B8A, s2.B11, s2.B12 (20 m) (Sentinel-2 scalar field); copdem30m.elevation (also elevation / dem) for a static GLO-30 DEM field via dem_raster@1; an encoder band (geotessera, geotessera.multi_year) for a MULTI-CHANNEL embedding field via embedding_raster@1 (a signed N-D vector per cell over the bbox; grid capped at 256 cells at the encoder's native 0.1-degree step); OR a forest layer (forest_change.lossyear, forest_change.treecover2000, forest_change.gain, jrc_gfc2020.forest_2020, jrc_tmf.deforestation_year) via forest_raster@1 (one window on the layer's own pixel grid, up to 1024 px per side; a bbox across a 10-degree tile line joins up to four tiles)."},
 "observed_on":{"type":"string","description":"Optional target capture date YYYY-MM-DD (Sentinel-2 only; ignored for the static DEM and forest bands). The responder takes the scene nearest this date under the cloud cap and pins it in the derivation record. The answer's `dates` gives the date you asked for, the scene's date and the days between them."}
 }}"#;
 
@@ -1099,7 +1099,7 @@ const SCHEMA_RASTER_RESOLVE: &str = r#"{"type":"object","required":["token"],"pr
 
 const SCHEMA_BAND_CUBE: &str = r#"{"type":"object","required":["bbox","band","observed_on"],"properties":{
 "bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"description":"WGS-84 bounding box of the area of interest, shared by every slice."},
-"band":{"type":"string","description":"One of s2.B02, s2.B03, s2.B04, s2.B08, s2.B11, s2.B12."},
+"band":{"type":"string","description":"One of s2.B02, s2.B03, s2.B04, s2.B08 (10 m), or s2.B05, s2.B06, s2.B07 (red edge), s2.B8A, s2.B11, s2.B12 (20 m)."},
 "observed_on":{"type":"array","items":{"type":"string"},"description":"2 to 24 target capture dates YYYY-MM-DD. Each names the nearest scene, pinned per member; two dates that resolve to the same scene collapse to one slice."}
 }}"#;
 
@@ -1118,7 +1118,7 @@ const SCHEMA_RASTER_BUNDLE_RESOLVE: &str = r#"{"type":"object","required":["toke
 
 const SCHEMA_BAND_COMPOSITE: &str = r#"{"type":"object","required":["bbox","band","start_date","end_date"],"properties":{
 "bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"description":"WGS-84 bounding box of the area of interest."},
-"band":{"type":"string","description":"One of s2.B02, s2.B03, s2.B04, s2.B08, s2.B11, s2.B12."},
+"band":{"type":"string","description":"One of s2.B02, s2.B03, s2.B04, s2.B08 (10 m), or s2.B05, s2.B06, s2.B07 (red edge), s2.B8A, s2.B11, s2.B12 (20 m)."},
 "start_date":{"type":"string","description":"Window start YYYY-MM-DD, inclusive."},
 "end_date":{"type":"string","description":"Window end YYYY-MM-DD, inclusive."},
 "mask_policy":{"type":"array","items":{"type":"integer"},"description":"SCL classes to reject per pixel. Default [0,1,3,8,9,10]; snow 11 is kept as surface."},

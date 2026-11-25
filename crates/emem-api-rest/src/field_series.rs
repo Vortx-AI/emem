@@ -54,6 +54,17 @@ const FN_KEY: &str = "s2_index_series@1";
 /// 4.7 s on emem.dev (2026-10-24), so 96 is about 20 s, and a call that
 /// outlives a host's timeout still fills the cache for the retry.
 const MAX_SCENES: usize = 96;
+
+/// A caution when the scene count asked for was outside 3..=MAX_SCENES and
+/// the series read a clamped count instead.
+fn scene_clamp_caution(asked: Option<usize>, used: usize) -> Option<String> {
+    let a = asked?;
+    (a != used).then(|| {
+        format!(
+            "max_scenes {a} is outside 3 to {MAX_SCENES}, so this series read up to {used} scenes."
+        )
+    })
+}
 const DEFAULT_SCENES: usize = 24;
 /// Field-scenes one `fields` call reads and signs: 500 fields over 24
 /// scenes, the largest record before the scene cap rose. A call with more
@@ -2632,19 +2643,9 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             RADAR_INDICES.join(", ")
         ))
     })?;
-    // B8A and the red-edge bands are read here only, for the indices that
-    // need them; the raw-band surface keeps its documented six. Each band
-    // has Earth Search's asset key, then Planetary Computer's.
-    const EXTRA_BANDS: [(&str, &[&str]); 4] = [
-        ("s2.B8A", &["nir08", "B8A"]),
-        ("s2.B05", &["rededge1", "B05"]),
-        ("s2.B06", &["rededge2", "B06"]),
-        ("s2.B07", &["rededge3", "B07"]),
-    ];
     let aliases_of = |band: &str| {
         S2_BANDS
             .iter()
-            .chain(EXTRA_BANDS.iter())
             .find(|(k, _)| *k == band)
             .map(|(_, a)| *a)
             .unwrap_or(&[])
@@ -3286,6 +3287,9 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     if let Some(c) = coverage_caution(&req.start_date, covered_from.as_deref(), search_capped) {
         cautions.push(c);
     }
+    if let Some(c) = scene_clamp_caution(req.max_scenes, asked_scenes) {
+        cautions.push(c);
+    }
     if n_suspect > 0 {
         cautions.push(format!(
             "{n_suspect} scene(s) passed the cloud mask but fall far from both neighbours in time, the same way (`quality: suspect`, with `scene_check`). They stay in the rows and are left out of the trend. In January on the Indo-Gangetic plain this is usually fog."
@@ -3509,7 +3513,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             "covered_from": covered_from,
             "search_capped": search_capped,
             "max_scenes": max_scenes,
-            "max_scenes_asked": asked_scenes,
+            "max_scenes_asked": req.max_scenes.unwrap_or(asked_scenes),
             "scenes_capped_by_fields": (max_scenes < asked_scenes).then(|| format!(
                 "{} fields over {asked_scenes} scenes is more than the {MAX_FIELD_SCENES} field-scenes one call signs, so {max_scenes} scenes were read; send fewer fields for more scenes",
                 zones.len()
@@ -4336,6 +4340,9 @@ async fn radar_series(
         },
     );
     let mut cautions: Vec<String> = Vec::new();
+    if let Some(c) = scene_clamp_caution(req.max_scenes, max_scenes) {
+        cautions.push(c);
+    }
     if by_orbit.len() > 1 {
         cautions.push(format!("{} orbits cover this area; this series reads orbit {orbit} only. Pass `orbit` to read another, and never join two orbits in one line.", by_orbit.len()));
     }
@@ -5609,6 +5616,17 @@ mod tests {
         // Neighbours too far apart leave room for a real change.
         assert!(scene_dips(&[0, 20, 40], &[0.7, 0.1, 0.7])[1].is_none());
         assert!(scene_dips(&[0, 10, 20], &[0.7, 0.1, 0.7])[1].is_some());
+    }
+
+    #[test]
+    fn a_clamped_scene_count_says_so() {
+        assert!(scene_clamp_caution(None, DEFAULT_SCENES).is_none());
+        assert!(scene_clamp_caution(Some(24), 24).is_none());
+        let c = scene_clamp_caution(Some(200), MAX_SCENES).unwrap();
+        assert!(c.contains("max_scenes 200") && c.contains("96"), "{c}");
+        assert!(scene_clamp_caution(Some(1), 3)
+            .unwrap()
+            .contains("max_scenes 1"));
     }
 
     #[test]
