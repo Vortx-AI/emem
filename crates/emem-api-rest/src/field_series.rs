@@ -82,19 +82,54 @@ const CLEAR_SCENE_FRACTION: f64 = 0.9;
 /// Below this many kept scenes a trend is not reported.
 const MIN_TREND_SCENES: usize = 6;
 
-/// One index: its Sentinel-2 bands and its formula. Two bands is the
-/// normalised difference `(a - b) / (a + b)`; a third band `c` makes it EVI,
-/// with a = NIR, b = red and c = blue.
+/// How an index combines its bands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Form {
+    /// `(a - b) / (a + b)`.
+    NormDiff,
+    /// EVI, with a = NIR, b = red and c = blue, on reflectance.
+    Evi,
+    /// `a / b - 1`, a chlorophyll index.
+    RatioMinusOne,
+    /// MTCI, `(a - b) / (b - c)` with a = B06, b = B05 and c = B04.
+    Mtci,
+}
+
+/// Largest red-edge chlorophyll index kept. Dense green canopy reads about 2
+/// to 8; a pixel far past that is a cloud edge or shadow the mask missed, and
+/// it is dropped rather than let into the distribution.
+const CI_MAX: f32 = 20.0;
+/// MTCI is kept within this magnitude, for the same reason; green vegetation
+/// reads about 1 to 6 (Dash & Curran 2004).
+const MTCI_MAX: f32 = 15.0;
+/// Smallest B05 - B04, in harmonised DN (0.005 reflectance), for MTCI. Where
+/// the red edge does not rise above red (water, bare soil, a mixed edge) the
+/// ratio divides by almost nothing and means nothing.
+const MTCI_MIN_DEN: f32 = 50.0;
+
+/// One index: its Sentinel-2 bands, how they combine, and its formula.
 struct Index {
     key: &'static str,
     a: &'static str,
     b: &'static str,
     c: Option<&'static str>,
+    form: Form,
     formula: &'static str,
     reference: &'static str,
 }
 
 impl Index {
+    /// What the index's values are and the range a kept pixel lies in.
+    fn unit(&self) -> &'static str {
+        match self.form {
+            Form::NormDiff | Form::Evi => "dimensionless, -1..1",
+            Form::RatioMinusOne => {
+                "dimensionless, above -1 and at most 20; green canopy reads about 2 to 8"
+            }
+            Form::Mtci => "dimensionless, -15..15; green vegetation reads about 1 to 6",
+        }
+    }
+
     /// The index at one pixel, from harmonised DNs (reflectance x 10000).
     /// `None` where a band has no reading: 0 is L2A no-data after
     /// harmonising, and NaN is masked.
@@ -103,8 +138,24 @@ impl Index {
         if !(read(a) && read(b)) {
             return None;
         }
+        match self.form {
+            Form::NormDiff => return Some(((a - b) / (a + b)).clamp(-1.0, 1.0)),
+            Form::RatioMinusOne => {
+                let v = a / b - 1.0;
+                return (v.is_finite() && v <= CI_MAX).then_some(v);
+            }
+            Form::Mtci => {
+                let c = c.filter(|v| read(*v))?;
+                let den = b - c;
+                if den < MTCI_MIN_DEN {
+                    return None;
+                }
+                let v = (a - b) / den;
+                return (v.is_finite() && v.abs() <= MTCI_MAX).then_some(v);
+            }
+            Form::Evi => {}
+        }
         let c = match (self.c, c) {
-            (None, _) => return Some(((a - b) / (a + b)).clamp(-1.0, 1.0)),
             (Some(_), Some(c)) if read(c) => c,
             _ => return None,
         };
@@ -119,12 +170,13 @@ impl Index {
     }
 }
 
-const INDICES: [Index; 7] = [
+const INDICES: [Index; 10] = [
     Index {
         key: "ndvi",
         a: "s2.B08",
         b: "s2.B04",
         c: None,
+        form: Form::NormDiff,
         formula: "(B08 - B04) / (B08 + B04)",
         reference: "Rouse et al. 1974; Tucker 1979",
     },
@@ -133,6 +185,7 @@ const INDICES: [Index; 7] = [
         a: "s2.B03",
         b: "s2.B08",
         c: None,
+        form: Form::NormDiff,
         formula: "(B03 - B08) / (B03 + B08)",
         reference: "McFeeters 1996",
     },
@@ -145,6 +198,7 @@ const INDICES: [Index; 7] = [
         a: "s2.B8A",
         b: "s2.B11",
         c: None,
+        form: Form::NormDiff,
         formula: "(B8A - B11) / (B8A + B11)",
         reference: "Gao 1996; Wilson & Sader 2002; as LSWI, Xiao et al. 2002",
     },
@@ -155,6 +209,7 @@ const INDICES: [Index; 7] = [
         a: "s2.B08",
         b: "s2.B04",
         c: Some("s2.B02"),
+        form: Form::Evi,
         formula: "2.5 * (B08 - B04) / (B08 + 6 * B04 - 7.5 * B02 + 1), on reflectance (DN / 10000)",
         reference: "Huete et al. 2002",
     },
@@ -166,6 +221,7 @@ const INDICES: [Index; 7] = [
         a: "s2.B8A",
         b: "s2.B12",
         c: None,
+        form: Form::NormDiff,
         formula: "(B8A - B12) / (B8A + B12)",
         reference: "Key & Benson 2006",
     },
@@ -177,6 +233,7 @@ const INDICES: [Index; 7] = [
         a: "s2.B11",
         b: "s2.B12",
         c: None,
+        form: Form::NormDiff,
         formula: "(B11 - B12) / (B11 + B12)",
         reference: "Van Deventer et al. 1997",
     },
@@ -189,8 +246,39 @@ const INDICES: [Index; 7] = [
         a: "s2.B03",
         b: "s2.B11",
         c: None,
+        form: Form::NormDiff,
         formula: "(B03 - B11) / (B03 + B11), B03 averaged 2x2 onto B11's 20 m pixels",
         reference: "Hall et al. 1995 (NDSI); as MNDWI, Xu 2006",
+    },
+    // The red-edge indices follow canopy chlorophyll and nitrogen, and keep
+    // rising over dense canopy where NDVI flattens. Their bands are 20 m.
+    Index {
+        key: "ndre",
+        a: "s2.B8A",
+        b: "s2.B05",
+        c: None,
+        form: Form::NormDiff,
+        formula: "(B8A - B05) / (B8A + B05)",
+        reference: "Barnes et al. 2000",
+    },
+    Index {
+        key: "cire",
+        a: "s2.B07",
+        b: "s2.B05",
+        c: None,
+        form: Form::RatioMinusOne,
+        formula: "B07 / B05 - 1; a pixel above 20 is dropped",
+        reference: "Gitelson et al. 2003; on Sentinel-2, Clevers & Gitelson 2013",
+    },
+    Index {
+        key: "mtci",
+        a: "s2.B06",
+        b: "s2.B05",
+        c: Some("s2.B04"),
+        form: Form::Mtci,
+        formula: "(B06 - B05) / (B05 - B04), B04 averaged 2x2 onto the 20 m pixels; a pixel where B05 - B04 \
+                  is under 50 DN (0.005 reflectance), or the index is beyond +-15, is dropped",
+        reference: "Dash & Curran 2004",
     },
 ];
 
@@ -202,7 +290,7 @@ pub(crate) fn s2_index_spec(
 ) -> Option<(&'static str, &'static str, &'static str, &'static str)> {
     INDICES
         .iter()
-        .find(|i| i.key == key && i.c.is_none())
+        .find(|i| i.key == key && i.form == Form::NormDiff)
         .map(|i| (i.a, i.b, i.formula, i.reference))
 }
 
@@ -211,6 +299,7 @@ fn index_alias(key: &str) -> &str {
     match key {
         "lswi" | "ndwi_gao" => "ndmi",
         "mndwi" => "ndsi",
+        "ci_re" | "ci_rededge" => "cire",
         k => k,
     }
 }
@@ -239,6 +328,7 @@ const LANDSAT_INDICES: [Index; 7] = [
         a: "nir08",
         b: "red",
         c: None,
+        form: Form::NormDiff,
         formula: "(SR_B5 - SR_B4) / (SR_B5 + SR_B4), on surface reflectance",
         reference: "Rouse et al. 1974; Tucker 1979",
     },
@@ -247,6 +337,7 @@ const LANDSAT_INDICES: [Index; 7] = [
         a: "green",
         b: "nir08",
         c: None,
+        form: Form::NormDiff,
         formula: "(SR_B3 - SR_B5) / (SR_B3 + SR_B5), on surface reflectance",
         reference: "McFeeters 1996",
     },
@@ -255,6 +346,7 @@ const LANDSAT_INDICES: [Index; 7] = [
         a: "nir08",
         b: "swir16",
         c: None,
+        form: Form::NormDiff,
         formula: "(SR_B5 - SR_B6) / (SR_B5 + SR_B6), on surface reflectance",
         reference: "Gao 1996; Wilson & Sader 2002; as LSWI, Xiao et al. 2002",
     },
@@ -263,6 +355,7 @@ const LANDSAT_INDICES: [Index; 7] = [
         a: "nir08",
         b: "red",
         c: Some("blue"),
+        form: Form::Evi,
         formula:
             "2.5 * (SR_B5 - SR_B4) / (SR_B5 + 6 * SR_B4 - 7.5 * SR_B2 + 1), on surface reflectance",
         reference: "Huete et al. 2002",
@@ -272,6 +365,7 @@ const LANDSAT_INDICES: [Index; 7] = [
         a: "nir08",
         b: "swir22",
         c: None,
+        form: Form::NormDiff,
         formula: "(SR_B5 - SR_B7) / (SR_B5 + SR_B7), on surface reflectance",
         reference: "Key & Benson 2006",
     },
@@ -280,6 +374,7 @@ const LANDSAT_INDICES: [Index; 7] = [
         a: "swir16",
         b: "swir22",
         c: None,
+        form: Form::NormDiff,
         formula: "(SR_B6 - SR_B7) / (SR_B6 + SR_B7), on surface reflectance",
         reference: "Van Deventer et al. 1997",
     },
@@ -288,6 +383,7 @@ const LANDSAT_INDICES: [Index; 7] = [
         a: "green",
         b: "swir16",
         c: None,
+        form: Form::NormDiff,
         formula: "(SR_B3 - SR_B6) / (SR_B3 + SR_B6), on surface reflectance",
         reference: "Hall et al. 1995 (NDSI); as MNDWI, Xu 2006",
     },
@@ -2529,14 +2625,22 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     let table: &[Index] = if landsat { &LANDSAT_INDICES } else { &INDICES };
     let index = table.iter().find(|i| i.key == index_key).ok_or_else(|| {
         bad_request(format!(
-            "index `{index_key}` is not served; this executor computes {}, and from Sentinel-1 {}",
+            "index `{index_key}` is not served{}; this executor computes {} (lswi is ndmi, mndwi is \
+             ndsi, ci_re is cire), and from Sentinel-1 {}",
+            if landsat { " from Landsat" } else { "" },
             table.iter().map(|i| i.key).collect::<Vec<_>>().join(", "),
             RADAR_INDICES.join(", ")
         ))
     })?;
-    // B8A is read here only, for the moisture index; the raw-band surface
-    // keeps its documented six.
-    const EXTRA_BANDS: [(&str, &[&str]); 1] = [("s2.B8A", &["nir08", "B8A"])];
+    // B8A and the red-edge bands are read here only, for the indices that
+    // need them; the raw-band surface keeps its documented six. Each band
+    // has Earth Search's asset key, then Planetary Computer's.
+    const EXTRA_BANDS: [(&str, &[&str]); 4] = [
+        ("s2.B8A", &["nir08", "B8A"]),
+        ("s2.B05", &["rededge1", "B05"]),
+        ("s2.B06", &["rededge2", "B06"]),
+        ("s2.B07", &["rededge3", "B07"]),
+    ];
     let aliases_of = |band: &str| {
         S2_BANDS
             .iter()
@@ -3337,7 +3441,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             .unwrap_or(JsonValue::Null)
     };
     let estimand = if landsat {
-        let missed = if index.c.is_some() {
+        let missed = if index.form == Form::Evi {
             "CFMask, the cloud mask behind QA_PIXEL, misses haze and thin cloud. Haze raises blue more than red, and blue enters EVI's denominator with a minus sign, so a hazy scene reads EVI HIGH where NDVI would read low; pixels where EVI leaves -1..1 are dropped as bright targets"
         } else {
             "CFMask, the cloud mask behind QA_PIXEL, misses haze and thin cloud; what it misses lowers the index, so `partial` scenes can read low"
@@ -3357,7 +3461,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
                 "keep_snow_bit_5": !qa_bits.contains(&5),
                 "not_read": "QA_RADSAT (saturation) and SR_QA_AEROSOL (aerosol level): neither rejects a pixel here",
             },
-            "unit": "dimensionless, -1..1",
+            "unit": index.unit(),
             "clear_fraction_means": "share of the area's pixels with an unmasked, in-swath reading of every band the index uses",
             "known_bias": format!("{missed}. A 30 m pixel covers nine 10 m ones, so on a small field more of the pixels straddle its edge; an inner_buffer_m of 22 m keeps only pixels whose whole footprint lies inside."),
         })
@@ -3373,9 +3477,9 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             },
             "statistic": "per scene: median and nearest-rank p10/p25/p75/p90 over clear pixels, plus mean and sample std",
             "mask": {"reject_scl": reject_vec, "keep_snow_11": !reject.contains(&11)},
-            "unit": "dimensionless, -1..1",
+            "unit": index.unit(),
             "clear_fraction_means": "share of the area's pixels with an unmasked, in-swath reading of every band the index uses",
-            "known_bias": if index.c.is_some() {
+            "known_bias": if index.form == Form::Evi {
                 "the scene classification misses haze and thin cloud edges. Haze raises blue more than red, and blue enters EVI's denominator with a minus sign, so a hazy scene reads EVI HIGH where NDVI would read low (a monsoon scene can show EVI above its NDVI); pixels where EVI leaves -1..1 are dropped as bright targets"
             } else {
                 "the scene classification misses haze and thin cloud edges; what it misses lowers the index, so `partial` scenes can read low"
@@ -5098,6 +5202,35 @@ mod tests {
         assert_eq!(ndvi.at(3000.0, 1000.0, None), Some(0.5));
     }
 
+    #[test]
+    fn the_red_edge_indices_read_their_formulas_and_drop_what_means_nothing() {
+        let get = |k: &str| INDICES.iter().find(|i| i.key == index_alias(k)).unwrap();
+        // A green canopy: B04 0.04, B05 0.10, B06 0.25, B07 0.35, B8A 0.40.
+        let (b04, b05, b06, b07, b8a) = (400.0, 1000.0, 2500.0, 3500.0, 4000.0);
+        let ndre = get("ndre").at(b8a, b05, None).unwrap();
+        assert!((ndre - 0.6).abs() < 1e-6, "{ndre}");
+        let cire = get("ci_re").at(b07, b05, None).unwrap();
+        assert!((cire - 2.5).abs() < 1e-6, "{cire}");
+        let mtci = get("mtci").at(b06, b05, Some(b04)).unwrap();
+        assert!((mtci - 2.5).abs() < 1e-6, "{mtci}");
+        // MTCI needs B04, and a red edge that rises above red.
+        assert_eq!(get("mtci").at(b06, b05, None), None);
+        assert_eq!(get("mtci").at(b06, 420.0, Some(b04)), None);
+        // A ratio far past any canopy is a mask miss, not a reading.
+        assert_eq!(get("cire").at(9000.0, 300.0, None), None);
+        // Each reads on the 20 m lattice; MTCI averages B04 onto it.
+        for k in ["ndre", "cire", "mtci"] {
+            assert_eq!(s2_native_m(s2_lattice_band(get(k))), 20.0, "{k}");
+        }
+        assert!(get("cire").unit().contains("at most 20"));
+        assert!(get("mtci").unit().contains("-15..15"));
+        assert!(get("ndre").unit().contains("-1..1"));
+        // Only the normalised differences are offered as two-band specs.
+        assert!(s2_index_spec("ndre").is_some());
+        assert!(s2_index_spec("cire").is_none());
+        assert!(s2_index_spec("mtci").is_none());
+    }
+
     /// The Sentinel-2 band each index reads, and the OLI band in its place.
     fn landsat_band_for(s2: &str) -> &'static str {
         match s2 {
@@ -5148,8 +5281,18 @@ mod tests {
 
     #[test]
     fn landsat_indices_are_the_sentinel2_ones_on_the_corresponding_bands() {
-        assert_eq!(LANDSAT_INDICES.len(), INDICES.len());
-        for s2 in &INDICES {
+        // OLI has no red-edge band, so the red-edge indices have no Landsat
+        // form; every other index has one.
+        let red_edge = ["s2.B05", "s2.B06", "s2.B07"];
+        let on_oli = |i: &&Index| {
+            [Some(i.a), Some(i.b), i.c]
+                .into_iter()
+                .flatten()
+                .all(|b| !red_edge.contains(&b))
+        };
+        assert_eq!(LANDSAT_INDICES.len(), INDICES.iter().filter(on_oli).count());
+        assert_eq!(INDICES.len() - LANDSAT_INDICES.len(), 3);
+        for s2 in INDICES.iter().filter(on_oli) {
             let l = LANDSAT_INDICES.iter().find(|l| l.key == s2.key).unwrap();
             assert_eq!(l.a, landsat_band_for(s2.a), "{}", s2.key);
             assert_eq!(l.b, landsat_band_for(s2.b), "{}", s2.key);

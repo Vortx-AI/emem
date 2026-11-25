@@ -1749,10 +1749,16 @@ Contains modified Copernicus Sentinel data 2025.
   `ndti` or `ndsi` (alias `mndwi`) come from Sentinel-2. NDSI is green
   against shortwave infrared, with B03 averaged onto the 20 m pixels of
   B11. Snow and open water read high. Unlike NDWI, NDSI stays positive over
-  water in sun glint. `vv`, `vh` or `vh_vv` come from Sentinel-1, on one
-  relative orbit (`orbit`). The default orbit is the one with the most
-  scenes.
-- `sensor: "landsat"` reads the same optical indices from Landsat 8 and 9
+  water in sun glint. The red-edge indices follow canopy chlorophyll and
+  nitrogen, and keep rising over dense canopy where NDVI flattens. They
+  are 20 m: `ndre` is B8A against B05, `cire` (alias `ci_re`) is
+  B07 / B05 - 1, and `mtci` is (B06 - B05) / (B05 - B04), with B04
+  averaged onto the 20 m pixels. `cire` and `mtci` are not bounded to
+  -1..1; the record's `estimand.unit` gives each range and the pixels it
+  drops. `vv`, `vh` or `vh_vv` come from Sentinel-1, on one relative orbit
+  (`orbit`). The default orbit is the one with the most scenes.
+- `sensor: "landsat"` reads the same optical indices, except the red-edge
+  ones (OLI has no red-edge band), from Landsat 8 and 9
   Collection 2 Level-2 surface reflectance (Planetary Computer, Tier 1
   only). Pixels are 30 m, from 2013. NDVI is SR_B5 against SR_B4, NDMI is
   SR_B5 against SR_B6, and NBR is SR_B5 against SR_B7. Reflectance is DN
