@@ -7,6 +7,7 @@ to verify.
 
 ## [Unreleased]
 
+- Sentinel-1 reads work again. Planetary Computer moved its Sentinel-1 RTC items to the STAC projection extension v2, which names the CRS `proj:code` ("EPSG:32643") in place of `proj:epsg`, and emem read only `proj:epsg`, so every radar `field_series`, radar recall and radar raster failed with "scene has no proj:epsg". The STAC parser reads either, for every collection.
 - `band_raster`, `band_composite` and `band_cube` serve the Sentinel-2 red-edge bands `s2.B05`, `s2.B06`, `s2.B07` and `s2.B8A`, read at their native 20 m as `s2.B11` and `s2.B12` are, so a red-edge index can be computed per pixel from signed grids. The registry already listed the four bands; no manifest changes.
 - `field_series` records the `max_scenes` a caller sent in `max_scenes_asked`, and a caution says when it was outside 3 to 96 and the series read a clamped count. It recorded the clamped value as the one asked.
 - `field_series` with `fields` on Sentinel-1 gives each field row `mean` (10 log10 of the field's mean linear power), `se_db`, `pixel_enl`, and the scene's `platform`, `orbit` and `orbit_state`, as the window rows already did. The window and the field rows compute them with one function. A field row carried only per-pixel dB quantiles.

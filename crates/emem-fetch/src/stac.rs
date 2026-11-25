@@ -511,10 +511,20 @@ fn parse_stac_feature(f: &Value, collection: &str) -> StacItem {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    // Projection extension v1 names the CRS `proj:epsg` (32643); v2 names it
+    // `proj:code` ("EPSG:32643"). Planetary Computer moved Sentinel-1 RTC to
+    // v2 by 25 Nov 2026, and every radar read failed with no EPSG.
     let epsg = props
         .get("proj:epsg")
         .and_then(|v| v.as_u64())
-        .map(|n| n as u32);
+        .map(|n| n as u32)
+        .or_else(|| {
+            props
+                .get("proj:code")
+                .and_then(|v| v.as_str())
+                .and_then(|c| c.strip_prefix("EPSG:"))
+                .and_then(|n| n.parse::<u32>().ok())
+        });
     // Absent on non-Sentinel-2 collections and on early L2A items. Left as
     // `None` rather than defaulted: see `StacItem::processing_baseline`.
     let processing_baseline = props
@@ -951,6 +961,16 @@ fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_crs_is_read_from_either_projection_extension() {
+        let v1 = serde_json::json!({"id": "a", "properties": {"datetime": "2026-02-23T13:04:11Z", "proj:epsg": 32643}, "assets": {}});
+        let v2 = serde_json::json!({"id": "b", "properties": {"datetime": "2026-02-23T13:04:11Z", "proj:code": "EPSG:32643"}, "assets": {}});
+        let other = serde_json::json!({"id": "c", "properties": {"datetime": "2026-02-23T13:04:11Z", "proj:code": "IAU_2015:30100"}, "assets": {}});
+        assert_eq!(parse_stac_feature(&v1, "sentinel-1-rtc").epsg, Some(32643));
+        assert_eq!(parse_stac_feature(&v2, "sentinel-1-rtc").epsg, Some(32643));
+        assert_eq!(parse_stac_feature(&other, "sentinel-1-rtc").epsg, None);
+    }
 
     /// A two-page catalogue: the pager follows the POST `next` link with its
     /// body (merge false, as Element84 sends it), returns both pages, and
