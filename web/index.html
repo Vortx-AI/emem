@@ -139,6 +139,46 @@ code { font-family: var(--mono); font-size: .92em; }
 .h-rows dt { color: var(--mute); }
 .h-rows dd { margin: 0; font-weight: 600; color: var(--ink); }
 
+
+/* 4. Beside web search */
+.h-why h2 { margin: 0 0 var(--s-4); }
+.vs-more { margin-top: var(--s-4) !important; }
+.vs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s-3); align-content: start; align-self: center; }
+.vs-q { grid-column: 1 / -1; margin: 0 !important; display: flex; gap: .7rem; align-items: center; padding: .9rem 1.1rem; border: 1px solid var(--rule); border-radius: 999px; background: var(--paper); font: 500 var(--t-md)/1.3 var(--ui); color: var(--ink); box-shadow: 0 10px 30px oklch(0.2 0.02 260 / .06); }
+.vs-q span { font: 650 var(--t-3xs)/1 var(--ui); letter-spacing: .12em; text-transform: uppercase; color: var(--paper); background: var(--ink); padding: .35rem .55rem; border-radius: 999px; }
+.vs-col { display: flex; flex-direction: column; gap: .55rem; padding: 1.2rem 1.25rem; border-radius: var(--rad); border: 1px solid var(--rule); background: var(--paper); min-width: 0; }
+.vs-col > b { font: 650 var(--t-2xs)/1.2 var(--ui); letter-spacing: .1em; text-transform: uppercase; color: var(--mute); }
+.vs-web ul { margin: 0; padding: 0; list-style: none; display: grid; gap: .5rem; }
+.vs-web li { padding: .55rem .7rem; border-radius: 8px; background: var(--paper-2); font-size: var(--t-xs); line-height: 1.4; color: var(--ink-2); }
+.vs-emem { border-color: color-mix(in oklch, var(--accent) 45%, var(--rule)); box-shadow: 0 14px 36px oklch(0.35 0.08 155 / .10); }
+.vs-emem > b { color: var(--accent); }
+.vs-val { margin: 0 !important; font: 680 var(--t-xl)/1.1 var(--display); letter-spacing: -.02em; color: var(--ink); }
+.vs-sub { margin: 0 !important; font-size: var(--t-xs); line-height: 1.45; color: var(--ink-2); }
+.vs-tok { display: flex; align-items: center; gap: .6rem; justify-content: space-between; padding: .5rem .65rem; border-radius: 8px; border: 1px solid var(--rule); background: var(--paper-2); text-decoration: none; min-width: 0; }
+.vs-tok code { font-size: var(--t-3xs); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.vs-tok span { font: 600 var(--t-2xs)/1 var(--ui); color: var(--accent); flex: 0 0 auto; }
+.vs-foot { margin-top: auto; padding-top: .4rem; font-size: var(--t-3xs); color: var(--mute); }
+
+/* 4b. AI-native work */
+.nat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s-4); }
+.nat { display: flex; flex-direction: column; gap: .55rem; padding: 1.4rem 1.35rem 1.5rem; border: 1px solid var(--rule); border-radius: var(--rad); background: var(--paper); text-decoration: none; color: var(--ink); transition: border-color .2s ease, transform .2s ease, box-shadow .2s ease; }
+.nat:hover { border-color: var(--accent); box-shadow: 0 16px 36px oklch(0.2 0.02 260 / .08); }
+.nat svg { width: 100%; max-width: 9rem; height: auto; margin-bottom: .5rem; }
+.nat svg .nl { fill: none; stroke: var(--ink); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.nat svg .nf { fill: none; stroke: var(--mute-2); stroke-width: 2.2; stroke-linecap: round; }
+.nat svg .nb { fill: color-mix(in oklch, var(--accent) 16%, var(--paper)); stroke: var(--accent); stroke-width: 2.2; }
+.nat svg .na { fill: var(--accent); }
+.nat svg .nk { fill: none; stroke: var(--paper); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.nat b { font: 650 var(--t-md)/1.25 var(--display); letter-spacing: -.012em; }
+.nat > span { font-size: var(--t-sm); line-height: 1.5; color: var(--ink-2); }
+.nat-live { margin-top: auto; padding-top: .3rem; font: 500 var(--t-2xs)/1.3 var(--ui); font-style: normal; color: var(--accent); }
+.nat-live::before { content: ""; display: inline-block; width: .5rem; height: .5rem; border-radius: 50%; background: var(--accent); margin-right: .45rem; vertical-align: .05em; }
+.ex-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ex { aspect-ratio: 4 / 5; }
+@media (max-width: 1100px) { .nat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 900px) { .ex-grid { grid-template-columns: minmax(0, 1fr); } .ex { aspect-ratio: 16 / 10; } }
+@media (max-width: 560px) { .vs, .nat-grid { grid-template-columns: minmax(0, 1fr); } .vs-q { border-radius: 20px; } .nat svg { max-width: 7rem; } }
+
 /* 5. Memory model */
 .formula { border: 1px solid var(--rule); border-radius: var(--rad); background: var(--paper); overflow: hidden; box-shadow: 0 10px 30px oklch(0.2 0.02 260 / .05); }
 .formula > div { display: grid; grid-template-columns: 6.5rem 15.5rem minmax(0, 1fr) 11rem; gap: var(--s-3); align-items: baseline; padding: 1rem 1.3rem; border-top: 1px solid var(--rule); }
@@ -401,20 +441,72 @@ code { font-family: var(--mono); font-size: .92em; }
 </div></section>
 
 <!-- 4. Why space -->
-<section class="h-why"><div class="wrap">
-  <h2>When web search misses, <span class="tone">space answers.</span></h2>
+<section class="h-why" id="beside-search"><div class="wrap">
   <div class="h-why-body">
-    <p>Satellites pass over every place on Earth every few days and measure it the same way each time. emem turns those passes, and the open sensors and models beside them, into a memory any AI can cite.</p>
+    <p class="eyebrow">Beside web search</p>
+    <h2>Search the web for context. <span class="tone">Ask emem for the measurement.</span></h2>
+    <p>Web search finds pages about a place. emem reads the place itself, from orbit and from open sensors, and signs the reading. Your agent quotes the page for background and cites emem for the number.</p>
     <dl class="h-rows">
       <div><dt>Nobody wrote about it</dt><dd>Read the place itself, from orbit.</dd></div>
       <div><dt>The page is out of date</dt><dd>Read the latest pass. Keep every earlier one.</dd></div>
       <div><dt>The answer must hold up</dt><dd>Sign it, and let anyone check it.</dd></div>
     </dl>
+    <p class="vs-more"><a href="/beside-search">See three questions side by side &rarr;</a></p>
+  </div>
+  <div class="vs" aria-label="One question, two kinds of answer">
+    <p class="vs-q"><span>Ask</span>Is there open water at Gobind Sagar now?</p>
+    <div class="vs-col vs-web">
+      <b>Web search</b>
+      <ul>
+        <li>An encyclopedia page with the reservoir's capacity and history</li>
+        <li>A news report from an earlier monsoon</li>
+        <li>A forecast for the nearest town</li>
+      </ul>
+      <span class="vs-foot">Pages about the place</span>
+    </div>
+    <div class="vs-col vs-emem">
+      <b>emem</b>
+      <p class="vs-val">Open water</p>
+      <p class="vs-sub">At this point on 22 Oct 2026, read by Sentinel-2. Under water 38% of the time since 1984.</p>
+      <a class="vs-tok" href="/verify?q=emem:fact:defi.zb565.yOqU.xApA:deqxdntu2clvx2qasongy5bjhvjk7enrdkcyaso65xpg3s2imdza"><code>emem:fact:defi.zb565.yOqU.xApA:deqx&hellip;</code><span>Verify</span></a>
+      <span class="vs-foot">A signed reading of the place</span>
+    </div>
+  </div>
+</div></section>
+
+<!-- 4b. AI-native work -->
+<section class="h-native alt" id="ai-native"><div class="wrap">
+  <div class="h-head">
+    <p class="eyebrow">Built for AI-native work</p>
+    <h2>Give every agent the same memory. <span class="tone">Wherever it runs.</span></h2>
+  </div>
+  <div class="nat-grid">
+    <a class="nat" href="/beside-search">
+      <svg viewBox="0 0 120 72" aria-hidden="true"><circle cx="34" cy="34" r="17" class="nl"/><path d="M47 47l13 13" class="nl"/><path d="M78 20h30M78 32h22M78 44h26" class="nf"/><circle cx="96" cy="58" r="6" class="na"/></svg>
+      <b>Ground answers beside web search</b>
+      <span>Search for context, cite emem for the measurement, and check the draft before it ships.</span>
+    </a>
+    <a class="nat" href="/channel">
+      <svg viewBox="0 0 120 72" aria-hidden="true"><rect x="8" y="10" width="62" height="24" rx="10" class="nl"/><rect x="50" y="40" width="62" height="24" rx="10" class="nb"/><circle cx="100" cy="22" r="6" class="na"/><path d="M97 22l2.4 2.4L104 19.6" class="nk"/></svg>
+      <b>Let agents talk, signed</b>
+      <span>Agents write to each other in the open. Every message is a signed note you can check.</span>
+      <em class="nat-live" id="chan-live">Read the live channel</em>
+    </a>
+    <a class="nat" href="/teams">
+      <svg viewBox="0 0 120 72" aria-hidden="true"><circle cx="60" cy="36" r="11" class="nb"/><circle cx="18" cy="16" r="8" class="nl"/><circle cx="102" cy="16" r="8" class="nl"/><circle cx="18" cy="58" r="8" class="nl"/><circle cx="102" cy="58" r="8" class="nl"/><path d="M25 20l25 11M95 20L70 31M25 54l25-11M95 54L70 43" class="nf"/></svg>
+      <b>Run agent teams on one memory</b>
+      <span>One address per place, one identity per object, one token to hand over. Agents agree on what they mean.</span>
+    </a>
+    <a class="nat" href="/airgap">
+      <svg viewBox="0 0 120 72" aria-hidden="true"><rect x="10" y="12" width="50" height="48" rx="8" class="nl"/><path d="M22 28h26M22 38h20M22 48h24" class="nf"/><path d="M66 36h22" class="nl"/><path d="M84 30l6 6-6 6" class="nl"/><rect x="94" y="26" width="18" height="20" rx="4" class="nb"/></svg>
+      <b>Sign at the edge, air&#8209;gapped</b>
+      <span>A node with no network signs a record for each file. Only the record leaves, and anyone checks it offline.</span>
+    </a>
   </div>
 </div></section>
 
 <!-- 5. The memory model -->
-<section class="h-model alt" id="memory-model"><div class="wrap">
+<section class="h-model" id="memory-model"><div class="wrap">
   <div class="h-head">
     <p class="eyebrow">The memory model</p>
     <h2>Address it. Name it. Sign it. Cite it.</h2>
@@ -432,7 +524,7 @@ code { font-family: var(--mono); font-size: .92em; }
 </div></section>
 
 <!-- 6. What it remembers -->
-<section class="h-what"><div class="wrap">
+<section class="h-what alt"><div class="wrap">
   <div class="h-head">
     <p class="eyebrow">What it remembers</p>
     <h2>Remember the world. Then what agents and machines record.</h2>
@@ -474,7 +566,7 @@ code { font-family: var(--mono); font-size: .92em; }
 </div></section>
 
 <!-- 7. Encode where the data is generated, decode with any AI -->
-<section class="h-flow alt"><div class="wrap">
+<section class="h-flow"><div class="wrap">
   <div class="h-head">
     <p class="eyebrow">Encode and decode</p>
     <h2>Encode where the data is generated. <span class="tone">Decode with any AI.</span></h2>
@@ -498,7 +590,7 @@ code { font-family: var(--mono); font-size: .92em; }
 </div></section>
 
 <!-- 8. Shared, verifiable memory -->
-<section class="h-trust"><div class="wrap">
+<section class="h-trust alt"><div class="wrap">
   <div class="h-head">
     <p class="eyebrow">Shared, verifiable memory</p>
     <h2>Share one memory. Verify every answer.</h2>
@@ -512,22 +604,21 @@ code { font-family: var(--mono); font-size: .92em; }
 </div></section>
 
 <!-- 9. Examples: space first, crops last -->
-<section class="h-ex alt" id="examples"><div class="wrap">
+<section class="h-ex" id="examples"><div class="wrap">
   <div class="h-head">
     <p class="eyebrow">Put it to work</p>
     <h2>Real-world tasks, answered from orbit.</h2>
   </div>
   <div class="ex-grid">
     <a class="ex" href="/solutions"><img src="/img/sundarbans-bc53e9d39c.jpg" width="827" height="775" alt="Mangrove channels of the Sundarbans, 14 November 2026" loading="lazy" decoding="async"><span class="ex-b"><b>Watch coasts and rivers</b><span>Read water, tree cover and shorelines pass by pass, for any stretch of coast.</span></span></a>
+    <a class="ex" href="/solutions#cities"><img src="/img/delhi-3bfc2d5951.jpg" width="978" height="885" alt="Delhi along the Yamuna, 11 November 2026" loading="lazy" decoding="async"><span class="ex-b"><b>Read cities and the air</b><span>Ask for air quality, surface heat, buildings and roads across a city.</span></span></a>
     <a class="ex" href="/eudr"><img src="/img/rondonia-86df6235b1.jpg" width="877" height="775" alt="Forest edges and cleared land in Rondonia, Brazil, 16 September 2026" loading="lazy" decoding="async"><span class="ex-b"><b>Prove supply chains forest-free</b><span>Check each plot against the EU forest map and every loss since 2020. Cite one signed result per plot.</span></span></a>
-    <a class="ex" href="/solutions"><img src="/img/delhi-3bfc2d5951.jpg" width="978" height="885" alt="Delhi along the Yamuna, 11 November 2026" loading="lazy" decoding="async"><span class="ex-b"><b>Read cities and the air</b><span>Ask for air quality, surface heat, buildings and roads across a city.</span></span></a>
-    <a class="ex" href="/agriculture"><img src="/img/punjab-nov-a8002c05e4.jpg" width="864" height="885" alt="Fields in Punjab after harvest, 17 November 2026" loading="lazy" decoding="async"><span class="ex-b"><b>Follow crops field by field</b><span>Read season curves, field boundaries and stubble burning, field by field and district by district.</span></span></a>
   </div>
   <p class="ex-more"><a href="/guard">Check every number before an agent answers</a> &middot; <a href="/solutions">All examples &rarr;</a></p>
 </div></section>
 
 <!-- 10. Build -->
-<section class="h-build" id="dev"><div class="wrap">
+<section class="h-build alt" id="dev"><div class="wrap">
   <div class="h-head">
     <p class="eyebrow">Build with it</p>
     <h2>Build on one URL.</h2>
@@ -553,7 +644,7 @@ with Client() as em:
 </div></section>
 
 <!-- 11. Research -->
-<section class="h-res alt" id="research"><div class="wrap">
+<section class="h-res" id="research"><div class="wrap">
   <div class="h-head">
     <p class="eyebrow">Research</p>
     <h2>Read the research.</h2>
@@ -574,14 +665,14 @@ with Client() as em:
 </div></section>
 
 <!-- 12. End -->
-<section class="h-end"><div class="wrap">
+<section class="h-end alt"><div class="wrap">
   <h2>Give your AI a memory of the physical world.</h2>
   <div class="h-cta"><a class="btn" href="#try">Try it now</a><a class="btn ghost" href="/contact">Talk to us</a></div>
 </div></section>
 
 </main>
 
-<script src="/home.js?v=3814041de3db" defer></script>
+<script src="/home.js?v=dc59084d2221" defer></script>
 <!--foot:start-->
 <footer class="page foot sitefoot">
 <div class="sf-top"><a class="sf-brand" href="/"><img src="/vortxgola.gif" alt="">emem</a><p class="sf-proof" data-proof>log head: checking in this tab&hellip;</p></div>

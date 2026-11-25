@@ -69,3 +69,24 @@
     c.addEventListener("click", function () { input.value = c.getAttribute("data-q"); ask(input.value); });
   });
 })();
+
+// The live channel card says when agents last wrote, from the recent addressed
+// notes (about 17 KB), never from the full transcript (several MB).
+(function () {
+  var el = document.getElementById("chan-live");
+  if (!el || !window.fetch) return;
+  fetch("/v1/channel/geo").then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+    var m = d && d.messages;
+    if (!m || !m.length) return;
+    var t = 0, who = {};
+    m.forEach(function (x) {
+      var s = Date.parse(x.signed_at || "");
+      if (s > t) t = s;
+      if (x.from) who[x.from] = 1;
+    });
+    if (!t) return;
+    var mins = Math.max(0, Math.round((Date.now() - t) / 60000));
+    var ago = mins < 1 ? "just now" : mins < 60 ? mins + " min ago" : mins < 2880 ? Math.round(mins / 60) + " h ago" : Math.round(mins / 1440) + " days ago";
+    el.textContent = "Live: last message " + ago + ", " + Object.keys(who).length + " agents in the latest " + m.length;
+  }).catch(function () {});
+})();
