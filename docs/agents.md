@@ -236,9 +236,10 @@ are in `asked`:
   "recently" and "lately" name no window, so ask reads the question as one
   about now and says so in the limits.
 
-A rain question about a window that ask holds no total for, up to 92 days
-back, gets a `POST /v1/rain_series` call in `direct_answer.next_steps`. That
-route signs the daily rain at the place, day by day.
+A rain question about a past window that ask holds no total for (up to 366
+days, from 1940) gets a `POST /v1/rain_series` call with the window's
+`start` and `end` in `direct_answer.next_steps`. That route signs the daily
+rain at the place and the window's total.
 
 `direct_answer` holds the verdict (`yes`, `no`, one of the two options, or
 `cannot_tell`), the value, the band and fact CID that gave it, the rule, the

@@ -1126,26 +1126,26 @@ pub(crate) struct AnswerInputs<'a> {
     pub(crate) unread_time: Option<&'a str>,
 }
 
-/// `/v1/rain_series` signs daily rain for at most this many days back.
-const RAIN_SERIES_MAX_PAST_DAYS: i64 = crate::rain_series::MAX_PAST_DAYS as i64;
-
 /// The call that reads daily rain over a past window, for a rain question
-/// that ask cannot answer as a total: `POST /v1/rain_series`, with enough
-/// days back to reach the window's first day. None when the window starts
-/// further back than that route reaches, or does not end before today.
+/// that ask cannot answer as a total: `POST /v1/rain_series` with the
+/// window's own dates, which signs the window's total. None when the window
+/// does not end before today, starts before ERA5 does, or is longer than the
+/// route takes.
 pub(crate) fn rain_series_step(t: &AskedTime, now_unix: i64, cell: &str) -> Option<JsonValue> {
     let today = now_unix.div_euclid(DAY);
     let first = t.start_unix.div_euclid(DAY);
     let last = ((t.end_unix - 1).div_euclid(DAY)).min(today - 1);
-    let past_days = today - first;
     if t.change_window || cell.is_empty() || last < first {
         return None;
     }
-    if !(1..=RAIN_SERIES_MAX_PAST_DAYS).contains(&past_days) {
+    if first < crate::rain_series::first_archive_day()
+        || last - first + 1 > crate::rain_series::MAX_WINDOW_DAYS
+    {
         return None;
     }
-    let body = json!({ "cell": cell, "past_days": past_days, "forecast_days": 1 });
-    let mut s = crate::next_step::step("POST /v1/rain_series", "past_days", body.clone());
+    let (from, to) = (day_of_unix(first * DAY), day_of_unix(last * DAY));
+    let body = json!({ "cell": cell, "start": from, "end": to });
+    let mut s = crate::next_step::step("POST /v1/rain_series", "start", body.clone());
     if let Some(m) = s.as_object_mut() {
         m.insert("method".into(), json!("POST"));
         m.insert("path".into(), json!("/v1/rain_series"));
@@ -1153,12 +1153,11 @@ pub(crate) fn rain_series_step(t: &AskedTime, now_unix: i64, cell: &str) -> Opti
         m.insert(
             "why".into(),
             json!(format!(
-                "ask holds no rain total for {}. This call signs the daily rain at this place for \
-                 the last {past_days} days (ERA5, and the forecast model's analysis for the newest \
-                 days). Add its `days` from {} to {} to get the total.",
-                t.label,
-                day_of_unix(first * DAY),
-                day_of_unix(last * DAY)
+                "ask holds no rain total for {}. This call signs the daily rain at this place from \
+                 {from} to {to} (ERA5, and the forecast model's analysis for the days ERA5 has not \
+                 reached), with the total in `window_totals`, ranked against the same days of \
+                 earlier years.",
+                t.label
             )),
         );
     }
@@ -2106,8 +2105,8 @@ mod tests {
             assert!(out.get("value").is_none(), "{out}");
             let step = &out["next_steps"][0];
             assert_eq!(step["verb"], "POST /v1/rain_series", "{out}");
-            // 1 October is 50 days before 20 November.
-            assert_eq!(step["body"]["past_days"], 50);
+            assert_eq!(step["body"]["start"], "2026-10-01");
+            assert_eq!(step["body"]["end"], "2026-10-31");
             assert_eq!(step["args"], step["body"]);
             let why = step["why"].as_str().unwrap();
             assert!(why.contains("2026-10-01 to 2026-10-31"), "{why}");
@@ -2124,10 +2123,23 @@ mod tests {
         assert_eq!(rel["asked_time"]["from"], abs["asked_time"]["from"]);
         assert_eq!(rel["asked_time"]["until"], abs["asked_time"]["until"]);
 
-        // A window rain_series cannot reach gets no pointer to it.
-        let old = rain_answer("How much rain fell in Pune last year?", now, &today);
-        assert_eq!(old["verdict"], "cannot_tell");
-        assert!(old.get("next_steps").is_none(), "{old}");
+        // A year is one named window of the route.
+        let year = rain_answer("How much rain fell in Pune last year?", now, &today);
+        assert_eq!(year["verdict"], "cannot_tell");
+        assert_eq!(
+            year["next_steps"][0]["body"]["start"], "2025-01-01",
+            "{year}"
+        );
+        assert_eq!(year["next_steps"][0]["body"]["end"], "2025-12-31", "{year}");
+        // A window longer than the route takes gets no pointer to it.
+        let long = rain_answer(
+            "How much rain fell in Pune in the past 2 years?",
+            now,
+            &today,
+        );
+        let label = long["asked_time"]["label"].as_str().unwrap_or_default();
+        assert!(label.ends_with("(the past 2 years)"), "{long}");
+        assert!(long.get("next_steps").is_none(), "{long}");
     }
 
     #[test]
@@ -2145,7 +2157,8 @@ mod tests {
             limits.contains("read once per hour, not a total over"),
             "{limits}"
         );
-        assert_eq!(out["next_steps"][0]["body"]["past_days"], 3, "{out}");
+        assert_eq!(out["next_steps"][0]["body"]["start"], "2026-11-09", "{out}");
+        assert_eq!(out["next_steps"][0]["body"]["end"], "2026-11-11", "{out}");
     }
 
     #[test]
