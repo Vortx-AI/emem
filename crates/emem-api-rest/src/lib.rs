@@ -385,6 +385,9 @@ const HOW_IT_WORKS_HTML: &str = include_str!("../../../web/how-it-works.html");
 const SOLUTIONS_HTML: &str = include_str!("../../../web/solutions.html");
 const EUDR_HTML: &str = include_str!("../../../web/eudr.html");
 const AGRICULTURE_HTML: &str = include_str!("../../../web/agriculture.html");
+const BESIDE_SEARCH_HTML: &str = include_str!("../../../web/beside-search.html");
+const TEAMS_HTML: &str = include_str!("../../../web/teams.html");
+const AIRGAP_HTML: &str = include_str!("../../../web/airgap.html");
 const CONTACT_HTML: &str = include_str!("../../../web/contact.html");
 /// `/the-long-version`, the narrative that used to BE the homepage: the
 /// living album, what drifts without a shared memory, the loop, the proof,
@@ -985,6 +988,9 @@ pub fn router(state: AppState) -> Router {
         // The two jobs buyers come for, each with its own page.
         .route("/eudr", get(serve_eudr))
         .route("/agriculture", get(serve_agriculture))
+        .route("/beside-search", get(serve_beside_search))
+        .route("/teams", get(serve_teams))
+        .route("/airgap", get(serve_airgap))
         .route("/contact", get(serve_contact))
         // Both were 404s that people typed or followed (79 hits in three days).
         .route(
@@ -2469,8 +2475,9 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         // writes a note must not be cached by guess. /card and /a2a are baked
         // but iterated for the same reason.
         "/" | "/index.html" | "/how-it-works" | "/solutions" | "/eudr" | "/agriculture"
-        | "/contact" | "/the-long-version" | "/reference" | "/channel" | "/collaboration"
-        | "/card" | "/a2a" | "/guard" | "/verify" => Some("no-cache"),
+        | "/beside-search" | "/teams" | "/airgap" | "/contact" | "/the-long-version"
+        | "/reference" | "/channel" | "/collaboration" | "/card" | "/a2a" | "/guard"
+        | "/verify" => Some("no-cache"),
         // Stable across deploys (build-pinned constants).
         "/v1/grid_info"
         | "/v1/agent_card"
@@ -3905,6 +3912,9 @@ fn served_html_pages() -> Vec<&'static str> {
         SOLUTIONS_HTML,
         EUDR_HTML,
         AGRICULTURE_HTML,
+        BESIDE_SEARCH_HTML,
+        TEAMS_HTML,
+        AIRGAP_HTML,
         CONTACT_HTML,
         THE_LONG_VERSION_HTML,
         REFERENCE_HTML,
@@ -4277,6 +4287,18 @@ async fn serve_eudr(headers: HeaderMap) -> Response {
 
 async fn serve_agriculture(headers: HeaderMap) -> Response {
     html_or_md(&headers, AGRICULTURE_HTML, LLMS_TXT)
+}
+
+async fn serve_beside_search(headers: HeaderMap) -> Response {
+    html_or_md(&headers, BESIDE_SEARCH_HTML, LLMS_TXT)
+}
+
+async fn serve_teams(headers: HeaderMap) -> Response {
+    html_or_md(&headers, TEAMS_HTML, LLMS_TXT)
+}
+
+async fn serve_airgap(headers: HeaderMap) -> Response {
+    html_or_md(&headers, AIRGAP_HTML, LLMS_TXT)
 }
 
 async fn serve_contact(headers: HeaderMap) -> Response {
@@ -95575,6 +95597,54 @@ mod tests {
                 .unwrap();
             let r = app.clone().oneshot(req).await.unwrap();
             assert_eq!(r.status(), StatusCode::NOT_FOUND, "{bad}");
+        }
+    }
+
+    /// /beside-search, /teams and /airgap answer as HTML that no cache keeps by guess, and the CSP sent with each
+    /// admits every inline script on it. /beside-search runs its "Ask it now" buttons from an inline script, so a
+    /// hash missing here is a page that renders and silently does nothing when pressed.
+    #[tokio::test]
+    async fn example_pages_serve_with_their_inline_scripts_allowed() {
+        use tower::ServiceExt;
+        let app = router(test_app_state());
+        for (path, page) in [
+            ("/beside-search", BESIDE_SEARCH_HTML),
+            ("/teams", TEAMS_HTML),
+            ("/airgap", AIRGAP_HTML),
+        ] {
+            let req = axum::http::Request::get(path)
+                .header("accept", "text/html")
+                .body(axum::body::Body::empty())
+                .unwrap();
+            let r = app.clone().oneshot(req).await.unwrap();
+            assert_eq!(r.status(), StatusCode::OK, "{path}");
+            assert!(
+                r.headers()[CONTENT_TYPE]
+                    .to_str()
+                    .unwrap()
+                    .starts_with("text/html"),
+                "{path}"
+            );
+            assert_eq!(
+                r.headers()[axum::http::header::CACHE_CONTROL],
+                "no-cache",
+                "{path}"
+            );
+            let csp = r.headers()["content-security-policy"]
+                .to_str()
+                .unwrap()
+                .to_string();
+            let mut scripts = 0;
+            extract_inline_blocks(page, "script", |open_tag, body| {
+                if has_src_attr(open_tag) || body.trim().is_empty() {
+                    return;
+                }
+                scripts += 1;
+                let token = format!("'sha256-{}'", sha256_b64(body));
+                assert!(csp.contains(&token), "{path}: inline script not in the CSP");
+            });
+            // The nav script and the footer's log-head check, plus the page's own on /beside-search.
+            assert!(scripts >= 2, "{path}: found {scripts} inline scripts");
         }
     }
 

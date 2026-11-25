@@ -47,8 +47,8 @@ import glob
 import os
 import sys
 
-PAGES = ["/", "/channel", "/how-it-works", "/the-long-version", "/reference", "/solutions", "/eudr", "/agriculture", "/contact",
-         "/verify", "/tools", "/a2a", "/guard", "/demos"]
+PAGES = ["/", "/channel", "/how-it-works", "/the-long-version", "/reference", "/solutions", "/beside-search", "/teams", "/airgap",
+         "/eudr", "/agriculture", "/contact", "/verify", "/tools", "/a2a", "/guard", "/demos"]
 
 PROBE = """(() => {
   const out = {zero: [], broken: [], blue: [], pending: []};

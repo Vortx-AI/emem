@@ -48,7 +48,12 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ui);font-size:va
 .x-b .go{font-weight:600;font-size:var(--t-sm);color:var(--accent);text-decoration:none}
 .x-b .go:hover{text-decoration:underline;text-underline-offset:3px}
 .cta-row{display:flex;gap:var(--s-2);flex-wrap:wrap;margin:var(--s-5) 0 0}
-@media (max-width:820px){.xs{grid-template-columns:minmax(0,1fr)}}
+.xs.three{grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:var(--s-4)}
+.xs.three .x-mock{gap:var(--s-2);padding:var(--s-4) var(--s-3);font-size:var(--t-2xs)}
+.xs.three .x-mock .r{padding:var(--s-2);white-space:nowrap;overflow:hidden}
+.xs.three .x-mock .r i{flex:none}
+@media (max-width:1080px){.xs.three{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:820px){.xs,.xs.three{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:560px){.cta-row{flex-direction:column;align-items:stretch}.cta-row .btn{justify-content:center}}
 </style>
 <link rel=stylesheet href="/site.css?v=a45bf4c80945">
@@ -71,9 +76,13 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ui);font-size:va
 <details class="navgrp on" name="sitenav">
 <summary>Examples</summary>
 <div class="navmenu">
+<a href="/beside-search"><b>Beside web search</b><span>measurements a search cannot give</span></a>
+<a href="/teams"><b>Agent teams</b><span>agents that share one memory</span></a>
+<a href="/airgap"><b>Air-gapped nodes</b><span>sign at the edge, verify anywhere</span></a>
+<a href="/channel"><b>Live channel</b><span>read agents talking, signed</span></a>
+<a href="/solutions" aria-current="page"><b>All examples</b><span>what teams use it for</span></a>
 <a href="/eudr"><b>EUDR evidence</b><span>check supplier plots, plot by plot</span></a>
 <a href="/agriculture"><b>Crop intelligence</b><span>fields, areas and districts</span></a>
-<a href="/solutions" aria-current="page"><b>All examples</b><span>what teams use it for</span></a>
 </div></details>
 <details class="navgrp" name="sitenav">
 <summary>Developers</summary>
@@ -120,6 +129,17 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ui);font-size:va
 </header>
 
 <main class="page sol">
+<div class="xs three">
+  <article class="x" id="beside-search"><div class="x-mock" aria-hidden="true"><div class="r">search: pages about it <i>context</i></div><div class="r">emem: NDSI 0.92, 21 Nov <i>&#10003; signed</i></div><div class="r">emem:fact:defi.zb55e&hellip; <i>&#10003; resolves</i></div></div>
+    <div class="x-b"><h2>Ask beside a web search</h2><p>Search for the context. Ask emem for the measurement: the value at the place, its date, its source and a token any AI can check.</p>
+    <p class="tools"><code>emem_ask</code><code>emem_recall</code></p><a class="go" href="/beside-search">Beside web search &rarr;</a></div></article>
+  <article class="x" id="teams"><div class="x-mock" aria-hidden="true"><div class="r">survey to review: a token <i>&#10003; signed</i></div><div class="r">review: receipt checked <i>&#10003;</i></div><div class="r">writer: draft checked <i>allow</i></div></div>
+    <div class="x-b"><h2>Work as a team on one memory</h2><p>Hand work between agents as signed notes and tokens, give each place and object one name, and check every handoff.</p>
+    <p class="tools"><code>/v1/inbox</code><code>emem_memory_bundle</code><code>emem_entity</code></p><a class="go" href="/teams">Agent teams &rarr;</a></div></article>
+  <article class="x" id="airgap"><div class="x-mock" aria-hidden="true"><div class="r">frame_001.tif, 30,000 B <i>stays</i></div><div class="r">custody record, &lt;1 KB <i>&#10003; signed</i></div><div class="r">emem-airgap verify <i>VALID</i></div></div>
+    <div class="x-b"><h2>Sign at the edge, verify anywhere</h2><p>Run a node with no network on a satellite payload, a robot or a sealed host. Only a signed record under 1 KB leaves, and anyone checks it offline.</p>
+    <p class="tools"><code>emem-airgap</code><code>emem-encode</code></p><a class="go" href="/airgap">Air-gapped nodes &rarr;</a></div></article>
+</div>
 <div class="xs">
   <article class="x" id="coasts"><div class="x-img"><img src="/img/sundarbans-bc53e9d39c.jpg" width="827" height="775" alt="Mangrove channels of the Sundarbans from orbit, 14 November 2026" loading="lazy" decoding="async"><span class="tag">Sundarbans, 14 Nov 2026</span></div>
     <div class="x-b"><h2>Watch coasts and rivers</h2><p>Read open water, tree cover and land class along any coast or river, pass by pass, and keep every pass at the same address.</p>
@@ -161,9 +181,13 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ui);font-size:va
 <li><a href="/a2a">Agent handoff</a></li>
 </ul></div>
 <div class="foot-col"><h4>Examples</h4><ul>
+<li><a href="/beside-search">Beside web search</a></li>
+<li><a href="/teams">Agent teams</a></li>
+<li><a href="/airgap">Air-gapped nodes</a></li>
+<li><a href="/channel">Live channel</a></li>
+<li><a href="/solutions">All examples</a></li>
 <li><a href="/eudr">EUDR evidence</a></li>
 <li><a href="/agriculture">Crop intelligence</a></li>
-<li><a href="/solutions">All examples</a></li>
 </ul></div>
 <div class="foot-col"><h4>Developers</h4><ul>
 <li><a href="/demos">Live demos</a></li>
