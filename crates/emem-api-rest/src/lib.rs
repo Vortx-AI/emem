@@ -86503,7 +86503,11 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
                 }
             }
             JsonValue::String(s) => s.clone(),
-            other => other.to_string(),
+            // A 128-value embedding printed in full made one answer 25 KB on
+            // emem.dev (Trafalgar Square, 2026-11-25), past the MCP wire
+            // budget, and no reader can use the numbers in a sentence.
+            JsonValue::Array(a) => format!("a vector of {} values", a.len()),
+            JsonValue::Object(_) => "a structured value".into(),
         }
     }
 
@@ -94763,6 +94767,24 @@ mod tests {
         assert!(!prose.contains("2 days ago"), "{prose}");
         // A reflectance of 0.06 is not on the 0..10000 scale its range names.
         assert!(!prose.contains("range 0..10000"), "{prose}");
+    }
+
+    #[test]
+    fn a_vector_reading_is_named_by_its_length_not_printed() {
+        let v: Vec<f64> = (0..128).map(|i| i as f64 * 0.123_456_789).collect();
+        let body = json!({
+            "place_resolved": { "label": "Trafalgar Square" },
+            "band_observations_summary": { "count": 2, "bands": [
+                { "band": "geotessera.2024", "value": v, "observed_basis": "static_layer" },
+                { "band": "copdem30m.elevation_mean", "value": 21.5, "unit": "m",
+                  "observed_basis": "static_layer" },
+            ]},
+        });
+        let prose = synthesise_ask_answer(body.as_object().expect("obj"));
+        assert!(prose.contains("a vector of 128 values"), "{prose}");
+        assert!(!prose.contains("0.123456789"), "{prose}");
+        assert!(prose.len() < 1_000, "{} bytes: {prose}", prose.len());
+        assert!(prose.contains("21.50 m"), "{prose}");
     }
 
     #[test]

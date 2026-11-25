@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import urllib.request
 
 from lib_patience import patient
@@ -162,15 +163,25 @@ def _real_search_id() -> str | None:
         return None
 
 
-def _real_token() -> tuple[str, str] | None:
-    """A token that resolves, so echo_verify is exercised on its success path."""
-    try:
-        d = _post("/v1/recall", {"cell64": CELL, "bands": ["indices.ndvi"]})
-        cid = (d.get("receipt") or {}).get("fact_cids", [None])[0]
-        val = str((d.get("facts") or [{}])[0].get("value"))
-        return (f"emem:fact:{CELL}:{cid}", val) if cid else None
-    except Exception:
-        return None
+def _real_token(tries: int = 3, wait_s: int = 20) -> tuple[str, str] | None:
+    """A token that resolves, so echo_verify is exercised on its success path.
+
+    On a fresh node the recall reads Sentinel-2 upstream, and one failed read
+    must not look like a schema violation: retry, then let the caller say it
+    is a fixture failure.
+    """
+    for attempt in range(tries):
+        try:
+            d = _post("/v1/recall", {"cell64": CELL, "bands": ["indices.ndvi"]})
+            cid = ((d.get("receipt") or {}).get("fact_cids") or [None])[0]
+            val = str((d.get("facts") or [{}])[0].get("value"))
+            if cid:
+                return (f"emem:fact:{CELL}:{cid}", val)
+        except Exception:
+            pass
+        if attempt + 1 < tries:
+            time.sleep(wait_s)
+    return None
 
 
 def main() -> int:
@@ -202,9 +213,19 @@ def main() -> int:
         return 1 if check else 0
 
     tok = _real_token()
+    no_token: list[str] = []
     if tok:
         ARGS["emem_echo_verify"] = {"token": tok[0], "claimed_value": tok[1]}
         ARGS["emem_memory_token_resolve"] = {"token": tok[0]}
+    else:
+        # Calling them with no token gets a JSON-RPC error that reads as a
+        # violation. It is a fixture failure: the schemas went unchecked.
+        for name in ("emem_echo_verify", "emem_memory_token_resolve"):
+            if name in declaring:
+                ARGS.pop(name, None)
+                no_token.append(f"{name}: not exercised, because the recall of indices.ndvi at "
+                                f"{CELL} gave no fact in 3 tries (an upstream read, not a "
+                                f"schema violation); run again")
     sid = _real_search_id()
     if sid:
         ARGS["fetch"] = {"id": sid}
@@ -231,7 +252,10 @@ def main() -> int:
     cases = [(n, s, ARGS.get(n), "") for n, s in sorted(declaring.items())]
     cases += [(n, declaring[n], a, " [over budget]") for n, a in sorted(LARGE.items())
               if n in declaring]
+    problems.extend(no_token)
     for name, schema, args, label in cases:
+        if args is None and name in {n.split(":")[0] for n in no_token}:
+            continue
         if args is None:
             problems.append(f"{name}: declares a schema but this script has no "
                             f"success-path call for it, so the promise is unverified")
