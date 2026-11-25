@@ -66211,6 +66211,12 @@ fn answers_as(key: &str) -> Option<(&'static str, &'static str)> {
             "soilgrids.phh2o_0_30cm",
             "pH in water, in pH units (the registry gives this key as pH x10)",
         )),
+        // Without this, the only key named for `dem` was gmrt.topobathy_mean,
+        // which rides on the dem slot but is not the land elevation asked for.
+        "dem" | "dem.elevation_mean" => Some((
+            "copdem30m.elevation_mean",
+            "mean elevation in metres from the Copernicus GLO-30 DEM, which the registry names as the canonical DEM",
+        )),
         k if k == "landcover" || k.starts_with("landcover.") => Some((
             "esa_worldcover.lc_2021",
             "the ESA WorldCover 2021 class at the cell, not a class fraction",
@@ -66296,6 +66302,10 @@ mod registered_keys_say_whether_they_answer {
         assert!(crop.contains("esa_worldcover.lc_2021"), "{crop}");
         let root = not_answering_reason("landcover").expect("family root, no reader");
         assert!(root.contains("esa_worldcover.lc_2021"), "{root}");
+        let dem = not_answering_reason("dem").expect("band key, no reader");
+        assert!(dem.contains("copdem30m.elevation_mean"), "{dem}");
+        // Slope has no reader under either DEM band, so nothing is offered.
+        assert_eq!(answers_as("dem.slope_mean"), None);
 
         let ghsl = not_answering_reason("ghsl.smod_class").expect("registered, no reader");
         assert!(
