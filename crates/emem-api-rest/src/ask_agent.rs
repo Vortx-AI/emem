@@ -1186,11 +1186,6 @@ fn series_step(route: &SeriesRoute, t: &AskedTime, now_unix: i64, cell: &str) ->
     Some(s)
 }
 
-/// The rain call for a past window: [`series_step`] on `/v1/rain_series`.
-pub(crate) fn rain_series_step(t: &AskedTime, now_unix: i64, cell: &str) -> Option<JsonValue> {
-    series_step(&RAIN_SERIES, t, now_unix, cell)
-}
-
 /// "hour", "day", "8 days": one cadence of a band, for prose.
 fn cadence_words(slot_s: i64) -> String {
     match slot_s {
