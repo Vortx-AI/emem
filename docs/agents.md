@@ -239,7 +239,8 @@ are in `asked`:
 A rain question about a past window that ask holds no total for (up to 366
 days, from 1940) gets a `POST /v1/rain_series` call with the window's
 `start` and `end` in `direct_answer.next_steps`. That route signs the daily
-rain at the place and the window's total.
+rain at the place and the window's total. A temperature question about a past
+day or window gets `POST /v1/temperature_series` the same way.
 
 `direct_answer` holds the verdict (`yes`, `no`, one of the two options, or
 `cannot_tell`), the value, the band and fact CID that gave it, the rule, the

@@ -35,7 +35,7 @@ use crate::{ApiError, AppState, EmemJson};
 
 const FN_KEY: &str = "temperature_series@1";
 const DAILY: &str = "temperature_2m_max,temperature_2m_min,temperature_2m_mean";
-const MAX_WINDOW_DAYS: i64 = 366;
+pub(crate) const MAX_WINDOW_DAYS: i64 = 366;
 const MAX_PAST_DAYS: u32 = 92;
 const MAX_FORECAST_DAYS: u32 = 16;
 const MAX_CLIMATOLOGY_YEARS: u32 = 30;
@@ -43,7 +43,7 @@ const FROST_C: f64 = 0.0;
 
 /// ERA5-Land's first day on the Open-Meteo archive; it returns earlier days
 /// empty.
-fn first_archive_day() -> i64 {
+pub(crate) fn first_archive_day() -> i64 {
     crate::days_from_civil(1950, 1, 1)
 }
 

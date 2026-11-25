@@ -1126,42 +1126,69 @@ pub(crate) struct AnswerInputs<'a> {
     pub(crate) unread_time: Option<&'a str>,
 }
 
-/// The call that reads daily rain over a past window, for a rain question
-/// that ask cannot answer as a total: `POST /v1/rain_series` with the
-/// window's own dates, which signs the window's total. None when the window
-/// does not end before today, starts before ERA5 does, or is longer than the
-/// route takes.
-pub(crate) fn rain_series_step(t: &AskedTime, now_unix: i64, cell: &str) -> Option<JsonValue> {
+/// A daily-series route that signs a past window ask holds no answer for.
+struct SeriesRoute {
+    path: &'static str,
+    first_day: fn() -> i64,
+    max_days: i64,
+    /// What the call signs, after "This call signs".
+    signs: &'static str,
+}
+
+const RAIN_SERIES: SeriesRoute = SeriesRoute {
+    path: "/v1/rain_series",
+    first_day: crate::rain_series::first_archive_day,
+    max_days: crate::rain_series::MAX_WINDOW_DAYS,
+    signs: "the daily rain at this place (ERA5, and the forecast model's analysis for the days \
+            ERA5 has not reached), with the total in `window_totals`, ranked against the same \
+            days of earlier years",
+};
+
+const TEMPERATURE_SERIES: SeriesRoute = SeriesRoute {
+    path: "/v1/temperature_series",
+    first_day: crate::temperature_series::first_archive_day,
+    max_days: crate::temperature_series::MAX_WINDOW_DAYS,
+    signs: "the daily Tmax, Tmin and Tmean at this place on its local days (ERA5-Land, ERA5 \
+            where it has no value, then the forecast model's analysis), with growing degree-days",
+};
+
+/// The call that signs a daily series over a past window, for a question
+/// ask cannot answer from one reading: the route with the window's own
+/// dates. None when the window does not end before today, starts before the
+/// route's archive does, or is longer than the route takes.
+fn series_step(route: &SeriesRoute, t: &AskedTime, now_unix: i64, cell: &str) -> Option<JsonValue> {
     let today = now_unix.div_euclid(DAY);
     let first = t.start_unix.div_euclid(DAY);
     let last = ((t.end_unix - 1).div_euclid(DAY)).min(today - 1);
     if t.change_window || cell.is_empty() || last < first {
         return None;
     }
-    if first < crate::rain_series::first_archive_day()
-        || last - first + 1 > crate::rain_series::MAX_WINDOW_DAYS
-    {
+    if first < (route.first_day)() || last - first + 1 > route.max_days {
         return None;
     }
     let (from, to) = (day_of_unix(first * DAY), day_of_unix(last * DAY));
     let body = json!({ "cell": cell, "start": from, "end": to });
-    let mut s = crate::next_step::step("POST /v1/rain_series", "start", body.clone());
+    let verb = format!("POST {}", route.path);
+    let mut s = crate::next_step::step(&verb, "start", body.clone());
     if let Some(m) = s.as_object_mut() {
         m.insert("method".into(), json!("POST"));
-        m.insert("path".into(), json!("/v1/rain_series"));
+        m.insert("path".into(), json!(route.path));
         m.insert("body".into(), body);
         m.insert(
             "why".into(),
             json!(format!(
-                "ask holds no rain total for {}. This call signs the daily rain at this place from \
-                 {from} to {to} (ERA5, and the forecast model's analysis for the days ERA5 has not \
-                 reached), with the total in `window_totals`, ranked against the same days of \
-                 earlier years.",
-                t.label
+                "ask holds no answer for {} from one reading. This call signs {} from {from} to \
+                 {to}.",
+                t.label, route.signs
             )),
         );
     }
     Some(s)
+}
+
+/// The rain call for a past window: [`series_step`] on `/v1/rain_series`.
+pub(crate) fn rain_series_step(t: &AskedTime, now_unix: i64, cell: &str) -> Option<JsonValue> {
+    series_step(&RAIN_SERIES, t, now_unix, cell)
 }
 
 /// "hour", "day", "8 days": one cadence of a band, for prose.
@@ -1246,12 +1273,17 @@ pub(crate) fn direct_answer(inp: &AnswerInputs) -> Option<JsonValue> {
     // The lead reading: the first lead band with a value, preferring one that
     // was observed inside the asked window.
     let dated = inp.time.filter(|t| !t.change_window && t.is_past(now));
-    // A rain question about a window ask holds no total for gets the call that
-    // signs the daily rain over it.
-    let rain_step = |out: &mut JsonValue| {
+    // A rain or temperature question about a past window ask cannot answer
+    // from one reading gets the call that signs the daily series over it.
+    let series_next_step = |out: &mut JsonValue| {
+        let route = match qty.key {
+            "precipitation" => Some(&RAIN_SERIES),
+            "air_temperature" => Some(&TEMPERATURE_SERIES),
+            _ => None,
+        };
         let step = dated
-            .filter(|_| qty.key == "precipitation")
-            .and_then(|t| rain_series_step(t, now, inp.cell));
+            .zip(route)
+            .and_then(|(t, r)| series_step(r, t, now, inp.cell));
         if let (Some(m), Some(step)) = (out.as_object_mut(), step) {
             m.insert("next_steps".into(), json!([step]));
         }
@@ -1323,7 +1355,7 @@ pub(crate) fn direct_answer(inp: &AnswerInputs) -> Option<JsonValue> {
                 }),
             );
         }
-        rain_step(&mut out);
+        series_next_step(&mut out);
         return Some(out);
     };
 
@@ -1359,7 +1391,7 @@ pub(crate) fn direct_answer(inp: &AnswerInputs) -> Option<JsonValue> {
                     }),
                 );
             }
-            rain_step(&mut out);
+            series_next_step(&mut out);
             return Some(out);
         }
         limits.push(if one_day {
@@ -1513,7 +1545,7 @@ pub(crate) fn direct_answer(inp: &AnswerInputs) -> Option<JsonValue> {
         );
     }
     if part_of_window.is_some() || verdict.as_deref() == Some("cannot_tell") {
-        rain_step(&mut out);
+        series_next_step(&mut out);
     }
     Some(out)
 }
@@ -2191,6 +2223,48 @@ mod tests {
         assert_eq!(a.get("band"), b.get("band"));
         let s = a["sentence"].as_str().unwrap();
         assert!(s.contains("2026-11-09 (3 days ago)"), "{s}");
+    }
+
+    /// A temperature of a past day ask holds no reading of points to the
+    /// route that signs that day's Tmax, Tmin and Tmean.
+    #[test]
+    fn a_past_day_with_no_temperature_points_to_temperature_series() {
+        let t = asked_time("What was the temperature in Delhi 3 days ago?", NOW).unwrap();
+        let out = direct_answer(&AnswerInputs {
+            form: &AnswerForm::Value,
+            quantity: asked_quantity("temperature"),
+            time: Some(&t),
+            readings: &[],
+            place: "Delhi",
+            place_notes: &[],
+            now_unix: NOW,
+            cell: "defi.zb4e3.zaeed.fEya",
+            unread_time: None,
+        })
+        .unwrap();
+        assert_eq!(out["verdict"], "cannot_tell", "{out}");
+        let step = &out["next_steps"][0];
+        assert_eq!(step["verb"], "POST /v1/temperature_series", "{out}");
+        assert_eq!(step["body"]["start"], "2026-11-09", "{out}");
+        assert_eq!(step["body"]["end"], "2026-11-09", "{out}");
+        let routes = crate::next_step::routed();
+        let api = crate::openapi_spec();
+        assert_eq!(crate::next_step::check_step(step, &routes, &api), Ok(()));
+        // Air quality has no daily series route, so no pointer.
+        let pm = direct_answer(&AnswerInputs {
+            form: &AnswerForm::Value,
+            quantity: asked_quantity("air quality"),
+            time: Some(&t),
+            readings: &[],
+            place: "Delhi",
+            place_notes: &[],
+            now_unix: NOW,
+            cell: "defi.zb4e3.zaeed.fEya",
+            unread_time: None,
+        })
+        .unwrap();
+        assert_eq!(pm["verdict"], "cannot_tell", "{pm}");
+        assert!(pm.get("next_steps").is_none(), "{pm}");
     }
 
     #[test]
