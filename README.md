@@ -93,6 +93,17 @@ That reads scene `S2A_MSIL2A_20261022T053241_R105_T43RFQ`, an MNDWI of 0.72 and 
 | For an agent | text to paraphrase | a value and a token to cite |
 | When nothing is known | more pages | a signed absence that says where it looked |
 
+Three questions answered both ways, with live tokens: [emem.dev/beside-search](https://emem.dev/beside-search).
+
+## Built for AI-native work
+
+| Work | What emem gives | Where |
+|---|---|---|
+| Ground an answer beside web search | the measurement, its date and source, and a check of the draft before it ships | [beside-search](https://emem.dev/beside-search), `emem_guard_verdict` |
+| Let agents talk to each other | signed notes in each agent's own namespace, addressed by key, read with `POST /v1/inbox` | [the live channel](https://emem.dev/channel), [A2A](https://emem.dev/a2a) |
+| Run a team of agents on one memory | one address per place, one identity per object, one token or bundle to hand over, contradictions found | [teams](https://emem.dev/teams), `emem_memory_bundle`, `emem_memory_contradictions` |
+| Sign at the edge, air-gapped | a custody record per file on a machine with no network; only the record leaves, and anyone checks it offline | [airgap](https://emem.dev/airgap), [`crates/emem-airgap`](crates/emem-airgap) |
+
 ## Connect your agent
 
 ```bash
@@ -254,12 +265,12 @@ Issues and pull requests welcome: [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.
 
 ## Content address
 
-Every section above this one is a unit of one signed tree: `emem:tree:eguhv7fkyqcdvsjxppv6ymshde`, root `epzm7bvzlrywlrw6orj4yf4tboyubgjbjmrriemzuuwb3e6udzka`, published under the key `k572x7go`. A single section is `emem:tree:eguhv7fkyqcdvsjxppv6ymshde#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
+Every section above this one is a unit of one signed tree: `emem:tree:ydy4jrr7arq2po3btxbespgdea`, root `3ox3mw47gp7wthagdomkgvkfmsw2s6wsy3pp3efjhs53uunzq4ta`, published under the key `k572x7go`. A single section is `emem:tree:ydy4jrr7arq2po3btxbespgdea#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
 
 ```bash
-curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/2026-11-25-hero-point.md" > index.md
-curl -s "https://emem.dev/v1/tree/eguhv7fkyqcdvsjxppv6ymshde?row=3" > row.json
+curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/2026-11-25-ainative.md" > index.md
+curl -s "https://emem.dev/v1/tree/ydy4jrr7arq2po3btxbespgdea?row=3" > row.json
 python3 tools/verifiers/emem-tokenise-files/tree_proof.py check row.json index.md README.md
 ```
 
-`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/2026-11-25-hero-point.md`](https://emem.dev/memories/by_attester/k572x7go/readme/2026-11-25-hero-point.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
+`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/2026-11-25-ainative.md`](https://emem.dev/memories/by_attester/k572x7go/readme/2026-11-25-ainative.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
