@@ -552,6 +552,16 @@ fn ring_centroid_lat_lng(ring: &[[f64; 2]]) -> (f64, f64) {
     (cy / six_a, cx / six_a)
 }
 
+/// The WGS84 length, in metres, of one degree of latitude and of longitude at `lat_deg` (the
+/// meridian and parallel series).
+pub fn metres_per_degree(lat_deg: f64) -> (f64, f64) {
+    let phi = lat_deg.to_radians();
+    let lat = 111_132.92 - 559.82 * (2.0 * phi).cos() + 1.175 * (4.0 * phi).cos()
+        - 0.0023 * (6.0 * phi).cos();
+    let lon = 111_412.84 * phi.cos() - 93.5 * (3.0 * phi).cos() + 0.118 * (5.0 * phi).cos();
+    (lat, lon)
+}
+
 /// Shoelace area of a ring of `[lon, lat]` degrees, in square metres. Each degree is scaled by the
 /// WGS84 length of a degree of latitude and of longitude at the ring's mean latitude (the meridian and
 /// parallel series), so the area scale there is the ellipsoid's own. Against the exact ellipsoidal area
@@ -563,11 +573,7 @@ fn planar_area_m2(ring: &[[f64; 2]]) -> f64 {
         return 0.0;
     }
     let mean_lat: f64 = ring.iter().map(|p| p[1]).sum::<f64>() / (ring.len() as f64);
-    let phi = mean_lat.to_radians();
-    let m_per_deg_lat = 111_132.92 - 559.82 * (2.0 * phi).cos() + 1.175 * (4.0 * phi).cos()
-        - 0.0023 * (6.0 * phi).cos();
-    let m_per_deg_lon =
-        111_412.84 * phi.cos() - 93.5 * (3.0 * phi).cos() + 0.118 * (5.0 * phi).cos();
+    let (m_per_deg_lat, m_per_deg_lon) = metres_per_degree(mean_lat);
     // relative to the first vertex: products of absolute degree-metres lose digits to cancellation
     let (x0, y0) = (ring[0][0], ring[0][1]);
     let mut acc = 0.0;

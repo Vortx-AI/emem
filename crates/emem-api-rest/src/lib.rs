@@ -19805,6 +19805,8 @@ async fn post_field_boundaries(
     let mut regularisation: Option<JsonValue> = None;
     if req.clean || req.regularize {
         let lat0 = (bbox.0 + bbox.1) / 2.0;
+        // The frame's areas are a sphere's; the records state them on the scale of area_m2.
+        let scale = emem_fetch::parcels::area_scale(lat0);
         if let Some(feats) = geojson.get_mut("features").and_then(|f| f.as_array_mut()) {
             // the element type is whatever `to_planar` returns; api-rest does not depend on geo directly
             let mut planar: Vec<_> = feats
@@ -19834,8 +19836,8 @@ async fn post_field_boundaries(
                     "overlaps_reverted": rrep.overlaps_reverted,
                     "vertices_before": rrep.vertices_before,
                     "vertices_after": rrep.vertices_after,
-                    "area_before_m2": rrep.area_before_m2,
-                    "area_after_m2": rrep.area_after_m2,
+                    "area_before_m2": rrep.area_before_m2 * scale,
+                    "area_after_m2": rrep.area_after_m2 * scale,
                     "after_clean": req.clean,
                     "what_this_is": "a simpler drawing of each outline where a simpler shape fits it closely, guarded so no field takes ground from a neighbour's outline, original or redrawn, no two redrawn outlines overlap, and no field changes area by more than the stated share",
                     "what_this_is_not": "a sharper boundary: on 10 m outlines it does not move an edge onto a truer one (mean NDVI gradient along the outlines 0.0043 before, 0.0044 after, on two public boxes measured 2026-11-20). Sub-metre imagery moves edges; this does not",
@@ -19876,16 +19878,16 @@ async fn post_field_boundaries(
                     "operator": rep.operator,
                     "deterministic": rep.deterministic,
                     "inputs": {"product": "fields_of_the_world", "vintage": coll.vintage_returned, "source_cid": coll.source_cid},
-                    "parameters": {"duplicate_share": 0.98, "projection": "equirectangular about the bbox mid-latitude"},
+                    "parameters": {"duplicate_share": 0.98, "projection": "equirectangular about the bbox mid-latitude", "areas": "on the WGS84 scale area_m2 uses at that latitude"},
                     "input_polygons": rep.input_polygons,
                     "output_polygons": rep.output_polygons,
                     "duplicates_dropped": rep.duplicates_dropped,
                     "pairs_resolved": rep.pairs_resolved,
                     "emptied": rep.emptied,
-                    "overlap_before_m2": rep.overlap_before_m2,
-                    "overlap_after_m2": rep.overlap_after_m2,
-                    "area_before_m2": rep.area_before_m2,
-                    "area_after_m2": rep.area_after_m2,
+                    "overlap_before_m2": rep.overlap_before_m2 * scale,
+                    "overlap_after_m2": rep.overlap_after_m2 * scale,
+                    "area_before_m2": rep.area_before_m2 * scale,
+                    "area_after_m2": rep.area_after_m2 * scale,
                     "gaps": rep.gaps_note,
                     "what_this_is_not": "not a regularisation and not an infill of unmapped ground; each of those is a different claim with its own provenance and is not folded into this flag",
                 }));

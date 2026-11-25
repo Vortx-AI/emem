@@ -190,6 +190,15 @@ pub fn resolve_overlaps(polys: &mut [Option<Polygon<f64>>], dup_share: f64) -> C
 
 /// GeoJSON Polygon coordinates (lng, lat rings) to a planar polygon in metres, equirectangular about
 /// `lat0`. Adequate for parcel-scale geometry: under 1 % distortion for the disc sizes this route serves.
+/// Square metres on the WGS84 ellipsoid per square metre of the [`to_planar`] frame at `lat0`.
+/// That frame is a sphere's (111,320 m a degree), so its areas read 0.32 % high at 31 N and 0.43 %
+/// high at 25 N; a report multiplies its areas by this to state them on the scale `area_m2` uses.
+/// The outlines themselves stay in the frame, so no geometry moves.
+pub fn area_scale(lat0: f64) -> f64 {
+    let (lat, lon) = crate::ftw::metres_per_degree(lat0);
+    (lat * lon) / (lat0.to_radians().cos() * 111_320.0 * 111_320.0)
+}
+
 pub fn to_planar(coords: &serde_json::Value, lat0: f64) -> Option<Polygon<f64>> {
     let k = (lat0.to_radians()).cos() * 111_320.0;
     let ring = |r: &serde_json::Value| -> Option<LineString<f64>> {
@@ -629,6 +638,40 @@ pub fn s2_support(coords: &serde_json::Value) -> Option<S2Support> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_frame_area_times_the_scale_is_the_ellipsoid_area() {
+        for lat0 in [0.0_f64, 25.2, 30.7, 52.5, 60.0] {
+            let d = 0.01;
+            let ring = serde_json::json!([[
+                [75.0, lat0],
+                [75.0 + d, lat0],
+                [75.0 + d, lat0 + d],
+                [75.0, lat0 + d],
+                [75.0, lat0]
+            ]]);
+            // net_area_m2 takes its scale at the mean of the ring's vertices, the closing one included.
+            let at = lat0 + 0.4 * d;
+            let frame = to_planar(&ring, at).unwrap().unsigned_area();
+            let ellipsoid = crate::ftw::net_area_m2(&ring).unwrap();
+            let scaled = frame * area_scale(at);
+            assert!(
+                (scaled / ellipsoid - 1.0).abs() < 1e-9,
+                "{lat0}: {scaled} vs {ellipsoid}"
+            );
+        }
+        // The size of what it corrects, where the boxes were measured.
+        assert!(
+            (area_scale(30.7) - 0.9968).abs() < 3e-4,
+            "{}",
+            area_scale(30.7)
+        );
+        assert!(
+            (area_scale(25.2) - 0.9957).abs() < 3e-4,
+            "{}",
+            area_scale(25.2)
+        );
+    }
+
     use super::*;
     use geo::polygon;
 

@@ -101,7 +101,7 @@ claude mcp add --transport http emem https://emem.dev/mcp     # Claude Code
 
 Any MCP host takes the same URL, `https://emem.dev/mcp`: Claude Desktop, ChatGPT, Cursor, VS Code, Cline and Gemini CLI. The Claude Code plugin adds nineteen skills on top: `/plugin marketplace add Vortx-AI/emem`, then `/plugin install emem@emem`. In code: `pip install ememdev` or `npm i @vortxai/emem`.
 
-**For agents.** Connect to `https://emem.dev/mcp`. It advertises the 18 tools of the core loop in one page, about 75 KB of context, not the whole catalog: loading all 120 descriptors costs about 329 KB. For the lightest first contact, `emem_tools` returns the loop and a menu in about 13 KB, and `tools/call` dispatches every tool by name, with or without its `emem_` prefix. To hand records on, prefer a bundle: `emem_memory_bundle` names up to 256 facts in 38 characters.
+**For agents.** Connect to `https://emem.dev/mcp`. It advertises the 18 tools of the core loop in one page, about 75 KB of context, not the whole catalog: loading all 120 descriptors costs about 363 KB. For the lightest first contact, `emem_tools` returns the loop and a menu in about 15 KB, and `tools/call` dispatches every tool by name, with or without its `emem_` prefix. To hand records on, prefer a bundle: `emem_memory_bundle` names up to 256 facts in 38 characters.
 
 Then ask in plain words. Each prompt below runs one tool:
 
@@ -254,12 +254,12 @@ Issues and pull requests welcome: [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.
 
 ## Content address
 
-Every section above this one is a unit of one signed tree: `emem:tree:zsyxlhgoirtqtpzy5r3g3cuxji`, root `2gkw6is42wscqezvim6cjcaggnzwmxvadyhdfcmsmekhd2xxjiga`, published under the key `k572x7go`. A single section is `emem:tree:zsyxlhgoirtqtpzy5r3g3cuxji#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
+Every section above this one is a unit of one signed tree: `emem:tree:gxk3b4vucffuy6l6o25l74uyny`, root `56hhtewsmahxud5u5lvqvulk3iz3tf3rj575kfepsy4diqtjmnyq`, published under the key `k572x7go`. A single section is `emem:tree:gxk3b4vucffuy6l6o25l74uyny#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
 
 ```bash
-curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261125a.md" > index.md
-curl -s "https://emem.dev/v1/tree/zsyxlhgoirtqtpzy5r3g3cuxji?row=3" > row.json
+curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/2026-11-25-sizes.md" > index.md
+curl -s "https://emem.dev/v1/tree/gxk3b4vucffuy6l6o25l74uyny?row=3" > row.json
 python3 tools/verifiers/emem-tokenise-files/tree_proof.py check row.json index.md README.md
 ```
 
-`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261125a.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261125a.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
+`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/2026-11-25-sizes.md`](https://emem.dev/memories/by_attester/k572x7go/readme/2026-11-25-sizes.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
