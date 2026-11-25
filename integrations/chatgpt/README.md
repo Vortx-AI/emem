@@ -5,7 +5,7 @@ the privacy page and the submission files. The app connects ChatGPT to the
 public emem MCP server at `https://emem.dev/mcp`. Reads need no key, no
 account and no signup.
 
-emem is shared, verifiable memory for AI agents. Each place has one address,
+emem is the memory of the physical world: shared, verifiable memory for AI agents. Each place has one address,
 and each observation is one signed fact. A user gets a measurement with an
 ed25519 receipt, and anyone can check that receipt offline. Earth observation
 data fills this memory today.

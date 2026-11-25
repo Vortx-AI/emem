@@ -15,7 +15,7 @@
   },
   "description": {
     "short": "Signed, citable Earth observation facts for any place. No key to read.",
-    "full": "emem is shared, verifiable memory for AI agents. Every place has one address and every observation one signed fact, so an answer survives leaving the conversation and anyone can re-check it. Ask about a place (vegetation, air quality, flood, fire, elevation, forest loss) and the answer comes back as a measurement from a public Earth-observation source with an Ed25519 receipt attached, plus a short emem:fact: token that resolves anywhere to the same signed bytes. Verify any receipt at https://emem.dev/verify without trusting emem. Reading needs no key and no account; reads are rate-limited per client. This connector exposes the 18-tool core loop; emem_tools lists and runs the rest. Open source, Apache-2.0."
+    "full": "emem is the memory of the physical world: shared, verifiable memory for AI agents. Every place has one address and every observation one signed fact, so an answer survives leaving the conversation and anyone can re-check it. Ask about a place (vegetation, air quality, flood, fire, elevation, forest loss) and the answer comes back as a measurement from a public Earth-observation source with an Ed25519 receipt attached, plus a short emem:fact: token that resolves anywhere to the same signed bytes. Verify any receipt at https://emem.dev/verify without trusting emem. Reading needs no key and no account; reads are rate-limited per client. This connector exposes the 18-tool core loop; emem_tools lists and runs the rest. Open source, Apache-2.0."
   },
   "agentConnectors": [
     {

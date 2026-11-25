@@ -32285,19 +32285,18 @@ fn iso8601_now_utc() -> String {
 /// arrangement was ten hand-maintained paraphrases of one idea, and
 /// paraphrase is the failure this project exists to prevent.
 pub const EMEM_LEAD: &str =
-    "emem is shared memory for AI agents working together in the real world.";
+    "emem is the memory of the physical world: shared, verifiable memory that any AI can search, cite and check.";
 
 /// The lead plus how it works, for any surface with room for a paragraph.
 pub const EMEM_DESCRIPTION: &str =
-    "emem is shared memory for AI agents working together in the real world. \
-One agent writes down what it observed. Another agent reads the same bytes, not a summary of them. \
-Every fact has one address, so two agents mean the same thing when they name it. \
-Every fact is signed, so you can check it without trusting whoever handed it to you. \
+    "emem is the memory of the physical world: shared, verifiable memory that any AI can search, cite and check. \
+Ask about any place on Earth, and emem reads it from orbit and from open sensors. \
+Every reading has one address, is named by its own bytes, and is signed. \
+Another agent reads the same bytes, not a summary of them, and checks them without trusting whoever handed them over. \
 Every fact says how it was produced, so you know what it is worth. \
-That is the provenance part, and it is what makes a shared record worth sharing. \
 Reads need no key and no account.";
 
-const MCP_PREAMBLE: &str = "emem is shared, verifiable memory for AI agents. It stops two agents using different words for the same thing.\nOne place has one address (cell64). One observation has one signed fact (fact_cid). One object has one identity (emem:entity:<cid>).\nGive another agent an emem:fact: token. You both read the same signed bytes. Either of you can verify them offline. Neither has to trust the other.\nAn emem:entity: token is weaker. Its hash comes from an anchor, not from the whole record. Treat it as a shared reference, not as shared bytes.\nTokens pin the words. If the words hold and the number still moves, emem_change_attribution says why, term by term, with fact ids. The numeric split of that delta is roadmap, not shipped.";
+const MCP_PREAMBLE: &str = "emem is shared, verifiable memory of the physical world. It stops two agents using different words for the same thing.\nOne place has one address (cell64). One observation has one signed fact (fact_cid). One object has one identity (emem:entity:<cid>).\nGive another agent an emem:fact: token. You both read the same signed bytes. Either of you can verify them offline. Neither has to trust the other.\nAn emem:entity: token is weaker. Its hash comes from an anchor, not from the whole record. Treat it as a shared reference, not as shared bytes.\nTokens pin the words. If the words hold and the number still moves, emem_change_attribution says why, term by term, with fact ids. The numeric split of that delta is roadmap, not shipped.";
 
 /// The `initialize` instructions an MCP host puts in front of the model.
 ///
@@ -37411,7 +37410,203 @@ fn openapi_spec() -> JsonValue {
     enrich_openapi_op_descriptions(&mut spec);
     enrich_openapi_response_schemas(&mut spec);
     enrich_openapi_post_error_responses(&mut spec);
+    tag_openapi_operations(&mut spec);
     spec
+}
+
+/// The OpenAPI tags, in the order a reader meets emem: search it, read its memory, name things, then the ways to
+/// read the world, the complete checks built on it, encoding and verifying, agents, and the catalogue. Every
+/// operation gets exactly one of these. A catalogue that left 134 of 218 operations untagged rendered them as one
+/// "Other" bucket in every OpenAPI viewer (seen on 2026-11-20).
+const OPENAPI_TAGS: &[(&str, &str)] = &[
+    ("Search", "Ask in words and get a signed answer, or turn a place name into its address."),
+    ("Memory", "Read, cite and compare signed records: facts, bundles, states and derived values."),
+    ("Identity", "Name objects, agents and keys once, so every agent refers to the same one."),
+    ("Places", "Read one measurement at one place in one call: air, weather, water, forest, soil, terrain."),
+    ("Rasters and series", "Read grids, scenes and time series over an area, each as one signed record."),
+    ("Applications", "Run complete checks: EUDR plots, field boundaries, burning, water use and emissions."),
+    ("Analysis", "Compute over signed records: physics solvers, sun geometry and similarity."),
+    ("Encode and decode", "Sign files, device runs and documents at their source, and resolve them anywhere."),
+    ("Verify", "Check signatures, the append-only log and its witnesses, and the citations in a draft."),
+    ("Agents", "Hand work and memory between agents over A2A and MCP."),
+    ("Catalogue", "List what this node serves: tools, bands, sources, algorithms, schemas and errors."),
+    ("Service", "Health, benchmarks and demos."),
+];
+
+/// The tag for one documented path. A pattern ending in `*` matches by prefix; the first match wins, so a more
+/// specific pattern comes before a broader one. `None` means unclassified, which the test refuses.
+fn openapi_tag_for(path: &str) -> Option<&'static str> {
+    const RULES: &[(&str, &str)] = &[
+        ("/v1/schemas/eudr_dds.json", "Catalogue"),
+        ("/v1/eudr_dds*", "Applications"),
+        ("/v1/deforestation_alert", "Applications"),
+        ("/v1/sar_forest_disturbance", "Applications"),
+        ("/v1/field_boundaries", "Applications"),
+        ("/v1/field_burn_scar", "Applications"),
+        ("/v1/field_actual_et", "Applications"),
+        ("/v1/rice_ch4", "Applications"),
+        ("/v1/burn_severity", "Applications"),
+        ("/v1/ask", "Search"),
+        ("/v1/intent*", "Search"),
+        ("/v1/locate", "Search"),
+        ("/v1/decide", "Search"),
+        ("/v1/hunt", "Search"),
+        ("/v1/explain", "Search"),
+        ("/v1/chat/completions", "Search"),
+        ("/v1/models", "Search"),
+        ("/v1/recall*", "Memory"),
+        ("/v1/at", "Memory"),
+        ("/v1/read", "Memory"),
+        ("/v1/state*", "Memory"),
+        ("/v1/facts/*", "Memory"),
+        ("/v1/fetch", "Memory"),
+        ("/v1/memory*", "Memory"),
+        ("/v1/derive*", "Memory"),
+        ("/v1/inferences", "Memory"),
+        ("/v1/persist", "Memory"),
+        ("/v1/backfill", "Memory"),
+        ("/v1/trajectory", "Memory"),
+        ("/v1/diff", "Memory"),
+        ("/v1/compare*", "Memory"),
+        ("/v1/edges*", "Memory"),
+        ("/v1/attest*", "Memory"),
+        ("/v1/artifacts/*", "Memory"),
+        ("/v1/change_attribution", "Memory"),
+        ("/v1/entity*", "Identity"),
+        ("/v1/enlist", "Identity"),
+        ("/v1/agents", "Identity"),
+        ("/v1/agent_stats", "Identity"),
+        ("/v1/contributors*", "Identity"),
+        ("/v1/reviews*", "Identity"),
+        ("/.well-known/emem-agents.json", "Identity"),
+        ("/.well-known/did.json", "Identity"),
+        ("/v1/air", "Places"),
+        ("/v1/weather", "Places"),
+        ("/v1/water", "Places"),
+        ("/v1/forest", "Places"),
+        ("/v1/ndvi", "Places"),
+        ("/v1/lst", "Places"),
+        ("/v1/soil", "Places"),
+        ("/v1/elevation", "Places"),
+        ("/v1/terrain", "Places"),
+        ("/v1/spi", "Places"),
+        ("/v1/building_footprints", "Places"),
+        ("/v1/band_*", "Rasters and series"),
+        ("/v1/raster*", "Rasters and series"),
+        ("/v1/cube/*", "Rasters and series"),
+        ("/v1/grid*", "Rasters and series"),
+        ("/v1/cells*", "Rasters and series"),
+        ("/v1/scene.png", "Rasters and series"),
+        ("/v1/query_region", "Rasters and series"),
+        ("/v1/field_series", "Rasters and series"),
+        ("/v1/rain_series", "Rasters and series"),
+        ("/v1/temperature_series", "Rasters and series"),
+        ("/v1/coverage*", "Rasters and series"),
+        ("/v1/data_availability", "Rasters and series"),
+        ("/v1/tessera_field", "Rasters and series"),
+        ("/v1/perception/*", "Rasters and series"),
+        ("/v1/heat_solve", "Analysis"),
+        ("/v1/wave_solve", "Analysis"),
+        ("/v1/sun_*", "Analysis"),
+        ("/v1/shadow_height", "Analysis"),
+        ("/v1/jepa_predict", "Analysis"),
+        ("/v1/temporal_route", "Analysis"),
+        ("/v1/find_similar", "Analysis"),
+        ("/v1/embedding_*", "Analysis"),
+        ("/v1/region_*", "Analysis"),
+        ("/v1/neighborhood_consistency", "Analysis"),
+        ("/v1/tree/*", "Encode and decode"),
+        ("/v1/range_hash", "Encode and decode"),
+        ("/v1/trace_*", "Encode and decode"),
+        ("/v1/device*", "Encode and decode"),
+        ("/v1/enroll_*", "Encode and decode"),
+        ("/v1/ocr", "Encode and decode"),
+        ("/v1/lab_report_parse", "Encode and decode"),
+        ("/v1/land_record_parse", "Encode and decode"),
+        ("/v1/fleet", "Encode and decode"),
+        ("/v1/verify*", "Verify"),
+        ("/v1/echo_verify", "Verify"),
+        ("/v1/verifier_spec", "Verify"),
+        ("/v1/log/*", "Verify"),
+        ("/v1/guard/*", "Verify"),
+        ("/v1/plane/*", "Verify"),
+        ("/v1/manifests", "Verify"),
+        ("/v1/algorithm_cids", "Verify"),
+        ("/.well-known/emem-verifier.json", "Verify"),
+        ("/.well-known/jwks.json", "Verify"),
+        ("/a2a/*", "Agents"),
+        ("/v1/a2a/*", "Agents"),
+        ("/v1/inbox", "Agents"),
+        ("/v1/channel/*", "Agents"),
+        ("/v1/arcade/*", "Agents"),
+        ("/v1/harness/*", "Agents"),
+        ("/spec/*", "Agents"),
+        ("/mcp", "Agents"),
+        ("/v1/tools", "Catalogue"),
+        ("/v1/bands", "Catalogue"),
+        ("/v1/sources", "Catalogue"),
+        ("/v1/capabilities", "Catalogue"),
+        ("/v1/algorithms*", "Catalogue"),
+        ("/v1/functions", "Catalogue"),
+        ("/v1/materializers", "Catalogue"),
+        ("/v1/schema*", "Catalogue"),
+        ("/v1/quickstart", "Catalogue"),
+        ("/v1/agent_quickref", "Catalogue"),
+        ("/v1/agent_card", "Catalogue"),
+        ("/v1/limits", "Catalogue"),
+        ("/v1/deprecations", "Catalogue"),
+        ("/v1/discover", "Catalogue"),
+        ("/v1/substrates", "Catalogue"),
+        ("/v1/topics", "Catalogue"),
+        ("/v1/errors", "Catalogue"),
+        ("/.well-known/emem.json", "Catalogue"),
+        ("/health", "Service"),
+        ("/live", "Service"),
+        ("/v1/health", "Service"),
+        ("/v1/benchmark*", "Service"),
+        ("/v1/scoreboard", "Service"),
+        ("/v1/demos", "Service"),
+        ("/v1/worlds", "Service"),
+        ("/v1/stream", "Service"),
+        ("/v1/vector_index/*", "Service"),
+        ("/v1/corpus_state_stats", "Service"),
+    ];
+    RULES.iter().find_map(|(pat, tag)| {
+        let hit = match pat.strip_suffix('*') {
+            Some(prefix) => path.starts_with(prefix),
+            None => path == *pat,
+        };
+        hit.then_some(*tag)
+    })
+}
+
+/// One tag per operation from [`openapi_tag_for`], and the tag list with descriptions in reading order.
+fn tag_openapi_operations(spec: &mut JsonValue) {
+    if let Some(paths) = spec.get_mut("paths").and_then(|p| p.as_object_mut()) {
+        for (path, item) in paths.iter_mut() {
+            let Some(tag) = openapi_tag_for(path) else {
+                continue;
+            };
+            if let Some(ops) = item.as_object_mut() {
+                for (method, op) in ops.iter_mut() {
+                    if matches!(
+                        method.as_str(),
+                        "get" | "post" | "put" | "patch" | "delete" | "head" | "options"
+                    ) {
+                        if let Some(o) = op.as_object_mut() {
+                            o.insert("tags".into(), json!([tag]));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    spec["tags"] = JsonValue::Array(
+        OPENAPI_TAGS
+            .iter()
+            .map(|(name, description)| json!({"name": name, "description": description}))
+            .collect(),
+    );
 }
 
 /// `GET /openapi.json`.
@@ -94789,6 +94984,52 @@ mod tests {
         }
     }
 
+    /// Every documented operation carries exactly one tag, from the declared list. A new route that matches no
+    /// rule fails here, so the catalogue cannot slide back to one "Other" bucket.
+    #[test]
+    fn every_openapi_operation_has_one_declared_tag() {
+        let spec = openapi_spec();
+        let declared: std::collections::BTreeSet<&str> =
+            OPENAPI_TAGS.iter().map(|(n, _)| *n).collect();
+        let mut untagged = Vec::new();
+        let mut ops = 0;
+        for (path, item) in spec["paths"].as_object().unwrap() {
+            if openapi_tag_for(path).is_none() {
+                untagged.push(path.clone());
+                continue;
+            }
+            for (method, op) in item.as_object().unwrap() {
+                if !matches!(method.as_str(), "get" | "post" | "put" | "patch" | "delete") {
+                    continue;
+                }
+                ops += 1;
+                let tags = op["tags"]
+                    .as_array()
+                    .unwrap_or_else(|| panic!("{method} {path} has no tags"));
+                assert_eq!(tags.len(), 1, "{method} {path}: {tags:?}");
+                assert!(
+                    declared.contains(tags[0].as_str().unwrap()),
+                    "{method} {path}: {tags:?}"
+                );
+            }
+        }
+        assert!(
+            untagged.is_empty(),
+            "paths no tag rule matches: {untagged:?}"
+        );
+        assert!(ops > 150, "only {ops} operations seen");
+        let listed: Vec<&str> = spec["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            listed,
+            OPENAPI_TAGS.iter().map(|(n, _)| *n).collect::<Vec<_>>()
+        );
+    }
+
     /// An include token reaches its own handler. On axum 0.7 a `{token}`
     /// segment is a literal, and the route fell through to the router's 404.
     #[tokio::test]
@@ -95099,12 +95340,13 @@ mod tests {
         );
         assert_eq!(root["one_line"], json!(EMEM_LEAD));
 
-        // The lead is about agents working together, not about Earth. Earth is
-        // where the record is populated from, which belongs further down.
+        // The lead names the category: memory, of the physical world, for any AI
+        // (owner, 2026-11-20). Satellites are how the record is read, which
+        // belongs further down.
         let lead = EMEM_LEAD.to_lowercase();
         assert!(
-            lead.contains("shared memory") && lead.contains("agents"),
-            "the lead sentence stopped being about shared memory between agents"
+            lead.contains("memory") && lead.contains("physical world") && lead.contains(" ai "),
+            "the lead sentence stopped naming the category: {EMEM_LEAD}"
         );
         assert!(
             !lead.contains("earth") && !lead.contains("satellite") && !lead.contains("geospatial"),
