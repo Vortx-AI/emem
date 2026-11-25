@@ -65,9 +65,10 @@ CANON = {
     # a human to move them.
     # 119 (extended 101) with emem_sun_position, emem_shadow_height and
     # emem_sun_from_shadow, 2026-11-14.
-    "mcp_tools": 119,
+    # 120 (extended 102) with emem_temperature_series, 2026-11-20.
+    "mcp_tools": 120,
     "mcp_core": 18,
-    "mcp_extended": 101,
+    "mcp_extended": 102,
     # The subset the ChatGPT app submission declares. A real quantity, not a
     # stale copy of `mcp_core`: the near-miss sweep flagged the bundle's "16
     # tools" as a drifted 18 because 16 is within its tolerance of 18, and the
@@ -94,8 +95,9 @@ CANON = {
     # +1 each for /v1/persist.
     # +3 each for /v1/sun_position, /v1/shadow_height and /v1/sun_from_shadow.
     # +1 for GET /v1/eudr_dds/include/{token}, 2026-11-15.
-    "rest_paths_v1": 188,           # documented /v1/* paths in OpenAPI
-    "rest_paths_openapi_total": 199,  # all paths in OpenAPI
+    # +1 each for /v1/temperature_series, 2026-11-20.
+    "rest_paths_v1": 189,           # documented /v1/* paths in OpenAPI
+    "rest_paths_openapi_total": 200,  # all paths in OpenAPI
     "cube_slots": 43,
     # 129 -> 125 on 2026-09-15: the four foundation encoders were retired for
     # this deployment (EMEM_RETIRED_BANDS) when the GPU behind them was

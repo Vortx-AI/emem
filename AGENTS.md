@@ -180,7 +180,7 @@ hook fails, fix the underlying issue.
 | Cell64 / tslot / alphabet | `crates/emem-codec/src/` |
 | Merkle log + per-fact proofs | `crates/emem-storage/src/{merkle_log,server}.rs` |
 | Registries (10 manifest digests, `GET /v1/manifests`) | `crates/emem-core/data/*.json` + `src/` |
-| MCP tool registry (119 tools) | `crates/emem-mcp/src/lib.rs` |
+| MCP tool registry (120 tools) | `crates/emem-mcp/src/lib.rs` |
 | Read primitives | `crates/emem-primitives/src/*.rs` |
 | Reference offline verifiers (kept out of the plugin, which ships no code) | `tools/verifiers/` |
 | Hunter and corpus-audit classifiers for /v1/ask | `crates/emem-api-rest/src/ask_foundation.rs` |

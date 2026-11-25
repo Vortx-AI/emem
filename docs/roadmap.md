@@ -1149,7 +1149,7 @@ Values measured on emem.dev on 7 November 2026:
 | request | tools | size |
 |---|---|---|
 | `tools/list` on `POST /mcp` | the 18 core tools, one page | about 75 KB |
-| `tools/list` on `POST /mcp/full` | all 119 tools, 9 pages | about 346 KB |
+| `tools/list` on `POST /mcp/full` | every tool, 9 pages | about 346 KB |
 | `emem_tools` with no arguments | the loop and a menu | about 13 KB |
 | `emem_tools` with `{"name":"emem_ndvi"}` | one schema and an example | about 8 KB |
 

@@ -185,7 +185,7 @@ curl -s https://emem.dev/v1/tools
 
 The MCP search returned `emem_trajectory` and `emem_temporal_route`, under
 `groups`. The REST route has no search. It ignores `q` and `name` and returns
-all 119 tools, each with `input_schema` and `example_args`. It reads one
+all 120 tools, each with `input_schema` and `example_args`. It reads one
 parameter, `tier`. On 7 November 2026, `?tier=core` gave the 18 core tools
 and `?tier=extended` gave the other 98. Any other `tier` value gives the core
 tools.
@@ -1523,7 +1523,7 @@ routes in the last column are the source of truth.
 | Item | Count | Source |
 |---|---|---|
 | REST paths | 194, of which 183 are under `/v1/` | `/openapi.json` |
-| MCP tools | 119: 18 core, 101 extended | `tools/list` on `/mcp` and `/mcp/full` |
+| MCP tools | 120: 18 core, 102 extended | `tools/list` on `/mcp` and `/mcp/full` |
 | MCP resources | 21 static and 9 URI templates | `resources/list`, `resources/templates/list` |
 | Algorithms | 172: 128 run here, 36 stored only, 8 cannot run | `/v1/algorithms` |
 | Bands in the manifest | 43, with 1792 dimensions in total | `/v1/bands` |
@@ -1653,6 +1653,7 @@ marks an optional field.
 | `/v1/trajectory` | `{cell or place or lat and lng, band, window?, as_of_tslot?, as_of_signed_at?, scope?}`, or `from_date` and `to_date` in place of `window` |
 | `/v1/field_series` | `{geometry or bbox or areas or fields, start_date, end_date, index?, sensor?, orbit?, inner_buffer_m?, min_support_px?, min_clear_fraction?, max_scenes?, blocks?, mask_policy?, qa_reject_bits?, memory?, pool?}`. `min_valid_share` is an alias of `min_clear_fraction` |
 | `/v1/diff` | `{cell or place or lat and lng, band, tslot_a or date_a, tslot_b or date_b}`. A date is `YYYY-MM-DD` |
+| `/v1/temperature_series` | `{lat and lng or cell, start and end or past_days?, forecast_days?, base_c?, method?, cap_c?, heat_c?, climatology_years?}`. Daily Tmax, Tmin and Tmean on local days from ERA5-Land, growing degree-days, and the GDD total ranked against the same span of earlier years, signed as one `temperature_series@1` derivation. MCP tool `emem_temperature_series` |
 
 ##### Two forms of bbox
 
@@ -2047,7 +2048,7 @@ Look at `/v1/data_availability` before you select a window.
 
 On 7 November 2026, `tools/list` on `/mcp` gives the 18 `core` tools
 in one page (about 77 KB of descriptors).
-`/mcp/full` advertises all 119 (about 345 KB over 9 pages). A tool
+`/mcp/full` advertises all 120 (about 345 KB over 9 pages). A tool
 that a node has run since it started also carries its measured latency
 in `_meta` as `dev.emem/observed_latency`, about 70 bytes. So a busy
 node sends more pages: on 13 November 2026, emem.dev sent 9. Send
@@ -2064,7 +2065,7 @@ gave on 7 November 2026, and the tools added since then.
 | Shape | Answer | Tools |
 |---|---|---|
 | `scalar` (36) | One number or a few numbers at one address | `emem_ask`, `emem_hunt`, `emem_eudr_dds`, `emem_spi`, `emem_burn_severity`, `emem_rice_ch4`, `emem_deforestation_alert`, `emem_sar_forest_disturbance`, `emem_change_attribution`, `emem_terrain`, `emem_state`, `emem_state_multi`, `emem_state_diff`, `emem_recall`, `emem_recall_polygon`, `emem_query_region`, `emem_compare`, `emem_compare_bands`, `emem_diff`, `emem_fetch`, `emem_backfill`, `emem_heat_solve`, `emem_wave_solve`, `emem_recall_many`, `emem_grid`, `emem_elevation`, `emem_at`, `emem_ndvi`, `emem_air`, `emem_lst`, `emem_soil`, `emem_water`, `emem_forest`, `emem_weather`, `emem_shadow_height`, `emem_sun_from_shadow` |
-| `timeseries` (5) | Values over time | `emem_field_series`, `emem_trajectory`, `emem_compare_same_doy`, `emem_temporal_route`, `emem_sun_position` |
+| `timeseries` (6) | Values over time | `emem_field_series`, `emem_trajectory`, `emem_compare_same_doy`, `emem_temporal_route`, `emem_sun_position`, `emem_temperature_series` |
 | `raster` (6) | A grid of values over an area | `emem_band_raster`, `emem_band_cube`, `emem_band_composite`, `emem_raster_bundle`, `emem_coverage_map`, `emem_cell_scene_rgb` |
 | `geometry` (3) | Boundaries, polygons and the cells in an area | `emem_field_boundaries`, `emem_cells_in_bbox`, `emem_cell_geojson` |
 | `vector` (6) | An embedding or a neighbourhood in embedding space | `emem_region_similarity`, `emem_embedding_centroid`, `emem_embedding_diversity`, `emem_neighborhood_consistency`, `emem_find_similar`, `emem_jepa_predict` |

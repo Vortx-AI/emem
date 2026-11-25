@@ -690,6 +690,7 @@ responder itself signs derivatives with these `op` and `fn_key` values
 | `attribution_ledger` | `change_attribution@1` | `change_attribution.rs` (the change ledger) |
 | `index_series` | the series recipe | `field_series.rs` |
 | `rain_series` | the series recipe | `rain_series.rs` |
+| `temperature_series` | `temperature_series@1` | `temperature_series.rs` (daily temperature and growing degree-days) |
 | `band_raster`, `dem_raster`, `forest_raster`, `embedding_raster`, `raster_bundle`, `band_cube`, `median_composite` | `<op>@1`, except `s2_median_composite@1` | `band_raster.rs` |
 | `histogram` | `lossyear_histogram@1` | `lib.rs` (forest loss by year) |
 | `eudr_plot_raster` | `eudr_plot_raster@1` | `eudr_raster.rs` (one EUDR plot, every 10 m pixel) |

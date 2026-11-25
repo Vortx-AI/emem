@@ -62,6 +62,9 @@ ARGS: dict[str, dict] = {
     "fetch": {},  # filled at runtime with an id `search` actually returned
     "emem_locate": {"place": "Mount Fuji"},
     "emem_memory_token_resolve": {},  # filled at runtime with a real token
+    # Recent days and a short climatology keep the call small and quick.
+    "emem_temperature_series": {"lat": 18.52, "lng": 73.86, "past_days": 10,
+                                "forecast_days": 3, "climatology_years": 3},
 }
 
 # Calls whose result is over the MCP wire budget, so the slimmer runs. Every

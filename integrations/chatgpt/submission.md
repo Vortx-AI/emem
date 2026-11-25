@@ -111,7 +111,7 @@ We checked each listing on 7 November 2026.
   `MCP-Protocol-Version` header gets 2025-03-26 as a fallback.
 - Authentication: none for reads.
 - Tools: `/mcp` lists the 18 tools of the core loop, to keep a client's
-  context small. `/mcp/full` lists all 119 tools. A client can call any tool
+  context small. `/mcp/full` lists all 120 tools. A client can call any tool
   by name on either endpoint.
 - Content addressing: BLAKE3 over canonical CBOR, encoded as base32. These are
   not IPFS CIDs and do not start with `bafy`.

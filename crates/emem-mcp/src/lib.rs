@@ -695,6 +695,30 @@ const OUT_OPENAI_FETCH: &str = r#"{"type":"object","required":["id","title","tex
 "metadata":{"type":"object","description":"cell, band, when it was signed and by which key: the fields a reader needs to judge the citation without re-fetching it."}
 }}"#;
 
+const OUT_TEMPERATURE_SERIES: &str = r#"{"type":"object","required":["schema","fn_key","location","window","totals","derivation_cid","token","receipt"],"properties":{
+"schema":{"type":"string","const":"emem.temperature_series.v1"},
+"fn_key":{"type":"string","description":"temperature_series@1, the recipe the record names."},
+"location":{"type":"object","required":["lat","lng","cell"],"properties":{"lat":{"type":"number"},"lng":{"type":"number"},"cell":{"type":"string"}}},
+"window":{"type":"object","required":["from","to","days"],"properties":{"from":{"type":"string"},"to":{"type":"string"},"days":{"type":"integer"}}},
+"issued":{"type":["string","null"],"description":"Today's local date at the point when the record was signed. A forecast day's lead is its date minus this."},
+"day_boundary":{"type":["object","null"],"description":"Local days: the time zone, its UTC offset, and why."},
+"grid":{"type":["object","null"],"description":"The grid point each source answered for, and the height Open-Meteo adjusted it to."},
+"gdd_rule":{"type":["object","null"],"description":"Method, base_c, cap_c, heat_c, frost_c and the formula."},
+"days_columns":{"type":["array","null"],"items":{"type":"string"}},
+"days":{"type":["array","null"],"items":{"type":"array","minItems":6,"maxItems":6},"description":"One array per day, in the order days_columns names: date, tmax_c, tmin_c, tmean_c, gdd, gdd_cum."},
+"day_sources":{"type":["array","null"],"items":{"type":"object","required":["source","from","to","days"],"properties":{"source":{"type":"string","enum":["era5_land","era5","model_analysis","forecast","missing","not_yet"]},"from":{"type":"string"},"to":{"type":"string"},"days":{"type":"integer"}}},"description":"Each run of consecutive days that take their values from one source."},
+"totals":{"type":"object","required":["gdd","gdd_observed","gdd_forecast","heat_stress_days","frost_days","complete","window_open","status"],"properties":{"gdd":{"type":"number"},"gdd_observed":{"type":"number"},"gdd_forecast":{"type":"number"},"heat_stress_days":{"type":"integer"},"frost_days":{"type":"integer"},"complete":{"type":"boolean"},"window_open":{"type":"boolean"},"status":{"type":"string"},"days":{"type":"object"}}},
+"climatology":{"type":["object","null"],"properties":{"spans":{"type":"array","items":{"type":"object","required":["from","to","days","gdd","years_used","non_exceedance"],"properties":{"gdd":{"type":"number"},"years_used":{"type":"integer"},"non_exceedance":{"type":["number","null"]}}}}},"description":"The GDD total of each span that has values, ranked against the same calendar span of earlier years. Null when climatology_years is 0."},
+"reanalysis_through":{"type":["string","null"]},
+"limits":{"type":["array","null"],"items":{"type":"string"}},
+"sources":{"type":["array","null"]},
+"estimand":{"type":["object","null"]},
+"algorithm_key":{"type":["string","null"]},
+"derivation_cid":{"type":"string"},
+"token":{"type":"string","pattern":"^emem:fact:"},
+"receipt":{"type":"object"}
+}}"#;
+
 const SCHEMA_MEMORY_TOKEN_RESOLVE: &str = r#"{"type":"object","required":["token"],"properties":{
 "token":{"type":"string","description":"A `emem:fact:<cell64>:<fact_cid>` citation handle to dereference."}
 }}"#;
@@ -1160,6 +1184,21 @@ const SCHEMA_TERRAIN: &str = r#"{"type":"object","required":["cell"],"properties
 "lat":{"type":"number","description":"Explicit latitude, used when neither `cell` nor `place` is given."},
 "lng":{"type":"number","description":"Explicit longitude, paired with `lat`."}
 }}"#;
+
+const SCHEMA_TEMPERATURE_SERIES: &str = r#"{"type":"object","properties":{
+"lat":{"type":"number","minimum":-90,"maximum":90,"description":"Latitude, WGS-84 degrees. Give lat and lng, or cell."},
+"lng":{"type":"number","minimum":-180,"maximum":180,"description":"Longitude, WGS-84 degrees."},
+"cell":{"type":"string","description":"A cell64, in place of lat and lng. The series is for its centre."},
+"start":{"type":"string","description":"First day, YYYY-MM-DD, on or after 1950-01-01. Give it with end, and not with past_days or forecast_days."},
+"end":{"type":"string","description":"Last day, YYYY-MM-DD. The window is 366 days at most. Days past the forecast have no value yet."},
+"past_days":{"type":"integer","minimum":1,"maximum":92,"description":"Days before today, when start and end are absent. Default 30."},
+"forecast_days":{"type":"integer","minimum":0,"maximum":16,"description":"Days from today on, with past_days. Default 7."},
+"base_c":{"type":"number","minimum":0,"maximum":20,"description":"Base temperature for growing degree-days, degrees C. Default 10."},
+"method":{"type":"string","enum":["average","capped"],"description":"average: max(0, (Tmax + Tmin) / 2 - base_c). capped: Tmax and Tmin each held between base_c and cap_c before the average, the maize rule. Default average."},
+"cap_c":{"type":"number","maximum":45,"description":"Upper limit for method capped, degrees C, above base_c. Default 30."},
+"heat_c":{"type":"number","minimum":25,"maximum":50,"description":"A day with Tmax at or above this is a heat-stress day. Default 35."},
+"climatology_years":{"type":"integer","minimum":0,"maximum":30,"description":"Earlier years to rank the GDD total against. Default 10; 0 skips the ranking."}
+},"additionalProperties":false}"#;
 
 const SCHEMA_REGION_GENERIC: &str = r#"{"type":"object","properties":{
 "place":{"type":"string","description":"Free-text place name; resolved through the layered geocoder to a polygon bbox, then sampled. One of place/polygon_bbox/cells required."},
@@ -1655,6 +1694,18 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_FIELD_SERIES,
         output_schema: None,
         example_args: r#"{"geometry":{"type":"Polygon","coordinates":[[[-5.3012,6.8501],[-5.2988,6.8501],[-5.2988,6.8524],[-5.3012,6.8524],[-5.3012,6.8501]]]},"index":"ndvi","start_date":"2025-01-01","end_date":"2026-09-30"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_temperature_series",
+        title: "Temperature series: daily Tmax, Tmin and growing degree-days, signed",
+        description: "Gives daily air temperature at a point over a window, with growing degree-days (GDD), as one signed derivation. Each day has Tmax, Tmin and Tmean in degrees C, for local days in the time zone of the point. The values come from ERA5-Land at 0.1 degree, or from ERA5 at 0.25 degree where ERA5-Land has no value. Days that the reanalysis does not reach yet come from the analysis of the forecast model. Days ahead come from its forecast, with the lead in days. The answer gives the source of each run of days. Method average gives max(0, (Tmax + Tmin) / 2 - base_c). Method capped holds Tmax and Tmin between base_c and cap_c first. The answer counts heat-stress days and frost days. It ranks the GDD total against the same calendar span in earlier years. For a window that is still open, it ranks only the days that have a value. It returns an emem:fact: token and a receipt.",
+        when_to_use: "Use it for crop stage, sowing-date checks and heat stress at a farm or a place. Send lat and lng, or cell. Send start and end for a season of up to 366 days, from 1950 on. Or send past_days and forecast_days for recent days and the days ahead. A field gets the value of its grid cell, not a value of its own. For rain, use POST /v1/rain_series.",
+        input_schema: SCHEMA_TEMPERATURE_SERIES,
+        output_schema: Some(OUT_TEMPERATURE_SERIES),
+        example_args: r#"{"lat":30.9,"lng":75.85,"start":"2025-06-15","end":"2025-10-15","base_c":10}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
         tier: "extended",
@@ -3246,6 +3297,7 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
             "emem_band_cube",
             "emem_band_composite",
             "emem_field_series",
+            "emem_temperature_series",
             "emem_raster_resolve",
             "emem_cube_resolve",
             "emem_raster_bundle",
@@ -3436,7 +3488,8 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
     (
         "timeseries",
         "A value per timestep at one address. Ask for this when the question is about change over time rather than a moment.",
-        &["emem_trajectory", "emem_temporal_route", "emem_compare_same_doy", "emem_field_series", "emem_sun_position"],
+        &["emem_trajectory", "emem_temporal_route", "emem_compare_same_doy", "emem_field_series", "emem_sun_position",
+          "emem_temperature_series"],
     ),
     (
         "raster",
@@ -3614,7 +3667,7 @@ pub const TOOL_BUNDLES: &[(&str, &str, &[&str])] = &[
         &[
             "emem_ndvi", "emem_soil", "emem_weather", "emem_spi", "emem_water",
             "emem_field_boundaries", "emem_rice_ch4", "emem_lst", "emem_trajectory",
-            "emem_compare", "emem_field_series",
+            "emem_compare", "emem_field_series", "emem_temperature_series",
         ],
     ),
     (
@@ -3631,7 +3684,7 @@ pub const TOOL_BUNDLES: &[(&str, &str, &[&str])] = &[
         &[
             "emem_lst", "emem_water", "emem_air", "emem_spi", "emem_weather",
             "emem_elevation", "emem_terrain", "emem_heat_solve", "emem_wave_solve",
-            "emem_burn_severity",
+            "emem_burn_severity", "emem_temperature_series",
         ],
     ),
 ];
@@ -4611,6 +4664,7 @@ mod tests {
             "emem_band_cube",
             "emem_band_composite",
             "emem_field_series",
+            "emem_temperature_series",
             "emem_terrain",
             "emem_region_similarity",
             "emem_embedding_centroid",
@@ -4700,6 +4754,7 @@ mod tests {
             ("emem_band_cube", [false, false, false, true]),
             ("emem_band_composite", [false, false, false, true]),
             ("emem_field_series", [false, false, false, true]),
+            ("emem_temperature_series", [false, false, false, true]),
             ("emem_raster_bundle", [false, false, false, true]),
             ("emem_backfill", [false, false, false, true]),
             // Read this node's store and sign an unpersisted response.

@@ -30,7 +30,7 @@ not shipped.
 Earth memory and agent memory use the same signatures. Every read returns an Ed25519 receipt. Every write
 is content-addressed.
 
-The server has 119 MCP tools (18 core, 101 extended), 21 MCP resources and 9 URI templates. Examples of the
+The server has 120 MCP tools (18 core, 102 extended), 21 MCP resources and 9 URI templates. Examples of the
 templates are `memory://emem/cell/{cell64}`, `memory://emem/fact/{fact_cid}` and
 `memory://emem/bundle/{bundle_token}`.
 
@@ -131,19 +131,19 @@ dispatch. Only the size of the `tools/list` answer changes.
 | endpoint | `tools/list` returns | size on 7 November 2026 |
 |---|---|---|
 | `POST /mcp` | the 18 core tools, one page | about 75 KB |
-| `POST /mcp/full` | all 119 tools, in several pages | about 346 KB |
+| `POST /mcp/full` | all 120 tools, in several pages | about 346 KB |
 
 An MCP host loads every listed descriptor into the model context when it connects. That is why `/mcp`
-lists the core tools in a single page (about 75 KB). With the whole catalog, the full 119 cost about 346 KB
+lists the core tools in a single page (about 75 KB). With the whole catalog, the full 120 cost about 346 KB
 in every conversation. That includes conversations that do not use Earth observation.
 
 An explicit `{"tier":"core"|"extended"|"all"}` parameter overrides the endpoint default. For example, `/mcp`
-with `{"tier":"all"}` lists all 119 tools, over several pages.
+with `{"tier":"all"}` lists all 120 tools, over several pages.
 
 ### Call a tool that the list leaves out
 
 The tier only changes the list. `tools/call` ignores the tier at both endpoints, so you can call each of the
-119 tools by name from `/mcp`. Three tools help you find the rest:
+120 tools by name from `/mcp`. Three tools help you find the rest:
 
 - `emem_tools` is a core tool and maps the whole catalog.
   - With no arguments, it returns the core loop in order and a menu of bundles and shapes.
@@ -283,7 +283,7 @@ the next person to see the failure will look for it in this repository first.
 An enterprise integrator audited `/mcp`. The audit found that no tool had `title`, `readOnlyHint` or
 `destructiveHint`, which the directory requires. That audit read a deploy older than 1.3.0.
 
-Since 1.3.0 (live on 2026-07-28), each of the 119 tools sends `title` (at the top level and in
+Since 1.3.0 (live on 2026-07-28), each of the 120 tools sends `title` (at the top level and in
 `annotations`) and all four hints. The unit test `every_serialized_tool_carries_the_directory_gate_fields`
 in `crates/emem-api-rest/src/lib.rs` keeps this wire shape. An auditor must fetch the list again before a
 new audit.

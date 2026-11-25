@@ -50,7 +50,7 @@ const MAX_PAST_DAYS: u32 = 92;
 const MAX_FORECAST_DAYS: u32 = 16;
 const MAX_CLIMATOLOGY_YEARS: u32 = 40;
 /// The forecast model's past days only fill what ERA5 has not reached yet.
-const ANALYSIS_DAYS: u32 = 10;
+pub(crate) const ANALYSIS_DAYS: u32 = 10;
 
 #[derive(Debug, Deserialize)]
 pub struct RainSeriesReq {
@@ -76,12 +76,12 @@ pub struct RainSeriesReq {
 /// One day of the answer: `(day number, millimetres, source, lead days)`.
 type Day = (i64, Option<f64>, &'static str, Option<i64>);
 
-fn iso(day: i64) -> String {
+pub(crate) fn iso(day: i64) -> String {
     let (y, m, d) = crate::civil_from_days(day);
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-fn day_of(iso: &str) -> Option<i64> {
+pub(crate) fn day_of(iso: &str) -> Option<i64> {
     let (y, m, d) = crate::band_raster::parse_ymd(iso)?;
     Some(crate::days_from_civil(y, m, d))
 }
@@ -146,7 +146,7 @@ fn season_totals(
 
 /// Non-exceedance probability of `x` among `sample`, with ties split and the
 /// Weibull (i/(n+1)) offset, so it never reaches 0 or 1.
-fn rank_probability(x: f64, sample: &[f64]) -> Option<f64> {
+pub(crate) fn rank_probability(x: f64, sample: &[f64]) -> Option<f64> {
     if sample.is_empty() {
         return None;
     }
@@ -259,7 +259,7 @@ fn merge_past(
         .collect()
 }
 
-async fn get_json(url: &str) -> Result<JsonValue, String> {
+pub(crate) async fn get_json(url: &str) -> Result<JsonValue, String> {
     let resp = crate::reqwest_client()
         .get(url)
         .header("user-agent", emem_core::outbound::user_agent())
@@ -279,9 +279,13 @@ pub async fn post_rain_series(
     Ok(Json(rain_series(req, &s).await?))
 }
 
-pub(crate) async fn rain_series(req: RainSeriesReq, s: &AppState) -> Result<JsonValue, ApiError> {
-    let started = Instant::now();
-    let (lat, lng) = match (req.lat, req.lng, req.cell.as_deref()) {
+/// The point a series is for: `lat` and `lng`, or the centre of `cell`.
+pub(crate) fn point(
+    lat: Option<f64>,
+    lng: Option<f64>,
+    cell: Option<&str>,
+) -> Result<(f64, f64), ApiError> {
+    let (lat, lng) = match (lat, lng, cell) {
         (Some(lat), Some(lng), _) => (lat, lng),
         (_, _, Some(c)) => {
             let ll = emem_codec::latlng_from_cell64(c)
@@ -293,6 +297,12 @@ pub(crate) async fn rain_series(req: RainSeriesReq, s: &AppState) -> Result<Json
     if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lng) {
         return Err(bad_request(format!("({lat}, {lng}) is not a WGS-84 point")));
     }
+    Ok((lat, lng))
+}
+
+pub(crate) async fn rain_series(req: RainSeriesReq, s: &AppState) -> Result<JsonValue, ApiError> {
+    let started = Instant::now();
+    let (lat, lng) = point(req.lat, req.lng, req.cell.as_deref())?;
     let past_days = req.past_days.unwrap_or(30);
     let forecast_days = req.forecast_days.unwrap_or(7);
     let years = req.climatology_years.unwrap_or(30);
@@ -445,20 +455,53 @@ pub(crate) async fn rain_series(req: RainSeriesReq, s: &AppState) -> Result<Json
         ],
         "cautions": cautions,
     });
+    let what = SeriesFact {
+        cell: &cell,
+        band: "rain.series",
+        fn_key: FN_KEY,
+        receipt_kind: "emem.rain_series",
+        days: (first_past, today + forecast_days as i64 - 1),
+    };
+    sign_record(s, record, what, started).await
+}
+
+/// Where and what a signed series record is.
+pub(crate) struct SeriesFact<'a> {
+    pub cell: &'a str,
+    pub band: &'a str,
+    pub fn_key: &'a str,
+    pub receipt_kind: &'static str,
+    /// First and last day of the series, as days since 1970-01-01.
+    pub days: (i64, i64),
+}
+
+/// Signs `record` as one derivative fact, stores it, and returns the record
+/// with its cid, token and receipt beside it.
+pub(crate) async fn sign_record(
+    s: &AppState,
+    record: JsonValue,
+    what: SeriesFact<'_>,
+    started: Instant,
+) -> Result<JsonValue, ApiError> {
+    let SeriesFact {
+        cell,
+        band,
+        fn_key,
+        receipt_kind,
+        days,
+    } = what;
+    let op = fn_key.split('@').next().unwrap_or(fn_key);
     let signed_at = emem_storage::server::iso8601_now();
     let fact = DerivativeFact {
-        cell: cell.clone(),
-        band: "rain.series".to_string(),
-        tslot_window: [
-            first_past.max(0) as u64,
-            (today + forecast_days as i64 - 1).max(0) as u64,
-        ],
-        op: "rain_series".to_string(),
+        cell: cell.to_string(),
+        band: band.to_string(),
+        tslot_window: [days.0.max(0) as u64, days.1.max(0) as u64],
+        op: op.to_string(),
         parents: vec![],
         value: json_to_cbor(&record),
         confidence: 1.0,
         derivation: Derivation {
-            fn_key: FN_KEY.to_string(),
+            fn_key: fn_key.to_string(),
             args: None,
         },
         schema_cid: s.manifests.schema_cid.clone(),
@@ -475,7 +518,7 @@ pub(crate) async fn rain_series(req: RainSeriesReq, s: &AppState) -> Result<Json
         signed_at,
         None,
     )
-    .map_err(|e| upstream_error(format!("rain series attestation: {e}")))?;
+    .map_err(|e| upstream_error(format!("{op} attestation: {e}")))?;
     let cids = s
         .storage
         .put_attestation_detached(&att)
@@ -484,17 +527,17 @@ pub(crate) async fn rain_series(req: RainSeriesReq, s: &AppState) -> Result<Json
     let derivation_cid = cids
         .first()
         .map(|c| c.as_str().to_string())
-        .ok_or_else(|| upstream_error("store returned no cid for the rain series".into()))?;
+        .ok_or_else(|| upstream_error(format!("store returned no cid for the {op} record")))?;
     let receipt = s.sign_receipt(
-        "emem.rain_series",
-        vec![cell.clone()],
+        receipt_kind,
+        vec![cell.to_string()],
         vec![FactCid::new(derivation_cid.clone())],
         false,
         started,
         None,
     );
     let mut out = record;
-    out["algorithm_key"] = json!(FN_KEY);
+    out["algorithm_key"] = json!(fn_key);
     out["derivation_cid"] = json!(derivation_cid);
     out["token"] = json!(format!("emem:fact:{cell}:{derivation_cid}"));
     out["receipt"] = serde_json::to_value(&receipt).unwrap_or(JsonValue::Null);

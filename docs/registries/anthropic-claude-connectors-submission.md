@@ -25,13 +25,13 @@ are live before you start. All of them were live on 7 November 2026.
 | Directory requirement | emem endpoint | State on 7 November 2026 |
 |---|---|---|
 | Remote server over HTTPS | `https://emem.dev/mcp` | Answers JSON-RPC 2.0 `tools/list` and `tools/call` over Streamable HTTP |
-| A title and a `readOnlyHint` or `destructiveHint` on every tool | `tools/list` on `/mcp` and `/mcp/full` | All 18 tools on `/mcp` and all 119 tools on `/mcp/full` carry `title`, `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint` |
+| A title and a `readOnlyHint` or `destructiveHint` on every tool | `tools/list` on `/mcp` and `/mcp/full` | All 18 tools on `/mcp` and all 120 tools on `/mcp/full` carry `title`, `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint` |
 | No authentication for public data | `GET /.well-known/oauth-protected-resource` | RFC 9728 JSON with `"auth": "none"` and `"auth_required": false` |
 | Privacy policy | `GET https://emem.dev/privacy` | Markdown policy, last updated 29 September 2026 |
 | Documentation | `GET https://emem.dev/agents.md` | The agent guide, served as Markdown |
 | MCP server card | `GET /.well-known/mcp.json` | JSON server card |
 
-On `/mcp/full`, 65 of the 119 tools set `readOnlyHint: true`. Five tools set
+On `/mcp/full`, 65 of the 120 tools set `readOnlyHint: true`. Five tools set
 `destructiveHint: true`: `emem_memory_create`, `emem_memory_str_replace`,
 `emem_memory_insert`, `emem_memory_delete` and `emem_memory_rename`.
 
@@ -130,7 +130,7 @@ Core tools:
 Use cases: climate risk, crop monitoring, deforestation checks, wildfire
 and flood mapping, multi-agent fact sharing, audit reports.
 
-18 core tools on /mcp, 119 on /mcp/full. Apache-2.0.
+18 core tools on /mcp, 120 on /mcp/full. Apache-2.0.
 ```
 
 The old description said "no rate limits for reads". That is false: the

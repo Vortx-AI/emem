@@ -29,11 +29,11 @@ For a host with native Streamable HTTP, the config has one entry:
 `"type": "http"` is the MCP name of the Streamable HTTP transport. The URL itself is HTTPS.
 
 `/mcp` advertises the 18 core tools in `tools/list`, so the host registers about 75 KB of descriptors
-rather than about 345 KB for all 119. The first size is from 7 November 2026 and the second from 14 November
-2026 (1 KB = 1024 bytes). The other 101
+rather than about 345 KB for all 120. The first size is from 7 November 2026 and the second from 14 November
+2026 (1 KB = 1024 bytes). The other 102
 tools stay on the server, and it runs each by name through `tools/call`. `emem_tools` searches them and returns
 the schema of one tool. But many hosts let the model call only the tools that they listed, and refuse the rest
-with "No such tool available". To register all 119 tools at the start, use `https://emem.dev/mcp/full`. It
+with "No such tool available". To register all 120 tools at the start, use `https://emem.dev/mcp/full`. It
 returns them in more than one page, so the host must follow `nextCursor`.
 
 ### VS Code and GitHub Copilot
@@ -115,7 +115,7 @@ this page:
 
 The instructions text tells the model which tool to call and to cite emem tokens. It has 3,108 characters.
 
-A host that has no row here reaches the same 119 tools at the same URL. The rows are the runtimes with a checked-in
+A host that has no row here reaches the same 120 tools at the same URL. The rows are the runtimes with a checked-in
 example or a known config.
 
 ### Run a framework example

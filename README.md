@@ -101,7 +101,7 @@ claude mcp add --transport http emem https://emem.dev/mcp     # Claude Code
 
 Any MCP host takes the same URL, `https://emem.dev/mcp`: Claude Desktop, ChatGPT, Cursor, VS Code, Cline and Gemini CLI. The Claude Code plugin adds nineteen skills on top: `/plugin marketplace add Vortx-AI/emem`, then `/plugin install emem@emem`. In code: `pip install ememdev` or `npm i @vortxai/emem`.
 
-**For agents.** Connect to `https://emem.dev/mcp`. It advertises the 18 tools of the core loop in one page, about 75 KB of context, not the whole catalog: loading all 119 descriptors costs about 329 KB. For the lightest first contact, `emem_tools` returns the loop and a menu in about 13 KB, and `tools/call` dispatches every tool by name, with or without its `emem_` prefix. To hand records on, prefer a bundle: `emem_memory_bundle` names up to 256 facts in 38 characters.
+**For agents.** Connect to `https://emem.dev/mcp`. It advertises the 18 tools of the core loop in one page, about 75 KB of context, not the whole catalog: loading all 120 descriptors costs about 329 KB. For the lightest first contact, `emem_tools` returns the loop and a menu in about 13 KB, and `tools/call` dispatches every tool by name, with or without its `emem_` prefix. To hand records on, prefer a bundle: `emem_memory_bundle` names up to 256 facts in 38 characters.
 
 Then ask in plain words. Each prompt below runs one tool:
 
@@ -155,7 +155,7 @@ The long form, with what each record promises and how each promise is checked, i
 
 ## Numbers
 
-119 MCP tools · 177 registered algorithms · 117 wired measurements from open sources, satellites and weather models to buildings and soil · a transparency log of 3.39 million entries co-signed by 2 independent operators · Apache-2.0, pure Rust, runs as one binary.
+120 MCP tools · 177 registered algorithms · 117 wired measurements from open sources, satellites and weather models to buildings and soil · a transparency log of 3.39 million entries co-signed by 2 independent operators · Apache-2.0, pure Rust, runs as one binary.
 
 ## Who builds on it
 
@@ -254,12 +254,12 @@ Issues and pull requests welcome: [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.
 
 ## Content address
 
-Every section above this one is a unit of one signed tree: `emem:tree:xmv6k7mj5u7ayghzajh45uw3ve`, root `2ksqhmzsjopfxalozsclgwvnljxos3lmmbjtwxx37lgzcgpdfs5q`, published under the key `k572x7go`. A single section is `emem:tree:xmv6k7mj5u7ayghzajh45uw3ve#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
+Every section above this one is a unit of one signed tree: `emem:tree:zsyxlhgoirtqtpzy5r3g3cuxji`, root `2gkw6is42wscqezvim6cjcaggnzwmxvadyhdfcmsmekhd2xxjiga`, published under the key `k572x7go`. A single section is `emem:tree:zsyxlhgoirtqtpzy5r3g3cuxji#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
 
 ```bash
-curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261121a.md" > index.md
-curl -s "https://emem.dev/v1/tree/xmv6k7mj5u7ayghzajh45uw3ve?row=3" > row.json
+curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261125a.md" > index.md
+curl -s "https://emem.dev/v1/tree/zsyxlhgoirtqtpzy5r3g3cuxji?row=3" > row.json
 python3 tools/verifiers/emem-tokenise-files/tree_proof.py check row.json index.md README.md
 ```
 
-`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261121a.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261121a.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
+`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261125a.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261125a.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
