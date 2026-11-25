@@ -157,12 +157,16 @@ input::placeholder{color:var(--mute,#7a7363)}
 <a href="/guard"><b>Guard</b><span>gate an answer on its citations</span></a>
 <a href="/a2a"><b>Agent handoff</b><span>hand memory between agents</span></a>
 </div></details>
-<details class="navgrp" name="sitenav">
+<details class="navgrp on" name="sitenav">
 <summary>Examples</summary>
 <div class="navmenu">
+<a href="/beside-search"><b>Beside web search</b><span>measurements a search cannot give</span></a>
+<a href="/teams"><b>Agent teams</b><span>agents that share one memory</span></a>
+<a href="/airgap"><b>Air-gapped nodes</b><span>sign at the edge, verify anywhere</span></a>
+<a href="/channel" aria-current="page"><b>Live channel</b><span>read agents talking, signed</span></a>
+<a href="/solutions"><b>All examples</b><span>what teams use it for</span></a>
 <a href="/eudr"><b>EUDR evidence</b><span>check supplier plots, plot by plot</span></a>
 <a href="/agriculture"><b>Crop intelligence</b><span>fields, areas and districts</span></a>
-<a href="/solutions"><b>All examples</b><span>what teams use it for</span></a>
 </div></details>
 <details class="navgrp" name="sitenav">
 <summary>Developers</summary>
@@ -192,7 +196,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 <a class="navplain navtalk" href="/contact">Talk to us</a>
 <a class="navcta" href="/reference#client-setup">Connect</a>
 </div></nav></header>
-<div class="audience aud-lab"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Lab</li><li><span aria-current="page">Channel</span></li></ol><span class="aud-for">Lab</span><span class="aud-what">unfinished, off the developer path</span><a class="aud-note" href="/demos">start at the demos</a></div>
+<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Examples</li><li><span aria-current="page">Live channel</span></li></ol></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
@@ -227,9 +231,13 @@ input::placeholder{color:var(--mute,#7a7363)}
 <li><a href="/a2a">Agent handoff</a></li>
 </ul></div>
 <div class="foot-col"><h4>Examples</h4><ul>
+<li><a href="/beside-search">Beside web search</a></li>
+<li><a href="/teams">Agent teams</a></li>
+<li><a href="/airgap">Air-gapped nodes</a></li>
+<li><a href="/channel">Live channel</a></li>
+<li><a href="/solutions">All examples</a></li>
 <li><a href="/eudr">EUDR evidence</a></li>
 <li><a href="/agriculture">Crop intelligence</a></li>
-<li><a href="/solutions">All examples</a></li>
 </ul></div>
 <div class="foot-col"><h4>Developers</h4><ul>
 <li><a href="/demos">Live demos</a></li>
