@@ -9663,7 +9663,7 @@ async fn bands(State(s): State<AppState>) -> Json<JsonValue> {
             "_note".into(),
             json!("Source of truth: agri integrate_10m.py BAND_OFFSETS. Order is the physical layout in cube_10m.npz. MUST stay byte-identical; family is editorial. Every field of every band, the editorial description / interpretation / pitfalls / references included, is hashed into bands_cid, so editing any of them moves the CID. Text found stale after release is corrected where it is served and marked `text_erratum`; the registry keeps its bytes."),
         );
-        let wired = all_materializable_bands();
+        let wired = answering_keys();
         if let Some(arr) = map.get_mut("bands").and_then(|v| v.as_array_mut()) {
             for entry in arr.iter_mut() {
                 let Some(obj) = entry.as_object_mut() else {
@@ -9701,6 +9701,18 @@ async fn bands(State(s): State<AppState>) -> Json<JsonValue> {
                         let prefix = format!("{key}.");
                         wired.iter().find(|b| b.starts_with(&prefix)).cloned()
                     })
+                    // Else a listed scalar key that answers: `air_quality`
+                    // lists cams.* and `climate` lists weather.*, both read,
+                    // and both bands were called declared_no_connector.
+                    .or_else(|| {
+                        obj.get("scalar_keys")
+                            .and_then(|v| v.as_array())
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|k| k.as_str())
+                            .find(|k| key_answers_here(k))
+                            .map(str::to_string)
+                    })
                 {
                     let sample_scalar = sample_scalar.as_str();
                     // Family-root key (e.g. `nightlights`, `terraclimate`,
@@ -9719,7 +9731,7 @@ async fn bands(State(s): State<AppState>) -> Json<JsonValue> {
                 } else {
                     json!({
                         "kind": "declared_no_connector",
-                        "note": "Registered in the band catalog but no auto-materializer is wired at this responder, and no scalar child under this family is wired either. /v1/recall on this band will return only existing attestations (no upstream fetch). Genuine placeholders today: air_quality, _reserved_512, reserved.",
+                        "note": "Registered in the band catalog, but no key of this band has a reader at this responder. /v1/recall on it returns only facts already signed here, and a cold recall answers a skip note with reason_class no_materializer.",
                     })
                 };
                 obj.insert("materializer".into(), status);
@@ -9728,7 +9740,7 @@ async fn bands(State(s): State<AppState>) -> Json<JsonValue> {
                 if let Some(keys) = obj.get("scalar_keys").and_then(|v| v.as_array()).cloned() {
                     let (on, off): (Vec<JsonValue>, Vec<JsonValue>) = keys
                         .into_iter()
-                        .partition(|k| k.as_str().is_some_and(|k| wired.iter().any(|w| w == k)));
+                        .partition(|k| k.as_str().is_some_and(key_answers_here));
                     obj.insert("scalar_keys_wired".into(), JsonValue::Array(on));
                     obj.insert("scalar_keys_unwired".into(), JsonValue::Array(off));
                 }
@@ -9756,7 +9768,7 @@ fn family_root_sample_scalar(family: &str) -> Option<&'static str> {
         "era5" => "era5.t2m_yearly_mean",
         "marine" => "marine.wave_height",
         "terraclimate" => "terraclimate.tmax_jan_normal",
-        "soilgrids" => "soilgrids.bulk_density_0_5cm",
+        "soilgrids" => "soilgrids.soc_0_30cm",
         // s2_band_plan(*)-matched arm covers Sentinel-2 reflectance + indices:
         "sentinel2_raw" => "sentinel2.b04",
         "indices" => "indices.ndvi",
@@ -12042,7 +12054,112 @@ async fn post_trace_resolve(
 }
 
 async fn sources() -> Json<JsonValue> {
-    Json(serde_json::to_value(&*emem_core::sources::DEFAULT).unwrap_or(json!({})))
+    let mut v = serde_json::to_value(&*emem_core::sources::DEFAULT).unwrap_or(json!({}));
+    if let Some(list) = v.get_mut("sources").and_then(|s| s.as_array_mut()) {
+        for src in list.iter_mut() {
+            let Some(obj) = src.as_object_mut() else {
+                continue;
+            };
+            let scheme = obj
+                .get("scheme")
+                .and_then(|s| s.as_str())
+                .unwrap_or_default()
+                .to_string();
+            obj.insert("read_here".into(), source_read_here(&scheme));
+        }
+    }
+    if let Some(map) = v.as_object_mut() {
+        map.insert(
+            "read_here_means".into(),
+            json!("Added where served, outside sources_cid. `read`: this responder reads this source; `bands` names keys that answer from it, or `routes` names the route that reads it. `no_reader`: the manifest declares the source, and no band reads it here; `note` says where the nearest quantity answers, if anywhere. `retired`: the bands that read it are retired here."),
+        );
+    }
+    Json(v)
+}
+
+/// Whether a band at this responder reads each source the manifest declares.
+/// Every manifest scheme has a row (a test checks it), so a new source is
+/// classified on the day it is added instead of reading as a promise.
+enum SourceReader {
+    /// Keys that read the source. All retired here reads as `retired`.
+    Keys(&'static [&'static str]),
+    /// A route reads it and returns no band facts.
+    Route(&'static str),
+    /// Nothing reads it here; the text says where the nearest quantity answers.
+    NoReader(&'static str),
+}
+
+const SOURCE_READERS: &[(&str, SourceReader)] = &[
+    ("sentinel2.l2a", SourceReader::Keys(&["indices.ndvi", "s2.B04"])),
+    ("sentinel1.grd.iw", SourceReader::NoReader("No band reads GRD. Sentinel-1 answers as sentinel1_raw from the RTC product (scheme sentinel_s1_rtc_mpc).")),
+    ("geotessera.v1", SourceReader::Keys(&["geotessera"])),
+    ("copernicus.dem.30m", SourceReader::Keys(&["copdem30m.elevation_mean"])),
+    ("esa.worldcover.v200", SourceReader::Keys(&["esa_worldcover.lc_2021"])),
+    ("ghsl.builtup.r2023a", SourceReader::NoReader("No band reads GHSL. The ghsl keys are registered, no reader yet.")),
+    ("ghsl.population.r2023a", SourceReader::NoReader("No band reads GHSL. Population answers as `population` from WorldPop.")),
+    ("worldpop.global.1km", SourceReader::NoReader("No band reads this global mosaic. Population answers as `population` from the WorldPop per-country 1 km UN-adjusted files, or from the WorldPop 100 m service when that read fails.")),
+    ("jrc.gsw.v1_4.occurrence", SourceReader::Keys(&["surface_water.occurrence"])),
+    ("jrc.gsw.v1_4.recurrence", SourceReader::Keys(&["surface_water.recurrence"])),
+    ("hansen.gfc.v1_12.treecover2000", SourceReader::NoReader("No band reads release v1.12. Tree cover answers as forest_change.treecover2000 from release v1.13.")),
+    ("hansen.gfc.v1_12.loss", SourceReader::NoReader("No band reads release v1.12. Loss answers as forest_change.lossyear from release v1.13.")),
+    ("hansen.gfc.v1_12.lossyear", SourceReader::NoReader("No band reads release v1.12. Loss year answers as forest_change.lossyear from release v1.13.")),
+    ("viirs.dnb.monthly", SourceReader::NoReader("No band reads VIIRS DNB night lights.")),
+    ("soilgrids.v2.phh2o", SourceReader::Keys(&["soilgrids.phh2o_0_30cm"])),
+    ("soilgrids.v2.soc", SourceReader::Keys(&["soilgrids.soc_0_30cm"])),
+    ("soilgrids.v2.clay", SourceReader::Keys(&["soilgrids.clay_0_30cm"])),
+    ("soilgrids.v2.sand", SourceReader::Keys(&["soilgrids.sand_0_30cm"])),
+    ("soilgrids.v2.bdod", SourceReader::Keys(&["soilgrids.bdod_0_30cm"])),
+    ("soilgrids.v2.nitrogen", SourceReader::Keys(&["soilgrids.nitrogen_0_30cm"])),
+    ("beck.koppen.v2", SourceReader::NoReader("No band reads version 2. The koppen key answers from Beck version 1 (scheme beck.koppen.v1.present).")),
+    ("open_meteo", SourceReader::Route("/v1/rain_series")),
+    ("open_meteo_marine", SourceReader::Keys(&["marine.wave_height"])),
+    ("open_meteo_cams", SourceReader::Keys(&["cams.pm25", "cams.no2"])),
+    ("open_meteo_era5", SourceReader::Keys(&["era5.t2m"])),
+    ("met_no", SourceReader::Keys(&["weather.temperature_2m"])),
+    ("nasa_power", SourceReader::Keys(&["power.t2m"])),
+    ("ornl_modis", SourceReader::Keys(&["modis.lst_day_8day", "modis.et_8day"])),
+    ("gmrt", SourceReader::Keys(&["gmrt.topobathy_mean"])),
+    ("sentinel_s2_l2a", SourceReader::Keys(&["indices.ndvi", "s2.B04"])),
+    ("sentinel_s1_rtc_mpc", SourceReader::Keys(&["sentinel1_raw"])),
+    ("geotessera", SourceReader::Keys(&["geotessera"])),
+    ("overture.maps.foundation.v1", SourceReader::Keys(&["overture.buildings.count", "overture.places.count", "overture.transportation.road_length_m"])),
+    ("hansen.gfc.v1_12.2023", SourceReader::NoReader("No band reads release v1.12. Hansen answers as forest_change.* from release v1.13.")),
+    ("esa.worldcover.v200.2021", SourceReader::Keys(&["esa_worldcover.lc_2021"])),
+    ("chirps.daily.v2", SourceReader::Keys(&["chirps.precip_daily_mm"])),
+    ("viirs.fire.nrt", SourceReader::Keys(&["firms.active_fires"])),
+    ("openet.30m.daily", SourceReader::NoReader("No band reads OpenET. Evapotranspiration answers as modis.et_8day.")),
+    ("tropomi.s5p.ch4", SourceReader::NoReader("No band reads TROPOMI methane. No methane column answers here.")),
+    ("tropomi.s5p.no2", SourceReader::NoReader("No band reads TROPOMI NO2. NO2 answers only as cams.no2, a CAMS model value, not a satellite column.")),
+    ("sentinel1.grd.iw.vh", SourceReader::NoReader("No band reads GRD VH. Sentinel-1 answers as sentinel1_raw from the RTC product.")),
+    ("dynamic_world.v1", SourceReader::NoReader("No band reads Dynamic World. Land cover answers as esa_worldcover.lc_2021.")),
+    ("model.prithvi_eo2_300m_tl", SourceReader::Keys(&["prithvi_eo2"])),
+    ("model.clay_v1_5", SourceReader::Keys(&["clay_v1"])),
+    ("model.galileo_v1", SourceReader::Keys(&["galileo"])),
+    ("ftw.field_polygons.v1", SourceReader::Route("/v1/field_boundaries")),
+];
+
+fn source_read_here(scheme: &str) -> JsonValue {
+    match SOURCE_READERS
+        .iter()
+        .find(|(s, _)| *s == scheme)
+        .map(|(_, r)| r)
+    {
+        None => json!({"status": "unclassified"}),
+        Some(SourceReader::NoReader(note)) => json!({"status": "no_reader", "note": note}),
+        Some(SourceReader::Route(route)) => json!({"status": "read", "routes": [route]}),
+        Some(SourceReader::Keys(keys)) => {
+            let live: Vec<&str> = keys
+                .iter()
+                .copied()
+                .filter(|k| key_answers_here(k))
+                .collect();
+            if live.is_empty() {
+                json!({"status": "retired", "bands": keys, "note": retired_here_note()})
+            } else {
+                json!({"status": "read", "bands": live})
+            }
+        }
+    }
 }
 
 /// `GET /v1/algorithms`, content-addressed algorithm registry.
@@ -12542,8 +12659,9 @@ fn topics_payload() -> JsonValue {
     // algorithm_keys_resolve_in_registry` test guards against drift between
     // topics-v0.json and algorithms-v0.json.
     let topic_reg = &*emem_core::topics::DEFAULT;
-    let materializable: Vec<String> = all_materializable_bands();
+    let materializable: Vec<String> = answering_keys();
     let live: std::collections::HashSet<&str> = materializable.iter().map(|s| s.as_str()).collect();
+    let mut topics_with_no_reader: Vec<&str> = Vec::new();
     let algo_reg = &*emem_core::algorithms::DEFAULT;
     let caps = cached_capabilities();
     let live_extensions: std::collections::HashSet<&str> =
@@ -12567,6 +12685,8 @@ fn topics_payload() -> JsonValue {
             .collect();
         if !live_only.is_empty() {
             live_bands_by_topic.insert(t.key.clone(), JsonValue::Array(live_only));
+        } else if !t.bands.is_empty() {
+            topics_with_no_reader.push(t.key.as_str());
         }
         if !t.algorithms.is_empty() {
             algorithms_for_topic.insert(
@@ -12623,10 +12743,11 @@ fn topics_payload() -> JsonValue {
         "declared_but_no_materializer_at_this_responder": {
             "_meaning": "Bands reserved in the cube manifest but with no live connector at this responder. Recall returns empty (existing attestations only, no upstream fetch).",
             "_authoritative_list": "GET /v1/bands, every band entry now carries a `materializer:{kind:'live'|'declared_no_connector', ...}` field. Filter on kind=='declared_no_connector' for the canonical, code-derived set.",
-            "_note_on_cube_family_roots": "Most unwired keys are cube FAMILY-ROOT slots whose SCALAR children are wired (e.g. `koppen` root unwired but `koppen.major_class` live; `surface_water` cube key reserved but `surface_water.recurrence` answers the flood-history question). Use /v1/materializers for the per-scalar wired list.",
-            "_note_on_foundation_models_at_this_responder": "The Clay (`clay_v1`), Prithvi (`prithvi_eo2`) and Galileo (`galileo`) encoders are retired here. Their bands stay in the manifest so facts signed earlier still recall and verify; nothing new is materialized for them.",
+            "_note_on_cube_family_roots": "Many unwired keys are cube FAMILY-ROOT slots whose SCALAR children answer: the `surface_water` cube key has no reader, but `surface_water.recurrence` answers the flood-history question, and `landcover` answers as `esa_worldcover.lc_2021`. A registered key with no reader answers a skip note with reason_class no_materializer that names the keys of its band that do answer. GET /v1/bands lists them per band as scalar_keys_wired and scalar_keys_unwired.",
+            "_note_on_foundation_models_at_this_responder": retired_here_note(),
+            "topics": topics_with_no_reader,
         },
-        "how_to_use": "Pick the topic that matches the user's question. (1) If the user wants ONE band's value, look up `live_bands_by_topic` and call `emem_recall` with those bands, they auto-fetch on miss. (2) If the user wants a COMPOSITE answer (flood risk, walkability, climate exposure, similarity, change), look up `algorithms_for_topic` and call `emem_algorithms` for the recipe, apply its `formula` over a single `emem_recall` body that fetches every input band, then cite the algorithm key + algorithms_cid alongside the input fact_cids. (3) For a VISUAL answer, hit `visual_surfaces.rgb_scene_png` (or MCP `emem_cell_scene_rgb`). (4) If the topic only appears under `declared_but_no_materializer_at_this_responder`, tell the user this responder has the slot reserved but no live connector (don't claim emem has no flood/water/etc. data, be precise). Topics not listed at all (e.g. real-time air quality, traffic) are genuinely out of scope for this protocol today.",
+        "how_to_use": "Pick the topic that matches the user's question. (1) If the user wants ONE band's value, look up `live_bands_by_topic` and call `emem_recall` with those bands, they auto-fetch on miss. (2) If the user wants a COMPOSITE answer (flood risk, walkability, climate exposure, similarity, change), look up `algorithms_for_topic` and call `emem_algorithms` for the recipe, apply its `formula` over a single `emem_recall` body that fetches every input band, then cite the algorithm key + algorithms_cid alongside the input fact_cids. (3) For a VISUAL answer, hit `visual_surfaces.rgb_scene_png` (or MCP `emem_cell_scene_rgb`). (4) If the topic is in `declared_but_no_materializer_at_this_responder.topics`, tell the user this responder has the slot reserved but no live connector (don't claim emem has no flood/water/etc. data, be precise). Topics not listed at all (e.g. real-time air quality, traffic) are genuinely out of scope for this protocol today.",
         "for_temporal_questions": "For 'last N years' questions, materializers return one fact at the latest available tslot. To get a series, call `emem_recall` repeatedly for past tslots only if the band's tempo is `slow`/`static` (which means one fact covers the period). For `fast`/`medium` tempo bands, history requires the responder to have already seeded past tslots, call `emem_trajectory` to enumerate what's there, do NOT assume historical lookback materializes on demand.",
     })
 }
@@ -12694,7 +12815,7 @@ fn errors_payload() -> JsonValue {
         ("tslot_mismatch",               "tslot in request doesn't match band's expected tempo",
          "Check /v1/bands for the band's `tempo` field and round your tslot to that grid."),
         ("band_not_in_registry",         "band key isn't in the active manifest",
-         "GET /v1/bands for the canonical list. Common typos: missing schema namespace (need `copdem30m.elevation_mean`, not `elevation_mean`)."),
+         "GET /v1/bands for the canonical list. Common typos: missing schema namespace (need `copdem30m.elevation_mean`, not `elevation_mean`). A key that /v1/bands lists under `scalar_keys_unwired` is registered, so recall does not refuse it with this code: it answers a skip note with reason_class `no_materializer`, a reason that starts `band_not_wired`, and `answering_keys`, the keys of that band that answer."),
         ("function_not_in_registry",     "derivation fn_key not registered",
          "Functions ship via /v1/functions. To use a private function, register it in your registry_cid before attesting."),
         ("source_scheme_unknown",        "source.scheme not in /v1/sources",
@@ -12896,7 +13017,10 @@ async fn tools(Query(params): Query<std::collections::HashMap<String, String>>) 
     let descriptors: Vec<JsonValue> = filtered.iter().map(|t| json!({
         "name": t.name,
         "title": t.title,
-        "description": emem_mcp::with_counts(t.description),
+        "description": emem_mcp::with_counts(&match tool_retired_clause(t) {
+            Some(c) => format!("{} {c}", t.description),
+            None => t.description.to_string(),
+        }),
         "when_to_use": t.when_to_use,
         "input_schema": serde_json::from_str::<JsonValue>(&emem_mcp::with_counts(t.input_schema))
             .unwrap_or(json!({})),
@@ -13534,6 +13658,19 @@ async fn recall_with_auto_materialize_capped(
             }));
         }
     }
+
+    // A key the registry lists with no reader here is refused before it takes
+    // a cold-fetch slot. The dispatch used to answer it with `unknown_band`
+    // ("not in the band registry"), which is false and sent callers hunting
+    // for a typo in a key the catalogue itself prints.
+    let mut keep: Vec<String> = Vec::with_capacity(candidates.len());
+    for b in candidates {
+        match not_answering_reason(&b) {
+            Some(why) => materialize_notes.extend(not_answering_note(&b, why)),
+            None => keep.push(b),
+        }
+    }
+    candidates = keep;
 
     // Cold-band cap (ask path): materialise at most `cold_band_cap` of the
     // cold bands this call; defer the rest. Bounds the worst-case fan-out
@@ -14771,7 +14908,13 @@ async fn post_recall(
                 .iter()
                 .filter(|b| {
                     let canon = resolve_band_name(b);
-                    tempo_for_band(&canon).is_none() && !present.contains(&canon)
+                    // A key a registry band lists is not unknown, reader or
+                    // not: its skip note says which. `landcover.crop` got a
+                    // 400 band_not_in_registry while /v1/bands printed it.
+                    tempo_for_band(&canon).is_none()
+                        && !present.contains(&canon)
+                        && registry_band_listing(&canon).is_none()
+                        && own_arm_reads(&canon).is_none()
                 })
                 .cloned()
                 .collect()
@@ -15762,6 +15905,18 @@ const BAND_TEXT_ERRATA: &[(&str, &str, &str)] = &[
     ("forest_change", "interpretation", "`forest_change.lossyear > 0` flags pixels that lost canopy since 2001 — the canonical deforestation signal; the value is the calendar year (2001..=2025 in v1.13). Pair with `mangrove` or `protected` to score 'illegal deforestation in a protected area'. `forest_change.treecover2000` carries the year-2000 baseline canopy cover %; `forest_change.gain` carries the dataset-frozen 2000-2012 gain mask."),
     ("forest_change", "references", "Hansen et al. 2013 (Science 342, 850-853) + annual updates at https://glad.umd.edu/dataset/global-2010-tree-cover-30-m and https://storage.googleapis.com/earthenginepartners-hansen/GFC-2025-v1.13/download.html"),
     ("jrc_gfc2020", "description", "JRC Global Forest Cover map for the year 2020, read at the version the JRC publishes under LATEST/: V4 since 2026-09 (V3, the 2026-03 release, is withdrawn and its URLs answer 404). EUDR-aligned forest definition per Regulation (EU) 2023/1115 Article 2(4): >0.5 ha, >5 m tree height, >10 % canopy cover, excluding land predominantly under agricultural or urban land use. 10 m native resolution (1/12000 degree). Read one pixel at a time from the 10-degree COG tiles JRC_GFC2020_V4_{N|S}{lat}_{E|W}{lon}.tif, named by their top-left corner; each fact's source names the file read, so a fact signed from V3 still says V3."),
+    // The bands below list scalar keys that have no reader here, and their
+    // text named those keys or quantities as if they answered.
+    ("soilgrids", "description", "ISRIC SoilGrids 2.0 topsoil properties at 250 m. Each value is the 0-30 cm thickness-weighted mean of the 0-5, 5-15 and 15-30 cm layers. This responder reads soilgrids.soc_0_30cm, soilgrids.phh2o_0_30cm, soilgrids.clay_0_30cm, soilgrids.sand_0_30cm, soilgrids.bdod_0_30cm and soilgrids.nitrogen_0_30cm. The listed key soilgrids.bulk_density_0_30cm answers as soilgrids.bdod_0_30cm, the same quantity in the same unit. The listed keys soilgrids.ph_0_30cm and soilgrids.silt_0_30cm are registered, no reader yet: pH answers as soilgrids.phh2o_0_30cm in pH units (the registry gives the listed key as pH x10), and silt does not answer here."),
+    ("soilgrids", "units", "g/kg (soc, nitrogen), percent (clay, sand), kg/dm3 (bdod), pH units (phh2o). Each fact carries its own unit."),
+    ("cop_dem", "description", "Copernicus GLO-30 DEM at the cell. This responder reads the mean elevation in metres as copdem30m.elevation_mean. The percentile, slope and aspect keys (copdem30m.elevation_p10, copdem30m.elevation_p90, copdem30m.slope_mean, copdem30m.aspect_sin, copdem30m.aspect_cos) are registered, no reader yet."),
+    ("cop_dem", "pitfalls", "GLO-30 is a surface model (DSM): it includes building and canopy heights, and this responder applies no bare-earth correction."),
+    ("dem", "interpretation", "The dem.elevation_mean, dem.slope_mean and dem.aspect_mean keys are registered, no reader yet. Elevation answers as copdem30m.elevation_mean; gmrt.topobathy_mean also rides on this slot."),
+    ("landcover", "interpretation", "This responder reads the ESA WorldCover 2021 class at the cell as esa_worldcover.lc_2021: one class code, not a fraction. The eight fraction keys landcover.tree, landcover.shrub, landcover.grass, landcover.crop, landcover.built, landcover.bare, landcover.snow_ice and landcover.water are registered, no reader yet."),
+    ("overture", "interpretation", "A structural fingerprint of the built environment. This responder reads overture.buildings.count, overture.places.count, overture.transportation.road_length_m and overture.transportation.road_bearing_deg. The other listed overture keys are registered, no reader yet."),
+    ("overture", "pitfalls", "Coverage is uneven: Overture inherits OSM, Microsoft and Meta footprints, so it is dense in North America and Europe and sparser in Africa and rural Asia. A zero in overture.buildings.count can mean no buildings or unmapped; cross-check with population (the ghsl keys are registered, no reader yet)."),
+    ("population", "description", "WorldPop population. This responder answers the key population in people per km2, read from the WorldPop per-country 1 km UN-adjusted files, or from the WorldPop 100 m service when that read fails. The listed keys population.count, population.density_mean and population.density_p90 are registered, no reader yet."),
+    ("nightlights", "description", "Annual nightlight composite (DMSP-OLS V4 intercalibrated stable lights, 1992-2013). Withdrawn: in 2026 NOAA moved the V4 composites behind a login and every fetch answered 404, so nothing new is made. Facts signed before still recall and verify."),
     ("jrc_gfc2020", "references", "Bourgoin, C. et al. 2026. GFC2020: A Global Map of Forest Land Use for year 2020 to support the EU Deforestation Regulation. ESSD 18:1331. DOI 10.5194/essd-2025-351. Data: https://forobs.jrc.ec.europa.eu/GFC ; tiles read: https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/tiles/ ; single COG (not read, 40.5 GB): https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/single-cog/JRC_GFC2020_V4_COG.tif"),
 ];
 
@@ -32452,9 +32607,12 @@ fn mcp_tool_descriptor_raw(t: &emem_mcp::ToolDescriptor) -> JsonValue {
         // filled from the registry rather than from whatever was true when
         // someone typed it.
         "description": emem_mcp::with_counts(&format!(
-            "{}\n\nWhen to use: {}\n\n{}",
+            "{}\n\nWhen to use: {}{}\n\n{}",
             t.description,
             t.when_to_use,
+            tool_retired_clause(t)
+                .map(|c| format!("\n\n{c}"))
+                .unwrap_or_default(),
             mcp_example_clause(t.name, t.example_args)
         )),
         // Through `with_counts` as well: a schema's `description` is prose a
@@ -37369,7 +37527,7 @@ fn openapi_spec() -> JsonValue {
                 "Cost":            {"type":"object","description":"Self-declared cost block on every receipt. Honest accounting: latencies are observed, freshness is the age of the stalest source cited (null when undatable, never 0 as a stand-in), `was_cached` is true when the hot cache served the read.","properties":{"credits":{"type":"number","description":"Conceptual cost units; 0 for L0/L1 read endpoints on the hosted responder."},"latency_p50_ms":{"type":"number","description":"Observed p50 for this primitive class on this responder since it started, as the upper bound of the latency bucket it falls in (buckets run 1 ms to 300 s). Not this call's own time."},"latency_p99_ms":{"type":"number","description":"Observed p99 for this primitive class, same bucket rule. Anything past 300 s reads 600000."},"source_freshness_s":{"type":["integer","null"],"description":"Age of the STALEST source this response cites: now minus the earliest captured_at across the returned facts' sources. null when nothing in the response carries a dated source, which is the honest answer for a primitive that reads no observation. Was a hardcoded 0 until 2026-08-05, so a 2021 DEM tile reported as 0 s old; a null here means unknown, never fresh."},"was_cached":{"type":"boolean"}}},
                 "Receipt":         {"type":"object","description":"Ed25519-signed receipt. The browser-side verifier at /verify reconstructs the preimage from the receipt fields alone, no callback to the issuer. **A receipt is byte-for-byte or nothing.** Current receipts carry `preimage_version: 2`, whose preimage binds request_id, served_at, primitive, cells, fact_cids AND, when present, the scope / as_of / edges / source_versions / field digests and the `merkle_proof` segment. Reshaping a receipt — dropping a field an SDK considers redundant, re-keying it, summarising it, round-tripping it through a lossy model — invalidates the signature BY DESIGN, and the result is indistinguishable on the wire from tampering. Store and forward the responder's exact bytes. POST /v1/verify_receipt names which of the two it is where it can prove the difference (`reason: receipt_reshaped_after_signing` with a `failure_detail`). What is NOT signed: the caller's `place`/`q` string, raw `lat`/`lng`, requested `bands[]`, requested `tslot`, and `intent` — a wrong-place geocode produces a valid signature for the wrong cell. Branch on /v1/locate `selected.is_high_confidence` before trusting place-anchored answers. Also: `fact_cid` is per-replica (signed_at differs across responders even for byte-identical upstream pixels); cross-replica join key is the tuple (cell, band, tslot). /v1/recall_polygon emits one independently signed receipt per cell under `by_cell.<cell>.receipt`, `merged_facts[]` is convenience flattening and is NOT covered by an aggregate signature.","required":["request_id","served_at","primitive","cells","fact_cids","schema_cid","responder","responder_key_epoch","responder_pubkey_b32","signature","registry_cid"],"properties":{"request_id":{"type":"string","description":"ULID generated per request."},"served_at":{"type":"string","description":"ISO 8601 UTC, second precision."},"primitive":{"type":"string","description":"Namespaced wire form: `emem.recall`, `emem.find_similar`, `emem.verify`, …"},"intent":{"type":"string","description":"Optional natural-language hint. Populated when served via /v1/intent."},"cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"}},"fact_cids":{"type":"array","items":{"$ref":"#/components/schemas/FactCid"}},"schema_cid":{"type":"string","description":"CID of the active CDDL profile."},"merkle_proof":{"type":"object","description":"Inclusion proof for `fact_cids[0]` when persisted. Omitted from JSON when the cited facts pre-date the proof tree; under preimage_version 2 that absence is itself signed (an explicit ABSENT marker), so it is a statement rather than a gap. Do not strip this field: v2 binds it into the signature and removing it makes an authentic receipt report `signature_valid: false`.","required":["leaf_index","path","root"],"properties":{"leaf_index":{"type":"integer","description":"u32 leaf index in the canonical-sorted batch."},"path":{"type":"array","items":{"type":"array","items":{"type":"integer"},"description":"32-byte sibling hash as a byte array"},"description":"Sibling hashes leaf→root."},"root":{"type":"array","items":{"type":"integer"},"description":"The expected 32-byte batch root as a byte array."},"version":{"type":"integer","description":"Merkle hashing rule: 0 (omitted) = legacy unprefixed, 1 = RFC 6962-style prefixed."}}},"responder":{"$ref":"#/components/schemas/PubKey"},"responder_key_epoch":{"type":"integer","description":"u32 rotation counter; bumps when the operator rotates keys."},"responder_pubkey_b32":{"$ref":"#/components/schemas/PubKey"},"signature":{"type":"string","description":"Ed25519 signature, 64 bytes base32-nopad-lowercase encoded."},"source_versions":{"type":"object","additionalProperties":{"type":"string"},"description":"Per-source freshness map."},"registry_cid":{"type":"string","description":"CID of the function registry version in force."},"cost":{"$ref":"#/components/schemas/Cost"}}},
                 "Fact":            {"type":"object","description":"A primary attestation at (cell, band, tslot). `value` is the band's typed reading (number, array of numbers for vector bands, or a categorical class id). `unit` is the band's declared unit (e.g. `m_msl`, `degC`, `mm`).","required":["kind","cell","band","tslot","value","fact_cid","receipt"],"properties":{"kind":{"type":"string","enum":["primary","absence"],"description":"`primary` = signed measurement; `absence` = signed \"we don't have this here\" with a typed reason."},"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"tslot":{"$ref":"#/components/schemas/Tslot"},"value":{"description":"Number, array of numbers, or class id depending on band type."},"unit":{"type":"string"},"provenance":{"type":"string","description":"Upstream source key (e.g. `copdem30m`, `s2_l2a`, `cams_eu`)."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"receipt":{"$ref":"#/components/schemas/Receipt"},"absence_reason":{"type":"string","enum":["unavailable_capability","outside_coverage","archetype_seed_unavailable","gpu_unavailable","upstream_error","upstream_timeout"],"description":"Present only when kind=`absence`."}}},
-                "MaterializeNote": {"type":"object","description":"One entry in the response's `materialize_notes[]`, recording what the lazy materializer did during this call. status:\"materialized\" means a signed fact was minted and persisted (a Primary observation OR a confirmed, evidence-backed Absence - both are signed and citeable by fact_cid). status:\"skipped\" means nothing was signed: `reason_class` says why (transient `timeout`/`upstream_error`, retryable; or structural `unknown_band`/`no_materializer`, not retryable here) and `absence` is always false, because a skip is 'unknown', never a confirmed absence.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"ok":{"type":"boolean"},"status":{"type":"string","enum":["materialized","skipped"]},"fact_cid":{"type":"string"},"reason":{"type":"string"},"reason_class":{"type":"string","enum":["timeout","upstream_error","upstream_gone","unknown_band","no_materializer","deferred","retired","not_geographic","no_data"]},"retryable":{"type":"boolean"},"absence":{"type":"boolean","description":"Always false on a skip; a confirmed absence is a signed fact with status:materialized, not a skip."},"latency_ms":{"type":"number"}}},
+                "MaterializeNote": {"type":"object","description":"One entry in the response's `materialize_notes[]`, recording what the lazy materializer did during this call. status:\"materialized\" means a signed fact was minted and persisted (a Primary observation OR a confirmed, evidence-backed Absence - both are signed and citeable by fact_cid). status:\"skipped\" means nothing was signed: `reason_class` says why (transient `timeout`/`upstream_error`, retryable; or structural `unknown_band`/`no_materializer`, not retryable here) and `absence` is always false, because a skip is 'unknown', never a confirmed absence.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"ok":{"type":"boolean"},"status":{"type":"string","enum":["materialized","skipped"]},"fact_cid":{"type":"string"},"reason":{"type":"string"},"reason_class":{"type":"string","enum":["timeout","upstream_error","upstream_gone","unknown_band","no_materializer","deferred","no_archive","retired","not_geographic","no_data"],"description":"`unknown_band`: no registry lists the key. `no_materializer`: a registry band lists the key but no reader runs here; the reason then starts `band_not_wired` and the note names `registered_band` and `answering_keys`. `retired`: withdrawn at this responder."},"retryable":{"type":"boolean"},"registered_band":{"type":"string","description":"On a `band_not_wired` skip: the registry band that lists the key."},"answering_keys":{"type":"array","items":{"type":"string"},"description":"On a `band_not_wired` skip: the keys of `registered_band` that answer at this responder. Empty when none does."},"answers_as":{"type":"string","description":"On a `band_not_wired` skip, when another key answers the same quantity: that key. The reason states any unit difference."},"absence":{"type":"boolean","description":"Always false on a skip; a confirmed absence is a signed fact with status:materialized, not a skip."},"latency_ms":{"type":"number"}}},
                 "SignedResponse":  {"type":"object","description":"Standard recall envelope. `facts` is the array of signed facts touched by this call (subset of `bands_already_attested_at_cell` after auto-materialization). `receipt` is the responder's signature over the call. `materialize_notes` lists any lazy-materializer activity that happened to satisfy the request, empty for purely warm reads.","required":["facts","receipt"],"properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"receipt":{"$ref":"#/components/schemas/Receipt"},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"},"description":"Bands the cell already has facts for, regardless of whether they were requested. Useful for follow-up calls without a second /v1/coverage_matrix hit."},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"caveats":{"type":"array","items":{"type":"string"},"description":"Plain-language constraints the caller should fold into their answer (grid resolution, revisit cadence, sample-size warnings)."}}},
                 "TrajectoryResp":  {"type":"object","description":"Response of /v1/trajectory. `series` has one point per tempo slot in the window that holds a signed fact, oldest first. Each point carries its `fact_cid`, its `emem:fact:` token, the civil date its slot starts on, and the value. `receipt` signs the call. An empty `series` means emem holds no signed fact there yet, not that nothing was observed. For a band with history, an empty read without as_of or scope also carries `fill.call`: the exact /v1/backfill body for the window read.","required":["series","receipt"],"properties":{"series":{"type":"array","items":{"type":"object","required":["tslot","value","fact_cid"],"properties":{"tslot":{"type":"integer"},"value":{"description":"a number for a scalar band, an array for a vector band"},"fact_cid":{"type":"string"},"token":{"type":"string"},"slot_start":{"type":"string","description":"YYYY-MM-DD the slot starts on; the fact carries the capture time"}}}},"receipt":{"$ref":"#/components/schemas/Receipt"},"fill":{"type":"object","description":"Only on an empty, unpinned, unscoped read of a band with history.","properties":{"why":{"type":"string"},"call":{"type":"object","properties":{"method":{"type":"string"},"path":{"type":"string"},"mcp_tool":{"type":"string"},"body":{"type":"object"}}},"then":{"type":"string"}}},"left_out":{"type":"integer","description":"Signed facts in the window a later fix superseded, left out of the series and the receipt. Absent when none."},"left_out_why":{"type":"string"},"unknown_band":{"type":"string"},"warning":{"type":"string"}}},
                 "LocateResp":      {"type":"object","description":"Response of /v1/locate. `cell64` is the canonical handle for the resolved place; `polygon_bbox` is present when the geocoder found an extent (city / park / lake / country / region), absent for point features. `via` declares which layer of the seven-tier embedded cascade answered, falling back to network (Photon → Nominatim) only when no embedded layer matched.","required":["cell64","via"],"properties":{"cell64":{"$ref":"#/components/schemas/Cell64"},"label":{"type":"string","description":"Reader-friendly place label."},"lat":{"type":"number"},"lng":{"type":"number"},"polygon_bbox":{"type":"object","description":"Present when the place has spatial extent.","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"},"source":{"type":"string","enum":["wide_bbox_table","country_table","admin1_table","admin2_table","admin3_table","nominatim_boundingbox","overture_division_area","centre_cell_bbox"],"description":"`overture_division_area` is authoritative (conflated OSM+Esri+Meta+TomTom polygon), preferred whenever Overture has a row for the entity. `country_table` / `admin1_table` / `admin2_table` / `admin3_table` are cities1000-aggregated approximations used when Overture is unreachable. `wide_bbox_table` is the curated wide-feature override for Sahara/Amazon/Himalayas etc."}}},"polygon_geojson":{"type":"object","description":"True OSM/Overture boundary as GeoJSON `Polygon` or `MultiPolygon` when an admin tier resolved. Pass back to /v1/recall_polygon to mask the cell grid against the boundary."},"polygon_sample_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Up to 64 representative cells covering the polygon, pass to /v1/recall_many or /v1/recall_polygon."},"neighborhood_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Eight neighbouring cell64s of the resolved centre cell."},"via":{"type":"string","enum":["direct","wide_bbox_table","country","admin1","geonames","admin2","admin3","embedded","pois","cache","overture_admin_fallback","photon","nominatim","wikidata"],"description":"Layer of the locate cascade that answered. `direct` = the caller sent lat/lng; `country`/`admin1`/`admin2`/`admin3` = GeoNames hierarchical-admin tables (in-process); `embedded`/`geonames` = cities1000 populated places (in-process); `pois` = curated GeoNames well-known landmarks (peaks/lakes/parks/airports/monuments, in-process); `wide_bbox_table` = curated wide regions (in-process); `cache` = sled hot cache; `overture_admin_fallback` = an Overture division polygon matched when the tables did not; `photon`/`nominatim` = network fallback; `wikidata` = a Wikidata prominence decision replaced the cascade's centre with a more prominent namesake."},"overture_division":{"type":"object","description":"Overture-divisions provenance, present when the cascade pulled an authoritative admin polygon. `division_id` is the GERS ID (globally stable, citable in receipts). `subtype` declares the admin level (country/region/county/locality/etc). `country` is the ISO 3166-1 alpha-2 owner.","properties":{"division_id":{"type":"string"},"subtype":{"type":"string","enum":["country","region","county","localadmin","locality","borough","macrohood","neighborhood","microhood","dependency"]},"country":{"type":"string","description":"ISO 3166-1 alpha-2 (e.g. `BD`, `US`)."},"schema_url":{"type":"string"}}},"localized_names":{"type":"object","additionalProperties":{"type":"string"},"description":"Map of ISO 639 language tag (`en`, `bn`, `zh-Hans`, `ar`, …) to localized name, when the resolved entity is in Overture and carries `names.common`. Lets an agent surface the user's-language label without a second geocoder call."},"data_at_this_cell":{"type":"object","description":"Topic-grouped inventory of recallable bands and applicable algorithms at this cell. Lets the caller chain into /v1/recall without a second introspection round-trip."}}},
@@ -37413,6 +37571,7 @@ fn openapi_spec() -> JsonValue {
     enrich_openapi_response_schemas(&mut spec);
     enrich_openapi_post_error_responses(&mut spec);
     tag_openapi_operations(&mut spec);
+    mark_retired_bands(&mut spec);
     spec
 }
 
@@ -40275,6 +40434,77 @@ fn is_retired(band: &str) -> bool {
                 .strip_prefix(r.as_str())
                 .is_some_and(|t| t.starts_with('.'))
     })
+}
+
+/// The bands retired at this responder and what they still do.
+fn retired_here_note() -> String {
+    let names: Vec<String> = retired_bands().iter().map(|b| format!("`{b}`")).collect();
+    format!(
+        "Retired at this responder: {}. Their bands stay in the manifest, so facts signed earlier still recall and verify. Nothing new is made for them.",
+        names.join(", ")
+    )
+}
+
+/// True when `text` names the band `root` or a key under it, as a word.
+fn names_band_root(text: &str, root: &str) -> bool {
+    text.match_indices(root).any(|(i, _)| {
+        let before = text[..i].chars().next_back();
+        let after = text[i + root.len()..].chars().next();
+        !before.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.')
+            && !after.is_some_and(|c| c.is_alphanumeric() || c == '_')
+    })
+}
+
+/// A sentence for served text that names a band retired here. One binary runs
+/// on nodes that retire different bands (`EMEM_RETIRED_BANDS`), so text that
+/// is compiled in cannot say which; this is added where the text is served.
+fn retired_here_clause(text: &str) -> Option<String> {
+    let named: Vec<String> = retired_bands()
+        .iter()
+        .filter(|r| names_band_root(text, r))
+        .map(|r| format!("`{r}`"))
+        .collect();
+    match named.len() {
+        0 => None,
+        1 => Some(format!(
+            "At this responder {} is retired: it answers only with facts it signed before and makes no new ones.",
+            named[0]
+        )),
+        _ => Some(format!(
+            "At this responder {} are retired: they answer only with facts signed before and make no new ones.",
+            named.join(", ")
+        )),
+    }
+}
+
+/// [`retired_here_clause`] for everything a tool descriptor shows a caller.
+fn tool_retired_clause(t: &emem_mcp::ToolDescriptor) -> Option<String> {
+    retired_here_clause(&format!(
+        "{} {} {} {}",
+        t.description, t.when_to_use, t.input_schema, t.example_args
+    ))
+}
+
+/// Append [`retired_here_clause`] to every `description` and `summary` in an
+/// OpenAPI document that names a band retired here.
+fn mark_retired_bands(v: &mut JsonValue) {
+    match v {
+        JsonValue::Object(map) => {
+            for (k, val) in map.iter_mut() {
+                match val {
+                    JsonValue::String(s) if k == "description" || k == "summary" => {
+                        if let Some(c) = retired_here_clause(s) {
+                            s.push(' ');
+                            s.push_str(&c);
+                        }
+                    }
+                    other => mark_retired_bands(other),
+                }
+            }
+        }
+        JsonValue::Array(items) => items.iter_mut().for_each(mark_retired_bands),
+        _ => {}
+    }
 }
 
 /// Encoder bands whose producer was removed from the code. The manifest
@@ -64873,7 +65103,13 @@ impl MaterializeOutcome {
 /// upstream did not answer, which is unknown, not a verified negative;
 /// signing it as Absence would attest to something never observed.
 fn classify_skip_reason(reason: &str) -> (&'static str, bool) {
-    if reason.starts_with(BUDGET_DEFERRED) {
+    if reason.starts_with(BAND_NOT_WIRED) {
+        // Registered, no reader: the documented meaning of no_materializer.
+        // It was `unknown_band`, which told the caller the key did not exist.
+        ("no_materializer", false)
+    } else if reason.starts_with(BAND_WITHDRAWN) {
+        ("retired", false)
+    } else if reason.starts_with(BUDGET_DEFERRED) {
         ("deferred", true)
     } else if reason.starts_with(NO_ARCHIVE) {
         // Asking again cannot help: the source keeps no past.
@@ -65815,6 +66051,10 @@ fn band_storage_alias(name: &str) -> Option<&'static str> {
     match name {
         "protected.is_protected_area" => Some("protected"),
         "overture.places_count" => Some("overture.places.count"),
+        // The registry lists this key with unit kg/dm3; the bdod reader signs
+        // the same quantity in the same unit under the SoilGrids name. pH is
+        // not aliased: the registry gives its key as pH x10, the reader pH.
+        "soilgrids.bulk_density_0_30cm" => Some("soilgrids.bdod_0_30cm"),
         _ => None,
     }
 }
@@ -65871,6 +66111,298 @@ pub(crate) fn band_is_known(name: &str) -> bool {
         return name.split(':').count() == 3;
     }
     all_materializable_bands().iter().any(|b| b == name)
+}
+
+/// Registry keys that `all_materializable_bands` does not list but that have
+/// their own arm in `materialize_bands_once`. A test pins each one to its arm.
+/// Without this list the catalogue called seven keys that answer "unwired",
+/// and a refusal built on that list would have refused them.
+const OWN_ARM_KEYS: &[&str] = &[
+    "chirps.precip_daily_mm",
+    "gmrt.topobathy_min",
+    "gmrt.topobathy_max",
+    "gmrt.topobathy_std",
+    "esa_cci_biomass.agb_t_per_ha_2022",
+    "esa_cci_biomass.agb_se_t_per_ha_2022",
+    "esa_cci_biomass.agb_t_per_ha_2020",
+    "esa_cci_biomass.agb_se_t_per_ha_2020",
+    "wri_gdm.driver_class",
+    "radd.alert_date",
+    "radd.confidence",
+];
+
+/// For a key in [`OWN_ARM_KEYS`], whether its arm reads a value here
+/// (`Some(true)`) or refuses in its own words (`Some(false)`). `None` for
+/// every other key.
+fn own_arm_reads(key: &str) -> Option<bool> {
+    if !OWN_ARM_KEYS.contains(&key) {
+        return None;
+    }
+    Some(match key {
+        // The reader takes a local copy of the COG that the operator supplies.
+        "wri_gdm.driver_class" => {
+            static CONFIGURED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            *CONFIGURED.get_or_init(|| {
+                std::env::var_os("EMEM_WRI_GDM_CACHE")
+                    .is_some_and(|p| std::path::Path::new(&p).is_file())
+            })
+        }
+        // The only RADD raster is in a requester-pays bucket.
+        "radd.alert_date" | "radd.confidence" => false,
+        _ => true,
+    })
+}
+
+/// Every key recall reads a value for at this responder: the catalogue plus
+/// the [`OWN_ARM_KEYS`] whose arm reads here, less what is retired here.
+fn answering_keys() -> Vec<String> {
+    let mut out = all_materializable_bands();
+    out.extend(
+        OWN_ARM_KEYS
+            .iter()
+            .filter(|k| own_arm_reads(k) == Some(true) && !is_retired(k))
+            .map(|k| (*k).to_string()),
+    );
+    out
+}
+
+fn key_answers_here(key: &str) -> bool {
+    !is_retired(key)
+        && (band_is_known(key)
+            || band_storage_alias(key).is_some()
+            || own_arm_reads(key) == Some(true))
+}
+
+/// The registry band that lists `key`, as its own key or in its `scalar_keys`.
+fn registry_band_listing(key: &str) -> Option<&'static emem_core::bands::Band> {
+    let reg: &'static emem_core::bands::BandRegistry = &emem_core::bands::DEFAULT;
+    reg.lookup(key).or_else(|| {
+        reg.bands
+            .iter()
+            .find(|b| b.scalar_keys.iter().any(|k| k == key))
+    })
+}
+
+/// Keys that answer here for the registry band `band`: keys in the family of
+/// the band or of any of its scalar keys, and keys `cube_band_alias` maps onto
+/// it (`esa_worldcover.lc_2021` rides on `landcover`).
+fn answering_keys_of_band(band: &emem_core::bands::Band) -> Vec<String> {
+    let family = |k: &str| k.split('.').next().unwrap_or(k).to_string();
+    let families: std::collections::BTreeSet<String> = std::iter::once(band.key.as_str())
+        .chain(band.scalar_keys.iter().map(String::as_str))
+        .map(family)
+        .collect();
+    let mut out: Vec<String> = Vec::new();
+    for k in answering_keys() {
+        let mine = families.contains(&family(&k))
+            || emem_core::bands::cube_band_alias(&k) == band.key.as_str();
+        if mine && !out.contains(&k) {
+            out.push(k);
+        }
+    }
+    out
+}
+
+/// Registered keys whose quantity answers here under another key. Only where
+/// the two measure the same thing; the unit difference is stated.
+fn answers_as(key: &str) -> Option<(&'static str, &'static str)> {
+    match key {
+        "soilgrids.ph_0_30cm" => Some((
+            "soilgrids.phh2o_0_30cm",
+            "pH in water, in pH units (the registry gives this key as pH x10)",
+        )),
+        k if k == "landcover" || k.starts_with("landcover.") => Some((
+            "esa_worldcover.lc_2021",
+            "the ESA WorldCover 2021 class at the cell, not a class fraction",
+        )),
+        _ => None,
+    }
+}
+
+/// Leads the skip reason for a registered key that has no reader here.
+const BAND_NOT_WIRED: &str = "band_not_wired";
+/// Leads the skip reason for a registered key that is retired here.
+const BAND_WITHDRAWN: &str = "band_withdrawn";
+
+/// Why a key that a registry band lists does not answer here. `None` when the
+/// key answers, when its own arm refuses it in its own words, or when no
+/// registry band lists it (that is `unknown_band`).
+fn not_answering_reason(key: &str) -> Option<String> {
+    if own_arm_reads(key).is_some() || key_answers_here(key) {
+        return None;
+    }
+    let band = registry_band_listing(key)?;
+    let registered = if key == band.key {
+        format!("`{key}` is a registered band")
+    } else {
+        format!("`{key}` is registered under band `{}`", band.key)
+    };
+    if is_retired(key) {
+        return Some(format!(
+            "{BAND_WITHDRAWN}: {registered} and is withdrawn (retired) at this responder. Facts signed before still recall and verify. Nothing new is made, so a retry gives the same answer."
+        ));
+    }
+    let on = answering_keys_of_band(band);
+    let keys = if on.is_empty() {
+        format!("No key of band `{}` answers here.", band.key)
+    } else {
+        format!(
+            "Keys of band `{}` that answer here: {}.",
+            band.key,
+            on.join(", ")
+        )
+    };
+    let alt = answers_as(key)
+        .map(|(k, what)| format!(" The same quantity answers as `{k}`: {what}."))
+        .unwrap_or_default();
+    Some(format!(
+        "{BAND_NOT_WIRED}: {registered} but has no reader at this responder, so recall cannot fetch it and a retry gives the same answer. {keys}{alt}"
+    ))
+}
+
+/// The skip note for a registered key with no reader: the usual note plus the
+/// band that lists the key and the keys of that band that answer.
+fn not_answering_note(key: &str, reason: String) -> Option<JsonValue> {
+    let mut note = MaterializeOutcome {
+        band: key.to_string(),
+        fact_cid: None,
+        skip_reason: Some(reason),
+    }
+    .to_note()?;
+    if let (Some(obj), Some(band)) = (note.as_object_mut(), registry_band_listing(key)) {
+        obj.insert("registered_band".into(), json!(band.key));
+        obj.insert("answering_keys".into(), json!(answering_keys_of_band(band)));
+        if let Some((k, _)) = answers_as(key) {
+            obj.insert("answers_as".into(), json!(k));
+        }
+    }
+    Some(note)
+}
+
+#[cfg(test)]
+mod registered_keys_say_whether_they_answer {
+    use super::*;
+
+    #[test]
+    fn a_registered_key_with_no_reader_is_not_called_unknown() {
+        let why = not_answering_reason("soilgrids.ph_0_30cm").expect("registered, no reader");
+        assert!(why.starts_with(BAND_NOT_WIRED), "{why}");
+        assert!(!why.contains("not in the band registry"), "{why}");
+        assert!(why.contains("soilgrids.phh2o_0_30cm"), "{why}");
+        assert!(why.contains("soilgrids.soc_0_30cm"), "{why}");
+        assert_eq!(classify_skip_reason(&why), ("no_materializer", false));
+
+        let crop = not_answering_reason("landcover.crop").expect("registered, no reader");
+        assert!(crop.contains("esa_worldcover.lc_2021"), "{crop}");
+        let root = not_answering_reason("landcover").expect("family root, no reader");
+        assert!(root.contains("esa_worldcover.lc_2021"), "{root}");
+
+        let ghsl = not_answering_reason("ghsl.smod_class").expect("registered, no reader");
+        assert!(
+            ghsl.contains("No key of band `ghsl` answers here."),
+            "{ghsl}"
+        );
+    }
+
+    #[test]
+    fn keys_that_answer_or_refuse_in_their_own_words_are_left_alone() {
+        for k in [
+            "soilgrids.soc_0_30cm",
+            "indices.ndvi",
+            "copdem30m.elevation_mean",
+            "population",
+            "protected.is_protected_area",
+            "esa_cci_biomass.agb_t_per_ha_2022",
+            "gmrt.topobathy_std",
+            "radd.alert_date",
+            "wri_gdm.driver_class",
+        ] {
+            assert_eq!(not_answering_reason(k), None, "{k}");
+        }
+        // No registry lists it: that is still `unknown_band`.
+        assert_eq!(not_answering_reason("soilgrids.ph"), None);
+        assert!(registry_band_listing("soilgrids.ph").is_none());
+    }
+
+    #[test]
+    fn every_own_arm_key_has_its_arm_in_the_dispatch() {
+        let src = include_str!("lib.rs");
+        // The leading newline skips this test's own literal, which comes
+        // first in the file.
+        let start = src
+            .find("\nasync fn materialize_bands_once(")
+            .expect("dispatch")
+            + 1;
+        let len = src[start + 1..].find("\nasync fn ").expect("next fn") + 1;
+        let body = &src[start..start + len];
+        // An arm pattern: the quoted key with `|` or `=>` beside it.
+        let is_arm = |k: &str| {
+            let quoted = format!("\"{k}\"");
+            body.match_indices(&quoted).any(|(i, _)| {
+                let before = body[..i].trim_end();
+                let after = body[i + quoted.len()..].trim_start();
+                before.ends_with('|') || after.starts_with('|') || after.starts_with("=>")
+            })
+        };
+        for k in OWN_ARM_KEYS {
+            assert!(
+                is_arm(k),
+                "`{k}` is in OWN_ARM_KEYS but has no arm in materialize_bands_once"
+            );
+            assert!(
+                !band_is_known(k),
+                "`{k}` is catalogued; drop it from OWN_ARM_KEYS"
+            );
+        }
+    }
+
+    #[test]
+    fn the_catalogue_counts_keys_that_have_their_own_reader() {
+        assert!(key_answers_here("gmrt.topobathy_std"));
+        assert!(key_answers_here("esa_cci_biomass.agb_t_per_ha_2020"));
+        assert!(!key_answers_here("radd.alert_date"));
+        assert!(!key_answers_here("soilgrids.silt_0_30cm"));
+        assert!(key_answers_here("soilgrids.bulk_density_0_30cm"));
+        assert_eq!(not_answering_reason("soilgrids.bulk_density_0_30cm"), None);
+    }
+
+    #[test]
+    fn every_declared_source_says_whether_it_is_read_here() {
+        for src in &emem_core::sources::DEFAULT.sources {
+            let r = source_read_here(&src.scheme);
+            assert_ne!(
+                r["status"], "unclassified",
+                "{} has no SOURCE_READERS row",
+                src.scheme
+            );
+        }
+        for (scheme, reader) in SOURCE_READERS {
+            if let SourceReader::Keys(keys) = reader {
+                for k in *keys {
+                    assert!(
+                        key_answers_here(k) || is_retired(k),
+                        "{scheme} names `{k}`, which neither answers nor is retired"
+                    );
+                }
+            }
+        }
+        assert_eq!(source_read_here("tropomi.s5p.no2")["status"], "no_reader");
+    }
+
+    #[test]
+    fn served_text_that_names_a_retired_band_says_so() {
+        let r = retired_bands()
+            .iter()
+            .next()
+            .expect("one band is always retired")
+            .clone();
+        let clause =
+            retired_here_clause(&format!("The default band is `{r}.multi_year`.")).expect("named");
+        assert!(clause.contains("retired"), "{clause}");
+        assert_eq!(retired_here_clause("indices.ndvi only"), None);
+        assert!(!names_band_root(&format!("{r}x"), &r));
+        assert!(names_band_root(&format!("`{r}`"), &r));
+    }
 }
 
 /// Tslot Unix range covered by the calendar year `y` (inclusive lo, exclusive hi).
@@ -68249,7 +68781,9 @@ async fn materialize_bands_once(
                 // topic registry and suggest the canonical bands.
                 let prefix = b.split('.').next().unwrap_or("");
                 let topic_bands = topic_router::TopicRouter::global().bands_for_topic(prefix);
-                let e = if !topic_bands.is_empty() {
+                let e = if let Some(why) = not_answering_reason(b) {
+                    why
+                } else if !topic_bands.is_empty() {
                     let dim = b.strip_prefix(prefix).and_then(|s| s.strip_prefix('.'));
                     let suggestions: Vec<String> = if let Some(dim) = dim {
                         // Prefer bands whose name ends in the requested
@@ -110706,9 +111240,28 @@ mod tests {
             resolve_band_name("overture.places_count"),
             "overture.places.count"
         );
+        assert_eq!(
+            resolve_band_name("soilgrids.bulk_density_0_30cm"),
+            "soilgrids.bdod_0_30cm"
+        );
         // The targets must be materializable, or the alias points nowhere.
         assert!(band_is_known("protected"));
         assert!(band_is_known("overture.places.count"));
+        assert!(band_is_known("soilgrids.bdod_0_30cm"));
+        // An alias may not change the unit the registry gives the key.
+        let reg = emem_core::bands::DEFAULT
+            .lookup("soilgrids")
+            .expect("soilgrids band");
+        assert_eq!(
+            reg.scalar_units
+                .get("soilgrids.bulk_density_0_30cm")
+                .map(String::as_str),
+            Some("kg/dm3")
+        );
+        assert_eq!(
+            band_valid_range("soilgrids.bdod_0_30cm").map(|r| r.2),
+            Some("kg/dm^3")
+        );
         // The stored names pass through untouched.
         assert_eq!(resolve_band_name("protected"), "protected");
         assert_eq!(

@@ -295,8 +295,8 @@ impl ToolCategory {
 /// inside a test is free to drift from the schema it claims to mirror.
 pub const SCHEMA_RECALL: &str = r#"{"type":"object","required":["cell"],"properties":{
 "cell":{"type":"string","description":"cell64 string, e.g. 'defi.zb64a.cAzU.zfa27'","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23},
-"band":{"type":"string","description":"optional single band key, convenience alias for bands:[band]. Use when you want exactly one band (e.g. 'geotessera.2020', 'modis.ndvi_mean') and would otherwise have to wrap it in an array. Both `band` and `bands` are accepted; if both are given they are merged."},
-"bands":{"type":"array","items":{"type":"string"},"description":"optional band keys to filter, e.g. ['indices.ndvi','geotessera']"},
+"band":{"type":"string","description":"optional single band key, convenience alias for bands:[band]. Use when you want exactly one band (e.g. 'modis.ndvi_mean', 'copdem30m.elevation_mean') and would otherwise have to wrap it in an array. Both `band` and `bands` are accepted; if both are given they are merged."},
+"bands":{"type":"array","items":{"type":"string"},"description":"optional band keys to filter, e.g. ['indices.ndvi','copdem30m.elevation_mean']"},
 "tslot":{"type":"integer","description":"optional time slot (band-tempo-relative integer offset from emem epoch)"},
 "as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound. Returns the latest fact per (cell,band) whose tslot ≤ as_of_tslot, answers `what did this place look like AS OF date X`. Conflicts with an explicit `tslot` when as_of_tslot < tslot (rejected with code:`invalid_temporal_bound`)."},
 "as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound. RFC 3339 string. Returns only facts whose `signed_at` ≤ as_of_signed_at, answers `what did emem KNOW as of system-date Y`. Malformed strings are rejected with code:`invalid_signed_at_format`."},
@@ -2855,7 +2855,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_soil",
         title: "Soil profile (SoilGrids 0–30 cm: SOC, pH, texture)",
-        description: "Recall the signed SoilGrids 250 m profile at a place's cell64, attesting on a miss. The profile covers SOC, pH, clay/sand/silt fractions, bulk density, and nitrogen, all at 0–30 cm depth. Each band carries a citeable fact_cid.",
+        description: "Recall the signed SoilGrids 250 m topsoil profile at a place's cell64, attesting on a miss. It returns six bands, all at 0-30 cm: `soilgrids.soc_0_30cm`, `soilgrids.phh2o_0_30cm` (pH), `soilgrids.clay_0_30cm`, `soilgrids.sand_0_30cm`, `soilgrids.bdod_0_30cm` (bulk density) and `soilgrids.nitrogen_0_30cm`. Silt has no reader here. Each band carries a citeable fact_cid.",
         when_to_use: "Use when the user asks about soil quality, agricultural suitability, or carbon stocks at a location. It returns six bands in one envelope.",
         input_schema: SCHEMA_BORING_LATLNG,
         output_schema: None,

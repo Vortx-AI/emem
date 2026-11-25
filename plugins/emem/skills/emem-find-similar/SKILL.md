@@ -120,10 +120,13 @@ Send `verify_req.json` as the body of
 answer.
 
 That call returned `"valid": true`. The `cid_not_found` message also
-names `geotessera` in its list of bands for the cell. That list does
-not mean that a vector exists. The 404 is the answer.
+names the retired `geotessera` band in its list of bands for the cell.
+That list does not mean that a vector exists. The 404 is the answer.
 
 ## Options
+
+Each band option reads the retired `geotessera` band, so it answers only
+from vectors stored before the retirement.
 
 | Option | What it does |
 |---|---|
@@ -137,10 +140,10 @@ cosine scale. Do not apply the 0.85 rule to it. On 7 November 2026 the
 Bengaluru seed got a top hamming score of 0.625.
 
 Do not pass `band: "geotessera.bin128"`. On 28 September 2026 it
-returned an `internal` error.
+returned an `internal` error, and the band is retired on emem.dev.
 
 The year and `hamming` options can be slow. On 7 November 2026, the
-first call with `geotessera.2018` and the first call with `hamming`
+first call with `geotessera.2018` (retired, stored vectors only) and the first call with `hamming`
 both returned HTTP 504 `compute_timeout` after 40 s. The same calls
 then answered in 5 s and 9 s. The `multi_year` call took 38 s. After
 a `compute_timeout`, send the same call one more time. If it fails

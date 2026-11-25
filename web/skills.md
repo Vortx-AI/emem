@@ -266,7 +266,7 @@ browser. It uses a bundled copy of `@noble/hashes` 1.5.0 and `@noble/curves` 1.6
 `/v1/find_similar` ranks cells by cosine similarity. It uses a stored
 128-D surface-texture embedding (`geotessera`, 2024 vintage by default).
 It returns up to `k` neighbours, each with cell64, lat/lng, a cached
-place label and a score. **emem.dev retired the embedding band.** The
+place label and a score. **emem.dev retired the embedding band, `geotessera`.** The
 responder still answers from stored vectors, but it computes no new
 ones. A seed with no stored vector returns `cid_not_found`. A
 `/v1/recall` for the band returns `band_retired_at_this_responder`. A
@@ -295,8 +295,10 @@ other cells of Bengaluru, with scores from 0.93 to 0.86.
   It is not climate or society. The top neighbours of a city are often
   other cells of the same city. Ask for a larger `k` to reach other
   places.
-- `band: "geotessera.2020"` (2017 to 2024) selects a vintage.
-  `mode: "hamming"` uses the binary index.
+- `band: "geotessera.2020"` (2017 to 2024) selects a vintage on a node
+  that still serves the band. On emem.dev `geotessera` is retired, so a
+  vintage answers only from stored vectors. `mode: "hamming"` uses the
+  binary index.
 
 ---
 

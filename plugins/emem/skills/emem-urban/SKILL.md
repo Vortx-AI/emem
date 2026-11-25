@@ -34,11 +34,16 @@ coverage.
 | `surface_water.recurrence` | percent | One 30 m pixel. | JRC Global Surface Water, 1984 to 2021 | Covers 60 N to 60 S only. |
 | `nightlights.dmsp_ols_avg_dn` | DN, 0 to 63 | DMSP-OLS stable lights. | DMSP-OLS V4, 1992 to 2013 | Retired in this code, because the upstream moved behind a login. Stored facts still recall and verify. A cell with no stored fact gets a `materialize_notes` entry with `band_retired_at_this_responder`. Saturates at 63 in a city core. There is no VIIRS band. |
 
-emem.dev does not serve the GHSL built-surface bands. A request for
-`ghsl.built_surface_m2` returns HTTP 400 with `band_not_in_registry`.
-That error means "this responder has no such band". It does not mean
-"no data here". `GET https://emem.dev/v1/bands` gives the full catalog.
-Find a band there before you build an analysis on it.
+emem.dev does not serve the GHSL bands: the `ghsl` keys are registered,
+no reader yet. A recall of `ghsl.built_surface_m2` returns no fact and a
+`materialize_notes` entry with `reason_class: no_materializer` and a
+`reason` that starts `band_not_wired`. That note means "this responder
+has no reader for this key". It does not mean "no data here". Up to
+version 2.4.6 the same request returned HTTP 400 `band_not_in_registry`.
+`GET https://emem.dev/v1/bands` lists, for each band, the keys that
+answer (`scalar_keys_wired`) and the keys that do not
+(`scalar_keys_unwired`). Find a key there before you build an analysis
+on it.
 
 ## Step 1: read one place
 
@@ -142,9 +147,9 @@ grid with `POST /v1/cells_in_bbox` and read it with
 - Overture facts name their release in `sources`, with a hash of the
   file listing of that release. Thus a figure stays checkable after
   Overture removes the release.
-- `population`, `nightlights.dmsp_ols_avg_dn` and
-  `esa_worldcover.lc_2021` give the value of the source pixel at the
-  cell. Two adjacent cells can be the same pixel. Do not subtract
+- `population`, `nightlights.dmsp_ols_avg_dn` (retired: stored facts
+  only) and `esa_worldcover.lc_2021` give the value of the source pixel
+  at the cell. Two adjacent cells can be the same pixel. Do not subtract
   them and call the result a gradient. The `spatial_basis` object in
   the response gives the same warning.
 - The data years are different. Population is 2020, WorldCover is

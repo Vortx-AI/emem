@@ -903,9 +903,9 @@ curl -s -X POST https://emem.dev/v1/find_similar \
 Read `neighbors` and `interpretation`. The score compares surface texture, not
 climate. `returned_k` can be lower than `requested_k`. On 7 November 2026,
 this call asked for 3 and returned 2. emem.dev no longer makes new
-embeddings, so the index holds only the vectors that it stored before.
-The default band is the 128-dimension `geotessera` vector. `mode` selects
-the scoring:
+`geotessera` embeddings, so the index holds only the vectors that it
+stored before. The default band is the 128-dimension `geotessera` vector.
+`mode` selects the scoring:
 
 | `mode` | How it scores | Trade-off |
 |---|---|---|
@@ -2002,7 +2002,7 @@ route computes the result and signs it.
 
 All four routes are `POST`. The second half of the deforestation alert
 compares two GeoTessera vintages (`geotessera.multi_year`). emem.dev
-no longer makes that band (see [Algorithms](#algorithms)), so the second
+no longer makes `geotessera.multi_year` (see [Algorithms](#algorithms)), so the second
 half needs vectors that emem stored before the retirement. On 7 November 2026
 the registry gave this algorithm `here.status: "stored_only"` and
 `use_instead: ["deforestation_alert_ndvi_drop@1"]`.
@@ -2221,8 +2221,8 @@ sidecar. emem retired those encoders, so no recipe in that family runs
 here. The facts that they signed still recall and verify.
 
 Tessera (`geotessera`, 128-D, annual) came from `dl2.geotessera.org` as an
-upstream fact. emem did not run it in-process. emem.dev also retires this
-band through `EMEM_RETIRED_BANDS`. Stored vectors still recall and verify,
+upstream fact. emem did not run it in-process. emem.dev also retires
+`geotessera` through `EMEM_RETIRED_BANDS`. Stored vectors still recall and verify,
 but the responder fetches no new vectors. On 7 November 2026, 26 recipes
 read a `geotessera` band. 23 reported `here.status: stored_only`. 3 reported
 `cannot_run`: two need reference vectors that no file on emem.dev holds, and
@@ -2404,6 +2404,16 @@ facts. The unknown keys are in `unknown_bands` and in `materialize_notes` with `
 "unknown_band"`. On 7 November 2026, `copdem30m.elevation_mean` with
 `nosuch.band` gave one fact and `"unknown_bands":["nosuch.band"]`. Check
 `unknown_bands` before you read a missing fact as "no data".
+
+A key that a registry band lists but that has no reader here is not
+unknown. `GET /v1/bands` lists such keys per band in `scalar_keys_unwired`,
+for example `landcover.crop` and `soilgrids.ph_0_30cm`. A recall of one
+returns HTTP 200 with no fact for it, also when it is the only key. Its note
+has `reason_class: "no_materializer"` and a `reason` that starts
+`band_not_wired`. The note also names `registered_band` and
+`answering_keys`, the keys of that band that answer here. For
+`soilgrids.ph_0_30cm` the note adds `"answers_as":
+"soilgrids.phh2o_0_30cm"`, which gives pH in pH units.
 
 The error can suggest names, but the responder does not use them for you.
 It looks at the part of the key before the first dot. If wired bands share

@@ -163,7 +163,7 @@ bands in the request:
 |---|---|
 | `POST /v1/recall`, no band in `bands` is in the registry | HTTP 400, `code: band_not_in_registry` |
 | `POST /v1/recall`, some bands are in the registry | HTTP 200 with the known facts. Each unknown band is in `materialize_notes` with `reason_class: unknown_band` and `retryable: false`. The top-level `unknown_bands` array also lists them. |
-| `POST /v1/recall`, a legacy short key such as `dem` | HTTP 200 with `facts: []` and no `unknown_bands` field. Only `materialize_notes` names the band, with `reason_class: unknown_band`. The handler finds a materializer entry for the key, so it does not count the key as unknown. Use the namespaced key (`copdem30m.elevation_mean`). |
+| `POST /v1/recall`, a key that a registry band lists but no reader reads, such as `landcover.crop`, `soilgrids.ph_0_30cm` or the band key `dem` | HTTP 200 with no fact for that key and no `unknown_bands` entry, also when it is the only key. Its note has `reason_class: no_materializer` and a `reason` that starts `band_not_wired`. The note names `registered_band` and `answering_keys`, the keys of that band that answer here, and `answers_as` when another key answers the same quantity. For `dem`, recall `copdem30m.elevation_mean`. |
 | MCP `emem_recall`, any mix | No tool error. Unknown bands are in `materialize_notes`, as for REST. The MCP result has no `unknown_bands` field. |
 
 This request has only the unknown band, so it returns HTTP 400 with `code:
@@ -239,24 +239,28 @@ tests the rows of this table in order and takes the first match:
 | `deferred` | `true` | The responder reached its limit of cold fetches per minute. The limit is `EMEM_MATERIALIZE_PER_MIN`, default 600. |
 | `retired` | `false` | This deployment withdrew the band. Another responder can still serve it. |
 | `not_geographic` | `false` | The cell is not a geographic cell, so no upstream can answer for it. |
-| `unknown_band` | `false` | This responder does not know the band key. |
+| `unknown_band` | `false` | No registry band lists this key. |
 | `no_data` | `false` | Both input bands read zero at this pixel in the newest scene. A new overpass can change this. |
 | `upstream_gone` | `false` | A fixed upstream URL answered 404 or 410. The upstream moved or withdrew the data. |
-| `no_materializer` | `false` | This responder has no materializer for this band. |
+| `no_materializer` | `false` | This responder has no reader for this key. When a registry band lists the key, the `reason` starts `band_not_wired` and the note adds `registered_band` and `answering_keys`. |
 | `timeout` | `true` | The upstream did not answer in time. |
 | `upstream_error` | `true` | Any other upstream failure. |
 
 A `true` value means that a later call can succeed. A `false` value means
 that the same call to this responder gives the same skip.
 
-One skip has the wrong class in version 2.4.4. A key such as
-`vegetation_condition.ndvi` is a topic and a dimension, not a band. The
-`reason` starts with `topic_name_used_as_band` and lists the bands of that
-topic. No row of the table matches this text, so the class is
-`upstream_error` with `retryable: true`. A retry gives the same skip. Recall
-one of the listed bands instead. On 7 November 2026, emem.dev sent this note
-when the request also named a known band. When the responder knows no band
-in the request, the recall refuses with 400 `band_not_in_registry`.
+A key such as `vegetation_condition.ndvi` is a topic and a dimension, not a
+band. The `reason` starts with `topic_name_used_as_band` and lists the bands
+of that topic, and the class is `unknown_band`. Recall one of the listed
+bands instead. Version 2.4.4 gave this skip the class `upstream_error` with
+`retryable: true`; version 2.4.5 corrected it. When the responder knows no
+band in the request, the recall refuses with 400 `band_not_in_registry`.
+
+Up to version 2.4.6, a key that a registry band lists but no reader reads,
+such as `soilgrids.ph_0_30cm`, got `reason_class: unknown_band` and a
+`reason` that said the key was not in the band registry. `landcover.crop` on
+its own got 400 `band_not_in_registry`. Both were false: `GET /v1/bands`
+lists each key, under `scalar_keys_unwired`.
 
 Two skip notes cover more than one band. They have `bands[]` in place of
 `band`, and they have no `absence` key:

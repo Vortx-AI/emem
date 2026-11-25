@@ -927,6 +927,13 @@ jobs:
       # today" reads as settled background.
       - name: state a document asserts is the state we are in
         run: python3 scripts/state_claims.py --origin "${EMEM_ORIGIN:-http://127.0.0.1:5097}"
+      # /v1/bands says which registered keys have no reader. The tool text,
+      # OpenAPI, sources, locate and the skills an agent picks a key from
+      # named some of them as if they answered (silt in emem_soil, a GHSL key
+      # in a skill, the retired geotessera as a default), so the first call
+      # came back empty. A mention now has to say it does not answer.
+      - name: every surface names only keys that answer
+        run: python3 scripts/advertised_keys_answer.py --origin "${EMEM_ORIGIN:-http://127.0.0.1:5097}"
       # The agent guide's first screen is what an agent routes on. It is
       # generated from the responder's own intent registry, so a hand edit or
       # a new intent that never reached the guide shows up here rather than in
