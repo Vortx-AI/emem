@@ -90021,8 +90021,13 @@ fn wide_bbox_lookup(query: &str) -> Option<(f64, f64, f64, f64)> {
     if q.is_empty() {
         return None;
     }
+    // Whole words only: "gobind sagar" starts with "gobi".
     for (key, mn_la, mx_la, mn_ln, mx_ln) in WIDE_BBOXES {
-        if q == *key || q.starts_with(key) || q.contains(&format!(" {key} ")) {
+        if q == *key
+            || q.starts_with(&format!("{key} "))
+            || q.ends_with(&format!(" {key}"))
+            || q.contains(&format!(" {key} "))
+        {
             return Some((*mn_la, *mx_la, *mn_ln, *mx_ln));
         }
     }
@@ -90428,7 +90433,10 @@ fn polygon_source_static(s: &str) -> Option<&'static str> {
 /// 18: a business named after the place asked for gives way to the place
 ///     ("Palm Jumeirah, Dubai" resolved to a hotel on the island, with the
 ///     island one rank below). Generation-17 rows hold the hotel.
-const LOCATE_RESOLVER_VERSION: u32 = 18;
+/// 19: a wide feature matches only as a whole word: "Gobind Sagar" (a
+///     reservoir in Himachal Pradesh) began with "gobi" and resolved to the
+///     Gobi desert in Mongolia. Generation-18 rows may hold that answer.
+const LOCATE_RESOLVER_VERSION: u32 = 19;
 
 /// 30 d TTL, place-name → centroid is stable. Nominatim's caching
 /// policy explicitly allows long retention. Override via
@@ -95320,6 +95328,17 @@ mod tests {
         assert!(!prose.contains("2 days ago"), "{prose}");
         // A reflectance of 0.06 is not on the 0..10000 scale its range names.
         assert!(!prose.contains("range 0..10000"), "{prose}");
+    }
+
+    #[test]
+    fn a_wide_feature_matches_only_as_a_whole_word() {
+        assert!(wide_bbox_lookup("Gobind Sagar").is_none());
+        assert!(wide_bbox_lookup("gobind sagar reservoir").is_none());
+        assert!(wide_bbox_lookup("Gobi").is_some());
+        assert!(wide_bbox_lookup("Gobi desert").is_some());
+        assert!(wide_bbox_lookup("the gobi desert").is_some());
+        assert!(wide_bbox_lookup("Sahara").is_some());
+        assert!(wide_bbox_lookup("Saharanpur").is_none());
     }
 
     #[test]

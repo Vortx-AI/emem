@@ -32,7 +32,7 @@ token    = emem:fact:<cell>:<fact_cid>    any AI reads back the same bytes
 log      = append-only tree, witnessed    nothing changes quietly
 ```
 
-One real memory, a point on the shore of the Gobind Sagar reservoir seen from orbit on 22 October 2026: address (`defi.zb565.yOqU.xApA`, `indices.mndwi`, `20748`), surface read as open water by Sentinel-2 L2A, token `emem:fact:defi.zb565.yOqU.xApA:deqxdntu2clvx2qasongy5bjhvjk7enrdkcyaso65xpg3s2imdza`. The pass of 10 June 2026 at the same address reads bare ground: two memories, one place. Paste a token at [emem.dev/verify](https://emem.dev/verify) and the check runs in your browser.
+One real memory, a point on the shore of the Gobind Sagar reservoir seen from orbit on 22 October 2026: address (`defi.zb565.yEvA.xAqe`, `indices.mndwi`, `20748`), MNDWI 0.72 and a surface Sentinel-2 L2A classes as water, token `emem:fact:defi.zb565.yEvA.xAqe:efns6omcdys2yzgpo26rm6fftpsxbsap4vd74v4fhu3xbkvpc72q`. The pass of 10 June 2026 at the same address reads MNDWI -0.31 and bare soil: two memories, one place. Paste a token at [emem.dev/verify](https://emem.dev/verify) and the check runs in your browser.
 
 The same model holds two kinds of memory. **Earth memory** is addressed by place, band and time. **Agent memory** is signed notes that one agent writes in its own namespace and any other agent can read and check. [How emem works](https://emem.dev/how-it-works) walks one request end to end.
 
@@ -64,11 +64,11 @@ The same for one point on a reservoir shore, from the Sentinel-2 pass of 22 Octo
 
 ```bash
 curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
-  -d '{"lat":31.43288,"lng":76.46947,"bands":["indices.mndwi"],"tslot":20748}' \
+  -d '{"lat":31.43235,"lng":76.46995,"bands":["indices.mndwi"],"tslot":20748}' \
   | jq '.facts[0] | {value, observed_at, scene: .derivation.args[2], surface: .surface_class.label, token: .memory_token}'
 ```
 
-That reads scene `S2A_MSIL2A_20261022T053241_R105_T43RFQ` and a surface of open water. Ask for `"tslot":20614`, the pass of 10 June, and the same address reads bare ground: the reservoir was low.
+That reads scene `S2A_MSIL2A_20261022T053241_R105_T43RFQ`, an MNDWI of 0.72 and a surface of water. Ask for `"tslot":20614`, the pass of 10 June, and the same address reads -0.31 and bare soil: the reservoir was low.
 
 ## What it remembers
 
@@ -254,12 +254,12 @@ Issues and pull requests welcome: [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.
 
 ## Content address
 
-Every section above this one is a unit of one signed tree: `emem:tree:gxk3b4vucffuy6l6o25l74uyny`, root `56hhtewsmahxud5u5lvqvulk3iz3tf3rj575kfepsy4diqtjmnyq`, published under the key `k572x7go`. A single section is `emem:tree:gxk3b4vucffuy6l6o25l74uyny#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
+Every section above this one is a unit of one signed tree: `emem:tree:eguhv7fkyqcdvsjxppv6ymshde`, root `epzm7bvzlrywlrw6orj4yf4tboyubgjbjmrriemzuuwb3e6udzka`, published under the key `k572x7go`. A single section is `emem:tree:eguhv7fkyqcdvsjxppv6ymshde#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
 
 ```bash
-curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/2026-11-25-sizes.md" > index.md
-curl -s "https://emem.dev/v1/tree/gxk3b4vucffuy6l6o25l74uyny?row=3" > row.json
+curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/2026-11-25-hero-point.md" > index.md
+curl -s "https://emem.dev/v1/tree/eguhv7fkyqcdvsjxppv6ymshde?row=3" > row.json
 python3 tools/verifiers/emem-tokenise-files/tree_proof.py check row.json index.md README.md
 ```
 
-`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/2026-11-25-sizes.md`](https://emem.dev/memories/by_attester/k572x7go/readme/2026-11-25-sizes.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
+`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/2026-11-25-hero-point.md`](https://emem.dev/memories/by_attester/k572x7go/readme/2026-11-25-hero-point.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
