@@ -19,8 +19,10 @@ signed answer in three calls:
    hunter sweep over a region, or a point answer. A corpus audit redirects
    to the coverage endpoints and has no receipt. The hunter sweep and the point answer carry a signed
    receipt. Ask answers a point question with the current value, or with
-   a reading of the date the question names; when it holds no reading of
-   that date it says `cannot_tell` rather than answer from another date.
+   a reading of the date the question names ("14 December 2022", or a
+   relative time such as "last month", read as dates in UTC); when it
+   holds no reading of that date it says `cannot_tell` rather than answer
+   from another date.
    `direct_answer` carries the verdict, the band and the limits, and
    `context.context_id` continues the thread. Send a change question ("how
    has X changed") to `emem_intent` with `did_change`, or to `emem_diff`.

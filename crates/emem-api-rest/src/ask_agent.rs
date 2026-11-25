@@ -43,7 +43,12 @@ impl TimePrecision {
 /// The time a question is about, when it names one. `end_unix` is exclusive.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct AskedTime {
+    /// The words of the question that named the time.
     pub(crate) phrase: String,
+    /// How the answer names the window. The phrase itself for a date
+    /// ("14 December 2022"); for a relative phrase, the dates it was read as
+    /// with the words beside them ("October 2026 (last month)").
+    pub(crate) label: String,
     pub(crate) start_unix: i64,
     pub(crate) end_unix: i64,
     pub(crate) precision: TimePrecision,
@@ -65,6 +70,7 @@ impl AskedTime {
     pub(crate) fn to_json(&self) -> JsonValue {
         json!({
             "phrase": self.phrase,
+            "label": self.label,
             "from": crate::iso8601_utc(self.start_unix.max(0) as u64),
             "until": crate::iso8601_utc(self.end_unix.max(0) as u64),
             "precision": self.precision.as_str(),
@@ -216,8 +222,11 @@ fn tokens(q: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-/// One date phrase starting at token `i`: (window, precision, tokens used).
-fn date_at(t: &[(String, String)], i: usize) -> Option<((i64, i64), TimePrecision, usize)> {
+/// A time phrase found at a token: (window, precision, tokens used).
+type TimeHit = ((i64, i64), TimePrecision, usize);
+
+/// One date phrase starting at token `i`.
+fn date_at(t: &[(String, String)], i: usize) -> Option<TimeHit> {
     let w = |k: usize| t.get(k).map(|(_, l)| l.as_str());
     let cur = w(i)?;
     // 2022-12-14, 2022/12/14
@@ -267,33 +276,231 @@ fn date_at(t: &[(String, String)], i: usize) -> Option<((i64, i64), TimePrecisio
     None
 }
 
-/// The time a question names, if it names one. "yesterday" is the only
-/// relative form read; "last year" and "recently" are left to the caller,
-/// because their window is a judgement this function should not make.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Unit {
+    Day,
+    Week,
+    Month,
+    Year,
+}
+
+impl Unit {
+    /// A window counted in weeks has day edges; there is no week precision.
+    fn precision(self) -> TimePrecision {
+        match self {
+            Unit::Day | Unit::Week => TimePrecision::Day,
+            Unit::Month => TimePrecision::Month,
+            Unit::Year => TimePrecision::Year,
+        }
+    }
+
+    /// The day `n` of these units before `day`, on the calendar: a month back
+    /// from 31 March is 28 or 29 February, not 3 March.
+    fn back(self, day: i64, n: i64) -> i64 {
+        match self {
+            Unit::Day => day - n,
+            Unit::Week => day - 7 * n,
+            Unit::Month => months_back(day, n),
+            Unit::Year => months_back(day, 12 * n),
+        }
+    }
+}
+
+/// The unit a word names, and whether it is plural. "year's" is the year.
+fn unit_of(t: &str) -> Option<(Unit, bool)> {
+    let t = t
+        .strip_suffix("'s")
+        .or_else(|| t.strip_suffix("\u{2019}s"))
+        .unwrap_or(t);
+    Some(match t {
+        "day" => (Unit::Day, false),
+        "days" => (Unit::Day, true),
+        "week" => (Unit::Week, false),
+        "weeks" => (Unit::Week, true),
+        "month" => (Unit::Month, false),
+        "months" => (Unit::Month, true),
+        "year" => (Unit::Year, false),
+        "years" => (Unit::Year, true),
+        _ => return None,
+    })
+}
+
+/// A count of units: digits, or a number word up to twelve.
+fn count_of(t: &str) -> Option<i64> {
+    const WORDS: &[&str] = &[
+        "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
+        "twelve",
+    ];
+    if t == "a" || t == "an" {
+        return Some(1);
+    }
+    if let Some(k) = WORDS.iter().position(|w| *w == t) {
+        return Some(k as i64 + 1);
+    }
+    if t.is_empty() || t.len() > 3 || !t.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    t.parse().ok().filter(|n| *n >= 1)
+}
+
+fn months_back(day: i64, n: i64) -> i64 {
+    let (y, m, d) = crate::civil_from_days(day);
+    let k = i64::from(y) * 12 + i64::from(m) - 1 - n;
+    let (ny, nm) = (k.div_euclid(12) as i32, k.rem_euclid(12) as u32 + 1);
+    crate::days_from_civil(ny, nm, d.min(days_in_month(ny, nm)))
+}
+
+/// The Monday on or before `day`. Day 0 of the Unix epoch was a Thursday.
+fn week_start(day: i64) -> i64 {
+    day - (day + 3).rem_euclid(7)
+}
+
+/// One relative time phrase starting at token `i`, read against `now_unix`
+/// in UTC: (window, precision, tokens used).
+///
+/// - A closed period: "last month" and "previous month" are the calendar
+///   month before this one, "last year" the calendar year before this one,
+///   and "last week" the 7 days before today.
+/// - A period still open: "this week" (from Monday), "this month" and "this
+///   year" run from the start of the period to now.
+/// - One day: "yesterday", "the day before yesterday", "3 days ago", "a week
+///   ago", "2 months ago".
+/// - A rolling window that ends now: "the past 7 days", "the last 3 weeks",
+///   "over the past month", "the past year". It starts at midnight UTC the
+///   given number of days, weeks or calendar months before today. Its
+///   precision is the unit it counts in (days and weeks give day, months give
+///   month), so the allowance for a reading just outside the window is the
+///   one a date of that unit gets.
+///
+/// "recently" and "lately" name no window, and nothing here reads them. A
+/// period that is part of something else ("the last week of March 2021") is
+/// not read either: the date after "of" is the time asked.
+fn relative_at(t: &[(String, String)], i: usize, now_unix: i64) -> Option<TimeHit> {
+    let w = |k: usize| t.get(k).map(|(_, l)| l.as_str());
+    let today = now_unix.div_euclid(DAY);
+    let one_day = |d: i64| (d * DAY, (d + 1) * DAY);
+    let cur = w(i)?;
+    let the = usize::from(cur == "the");
+    if w(i + the) == Some("day")
+        && w(i + the + 1) == Some("before")
+        && w(i + the + 2) == Some("yesterday")
+    {
+        return Some((one_day(today - 2), TimePrecision::Day, the + 3));
+    }
+    if cur == "yesterday" {
+        return Some((one_day(today - 1), TimePrecision::Day, 1));
+    }
+    if let (Some(n), Some((u, _)), Some("ago")) =
+        (count_of(cur), w(i + 1).and_then(unit_of), w(i + 2))
+    {
+        return Some((one_day(u.back(today, n)), TimePrecision::Day, 3));
+    }
+    let part_of = |k: usize| w(k) == Some("of");
+    if cur == "this" {
+        if let Some((u, false)) = w(i + 1).and_then(unit_of) {
+            if part_of(i + 2) {
+                return None;
+            }
+            let (y, m, _) = crate::civil_from_days(today);
+            let start = match u {
+                Unit::Day => return None,
+                Unit::Week => week_start(today),
+                Unit::Month => crate::days_from_civil(y, m, 1),
+                Unit::Year => crate::days_from_civil(y, 1, 1),
+            };
+            return Some(((start * DAY, now_unix), u.precision(), 2));
+        }
+    }
+    // "the last month" ends now; "last month" is the calendar month before.
+    let prefixed = cur == "the" || (cur == "this" && w(i + 1) == Some("past"));
+    let at = i + usize::from(prefixed);
+    let which = w(at)?;
+    if !matches!(which, "last" | "past" | "previous") {
+        return None;
+    }
+    let counted = w(at + 1).and_then(count_of);
+    let unit_at = at + 1 + usize::from(counted.is_some());
+    let (u, plural) = w(unit_at).and_then(unit_of)?;
+    if part_of(unit_at + 1) || (counted.is_none() && (plural || u == Unit::Day)) {
+        return None;
+    }
+    let used = unit_at + 1 - i;
+    if counted.is_some() || which == "past" || (prefixed && which == "last") {
+        let start = u.back(today, counted.unwrap_or(1));
+        return Some(((start * DAY, now_unix), u.precision(), used));
+    }
+    let (y, m, _) = crate::civil_from_days(today);
+    let win = match u {
+        Unit::Day => return None,
+        Unit::Week => ((today - 7) * DAY, today * DAY),
+        Unit::Month if m == 1 => month_window(y - 1, 12)?,
+        Unit::Month => month_window(y, m - 1)?,
+        Unit::Year => year_window(y - 1),
+    };
+    Some((win, u.precision(), used))
+}
+
+const MONTH_NAMES: [&str; 12] = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+];
+
+/// A window in dates: "October 2026", "2025", "2026-11-17", or
+/// "2026-11-13 to 2026-11-19". The last day is the one before `end`, which is
+/// exclusive.
+fn window_in_dates(start: i64, end: i64, precision: TimePrecision) -> String {
+    let first = start.div_euclid(DAY);
+    let last = (end - 1).div_euclid(DAY).max(first);
+    let (y, m, d) = crate::civil_from_days(first);
+    match precision {
+        TimePrecision::Month if d == 1 && month_window(y, m) == Some((start, end)) => {
+            format!("{} {y}", MONTH_NAMES[(m - 1) as usize])
+        }
+        TimePrecision::Year if (m, d) == (1, 1) && year_window(y) == (start, end) => {
+            format!("{y}")
+        }
+        _ if first == last => day_of_unix(start),
+        _ => format!("{} to {}", day_of_unix(start), day_of_unix(last * DAY)),
+    }
+}
+
+/// The time a question names, if it names one: a date ("14 December 2022",
+/// "March 2021", "in 2019") or a relative phrase ("last month", "3 days ago",
+/// "the past 7 days"; see [`relative_at`]), each with the window it implies.
+/// A relative phrase is resolved against `now_unix` and then takes the same
+/// path as the date it stands for. A span word before it ("since last
+/// month"), or a second date, makes it a change window.
 pub(crate) fn asked_time(q: &str, now_unix: i64) -> Option<AskedTime> {
     let t = tokens(q);
-    let mut found: Option<(usize, (i64, i64), TimePrecision, usize)> = None;
+    let mut found: Option<(usize, TimeHit, bool)> = None;
     let mut second_date = false;
     let mut i = 0;
     while i < t.len() {
-        if t[i].1 == "yesterday" && found.is_none() {
-            let s = (now_unix.div_euclid(DAY) - 1) * DAY;
-            found = Some((i, (s, s + DAY), TimePrecision::Day, 1));
-            i += 1;
-            continue;
-        }
-        if let Some((win, prec, used)) = date_at(&t, i) {
+        let hit = relative_at(&t, i, now_unix)
+            .map(|h| (h, true))
+            .or_else(|| date_at(&t, i).map(|h| (h, false)));
+        if let Some((h, relative)) = hit {
             if found.is_none() {
-                found = Some((i, win, prec, used));
+                found = Some((i, h, relative));
             } else {
                 second_date = true;
             }
-            i += used;
+            i += h.2;
             continue;
         }
         i += 1;
     }
-    let (at, (start, end), precision, used) = found?;
+    let (at, ((start, end), precision, used), relative) = found?;
     let lead = (1..=2)
         .filter_map(|back| at.checked_sub(back))
         .map(|k| t[k].1.as_str())
@@ -304,13 +511,30 @@ pub(crate) fn asked_time(q: &str, now_unix: i64) -> Option<AskedTime> {
         .map(|(c, _)| c.as_str())
         .collect::<Vec<_>>()
         .join(" ");
+    let label = if relative {
+        format!(
+            "{} ({})",
+            window_in_dates(start, end, precision),
+            phrase.to_lowercase()
+        )
+    } else {
+        phrase.clone()
+    };
     Some(AskedTime {
         phrase,
+        label,
         start_unix: start,
         end_unix: end,
         precision,
         change_window,
     })
+}
+
+/// A word in the question that speaks of time but names no window, so the
+/// question is read as one about the present.
+pub(crate) fn unread_time_word(q: &str) -> Option<&'static str> {
+    let l = q.to_lowercase();
+    ["recently", "lately"].into_iter().find(|w| has_term(&l, w))
 }
 
 /// An explicit `date` field: `YYYY-MM-DD`, `YYYY-MM` or `YYYY`.
@@ -332,6 +556,7 @@ pub(crate) fn asked_time_field(s: &str) -> Option<AskedTime> {
     };
     Some(AskedTime {
         phrase: s.to_string(),
+        label: s.to_string(),
         start_unix: win.0,
         end_unix: win.1,
         precision,
@@ -895,6 +1120,59 @@ pub(crate) struct AnswerInputs<'a> {
     /// for an area name, one cell of a larger place).
     pub(crate) place_notes: &'a [String],
     pub(crate) now_unix: i64,
+    /// The cell the readings are from, for a next step that reads it again.
+    pub(crate) cell: &'a str,
+    /// A time word the question used that names no window ("recently").
+    pub(crate) unread_time: Option<&'a str>,
+}
+
+/// `/v1/rain_series` signs daily rain for at most this many days back.
+const RAIN_SERIES_MAX_PAST_DAYS: i64 = crate::rain_series::MAX_PAST_DAYS as i64;
+
+/// The call that reads daily rain over a past window, for a rain question
+/// that ask cannot answer as a total: `POST /v1/rain_series`, with enough
+/// days back to reach the window's first day. None when the window starts
+/// further back than that route reaches, or does not end before today.
+pub(crate) fn rain_series_step(t: &AskedTime, now_unix: i64, cell: &str) -> Option<JsonValue> {
+    let today = now_unix.div_euclid(DAY);
+    let first = t.start_unix.div_euclid(DAY);
+    let last = ((t.end_unix - 1).div_euclid(DAY)).min(today - 1);
+    let past_days = today - first;
+    if t.change_window || cell.is_empty() || last < first {
+        return None;
+    }
+    if !(1..=RAIN_SERIES_MAX_PAST_DAYS).contains(&past_days) {
+        return None;
+    }
+    let body = json!({ "cell": cell, "past_days": past_days, "forecast_days": 1 });
+    let mut s = crate::next_step::step("POST /v1/rain_series", "past_days", body.clone());
+    if let Some(m) = s.as_object_mut() {
+        m.insert("method".into(), json!("POST"));
+        m.insert("path".into(), json!("/v1/rain_series"));
+        m.insert("body".into(), body);
+        m.insert(
+            "why".into(),
+            json!(format!(
+                "ask holds no rain total for {}. This call signs the daily rain at this place for \
+                 the last {past_days} days (ERA5, and the forecast model's analysis for the newest \
+                 days). Add its `days` from {} to {} to get the total.",
+                t.label,
+                day_of_unix(first * DAY),
+                day_of_unix(last * DAY)
+            )),
+        );
+    }
+    Some(s)
+}
+
+/// "hour", "day", "8 days": one cadence of a band, for prose.
+fn cadence_words(slot_s: i64) -> String {
+    match slot_s {
+        3600 => "hour".into(),
+        DAY => "day".into(),
+        s if s < DAY => format!("{} hours", (s + 1800) / 3600),
+        s => format!("{} days", (s + DAY / 2) / DAY),
+    }
 }
 
 fn verdict_word(j: Judgement) -> &'static str {
@@ -920,6 +1198,20 @@ fn capitalise(s: &str) -> String {
 pub(crate) fn direct_answer(inp: &AnswerInputs) -> Option<JsonValue> {
     let now = inp.now_unix;
     let mut limits: Vec<String> = inp.place_notes.to_vec();
+    if let (None, Some(w)) = (inp.time, inp.unread_time) {
+        limits.push(format!(
+            "\"{w}\" names no window of time, so ask read this question as one about the \
+             present."
+        ));
+    }
+    if let Some(t) = inp.time.filter(|t| t.change_window) {
+        limits.push(format!(
+            "This question asks about a change from {}. Ask answers one point in time, so this \
+             is one reading and not a change. POST /v1/intent with intent did_change (MCP \
+             emem_intent) compares two dates.",
+            t.label
+        ));
+    }
     let time_json = inp.time.map(AskedTime::to_json);
     let base = |verdict: Option<&str>, sentence: String, limits: Vec<String>| {
         json!({
@@ -947,7 +1239,7 @@ pub(crate) fn direct_answer(inp: &AnswerInputs) -> Option<JsonValue> {
     if let Some(t) = inp.time.filter(|t| t.is_future(now)) {
         let s = format!(
             "Cannot tell: {} is in the future, and emem holds observations, not forecasts.",
-            t.phrase
+            t.label
         );
         return Some(base(Some("cannot_tell"), s, limits));
     }
@@ -955,6 +1247,16 @@ pub(crate) fn direct_answer(inp: &AnswerInputs) -> Option<JsonValue> {
     // The lead reading: the first lead band with a value, preferring one that
     // was observed inside the asked window.
     let dated = inp.time.filter(|t| !t.change_window && t.is_past(now));
+    // A rain question about a window ask holds no total for gets the call that
+    // signs the daily rain over it.
+    let rain_step = |out: &mut JsonValue| {
+        let step = dated
+            .filter(|_| qty.key == "precipitation")
+            .and_then(|t| rain_series_step(t, now, inp.cell));
+        if let (Some(m), Some(step)) = (out.as_object_mut(), step) {
+            m.insert("next_steps".into(), json!([step]));
+        }
+    };
     let candidates: Vec<&Reading> = qty
         .lead_bands
         .iter()
@@ -999,13 +1301,13 @@ pub(crate) fn direct_answer(inp: &AnswerInputs) -> Option<JsonValue> {
                 format!(
                     "Cannot tell for {}: emem holds no reading of {} at {place} from that date. \
                      The nearest it holds is from {when}{gap}, so it does not describe {}.",
-                    t.phrase, qty.noun, t.phrase
+                    t.label, qty.noun, t.label
                 )
             }
             (Some(t), None) => format!(
                 "Cannot tell for {}: emem holds no reading of {} ({bands}) at {place} from that \
                  date, and could not fetch one for it.",
-                t.phrase, qty.noun
+                t.label, qty.noun
             ),
             (None, _) => format!(
                 "Cannot tell: emem holds no reading of {} ({bands}) at {place}.",
@@ -1022,6 +1324,7 @@ pub(crate) fn direct_answer(inp: &AnswerInputs) -> Option<JsonValue> {
                 }),
             );
         }
+        rain_step(&mut out);
         return Some(out);
     };
 
@@ -1032,12 +1335,18 @@ pub(crate) fn direct_answer(inp: &AnswerInputs) -> Option<JsonValue> {
         // Victoria Park on 14 December 2022 the nearest clear pass at or
         // before the date was the 9th, and snow fell on London between the
         // two. The reading is stated; the verdict is not drawn from it.
+        let one_day = t.end_unix - t.start_unix <= DAY;
         if *inp.form != AnswerForm::Value {
             let reading = reading_phrase(lead);
+            let none_inside = if one_day {
+                "no pass fell on that day"
+            } else {
+                "no reading falls inside that window"
+            };
             let s = format!(
-                "Cannot tell for {}: no pass fell on that day. The nearest, {d} day(s) away, \
+                "Cannot tell for {}: {none_inside}. The nearest, {d} day(s) away, \
                  is not evidence for it: at {place}, {reading} {when}.",
-                t.phrase
+                t.label
             );
             let mut out = base(Some("cannot_tell"), s, limits);
             if let Some(m) = out.as_object_mut() {
@@ -1051,11 +1360,33 @@ pub(crate) fn direct_answer(inp: &AnswerInputs) -> Option<JsonValue> {
                     }),
                 );
             }
+            rain_step(&mut out);
             return Some(out);
         }
+        limits.push(if one_day {
+            format!(
+                "No pass fell on {} itself; this is the nearest, {d} day(s) away.",
+                t.label
+            )
+        } else {
+            format!(
+                "No reading falls inside {}; this is the nearest, {d} day(s) outside it.",
+                t.label
+            )
+        });
+    }
+    // One reading of a band read every hour is not the rain over a month.
+    let part_of_window = dated.filter(|t| {
+        qty.key == "precipitation"
+            && !lead.is_static()
+            && lead.slot_s > 0
+            && t.end_unix - t.start_unix > lead.slot_s
+    });
+    if let Some(t) = part_of_window {
         limits.push(format!(
-            "No pass fell on {} itself; this is the nearest, {d} day(s) away.",
-            t.phrase
+            "This is one reading of a band read once per {}, not a total over {}.",
+            cadence_words(lead.slot_s),
+            t.label
         ));
     }
     if lead.is_static() && inp.time.is_some() {
@@ -1115,7 +1446,7 @@ pub(crate) fn direct_answer(inp: &AnswerInputs) -> Option<JsonValue> {
                 Judgement::Between => "Cannot tell",
             };
             let time_clause = dated
-                .map(|t| format!(" for {}", t.phrase))
+                .map(|t| format!(" for {}", t.label))
                 .unwrap_or_default();
             (
                 Some(verdict_word(j).to_string()),
@@ -1135,7 +1466,7 @@ pub(crate) fn direct_answer(inp: &AnswerInputs) -> Option<JsonValue> {
         ),
         (AnswerForm::Value, _) => {
             let time_clause = dated
-                .map(|t| format!(" for {}", t.phrase))
+                .map(|t| format!(" for {}", t.label))
                 .unwrap_or_default();
             (
                 None,
@@ -1181,6 +1512,9 @@ pub(crate) fn direct_answer(inp: &AnswerInputs) -> Option<JsonValue> {
                 ),
             }),
         );
+    }
+    if part_of_window.is_some() || verdict.as_deref() == Some("cannot_tell") {
+        rain_step(&mut out);
     }
     Some(out)
 }
@@ -1423,6 +1757,476 @@ mod tests {
         assert!(f.is_future(NOW));
     }
 
+    fn at(y: i32, m: u32, d: u32, h: i64, min: i64) -> i64 {
+        day(y, m, d) + h * 3600 + min * 60
+    }
+
+    fn window(q: &str, now: i64) -> (i64, i64, TimePrecision, bool) {
+        let t = asked_time(q, now).unwrap_or_else(|| panic!("no time read in {q:?}"));
+        (t.start_unix, t.end_unix, t.precision, t.change_window)
+    }
+
+    /// The defect this reader exists for: on emem.dev on 2026-11-20 "last
+    /// month" was answered with the reading of that day, while "October 2026"
+    /// was answered honestly. The two must be one window.
+    #[test]
+    fn last_month_is_the_window_the_month_by_name_gives() {
+        let now = at(2026, 11, 20, 11, 23);
+        let rel = asked_time("How much rain fell in Pune last month?", now).unwrap();
+        let abs = asked_time("How much rain fell in Pune in October 2026?", now).unwrap();
+        assert_eq!(
+            (
+                rel.start_unix,
+                rel.end_unix,
+                rel.precision,
+                rel.change_window
+            ),
+            (
+                abs.start_unix,
+                abs.end_unix,
+                abs.precision,
+                abs.change_window
+            )
+        );
+        assert_eq!(
+            (rel.start_unix, rel.end_unix),
+            (day(2026, 10, 1), day(2026, 11, 1))
+        );
+        assert!(rel.is_past(now));
+        assert_eq!(rel.phrase, "last month");
+        assert_eq!(rel.label, "October 2026 (last month)");
+        assert_eq!(abs.label, "October 2026");
+        assert_eq!(
+            window("rain in the previous month", now),
+            window("rain in October 2026", now)
+        );
+        assert_eq!(window("NDVI last year", now), window("NDVI in 2025", now));
+        assert_eq!(
+            asked_time("NDVI last year", now).unwrap().label,
+            "2025 (last year)"
+        );
+    }
+
+    #[test]
+    fn closed_periods_on_the_first_of_january() {
+        let now = at(2027, 1, 1, 0, 30);
+        let dec = (
+            day(2026, 12, 1),
+            day(2027, 1, 1),
+            TimePrecision::Month,
+            false,
+        );
+        assert_eq!(window("rain last month", now), dec);
+        assert_eq!(
+            window("rain last year", now),
+            (day(2026, 1, 1), day(2027, 1, 1), TimePrecision::Year, false)
+        );
+        assert_eq!(
+            window("rain last week", now),
+            (
+                day(2026, 12, 25),
+                day(2027, 1, 1),
+                TimePrecision::Day,
+                false
+            )
+        );
+        assert_eq!(
+            window("rain yesterday", now),
+            (
+                day(2026, 12, 31),
+                day(2027, 1, 1),
+                TimePrecision::Day,
+                false
+            )
+        );
+        assert_eq!(
+            window("rain this year", now),
+            (day(2027, 1, 1), now, TimePrecision::Year, false)
+        );
+        assert_eq!(
+            window("rain this month", now),
+            (day(2027, 1, 1), now, TimePrecision::Month, false)
+        );
+        assert_eq!(
+            window("rain over the past month", now),
+            (day(2026, 12, 1), now, TimePrecision::Month, false)
+        );
+        assert_eq!(window("NDVI a month ago", now).0, day(2026, 12, 1));
+        assert_eq!(
+            asked_time("rain last week", now).unwrap().label,
+            "2026-12-25 to 2026-12-31 (last week)"
+        );
+    }
+
+    #[test]
+    fn closed_periods_on_the_first_of_march_in_a_leap_year() {
+        let now = at(2028, 3, 1, 9, 0);
+        assert_eq!(
+            window("NDVI last month", now),
+            (
+                day(2028, 2, 1),
+                day(2028, 3, 1),
+                TimePrecision::Month,
+                false
+            )
+        );
+        assert_eq!(
+            asked_time("NDVI last month", now).unwrap().label,
+            "February 2028 (last month)"
+        );
+        assert_eq!(window("NDVI yesterday", now).0, day(2028, 2, 29));
+        assert_eq!(window("NDVI 3 days ago", now).0, day(2028, 2, 27));
+        assert_eq!(window("NDVI a year ago", now).0, day(2027, 3, 1));
+        assert_eq!(window("NDVI the past month", now).0, day(2028, 2, 1));
+        // A month back from the 31st, and a year back from 29 February, land
+        // on the last day of the shorter month.
+        assert_eq!(
+            window("NDVI a month ago", at(2028, 3, 31, 9, 0)).0,
+            day(2028, 2, 29)
+        );
+        assert_eq!(
+            window("NDVI a year ago", at(2028, 2, 29, 9, 0)).0,
+            day(2027, 2, 28)
+        );
+    }
+
+    #[test]
+    fn days_and_weeks_ago_name_one_day() {
+        for (q, want) in [
+            (
+                "What was the temperature in Delhi 3 days ago?",
+                day(2026, 11, 9),
+            ),
+            ("temperature three days ago", day(2026, 11, 9)),
+            ("NDVI a week ago", day(2026, 11, 5)),
+            ("NDVI 2 weeks ago", day(2026, 10, 29)),
+            ("NDVI 2 months ago", day(2026, 9, 12)),
+            ("snow the day before yesterday", day(2026, 11, 10)),
+        ] {
+            assert_eq!(
+                window(q, NOW),
+                (want, want + DAY, TimePrecision::Day, false),
+                "{q}"
+            );
+        }
+        assert_eq!(
+            asked_time("temperature in Delhi 3 days ago", NOW)
+                .unwrap()
+                .label,
+            "2026-11-09 (3 days ago)"
+        );
+        assert_eq!(
+            asked_time("did it rain yesterday", NOW).unwrap().label,
+            "2026-11-11 (yesterday)"
+        );
+    }
+
+    #[test]
+    fn open_periods_run_to_now() {
+        // NOW is a Thursday; the week starts on the Monday.
+        assert_eq!(
+            window("rain this week", NOW),
+            (day(2026, 11, 9), NOW, TimePrecision::Day, false)
+        );
+        assert_eq!(
+            window("rain this month", NOW),
+            (day(2026, 11, 1), NOW, TimePrecision::Month, false)
+        );
+        assert_eq!(
+            window("rain so far this year", NOW),
+            (day(2026, 1, 1), NOW, TimePrecision::Year, false)
+        );
+        let t = asked_time("rain this month", NOW).unwrap();
+        assert!(t.is_past(NOW) && !t.is_future(NOW));
+        assert_eq!(t.label, "2026-11-01 to 2026-11-12 (this month)");
+    }
+
+    #[test]
+    fn rolling_windows_end_now_and_count_in_their_unit() {
+        for (q, start, p) in [
+            (
+                "rain in the past 7 days",
+                day(2026, 11, 5),
+                TimePrecision::Day,
+            ),
+            (
+                "rain over the last 10 days",
+                day(2026, 11, 2),
+                TimePrecision::Day,
+            ),
+            ("rain last 3 days", day(2026, 11, 9), TimePrecision::Day),
+            (
+                "rain in the last 3 weeks",
+                day(2026, 10, 22),
+                TimePrecision::Day,
+            ),
+            (
+                "rain over the past week",
+                day(2026, 11, 5),
+                TimePrecision::Day,
+            ),
+            ("rain this past week", day(2026, 11, 5), TimePrecision::Day),
+            (
+                "rain over the past month",
+                day(2026, 10, 12),
+                TimePrecision::Month,
+            ),
+            (
+                "rain in the last month",
+                day(2026, 10, 12),
+                TimePrecision::Month,
+            ),
+            (
+                "rain over the past two months",
+                day(2026, 9, 12),
+                TimePrecision::Month,
+            ),
+            (
+                "NDVI over the past year",
+                day(2025, 11, 12),
+                TimePrecision::Year,
+            ),
+        ] {
+            assert_eq!(window(q, NOW), (start, NOW, p, false), "{q}");
+        }
+        assert_eq!(
+            asked_time("rain in the past 7 days", NOW).unwrap().label,
+            "2026-11-05 to 2026-11-12 (the past 7 days)"
+        );
+    }
+
+    #[test]
+    fn a_span_word_makes_a_relative_phrase_a_change_window() {
+        let t = asked_time("How has the NDVI in Ludhiana changed since last year?", NOW).unwrap();
+        assert!(t.change_window);
+        assert_eq!(t.start_unix, day(2025, 1, 1));
+        assert!(window("has the lake shrunk since last month", NOW).3);
+        assert!(window("NDVI between last month and this month", NOW).3);
+        assert!(window("NDVI in March 2021 and last year", NOW).3);
+        assert!(!window("NDVI over the past month", NOW).3);
+    }
+
+    #[test]
+    fn words_that_name_no_window_are_not_read() {
+        for q in [
+            "Has it rained in Pune recently?",
+            "is the lake lower lately",
+            "rain in the last few days",
+            "what was the last reading",
+            "how was the land used in the past",
+            "the past is another country",
+            "is it the last day",
+            "were there floods in past years",
+        ] {
+            assert!(asked_time(q, NOW).is_none(), "{q}");
+        }
+        assert_eq!(
+            unread_time_word("Has it rained in Pune recently?"),
+            Some("recently")
+        );
+        assert_eq!(unread_time_word("is the lake lower lately"), Some("lately"));
+        assert_eq!(unread_time_word("rain last month"), None);
+        // The date after "of" is the time asked, not the week before it.
+        let t = asked_time("NDVI in the last week of March 2021", NOW).unwrap();
+        assert_eq!(
+            (t.start_unix, t.precision, t.change_window),
+            (day(2021, 3, 1), TimePrecision::Month, false)
+        );
+        assert_eq!(
+            window("snow on the last day of February 2024", NOW).2,
+            TimePrecision::Month
+        );
+    }
+
+    /// A relative phrase leaves the place behind when it is taken out, as a
+    /// date does.
+    #[test]
+    fn the_relative_phrase_is_taken_out_before_the_place_is_looked_for() {
+        let now = at(2026, 11, 20, 11, 23);
+        for (q, place) in [
+            ("How much rain fell in Pune last month?", "Pune"),
+            ("What was the NDVI in Ludhiana last month?", "Ludhiana"),
+            ("What was the temperature in Delhi 3 days ago?", "Delhi"),
+            (
+                "How has the NDVI in Ludhiana changed since last year?",
+                "Ludhiana",
+            ),
+            ("Did it rain in Pune over the past 7 days?", "Pune"),
+            ("How hot was Delhi this week?", "Delhi"),
+        ] {
+            let t = asked_time(q, now).unwrap_or_else(|| panic!("no time in {q:?}"));
+            let rest = without_time_phrase(q, &t);
+            let (cands, _) = crate::question_place_candidates(&rest);
+            assert_eq!(
+                cands.first().map(String::as_str),
+                Some(place),
+                "{q}: {rest:?} {cands:?}"
+            );
+        }
+    }
+
+    fn rain_reading(at_unix: i64) -> Reading {
+        let mut r = reading(
+            "weather.precipitation_mm",
+            0.0,
+            Some("mm"),
+            Some(at_unix),
+            "source_capture_time",
+        );
+        r.slot_s = 3600;
+        r
+    }
+
+    fn rain_answer(q: &str, now: i64, readings: &[Reading]) -> JsonValue {
+        let t = asked_time(q, now);
+        direct_answer(&AnswerInputs {
+            form: &answer_form(q),
+            quantity: asked_quantity(q),
+            time: t.as_ref(),
+            readings,
+            place: "Pune",
+            place_notes: &[],
+            now_unix: now,
+            cell: "defi.zb572.xoso.zb1ec",
+            unread_time: unread_time_word(q),
+        })
+        .unwrap()
+    }
+
+    /// "last month" takes the path "October 2026" takes: today's reading does
+    /// not answer it, and the answer says which dates it read the words as.
+    #[test]
+    fn a_relative_rain_window_is_refused_as_its_month_is_and_points_to_rain_series() {
+        let now = at(2026, 11, 20, 11, 23);
+        let today = [rain_reading(at(2026, 11, 20, 11, 0))];
+        let rel = rain_answer("How much rain fell in Pune last month?", now, &today);
+        let abs = rain_answer("How much rain fell in Pune in October 2026?", now, &today);
+        for out in [&rel, &abs] {
+            assert_eq!(out["verdict"], "cannot_tell", "{out}");
+            assert!(out.get("value").is_none(), "{out}");
+            let step = &out["next_steps"][0];
+            assert_eq!(step["verb"], "POST /v1/rain_series", "{out}");
+            // 1 October is 50 days before 20 November.
+            assert_eq!(step["body"]["past_days"], 50);
+            assert_eq!(step["args"], step["body"]);
+            let why = step["why"].as_str().unwrap();
+            assert!(why.contains("2026-10-01 to 2026-10-31"), "{why}");
+            let routes = crate::next_step::routed();
+            let api = crate::openapi_spec();
+            assert_eq!(crate::next_step::check_step(step, &routes, &api), Ok(()));
+        }
+        let s = rel["sentence"].as_str().unwrap();
+        assert!(
+            s.starts_with("Cannot tell for October 2026 (last month):"),
+            "{s}"
+        );
+        assert_eq!(rel["asked_time"]["label"], "October 2026 (last month)");
+        assert_eq!(rel["asked_time"]["from"], abs["asked_time"]["from"]);
+        assert_eq!(rel["asked_time"]["until"], abs["asked_time"]["until"]);
+
+        // A window rain_series cannot reach gets no pointer to it.
+        let old = rain_answer("How much rain fell in Pune last year?", now, &today);
+        assert_eq!(old["verdict"], "cannot_tell");
+        assert!(old.get("next_steps").is_none(), "{old}");
+    }
+
+    #[test]
+    fn one_hourly_rain_reading_is_not_a_total_over_a_week() {
+        let r = [rain_reading(NOW - 1800)];
+        let out = rain_answer("How much rain fell in Pune this week?", NOW, &r);
+        assert_eq!(out["band"], "weather.precipitation_mm", "{out}");
+        let s = out["sentence"].as_str().unwrap();
+        assert!(
+            s.contains("for 2026-11-09 to 2026-11-12 (this week)"),
+            "{s}"
+        );
+        let limits = out["limits"].to_string();
+        assert!(
+            limits.contains("read once per hour, not a total over"),
+            "{limits}"
+        );
+        assert_eq!(out["next_steps"][0]["body"]["past_days"], 3, "{out}");
+    }
+
+    #[test]
+    fn a_relative_day_takes_the_path_of_its_date() {
+        let r = [reading(
+            "weather.temperature_2m",
+            24.5,
+            Some("°C"),
+            Some(day(2026, 11, 12) + 18 * 3600),
+            "source_capture_time",
+        )];
+        let rel = asked_time("What was the temperature in Delhi 3 days ago?", NOW).unwrap();
+        let abs = asked_time("What was the temperature in Delhi on 9 November 2026?", NOW).unwrap();
+        let answer = |t: &AskedTime| {
+            direct_answer(&AnswerInputs {
+                form: &AnswerForm::Value,
+                quantity: asked_quantity("temperature"),
+                time: Some(t),
+                readings: &r,
+                place: "Delhi",
+                place_notes: &[],
+                now_unix: NOW,
+                cell: "",
+                unread_time: None,
+            })
+            .unwrap()
+        };
+        let (a, b) = (answer(&rel), answer(&abs));
+        assert_eq!(a["verdict"], b["verdict"]);
+        assert_eq!(a.get("band"), b.get("band"));
+        let s = a["sentence"].as_str().unwrap();
+        assert!(s.contains("2026-11-09 (3 days ago)"), "{s}");
+    }
+
+    #[test]
+    fn recently_is_read_as_now_and_the_answer_says_so() {
+        let out = rain_answer(
+            "Has it been raining in Pune recently?",
+            NOW,
+            &[rain_reading(NOW - 600)],
+        );
+        assert_eq!(out["quantity"], "precipitation", "{out}");
+        assert!(out["asked_time"].is_null(), "{out}");
+        let limits = out["limits"].to_string();
+        assert!(
+            limits.contains("\\\"recently\\\" names no window of time"),
+            "{limits}"
+        );
+        assert!(limits.contains("as one about the present"), "{limits}");
+    }
+
+    #[test]
+    fn a_change_window_says_one_reading_is_not_a_change() {
+        let t = asked_time("How has the NDVI in Ludhiana changed since last year?", NOW).unwrap();
+        let r = [reading(
+            "indices.ndvi",
+            0.41,
+            None,
+            Some(day(2026, 11, 7)),
+            "source_capture_time",
+        )];
+        let out = direct_answer(&AnswerInputs {
+            form: &AnswerForm::Value,
+            quantity: asked_quantity("ndvi"),
+            time: Some(&t),
+            readings: &r,
+            place: "Ludhiana",
+            place_notes: &[],
+            now_unix: NOW,
+            cell: "",
+            unread_time: None,
+        })
+        .unwrap();
+        let limits = out["limits"].to_string();
+        assert!(
+            limits.contains("a change from 2025 (last year)"),
+            "{limits}"
+        );
+        assert!(limits.contains("did_change"), "{limits}");
+    }
+
     #[test]
     fn the_date_is_taken_out_before_the_place_is_looked_for() {
         for q in [
@@ -1546,6 +2350,8 @@ mod tests {
             place: "Victoria Park",
             place_notes: &[],
             now_unix: NOW,
+            cell: "",
+            unread_time: None,
         })
         .unwrap();
         assert_eq!(out["verdict"], "cannot_tell");
@@ -1587,6 +2393,8 @@ mod tests {
             place: "Santa Claus Village",
             place_notes: &[],
             now_unix: NOW,
+            cell: "",
+            unread_time: None,
         })
         .unwrap();
         assert_eq!(out["verdict"], "yes", "{out}");
@@ -1632,6 +2440,8 @@ mod tests {
             place: "Everest Base Camp",
             place_notes: &[],
             now_unix: NOW,
+            cell: "",
+            unread_time: None,
         })
         .unwrap();
         assert_eq!(out["verdict"], "cannot_tell", "{out}");
@@ -1658,6 +2468,8 @@ mod tests {
             place: "Victoria Park",
             place_notes: &[],
             now_unix: NOW,
+            cell: "",
+            unread_time: None,
         })
         .unwrap();
         assert_eq!(out["verdict"], "yes");
@@ -1685,6 +2497,8 @@ mod tests {
             place: "Victoria Park",
             place_notes: &[],
             now_unix: NOW,
+            cell: "",
+            unread_time: None,
         })
         .unwrap();
         assert_eq!(out["verdict"], "cannot_tell");
@@ -1698,6 +2512,8 @@ mod tests {
             place: "Victoria Park",
             place_notes: &[],
             now_unix: NOW,
+            cell: "",
+            unread_time: None,
         })
         .unwrap();
         assert_eq!(v["band"], "indices.ndsi");
@@ -1733,6 +2549,8 @@ mod tests {
             place: "Thames Barrier",
             place_notes: &[],
             now_unix: NOW,
+            cell: "",
+            unread_time: None,
         })
         .unwrap();
         assert_eq!(out["verdict"], "cannot_tell");
@@ -1758,6 +2576,8 @@ mod tests {
             place: "Thames Barrier",
             place_notes: &[],
             now_unix: NOW,
+            cell: "",
+            unread_time: None,
         })
         .unwrap();
         assert_eq!(out2["verdict"], "high");
@@ -1781,6 +2601,8 @@ mod tests {
             place: "Waldorf Astoria",
             place_notes: &notes,
             now_unix: NOW,
+            cell: "",
+            unread_time: None,
         })
         .unwrap();
         let s = out["sentence"].as_str().unwrap();

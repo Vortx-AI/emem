@@ -48,7 +48,7 @@ const TRACE_MM: f64 = 1.0;
 /// Above this share of rainless totals a standardized score says little, so no
 /// class is given (Stagge et al. 2015 on zero-inflated SPI).
 const MAX_RAINLESS_SHARE: f64 = 0.5;
-const MAX_PAST_DAYS: u32 = 92;
+pub(crate) const MAX_PAST_DAYS: u32 = 92;
 const MAX_FORECAST_DAYS: u32 = 16;
 const MAX_CLIMATOLOGY_YEARS: u32 = 40;
 const MAX_WINDOW_DAYS: i64 = 366;

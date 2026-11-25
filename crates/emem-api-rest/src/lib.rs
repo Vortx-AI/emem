@@ -84336,6 +84336,10 @@ async fn ask_inner_traced(
         .iter()
         .filter_map(ask_agent::Reading::from_observation)
         .collect();
+    let unread_time = asked_time
+        .is_none()
+        .then(|| ask_agent::unread_time_word(&req.q))
+        .flatten();
     let direct = ask_agent::direct_answer(&ask_agent::AnswerInputs {
         form: &answer_form,
         quantity,
@@ -84344,6 +84348,8 @@ async fn ask_inner_traced(
         place: &place_label,
         place_notes: &place_notes,
         now_unix: now,
+        cell: &cell,
+        unread_time,
     });
     let direct = match (direct, persistence_chain.take()) {
         (Some(mut d), Some(chain)) => {
@@ -84436,7 +84442,8 @@ async fn ask_inner_traced(
                 "dated_recall": dated_bound.is_some(),
                 "bands_left_out_of_dated_recall": dated_dropped,
                 "change_question": asked_time.as_ref().is_some_and(|t| t.change_window),
-                "_means": "how this responder read the question before fetching: the form the answer takes, the quantity that answers it, and the time it is about. A past date is read from facts of that date (`dated_recall`), never from the newest reading.",
+                "time_not_read": unread_time,
+                "_means": "how this responder read the question before fetching: the form the answer takes, the quantity that answers it, and the time it is about. A past date is read from facts of that date (`dated_recall`), never from the newest reading. A relative phrase such as \"last month\" is read as dates against the clock of this request, and `time.label` names them. `time_not_read` is a time word that names no window (\"recently\"), so the question was read as one about the present.",
             }),
         );
         if asked_time.as_ref().is_some_and(|t| t.change_window) {

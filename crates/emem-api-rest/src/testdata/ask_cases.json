@@ -134,6 +134,47 @@
       "follows": "dated_snow",
       "expect": {"time_from": "2023-02-01", "quantity": null},
       "live": {"routed_to": "answer", "context_inherits": ["place", "question"], "must_mention": ["1 February 2023"], "needs_upstream": true}
+    },
+    {
+      "id": "rain_last_month",
+      "q": "How much rain fell in Pune last month?",
+      "source": "emem.dev 2.4.6 on 2026-11-20 answered this with the reading of that day, and the same month by name with cannot_tell",
+      "expect": {"form": "value", "quantity": "precipitation", "time_from": "2026-10-01", "change_window": false, "live_scene": false},
+      "live": {"routed_to": "answer", "must_mention": ["(last month)"], "must_not_mention": ["(today)"], "needs_upstream": true}
+    },
+    {
+      "id": "ndvi_last_month",
+      "q": "What was the NDVI in Ludhiana last month?",
+      "expect": {"form": "value", "quantity": "vegetation", "time_from": "2026-10-01", "change_window": false},
+      "live": {"routed_to": "answer", "must_mention": ["(last month)"], "needs_upstream": true}
+    },
+    {
+      "id": "temperature_days_ago",
+      "q": "What was the temperature in Delhi 3 days ago?",
+      "expect": {"form": "value", "quantity": "air_temperature", "time_from": "2026-11-09", "change_window": false, "live_scene": false},
+      "live": {"routed_to": "answer", "must_mention": ["(3 days ago)"], "needs_upstream": true}
+    },
+    {
+      "id": "change_since_last_year",
+      "q": "How has the NDVI in Ludhiana changed since last year?",
+      "expect": {"form": "value", "quantity": "vegetation", "time_from": "2025-01-01", "change_window": true},
+      "live": {"routed_to": "answer", "must_mention": ["2025 (last year)", "did_change"], "needs_upstream": true}
+    },
+    {
+      "id": "rolling_days",
+      "q": "Did it rain in Pune over the past 7 days?",
+      "expect": {"form": "yes_no", "quantity": "precipitation", "time_from": "2026-11-05", "change_window": false}
+    },
+    {
+      "id": "week_of_a_month",
+      "q": "What was the NDVI in the last week of March 2021?",
+      "expect": {"quantity": "vegetation", "time_from": "2021-03-01", "change_window": false}
+    },
+    {
+      "id": "recently_unread",
+      "q": "Has it been raining in Pune recently?",
+      "expect": {"form": "yes_no", "quantity": "precipitation", "time_from": null},
+      "live": {"routed_to": "answer", "must_mention": ["names no window"], "needs_upstream": true}
     }
   ]
 }

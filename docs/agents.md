@@ -224,6 +224,22 @@ are in `asked`:
   with the newest reading. Send `date` (`YYYY-MM-DD`, `YYYY-MM` or `YYYY`)
   to set the date without words.
 
+  A relative time is read as dates against the request's clock in UTC, and
+  then answered as those dates are. "yesterday", "3 days ago" and "a week
+  ago" are one day. "last week" is the 7 days before today; "last month"
+  and "last year" are the calendar month and year before this one. "this
+  week" (from Monday), "this month" and "this year" run from the start of
+  the period to now. "the past 7 days", "the last 3 weeks" and "over the
+  past month" end now and start at midnight that many days, weeks or months
+  back. `asked.time.label` names the dates, such as "October 2026 (last
+  month)". "since last month" asks about a change, as "since 2020" does.
+  "recently" and "lately" name no window, so ask reads the question as one
+  about now and says so in the limits.
+
+A rain question about a window that ask holds no total for, up to 92 days
+back, gets a `POST /v1/rain_series` call in `direct_answer.next_steps`. That
+route signs the daily rain at the place, day by day.
+
 `direct_answer` holds the verdict (`yes`, `no`, one of the two options, or
 `cannot_tell`), the value, the band and fact CID that gave it, the rule, the
 observation date, and the limits. A static layer, such as the DEM, has no
