@@ -252,8 +252,8 @@ that the same call to this responder gives the same skip.
 A key such as `vegetation_condition.ndvi` is a topic and a dimension, not a
 band. The `reason` starts with `topic_name_used_as_band` and lists the bands
 of that topic, and the class is `unknown_band`. Recall one of the listed
-bands instead. Version 2.4.4 gave this skip the class `upstream_error` with
-`retryable: true`; version 2.4.5 corrected it. When the responder knows no
+bands instead. In version 2.4.4 this skip had the class `upstream_error`
+with `retryable: true`; version 2.4.5 corrected it. When the responder knows no
 band in the request, the recall refuses with 400 `band_not_in_registry`.
 
 Up to version 2.4.6, a key that a registry band lists but no reader reads,

@@ -140,7 +140,7 @@ cosine scale. Do not apply the 0.85 rule to it. On 7 November 2026 the
 Bengaluru seed got a top hamming score of 0.625.
 
 Do not pass `band: "geotessera.bin128"`. On 28 September 2026 it
-returned an `internal` error, and the band is retired on emem.dev.
+returned an `internal` error, and `geotessera` is retired on emem.dev.
 
 The year and `hamming` options can be slow. On 7 November 2026, the
 first call with `geotessera.2018` (retired, stored vectors only) and the first call with `hamming`
