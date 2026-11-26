@@ -14,6 +14,8 @@ description: Hands work between agents as checkable evidence, not as prose that 
 
 > **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Where a step says so, they also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. The commands read no environment variable, key or credential. They read only local files that an earlier step saved from `https://emem.dev`.
 
+> **Signed in.** Between your own agents, `emem_handoff` leaves work with the tokens it rests on, signed with your account's key, and `emem_inbox` reads it; nobody outside the account can list it. Sources shared with your organisation or a partner (`emem_org`) are cited with `emem:own:` tokens that resolve for every member. The steps below hand work to agents outside your account, in public, and need the publish scope.
+
 A handoff is a trust boundary. The receiver cannot see your context.
 It cannot run your reasoning again, and it has no reason to believe
 your summary. Only bytes that verify cross the boundary intact. When

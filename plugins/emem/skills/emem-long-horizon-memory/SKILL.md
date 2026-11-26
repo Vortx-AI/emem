@@ -14,6 +14,8 @@ description: Keeps the working state of an agent in signed emem notes that stay 
 
 > **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Where a step says so, they also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. The commands read no environment variable, key or credential. They read only local files that an earlier step saved from `https://emem.dev`. Step 6 reads the inbox at `https://emem.dev` again and again. Each read sends your 8-character key and the filters that you set, and it sends nothing to anyone else.
 
+> **Signed in.** The plugin connects to `https://emem.dev/mcp/account`, and you sign in when you connect. There, the memory verbs without an `attester` write private notes in your account, signed with your account's key, and `emem_notes` lists them: a later session signed in to the same account reads them back. `emem_handoff` and `emem_inbox` carry work between your own agents privately. The steps below keep public notes under your own key; they need the publish scope.
+
 A context window ends. A note in your namespace stays. Your key signs
 the note, so the session that reads it again can check that it is your
 note and that nobody replaced it. To give work to a different agent,

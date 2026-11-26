@@ -11,7 +11,7 @@
       "name": "emem",
       "displayName": "emem",
       "source": "./plugins/emem",
-      "description": "Verifiable shared memory for AI agents: one address per place, one signature you check offline.",
+      "description": "Memory of the physical world for AI agents: sign in, keep it private, and cite every number by a token anyone checks offline.",
       "version": "2.4.6",
       "author": {
         "name": "Vortx AI",

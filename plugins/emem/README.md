@@ -1,9 +1,10 @@
 # emem plugin for Claude Code
 
-This plugin gives Claude Code verifiable shared memory. One place has one
-address. One observation has one signed fact. One token lets another agent
-check that fact offline. You need no account and no API key, because reads
-are public.
+This plugin gives Claude Code verifiable memory of the physical world. One
+place has one address. One observation has one signed fact. One token lets
+another agent check that fact offline. You sign in when you connect, with a
+passkey, Google, GitHub or your company's single sign-on, and what your agents
+keep stays private to your account until you share or publish it.
 
 ## Install
 
@@ -22,9 +23,13 @@ claude --plugin-dir ./plugins/emem
 
 ### The MCP server
 
-The file `.mcp.json` points to `https://emem.dev/mcp`. It uses streamable
-HTTP and no authentication. One `tools/list` call returns the 18-tool core
-loop on one page (checked on 7 November 2026). The tool `emem_tools`
+The file `.mcp.json` points to `https://emem.dev/mcp/account`. It uses
+streamable HTTP and OAuth 2.1: on first use Claude Code opens a browser to
+sign in and to choose what the connection may do (read, write private notes,
+share, publish, manage organisations). One `tools/list` call there returns 38
+tools on one page: the 18-tool core loop, the account tools and the private
+note verbs (checked on 26 November 2026). The open endpoint
+`https://emem.dev/mcp` stays available without an account for reads. The tool `emem_tools`
 lists the other tools. The server runs any tool by name through
 `tools/call`, listed or not. But a host can refuse a tool that it did not
 list ("No such tool available"). The skills then use the REST route.
@@ -120,6 +125,7 @@ write nothing else.
 | Document routes (`/v1/ocr`, `/v1/lab_report_parse`, `/v1/land_record_parse`) | The image or text of the document | The service uses it for that request and does not store it. The signed receipt holds only hashes of the text and the result |
 | Device routes (`/v1/devices`, `/v1/trace_resolve`, `/v1/trace_verify`) | Trace tokens and trace records | The check is stateless. The service stores nothing that you send |
 | Memory writes (`emem_memory_create` and the other write verbs, used by sign-and-attest, handoff and long-horizon memory) | The note text, its path, your public key and your signature | Public and permanent by design. When you delete a note, the path stops resolving. The signed history stays in the log |
+| Your account on `https://emem.dev/mcp/account` (sign-in, private notes, saved tokens, files, sources, watches, handoffs, organisations) | Your email and the identity your sign-in provider confirms; what your agents save. For a file kept on your machine, only its name, size, section labels and hashes | Until you delete it or close the account. Export everything at `https://emem.dev/account/export.json`. Closing the account deletes your content, your sign-in identities, your email, its usage and its audit log; only the account id stays, marked closed. Private content is never published unless you share or publish it |
 
 The privacy notice is the authority on this data and on your rights:
 <https://emem.dev/privacy>.

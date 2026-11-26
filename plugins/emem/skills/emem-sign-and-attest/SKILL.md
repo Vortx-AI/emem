@@ -14,6 +14,8 @@ description: Writes to emem with the agent's own Ed25519 key. It writes a signed
 
 > **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Where a step says so, they also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. Its commands read no environment variable, key or credential. The only local files that they read are files that an earlier step saved from `https://emem.dev`.
 
+> **Signed in.** The plugin connects to `https://emem.dev/mcp/account`, and you sign in when you connect. There, `emem_memory_create` without an `attester` writes a private note in your account, signed with your account's key: no key to handle, and nothing public. The steps below publish to the shared space under your own key instead. They need the publish scope, which you choose when you connect, and your account stands behind every such write.
+
 Reading emem needs nothing. Writing needs one thing, and it is not an
 API key. It is an Ed25519 signature from your own key. Nobody issues
 the key, and nobody can revoke it. The responder sees only signatures.

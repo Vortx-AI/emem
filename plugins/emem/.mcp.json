@@ -2,7 +2,7 @@
   "mcpServers": {
     "emem": {
       "type": "http",
-      "url": "https://emem.dev/mcp"
+      "url": "https://emem.dev/mcp/account"
     }
   }
 }

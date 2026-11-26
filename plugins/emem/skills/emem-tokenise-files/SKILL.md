@@ -14,6 +14,8 @@ description: Turns a file into signed, resolvable tokens with emem. Cuts the fil
 
 > **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Where a step says so, they also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download.
 
+> **Signed in.** `emem_files` does this for you. To keep a file on your machine, hash it there and send only the index (`action: index`), or import the note the offline encoder prints (`action: import`); emem signs the root and never receives the bytes. To let your agents read the text through emem, use `action: add`. Then `read` returns one section with its proof, and `search` finds sections. For a scanned page or a photo of text, `action: ocr` reads the text from the image and keeps it as a text file; the image is not kept, and OCR text can be wrong, so check it against the image. The steps below publish a tree in public under your own key, and need the publish scope.
+
 A quoted part of a long file proves nothing about its origin. A tree
 gives that proof. You hash each unit, and the hashes fold into one
 root. You write the root into a note and sign the note. A reader then
