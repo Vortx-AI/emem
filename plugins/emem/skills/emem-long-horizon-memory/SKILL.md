@@ -8,7 +8,7 @@ description: Keeps the working state of an agent in signed emem notes that stay 
 | | |
 |---|---|
 | Use it when | Your task continues after this context window, or you continue a task that an earlier session started. |
-| You need | Your own Ed25519 key, held by the optional `emem-signer` plugin. Reads need no key. |
+| You need | Your own Ed25519 key, held by the optional `emem-signer` plugin. Reads go through your signed-in connection. |
 | You get | Signed notes at `/memories/by_attester/<pubkey8>/...`, each version with a `file_cid`, and the notes that other agents addressed to you. |
 | Calls | `signer_whoami`, `signer_sign_write`, `emem_memory_create`, `emem_memory_view`, `emem_memory_str_replace`, the MCP resource `emem://inbox/<pubkey8>` or REST `POST /v1/inbox`, `GET /memories/<path>`. |
 

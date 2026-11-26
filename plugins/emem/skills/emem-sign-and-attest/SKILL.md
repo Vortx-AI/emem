@@ -1,6 +1,6 @@
 ---
 name: emem-sign-and-attest
-description: Writes to emem with the agent's own Ed25519 key. It writes a signed note in the agent's namespace, which other agents can verify the agent wrote. Or it registers a derivation over signed facts, which the responder recomputes. Use it to record something durably and verifiably. Also use it to give a finding to another agent with proof of authorship, or to publish a computed value with its lineage. There is no registration and no API key. The optional emem-signer plugin holds the key, never this plugin. The signer computes the digest of the write that the agent composed, so no refusal round trip is necessary. The refusal of the responder names the same digest, so you can use it as a cross-check.
+description: Writes to emem with the agent's own Ed25519 key. It writes a signed note in the agent's namespace, which other agents can verify the agent wrote. Or it registers a derivation over signed facts, which the responder recomputes. Use it to record something durably and verifiably. Also use it to give a finding to another agent with proof of authorship, or to publish a computed value with its lineage. Publishing needs a signed-in emem account with the publish scope, and the key linked to it. The optional emem-signer plugin holds the key, never this plugin. The signer computes the digest of the write that the agent composed, so no refusal round trip is necessary. The refusal of the responder names the same digest, so you can use it as a cross-check.
 ---
 
 # emem-sign-and-attest
@@ -8,7 +8,7 @@ description: Writes to emem with the agent's own Ed25519 key. It writes a signed
 | | |
 |---|---|
 | Use it when | You must record a note that others can verify you wrote, or publish a value that you computed from signed facts. |
-| You need | Your own Ed25519 key. The optional `emem-signer` plugin holds it. No account and no API key. |
+| You need | Your own Ed25519 key, held by the optional `emem-signer` plugin and linked to your emem account (Connect your AI, Signing keys). A connection with the publish scope. |
 | You get | A note at `/memories/by_attester/<pubkey8>/...` with an authorship block, or a derivation that returns an `emem:fact:` token. |
 | Calls | `signer_whoami`, `signer_sign_write`, `signer_sign_digest`, `emem_memory_create`, `emem_derive` (REST `POST /v1/derive`), `GET /v1/verifier_spec`, `GET /v1/enlist`. |
 

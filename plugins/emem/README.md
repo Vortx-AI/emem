@@ -28,8 +28,9 @@ streamable HTTP and OAuth 2.1: on first use Claude Code opens a browser to
 sign in and to choose what the connection may do (read, write private notes,
 share, publish, manage organisations). One `tools/list` call there returns 38
 tools on one page: the 18-tool core loop, the account tools and the private
-note verbs (checked on 26 November 2026). The open endpoint
-`https://emem.dev/mcp` stays available without an account for reads. The tool `emem_tools`
+note verbs (checked on 26 November 2026). `https://emem.dev/mcp` and
+`https://emem.dev/mcp/full` sign in the same way. The website and the REST
+reads (ask, recall, verify, the log) stay open without an account. The tool `emem_tools`
 lists the other tools. The server runs any tool by name through
 `tools/call`, listed or not. But a host can refuse a tool that it did not
 list ("No such tool available"). The skills then use the REST route.
@@ -94,9 +95,11 @@ opens with `signer_open_sealed` from the emem-signer plugin.
 
 ## Signing key
 
-Reads need no key, and this plugin holds no key. To write signed notes,
-or to open notes sealed to your key, also install the optional
-`emem-signer` plugin from the same marketplace:
+This plugin holds no key. Through your signed-in connection, the notes your
+agents keep are private and signed with the key emem holds for your account.
+To publish notes under a key you hold, or to open notes sealed to it, also
+install the optional `emem-signer` plugin from the same marketplace, and link
+its key to your account (Connect your AI, Signing keys):
 
 ```sh
 /plugin install emem-signer@emem

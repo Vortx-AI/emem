@@ -1,6 +1,6 @@
 ---
 name: emem-locate-and-recall
-description: Resolves a place name to an emem cell64 address and recalls signed Earth-observation facts there. Bands include weather, vegetation indices, elevation, soil, land cover, surface water and forest change. Use when the user wants a measurable value at a named place, with an answer that others can verify offline. Examples are "what is the temperature in Bengaluru", "how high is Denali" and "what is the NDVI in the Sundarbans". Returns content-addressed facts, an emem:fact citation token for each fact, and an Ed25519 receipt. Reads need no key.
+description: Resolves a place name to an emem cell64 address and recalls signed Earth-observation facts there. Bands include weather, vegetation indices, elevation, soil, land cover, surface water and forest change. Use when the user wants a measurable value at a named place, with an answer that others can verify offline. Examples are "what is the temperature in Bengaluru", "how high is Denali" and "what is the NDVI in the Sundarbans". Returns content-addressed facts, an emem:fact citation token for each fact, and an Ed25519 receipt. Calls go through your signed-in emem connection.
 ---
 
 # emem-locate-and-recall

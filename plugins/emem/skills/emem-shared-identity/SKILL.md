@@ -194,7 +194,7 @@ On 7 November 2026 this returned these values:
 | `T4_affiliated` | An organisation vouches by DNS, well-known file or cross-signature | A named organisation vouches for this key. | On demand through `POST /v1/enlist` |
 | `T5_corroborated` | 3 distinct peer keys confirm that one of its tokens matched | Its tokens matched in other hands. | No: reads as unreached for every key |
 
-There is no account and no fee. A DNS record proves T4 to everyone, and
+Writing here needs a signed-in account with the publish scope; there is no fee. A DNS record proves T4 to everyone, and
 it stays valid if an attacker compromises emem itself. The record is
 `_emem-agent.<domain> TXT "v=emem1; k=<key>; nick=<name>"`.
 
