@@ -6,7 +6,7 @@
 
 <p><b>Search it. Every answer is signed.</b></p>
 
-<p>Where space meets AI. Ask about any place, field, river, forest or building: emem reads it from orbit and from open sensors, keeps every reading at one address, and signs it, so any AI can read the answer back and check it. When web search misses, space answers. One MCP URL, no key.</p>
+<p>Where space meets AI. Ask about any place, field, river, forest or building: emem reads it from orbit and from open sensors, keeps every reading at one address, and signs it, so any AI can read the answer back and check it. When web search misses, space answers. One MCP URL, one sign-in; REST reads need no key.</p>
 
 [![Install in VS Code](https://img.shields.io/badge/VS%20Code-Install%20emem-0098FF?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D)
 [![Claude plugin](https://img.shields.io/badge/Claude-plugin-D97757)](plugins/emem/)
@@ -37,6 +37,8 @@ One real memory, a point on the shore of the Gobind Sagar reservoir seen from or
 The same model holds two kinds of memory. **Earth memory** is addressed by place, band and time. **Agent memory** is signed notes that one agent writes in its own namespace and any other agent can read and check. [How emem works](https://emem.dev/how-it-works) walks one request end to end.
 
 ## Try it: one question, no key
+
+A REST read needs no account and no key:
 
 ```bash
 curl -s -X POST https://emem.dev/v1/ask -H 'content-type: application/json' \
@@ -110,9 +112,9 @@ Three questions answered both ways, with live tokens: [emem.dev/beside-search](h
 claude mcp add --transport http emem https://emem.dev/mcp     # Claude Code
 ```
 
-Any MCP host takes the same URL, `https://emem.dev/mcp`: Claude Desktop, ChatGPT, Cursor, VS Code, Cline and Gemini CLI. The Claude Code plugin adds nineteen skills on top: `/plugin marketplace add Vortx-AI/emem`, then `/plugin install emem@emem`. In code: `pip install ememdev` or `npm i @vortxai/emem`.
+Any MCP host takes the same URL, `https://emem.dev/mcp`: Claude Desktop, ChatGPT, Cursor, VS Code, Cline and Gemini CLI. The URL needs a signed-in account. The host signs you in through OAuth on first use, or sends an API key made at [emem.dev/account](https://emem.dev/account) as `Authorization: Bearer emk_...`. The Claude Code plugin adds nineteen skills on top: `/plugin marketplace add Vortx-AI/emem`, then `/plugin install emem@emem`. In code: `pip install ememdev` or `npm i @vortxai/emem`.
 
-**For agents.** Connect to `https://emem.dev/mcp`. It advertises the 18 tools of the core loop in one page, about 75 KB of context, not the whole catalog: loading all 120 descriptors costs about 363 KB. For the lightest first contact, `emem_tools` returns the loop and a menu in about 15 KB, and `tools/call` dispatches every tool by name, with or without its `emem_` prefix. To hand records on, prefer a bundle: `emem_memory_bundle` names up to 256 facts in 38 characters.
+**For agents.** Connect to `https://emem.dev/mcp` and sign in. It then lists 38 tools in one page, about 56 KB: the 18-tool core loop, 6 note verbs and 14 account tools. `https://emem.dev/mcp/full` lists 134 descriptors over 9 pages, about 373 KB. A node you run from this repo has no accounts and serves the open surface. Its `/mcp` advertises the 18 tools of the core loop in one page, about 75 KB of context. The whole catalog of 120 descriptors is about 363 KB. For the lightest first contact, `emem_tools` returns the loop and a menu in about 15 KB, and `tools/call` dispatches every tool by name, with or without its `emem_` prefix. To hand records on, prefer a bundle: `emem_memory_bundle` names up to 256 facts in 38 characters.
 
 Then ask in plain words. Each prompt below runs one tool:
 
@@ -159,7 +161,7 @@ The long form, with what each record promises and how each promise is checked, i
 
 | You are | Start here |
 |---|---|
-| Trying it | the command above, or `https://emem.dev/mcp` in any MCP host. Reads need no key. |
+| Trying it | the command above, a REST read that needs no key, or `https://emem.dev/mcp` in any MCP host, signed in with your account. |
 | Building an agent or app | [agent guide](https://emem.dev/agents.md), [OpenAPI](https://emem.dev/openapi.json), [examples](examples/) for LangChain, LlamaIndex, CrewAI, AutoGen, Agno and Mastra |
 | A compliance or agri team | [EUDR evidence, plot by plot](https://emem.dev/eudr), [crop intelligence](https://emem.dev/agriculture), or [open an issue](https://github.com/Vortx-AI/emem/issues) to talk to us |
 | Running your own node | `docker run -p 127.0.0.1:5051:5051 ghcr.io/vortx-ai/emem:latest`, then [docs/self-host.md](docs/self-host.md); an air-gapped build is in [emem-airgap](crates/emem-airgap/README.md) |
@@ -186,16 +188,16 @@ The long form, with what each record promises and how each promise is checked, i
 |---|---|
 | **In a chat** | the [emem app in ChatGPT](https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77) (mention `@emem`), and emem in the Claude directory |
 | **In Claude Code** | the [plugin](plugins/emem/), the MCP server plus nineteen skills: `/plugin marketplace add Vortx-AI/emem`, then `/plugin install emem@emem` |
-| **In an IDE or MCP host** | Claude Desktop, Cursor, Cline, VS Code and Copilot, Gemini CLI (`gemini extensions install https://github.com/Vortx-AI/emem`), all on one endpoint, `https://emem.dev/mcp` |
+| **In an IDE or MCP host** | Claude Desktop, Cursor, Cline, VS Code and Copilot, Gemini CLI (`gemini extensions install https://github.com/Vortx-AI/emem`), all on one endpoint, `https://emem.dev/mcp`, signed in |
 | **In a workflow tool** | the verified [Dify plugin](https://marketplace.dify.ai/plugin/vortx-ai/emem) |
 | **In code** | the [Python](https://pypi.org/project/ememdev/) and [TypeScript](https://www.npmjs.com/package/@vortxai/emem) clients, REST ([OpenAPI](https://emem.dev/openapi.json)), and [examples](examples/) for LangChain, LlamaIndex, CrewAI, AutoGen, Agno and Mastra |
 | **Agent to agent** | [A2A](https://emem.dev/a2a): read the [agent card](https://emem.dev/.well-known/agent-card.json), send a task, verify the signed result |
 
-Per-host configs, and every directory emem is listed in, are on [the reference page](https://emem.dev/reference#client-setup). Writes are signed with an ed25519 key you generate locally; a refused write hands back the exact digest to sign.
+Per-host configs, and every directory emem is listed in, are on [the reference page](https://emem.dev/reference#client-setup). On emem.dev, publishing (notes, entities, derivations, attestations) needs a signed-in account. A node you run yourself takes writes signed with an ed25519 key you generate locally. A refused write hands back the exact digest to sign.
 
 ## Run it yourself
 
-The hosted node runs the binary in this repo, and a receipt minted on one verifies on the other:
+The hosted node runs the code in this repo with sign-in and accounts added. A node you run has no accounts, and a receipt minted on one verifies on the other:
 
 ```bash
 docker run -p 127.0.0.1:5051:5051 ghcr.io/vortx-ai/emem:latest
@@ -229,7 +231,7 @@ Version 2.4.6, a patch on the 2.4.0 minor. The receipt preimage last changed in 
 | wire your agent in | [agent guide](https://emem.dev/agents.md), [skills](https://emem.dev/skills.md), [connect a client](https://emem.dev/reference#client-setup) |
 | put it on a machine | [machines that ask emem where they are](docs/robots.md), [emem-airgap](crates/emem-airgap/README.md), [federation](docs/federation.md) |
 | check the trust model, formally | [whitepaper](https://emem.dev/whitepaper), [protocol](docs/protocol.md), [formal model](docs/model.md), [security](docs/security.md), [verifier spec](https://emem.dev/v1/verifier_spec) |
-| read the full API | [/openapi.json](https://emem.dev/openapi.json), [/mcp/full](https://emem.dev/mcp/full), [all tools](https://emem.dev/tools), the [wire spec](https://emem.dev/spec.md) |
+| read the full API | [/openapi.json](https://emem.dev/openapi.json), [/mcp/full](https://emem.dev/mcp/full) (signed in), [all tools](https://emem.dev/tools), the [wire spec](https://emem.dev/spec.md) |
 | use it for evals, and what is unmeasured | [benchmarks with methods](docs/benchmarks.md), [how emem compares](docs/how-emem-compares.md), [roadmap](docs/roadmap.md) |
 
 ## Citation
@@ -265,12 +267,12 @@ Issues and pull requests welcome: [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.
 
 ## Content address
 
-Every section above this one is a unit of one signed tree: `emem:tree:ydy4jrr7arq2po3btxbespgdea`, root `3ox3mw47gp7wthagdomkgvkfmsw2s6wsy3pp3efjhs53uunzq4ta`, published under the key `k572x7go`. A single section is `emem:tree:ydy4jrr7arq2po3btxbespgdea#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
+Every section above this one is a unit of one signed tree: `emem:tree:4odaf26qd6eydoqvwchpsuygta`, root `mgqric3nt6cdmtmnuaatfsy6liq2xhoiwpwdunwkcixhnebgaziq`, published under the key `k572x7go`. A single section is `emem:tree:4odaf26qd6eydoqvwchpsuygta#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
 
 ```bash
-curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/2026-11-25-ainative.md" > index.md
-curl -s "https://emem.dev/v1/tree/ydy4jrr7arq2po3btxbespgdea?row=3" > row.json
+curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/2026-11-27-signin.md" > index.md
+curl -s "https://emem.dev/v1/tree/4odaf26qd6eydoqvwchpsuygta?row=3" > row.json
 python3 tools/verifiers/emem-tokenise-files/tree_proof.py check row.json index.md README.md
 ```
 
-`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/2026-11-25-ainative.md`](https://emem.dev/memories/by_attester/k572x7go/readme/2026-11-25-ainative.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
+`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/2026-11-27-signin.md`](https://emem.dev/memories/by_attester/k572x7go/readme/2026-11-27-signin.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
