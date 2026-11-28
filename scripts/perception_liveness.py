@@ -39,6 +39,8 @@ import os
 import sys
 import urllib.request
 
+import emem_auth  # noqa: F401  (sends EMEM_API_KEY where an account is needed)
+
 # A cell with cameras, chosen because the answer is known. A probe pointed at a
 # place that might legitimately have none cannot tell "broken" from "quiet".
 CELL = os.environ.get("EMEM_PROBE_CELL", "defi.zb64a.cAzU.zfa27")

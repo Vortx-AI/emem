@@ -29,6 +29,8 @@ import json
 import sys
 import urllib.request
 
+import emem_auth  # noqa: F401  (sends EMEM_API_KEY where an account is needed)
+
 
 def get(origin: str, path: str) -> dict:
     with urllib.request.urlopen(origin + path, timeout=60) as r:

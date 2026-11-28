@@ -46,6 +46,7 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+import emem_auth  # noqa: F401  (sends EMEM_API_KEY to /mcp and publishing routes)
 
 ORIGIN = os.environ.get("EMEM_ORIGIN", "https://emem.dev")
 LLM_URL = os.environ.get("EMEM_A2A_LLM_URL", "http://127.0.0.1:5015/v1/chat/completions")
@@ -481,6 +482,8 @@ def render(sender: str, src: str, reply: str, cids: set[str],
         lines.append(f"In reply to: {src_cid}")
     lines += [
         f"line: replied {sender}/{(src_cid or Path(src).stem)[:8]} grounded={score}/100 cited={len(quoted)} unsupported={len(bad)}",
+        # The machine-readable AI marking (EU AI Act Art. 50(2)): a model wrote this reply.
+        f"ai_generated: {LLM_MODEL}",
         "---",
         "",
         f"# k572x7go -> {sender}: autonomous reply, citation score {score}/100",

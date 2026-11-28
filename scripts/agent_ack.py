@@ -43,6 +43,7 @@ from pathlib import Path
 
 import blake3
 from nacl.signing import SigningKey
+import emem_auth  # noqa: F401  (sends EMEM_API_KEY to /mcp and publishing routes)
 
 ORIGIN = os.environ.get("EMEM_ORIGIN", "https://emem.dev")
 LLM_URL = os.environ.get("EMEM_A2A_LLM_URL", "http://127.0.0.1:5015/v1/chat/completions")
@@ -245,6 +246,12 @@ def render(sender: str, src_path: str, summary: dict | None,
         lines.append(f"In reply to: {src_cid}")
     lines += [
         f"line: received {sender}/{(src_cid or Path(src_path).stem)[:8]} asks={asks} reply=queued",
+    ]
+    # The machine-readable AI marking (EU AI Act Art. 50(2)), only when a model
+    # filled the slots: the bare acknowledgement is a fixed template.
+    if summary:
+        lines.append(f"ai_generated: {LLM_MODEL}")
+    lines += [
         "---",
         "",
         f"# {title}",
@@ -256,8 +263,8 @@ def render(sender: str, src_path: str, summary: dict | None,
         "`emem_reason` exposes), so that you know your note was received and understood "
         "rather than waiting to find out. It is `model_output`. Nothing in it is "
         "evidence, nothing in it commits the operator to a position, and no claim here "
-        "should be cited. A considered reply, written by hand and checked against the "
-        "responder, follows.",
+        "should be cited. A considered reply follows. A language model writes it from "
+        "the responder's read-only tools, and the reply says so.",
         "",
     ]
     if summary:

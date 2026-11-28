@@ -15,10 +15,10 @@ OUT="$DIGEST_DIR/digest_${STAMP}.txt"
   echo "# emem.dev weekly digest — ${STAMP}"
   echo
   echo "## contributors leaderboard"
-  curl -s https://emem.dev/v1/contributors | python3 -m json.tool 2>/dev/null || echo "(failed to fetch)"
+  curl -s ${EMEM_API_KEY:+-H "Authorization: Bearer $EMEM_API_KEY"} https://emem.dev/v1/contributors | python3 -m json.tool 2>/dev/null || echo "(failed to fetch)"
   echo
   echo "## agent_stats"
-  curl -s https://emem.dev/v1/agent_stats | python3 -m json.tool 2>/dev/null || echo "(failed to fetch)"
+  curl -s ${EMEM_API_KEY:+-H "Authorization: Bearer $EMEM_API_KEY"} https://emem.dev/v1/agent_stats | python3 -m json.tool 2>/dev/null || echo "(failed to fetch)"
   echo
   echo "## metrics"
   curl -s https://emem.dev/metrics

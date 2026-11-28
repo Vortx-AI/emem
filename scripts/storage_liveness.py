@@ -25,6 +25,8 @@ import sys
 import time
 import urllib.request
 
+import emem_auth  # noqa: F401  (sends EMEM_API_KEY where an account is needed)
+
 # A cell this responder has held warm all day; a point read, not a scan.
 WARM = {"cell": "defi.zb493.xuqA.zcb5f", "bands": ["copdem30m.elevation_mean"]}
 
@@ -103,6 +105,15 @@ def main() -> int:
 
     live_ok = live_code == 200 and live_s <= a.live_budget
     read_ok = read_code == 200 and read_s <= a.storage_budget
+
+    # On a node with REST behind an account, a missing, revoked or over-plan
+    # key answers the read at once with 401, 403 or 429. Counted as a wedge,
+    # that would restart a healthy responder every few minutes.
+    if live_ok and read_code in (401, 403, 429):
+        print(f"\n  UNDETERMINED: the warm read was refused ({read_code}); the probe's "
+              "account key is missing, revoked or over its plan, which is not a wedge. "
+              "Fix EMEM_API_KEY for this probe before trusting it.")
+        return 2
 
     if a.write and live_ok and read_ok:
         w_s, w_code, w_err = signed_write(a.origin)

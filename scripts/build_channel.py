@@ -41,6 +41,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+import emem_auth  # noqa: F401  (sends EMEM_API_KEY to /mcp and publishing routes)
 
 REPO = Path(__file__).resolve().parent.parent
 # Loopback, not the public hostname.

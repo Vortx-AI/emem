@@ -8,10 +8,10 @@ DEMO_DIR="var/demos/daily_${STAMP}"
 mkdir -p "$DEMO_DIR"
 {
   echo "=== contributors ==="
-  curl -s https://emem.dev/v1/contributors
+  curl -s ${EMEM_API_KEY:+-H "Authorization: Bearer $EMEM_API_KEY"} https://emem.dev/v1/contributors
   echo
   echo "=== agent_stats ==="
-  curl -s https://emem.dev/v1/agent_stats
+  curl -s ${EMEM_API_KEY:+-H "Authorization: Bearer $EMEM_API_KEY"} https://emem.dev/v1/agent_stats
   echo
   echo "=== metrics ==="
   curl -s https://emem.dev/metrics
