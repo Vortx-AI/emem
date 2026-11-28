@@ -56,6 +56,12 @@ ATTEMPTS = 5
 BACKOFF_S = (1.0, 4.0, 10.0, 25.0)
 
 
+try:  # the scripts' own helper: adds EMEM_API_KEY where a signed-in account is needed
+    import emem_auth as _auth
+except ImportError:
+    _auth = None
+
+
 def patient(req, timeout=60, attempts=ATTEMPTS, **kw):
     """urlopen, but a 429 is waited out rather than returned as a result.
 
@@ -65,6 +71,12 @@ def patient(req, timeout=60, attempts=ATTEMPTS, **kw):
     mcp_host_compat.py stopped running entirely rather than running
     differently, which is the better of the two ways to be wrong.
     """
+    # urlopen with a `context=` builds its own opener and skips the installed
+    # one that emem_auth adds, so the account key is set on the request here.
+    if _auth is not None and isinstance(req, urllib.request.Request) and not req.has_header("Authorization"):
+        h = _auth.headers(req.full_url, method=req.get_method())
+        if "Authorization" in h:
+            req.add_unredirected_header("Authorization", h["Authorization"])
     last = None
     for i in range(attempts):
         try:

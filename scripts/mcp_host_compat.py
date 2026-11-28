@@ -634,10 +634,23 @@ def check_discovery(origin: str, facts: dict, repo_root: str,
         f"GET {origin}/server.json -> http {st}",
         st == 200, f"http {st}")
 
+    # The claims are read from the server.json the node serves, which is the
+    # one written for that node, and from the repo's file only when the node
+    # serves none. The repo's file describes a node built from this repo,
+    # with no accounts; emem.dev serves its own, for its signed-in surface.
     local = os.path.join(repo_root, "server.json")
-    if os.path.exists(local):
-        with open(local, encoding="utf-8") as f:
-            sj = json.load(f)
+    served = None
+    if st == 200:
+        try:
+            served = json.loads(body)
+        except ValueError:
+            served = None
+    if served is not None or os.path.exists(local):
+        if served is not None:
+            sj = served
+        else:
+            with open(local, encoding="utf-8") as f:
+                sj = json.load(f)
         remotes = [r.get("url") for r in sj.get("remotes", [])]
         row("MCP registry",
             "server.json remotes point at the live endpoint",
