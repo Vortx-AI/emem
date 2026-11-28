@@ -48,6 +48,7 @@ import urllib.error
 import urllib.request
 
 from lib_patience import patient
+import emem_auth  # noqa: F401  (sends EMEM_API_KEY to /mcp and publishing routes)
 
 DEFAULT_ORIGIN = "https://emem.dev"
 PAGE = "web/guard.html"

@@ -45,6 +45,8 @@ import subprocess
 import time
 import sys
 
+import emem_auth
+
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
 SOURCES = ["docs/**/*.md", "web/*.html", "SKILL.md", "README.md", "AGENTS.md", "examples/**/*.md"]
@@ -341,6 +343,11 @@ def _run_once(cmd: str, origin: str, timeout: int = 90):
     # force a body-only, status-reporting invocation
     argv = [a for a in argv if a not in ("-s", "--silent")]
     argv[1:1] = ["-s", "-o", "-", "-w", "\n__STATUS__%{http_code}"]
+    # A documented call that needs a signed-in account (MCP, publishing, and
+    # every read on a node with REST behind an account): send the node's key
+    # when the run has one.
+    if any(emem_auth.headers(a) for a in argv if a.startswith("http")):
+        argv[1:1] = ["-H", "Authorization: Bearer " + os.environ["EMEM_API_KEY"].strip()]
     try:
         # bytes, not text: several examples fetch a PNG or a CBOR body and
         # decoding those as utf-8 kills the run partway through, which looks

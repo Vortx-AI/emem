@@ -30,6 +30,15 @@ name: production truth
 # Exit codes keep the contract ci.yml used for them: 2 is "the responder did
 # not answer" and becomes a warning (a deploy restart is not a finding), 3 is
 # a fault on our side and fails.
+#
+# emem.dev needs an account for MCP, and for every REST read outside the open
+# routes once it runs EMEM_REST_REQUIRE_ACCOUNT=1. The checks that call those
+# routes get the repository secret EMEM_API_KEY, an emem.dev API key, and
+# scripts/emem_auth.py sends it as Authorization: Bearer to emem.dev only,
+# never to an open route. Only those steps see the secret. Without it they are
+# skipped with a warning that names the secret; the checks that read open
+# routes still run, and scanner_surface.py runs without a key on purpose,
+# since it asks what a stranger gets.
 
 on:
   schedule:
@@ -56,6 +65,8 @@ jobs:
     # The example check alone measures 231 s with four workers, and parity is
     # 86 cases at two round trips each.
     timeout-minutes: 40
+    env:
+      HAS_KEY: ${{ secrets.EMEM_API_KEY != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -66,17 +77,26 @@ jobs:
       # about the thing it checks when the service was simply down.
       - name: wait for the responder
         run: python3 scripts/await_responder.py --origin "$EMEM_ORIGIN"
+      - name: say what is skipped without an account key
+        if: env.HAS_KEY != 'true'
+        run: echo "::warning title=EMEM_API_KEY is not set::The repository secret EMEM_API_KEY is not set, so the checks that need an emem.dev account were skipped in this job (every published example, MCP and REST parity). Add an emem.dev API key as the Actions secret EMEM_API_KEY."
       # corpus. Documentation is a promise about behaviour: every published
       # example is run as written. The examples cite real fact ids, bundle
       # tokens and cells, which exist only in production's store, so a fresh
       # node would fail them for holding no data rather than for any defect.
       - name: every published example still works
+        if: env.HAS_KEY == 'true'
+        env:
+          EMEM_API_KEY: ${{ secrets.EMEM_API_KEY }}
         run: python3 scripts/example_check.py --origin "$EMEM_ORIGIN"
       # corpus. MCP and REST must answer the same. Several cases read stored
       # state by cid (state/fingerprint), which a fresh node does not have:
       # against one, both doors refuse and the case measures the refusal, not
       # the answer an agent actually gets.
       - name: MCP and REST answer the same
+        if: env.HAS_KEY == 'true'
+        env:
+          EMEM_API_KEY: ${{ secrets.EMEM_API_KEY }}
         run: |
           set +e
           python3 scripts/parity.py --full --origin "$EMEM_ORIGIN"
@@ -96,6 +116,8 @@ jobs:
     name: the public deployment
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      HAS_KEY: ${{ secrets.EMEM_API_KEY != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -103,6 +125,9 @@ jobs:
           python-version: '3.12'
       - name: wait for the responder
         run: python3 scripts/await_responder.py --origin "$EMEM_ORIGIN"
+      - name: say what is skipped without an account key
+        if: env.HAS_KEY != 'true'
+        run: echo "::warning title=EMEM_API_KEY is not set::The repository secret EMEM_API_KEY is not set, so the checks that need an emem.dev account were skipped in this job (the five MCP host shapes, the public-surface sweep, route truth). openapi coverage, the scanner surface and the signed agent card read open routes and still ran. Add an emem.dev API key as the Actions secret EMEM_API_KEY."
       # deploy. The source describes a route the responder does not serve
       # yet: a build nobody deployed. ci.yml runs the same script against the
       # commit's own node, which proves the build serves what the source says;
@@ -127,6 +152,9 @@ jobs:
       # harness against its own node with --advertised-origin; only here is
       # the advertised endpoint the one being called.
       - name: five host shapes can reach and call emem.dev
+        if: env.HAS_KEY == 'true'
+        env:
+          EMEM_API_KEY: ${{ secrets.EMEM_API_KEY }}
         run: |
           set +e
           python3 scripts/mcp_host_compat.py --check --origin "$EMEM_ORIGIN"
@@ -146,6 +174,9 @@ jobs:
       # a host path or a private address reaches an answer. The same sweep
       # runs in ci.yml against the commit's node for what the code emits.
       - name: nothing public means something only here
+        if: env.HAS_KEY == 'true'
+        env:
+          EMEM_API_KEY: ${{ secrets.EMEM_API_KEY }}
         run: |
           set +e
           python3 scripts/no_host_details_in_public.py --origin "$EMEM_ORIGIN"
@@ -177,6 +208,9 @@ jobs:
       # ci.yml checks the commit's node serves every route the site shows;
       # this checks the public host does.
       - name: every route the site shows answers on emem.dev
+        if: env.HAS_KEY == 'true'
+        env:
+          EMEM_API_KEY: ${{ secrets.EMEM_API_KEY }}
         run: |
           set +e
           python3 scripts/route_truth.py --origin "$EMEM_ORIGIN"

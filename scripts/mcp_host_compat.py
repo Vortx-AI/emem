@@ -34,6 +34,7 @@ import urllib.error
 import urllib.request
 
 from lib_patience import patient
+import emem_auth  # noqa: F401  (sends EMEM_API_KEY to /mcp and publishing routes)
 
 # AWS Bedrock/AgentCore rejected a tools/list response with "MCP server
 # response exceeds maximum allowed size of 102400 bytes". That is the only

@@ -51,6 +51,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+import emem_auth  # noqa: F401  (sends EMEM_API_KEY to /mcp and publishing routes)
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 EXCEPTIONS = REPO / "docs" / "registries" / "public-host-details.json"
